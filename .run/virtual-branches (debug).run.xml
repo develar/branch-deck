@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="virtual-branches (debug)" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="virtual-branches" />
+    <working_directory value="$PROJECT_DIR$" />
+    <go_parameters value="-gcflags &quot;all=-N -l&quot; -ldflags &quot;&quot; -tags desktop,production,debug -o build/bin/virtual-branches" />
+    <useCustomBuildTags value="true" />
+    <envs>
+      <env name="CGO_ENABLED" value="&quot;1&quot;" />
+      <env name="CGO_LDFLAGS" value="-framework UniformTypeIdentifiers" />
+    </envs>
+    <kind value="DIRECTORY" />
+    <package value="virtual-branches" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>
