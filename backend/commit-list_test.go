@@ -201,7 +201,7 @@ func TestGetCommitListMock(t *testing.T) {
   execCommand = fakeExecCommand
 
   // Test with the mocked command
-  commits, err := GetCommitList("", "master")
+  commits, err := GetCommitList("", "master", "git")
   require.NoError(t, err)
   require.Len(t, commits, 2, "Should parse 2 commits")
 

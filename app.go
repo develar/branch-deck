@@ -3,15 +3,18 @@ package main
 import (
   "context"
   "fmt"
+  "sync"
   "virtual-branches/backend"
 
-  "github.com/go-git/go-git/v5"
   "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
-  ctx context.Context
+  gitInfo backend.GitInfo
+  ctx     context.Context
+
+  gitInfoMutex sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -19,81 +22,101 @@ func NewApp() *App {
   return &App{}
 }
 
+func (t *App) getGitInfo() (backend.GitInfo, error) {
+  t.gitInfoMutex.Lock()
+  defer t.gitInfoMutex.Unlock()
+
+  if !t.gitInfo.IsZero() {
+    return t.gitInfo, nil
+  }
+
+  result, err := backend.NewGitInfo()
+  if err != nil {
+    return backend.ZeroGitInfo, err
+  }
+  return result, nil
+}
+
+func withGitInfo[T any](app *App, f func(gitInfo backend.GitInfo) T) (T, error) {
+  gitInfo, err := app.getGitInfo()
+  if err != nil {
+    var zero T
+    return zero, fmt.Errorf("failed to get git info: %w", err)
+  }
+
+  return f(gitInfo), nil
+}
+
 // OnStartup is called when the app starts
-func (a *App) OnStartup(ctx context.Context) {
-  a.ctx = ctx
+func (t *App) OnStartup(ctx context.Context) {
+  t.ctx = ctx
 }
 
 //goland:noinspection GrazieInspection
-func (a *App) OpenDirectoryDialog() string {
-  dialog, _ := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{})
+func (t *App) OpenDirectoryDialog() string {
+  dialog, _ := runtime.OpenDirectoryDialog(t.ctx, runtime.OpenDialogOptions{})
   return dialog
 }
 
-// CreateVirtualBranches processes the repository and creates virtual branches
-func (a *App) CreateVirtualBranches(repositoryPath, branchPrefix string) backend.ProcessResult {
-  if repositoryPath == "" {
-    return backend.ProcessResult{
-      Success: false,
-      Error:   "Repository path is required",
+func (t *App) GetBranchPrefixFromGitConf(repositoryPath string) backend.GlobalBranchPrefix {
+  result, err := withGitInfo(t, func(gitInfo backend.GitInfo) backend.GlobalBranchPrefix {
+    value, err := backend.GetBranchPrefixFromGitConf(gitInfo.Path, repositoryPath)
+    if err != nil {
+      return backend.GlobalBranchPrefix{
+        Error: fmt.Sprintf("Failed to get branch prefix (git version: %s): %v", gitInfo.Version, err),
+      }
     }
-  }
 
-  if branchPrefix == "" {
-    return backend.ProcessResult{
-      Success: false,
-      Error:   "Branch prefix is required",
+    return backend.GlobalBranchPrefix{
+      BranchPrefix: value,
     }
-  }
+  })
 
-  branches, err := backend.CreateBranches(repositoryPath, branchPrefix)
   if err != nil {
-    return backend.ProcessResult{
-      Success: false,
-      Error:   fmt.Sprintf("Failed to create branches: %v", err),
+    return backend.GlobalBranchPrefix{
+      Error: err.Error(),
     }
   }
 
-  return backend.ProcessResult{
-    Success:  true,
-    Message:  fmt.Sprintf("Successfully processed %d branches", len(branches)),
-    Branches: branches,
-  }
+  return result
 }
 
-// GetRepositoryInfo gets basic info about the repository
-func (a *App) GetRepositoryInfo(repositoryPath string) backend.RepositoryInfo {
-  repo, err := git.PlainOpen(repositoryPath)
+// CreateVirtualBranches processes the repository and creates virtual branches
+func (t *App) CreateVirtualBranches(request backend.VcsRequest) backend.ActionResult {
+  err := request.Validate()
   if err != nil {
-    return backend.RepositoryInfo{
-      Error: fmt.Sprintf("Failed to open repository: %v", err),
+    return backend.ActionResult{
+      Success: false,
+      Message: err.Error(),
     }
   }
 
-  // Get current branch
-  head, err := repo.Head()
+  result, err := withGitInfo(t, func(gitInfo backend.GitInfo) backend.ActionResult {
+    branches, err := backend.CreateBranches(request.BranchPrefix, backend.NewGit(request.RepositoryPath, gitInfo.Path))
+    if err != nil {
+      return backend.ActionResult{
+        Success: false,
+        Message: fmt.Sprintf("Failed to create branches: %v", err),
+      }
+    }
+
+    return backend.ActionResult{
+      Success:  true,
+      Branches: branches,
+    }
+  })
+
   if err != nil {
-    return backend.RepositoryInfo{
-      Error: fmt.Sprintf("Failed to get HEAD: %v", err),
+    return backend.ActionResult{
+      Success: false,
+      Message: err.Error(),
     }
   }
 
-  // Get remotes
-  remotes, err := repo.Remotes()
-  if err != nil {
-    return backend.RepositoryInfo{
-      Error: fmt.Sprintf("Failed to get remotes: %v", err),
-    }
-  }
+  return result
+}
 
-  remoteNames := make([]string, len(remotes))
-  for i, remote := range remotes {
-    remoteNames[i] = remote.Config().Name
-  }
-
-  return backend.RepositoryInfo{
-    Path:          repositoryPath,
-    CurrentBranch: head.Name().Short(),
-    Remotes:       remoteNames,
-  }
+// PushBranch pushes a specific branch to the remote repository
+func (t *App) PushBranch(request backend.VcsRequest, branchName string) backend.ActionResult {
+  return backend.PushBranchToRemote(request.RepositoryPath, request.BranchPrefix, branchName)
 }

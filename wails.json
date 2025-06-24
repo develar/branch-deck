@@ -1,13 +1,13 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "virtual-branches",
-  "outputfilename": "virtual-branches",
+  "name": "Virtual Branch Manager",
+  "outputfilename": "virtual-branch-manager",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "Vladimir Krivosheev",
-    "email": "vladimir.krivosheev@jetbrains.com"
+    "email": "develar@gmail.com"
   }
 }

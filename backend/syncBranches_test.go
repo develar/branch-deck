@@ -3,7 +3,7 @@ package backend
 import "testing"
 
 func TestCreateBranches(t *testing.T) {
-  _, err := CreateBranches("/Users/develar/projects/idea-1", "develar/test/")
+  _, err := CreateBranches("develar/test/", NewGit("/Users/develar/projects/idea", "git"))
   if err != nil {
     t.Error(err)
   }

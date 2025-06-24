@@ -23,8 +23,8 @@ type Commit struct {
 
 // GetCommitList retrieves a list of commits that are in HEAD but not in origin/master
 // in reverse chronological order (oldest first)
-func GetCommitList(dir string, branchName string) ([]Commit, error) {
-  cmd := execCommand("git", "log", "--reverse", "--notes", "origin/"+branchName+"..HEAD")
+func GetCommitList(dir string, branchName string, gitPath string) ([]Commit, error) {
+  cmd := execCommand(gitPath, "log", "--reverse", "--notes", "origin/"+branchName+"..HEAD")
   cmd.Dir = dir
 
   stdout, err := cmd.StdoutPipe()

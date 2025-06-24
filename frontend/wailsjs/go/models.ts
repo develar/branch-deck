@@ -1,5 +1,10 @@
 export namespace backend {
 	
+	export enum BranchSyncStatus {
+	    CREATED = 0,
+	    UPDATED = 1,
+	    UNCHANGED = 2,
+	}
 	export class CommitDetail {
 	    hash: string;
 	    message: string;
@@ -18,7 +23,7 @@ export namespace backend {
 	}
 	export class BranchResult {
 	    name: string;
-	    action: string;
+	    syncStatus?: BranchSyncStatus;
 	    commitCount: number;
 	    commitDetails: CommitDetail[];
 	    error?: string;
@@ -30,7 +35,7 @@ export namespace backend {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
-	        this.action = source["action"];
+	        this.syncStatus = source["syncStatus"];
 	        this.commitCount = source["commitCount"];
 	        this.commitDetails = this.convertValues(source["commitDetails"], CommitDetail);
 	        this.error = source["error"];
@@ -54,15 +59,13 @@ export namespace backend {
 		    return a;
 		}
 	}
-	
-	export class ProcessResult {
+	export class ActionResult {
 	    success: boolean;
-	    message: string;
+	    message?: string;
 	    branches: BranchResult[];
-	    error?: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new ProcessResult(source);
+	        return new ActionResult(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -70,7 +73,6 @@ export namespace backend {
 	        this.success = source["success"];
 	        this.message = source["message"];
 	        this.branches = this.convertValues(source["branches"], BranchResult);
-	        this.error = source["error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -91,22 +93,34 @@ export namespace backend {
 		    return a;
 		}
 	}
-	export class RepositoryInfo {
-	    path: string;
-	    currentBranch: string;
-	    remotes: string[];
+	
+	
+	export class GlobalBranchPrefix {
+	    branchPrefix: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new RepositoryInfo(source);
+	        return new GlobalBranchPrefix(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.currentBranch = source["currentBranch"];
-	        this.remotes = source["remotes"];
+	        this.branchPrefix = source["branchPrefix"];
 	        this.error = source["error"];
+	    }
+	}
+	export class VcsRequest {
+	    RepositoryPath: string;
+	    BranchPrefix: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VcsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.RepositoryPath = source["RepositoryPath"];
+	        this.BranchPrefix = source["BranchPrefix"];
 	    }
 	}
 

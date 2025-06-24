@@ -10,15 +10,13 @@ import (
 )
 
 //goland:noinspection GrazieInspection
-func createOrUpdateBranch(
+func createOrUpdateCommit(
   originalCommit Commit,
   parentHash plumbing.Hash,
   prefix string,
   repo *git.Repository,
   git *Git,
 ) (CommitDetail, plumbing.Hash, error) {
-  var isNewCommit bool
-
   // check if this commit was already cherry-picked using git notes
   cherryPickedCommitHash := plumbing.ZeroHash
   if originalCommit.Notes != "" {
@@ -36,21 +34,17 @@ func createOrUpdateBranch(
   // clean the message (remove prefix)
   message := getCleanMessage(originalCommit.Message, prefix)
 
-  if !cherryPickedCommitHash.IsZero() {
-    // reuse existing commit
-    isNewCommit = false
-  } else {
+  isNewCommit := cherryPickedCommitHash.IsZero()
+  if isNewCommit {
     var err error
     cherryPickedCommitHash, err = cherryPick(originalCommit, parentHash, repo, message, git)
     if err != nil {
       return CommitDetail{}, plumbing.ZeroHash, err
     }
-
-    isNewCommit = true
   }
 
   return CommitDetail{
-    Hash:    cherryPickedCommitHash.String()[:7],
+    Hash:    cherryPickedCommitHash.String(),
     Message: message,
     IsNew:   isNewCommit,
   }, cherryPickedCommitHash, nil
@@ -77,6 +71,7 @@ func cherryPick(
   newCommit := &object.Commit{
     Author:       originalCommitObject.Author,
     Message:      message,
+    Committer:    originalCommitObject.Committer,
     TreeHash:     originalTree.Hash,
     ParentHashes: []plumbing.Hash{parentHash},
   }

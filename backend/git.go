@@ -7,16 +7,17 @@ import (
 )
 
 type Git struct {
-  repoPath string
+  RepositoryPath string
+  gitPath        string
 }
 
-func NewGit(repoPath string) *Git {
-  return &Git{repoPath: repoPath}
+func NewGit(repositoryPath string, gitPath string) *Git {
+  return &Git{RepositoryPath: repositoryPath, gitPath: gitPath}
 }
 
-func (g *Git) execCommand(args ...string) (string, error) {
-  cmd := exec.Command("git", args...)
-  cmd.Dir = g.repoPath
+func (t *Git) execCommand(args ...string) (string, error) {
+  cmd := exec.Command(t.gitPath, args...)
+  cmd.Dir = t.RepositoryPath
   output, err := cmd.CombinedOutput()
   if err != nil {
     return "", fmt.Errorf("git command failed: %v: %s", err, output)
@@ -24,9 +25,9 @@ func (g *Git) execCommand(args ...string) (string, error) {
   return strings.TrimSpace(string(output)), nil
 }
 
-func (g *Git) execCommandNoOutput(args ...string) error {
-  cmd := exec.Command("git", args...)
-  cmd.Dir = g.repoPath
+func (t *Git) execCommandNoOutput(args ...string) error {
+  cmd := exec.Command(t.gitPath, args...)
+  cmd.Dir = t.RepositoryPath
   err := cmd.Run()
   if err != nil {
     return fmt.Errorf("git command failed: %v", err)
@@ -34,8 +35,8 @@ func (g *Git) execCommandNoOutput(args ...string) error {
   return nil
 }
 
-func (g *Git) AddNote(message string, commitHash string) error {
-  return g.execCommandNoOutput("notes", "add", "-f", "-m", message, commitHash)
+func (t *Git) AddNote(message string, commitHash string) error {
+  return t.execCommandNoOutput("notes", "add", "-f", "-m", message, commitHash)
 }
 
 //func (g *Git) GetNote(commitHash string) (string, error) {

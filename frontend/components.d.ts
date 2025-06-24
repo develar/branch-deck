@@ -9,14 +9,22 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     BranchCreator: typeof import('./src/components/BranchCreator.vue')['default']
+    BranchPrefixHelp: typeof import('./src/components/BranchPrefixHelp.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     UAlert: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Alert.vue')['default']
+    UApp: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/App.vue')['default']
     UBadge: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Badge.vue')['default']
     UButton: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Button.vue')['default']
+    UButtonGroup: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/ButtonGroup.vue')['default']
     UCard: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Card.vue')['default']
     UContainer: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Container.vue')['default']
     UFormField: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/FormField.vue')['default']
     UInput: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Input.vue')['default']
+    UModal: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Modal.vue')['default']
+    UProgress: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Progress.vue')['default']
+    USelect: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
+    USeparator: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Separator.vue')['default']
+    UTree: typeof import('./node_modules/@nuxt/ui/dist/runtime/components/Tree.vue')['default']
   }
 }

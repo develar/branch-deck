@@ -3,7 +3,9 @@ module virtual-branches
 go 1.23
 
 require (
+	github.com/AndreiTelteu/wails-configstore v0.0.2
 	github.com/go-git/go-git/v5 v5.13.2
+	github.com/maruel/natural v1.1.1
 	github.com/stretchr/testify v1.10.0
 	github.com/wailsapp/wails/v2 v2.10.1
 )
@@ -12,6 +14,7 @@ require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
+	github.com/adrg/xdg v0.4.0 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect

@@ -1,26 +1,27 @@
 <template>
   <UCard>
     <template #header>
-      <h2>Branch Creator</h2>
-      <!--<p class="text-xs">-->
-      <!--  Create and manage virtual branches from commit prefixes-->
-      <!--</p>-->
+      <h2>Branch Manager</h2>
     </template>
     <div class="space-y-6">
       <!-- Repository Path -->
       <UFormField label="Repository Path" name="repo-path">
         <div class="flex gap-3">
-          <UInput
+          <USelect
             v-model="repositoryPath"
-            placeholder="Enter repository path..."
+            :items="recentPaths"
+            placeholder="Select or enter repository path..."
+            searchable
+            creatable
             class="flex-1"
-            :disabled="isProcessing"
+            :disabled="isSyncing"
+            @update:model-value="onRepositoryPathChange"
           />
           <UButton
             icon="i-heroicons-folder-open"
             variant="outline"
+            :disabled="isSyncing"
             @click="browseRepository"
-            :disabled="isProcessing"
           >
             Browse
           </UButton>
@@ -29,183 +30,170 @@
 
       <!-- Branch Prefix -->
       <UFormField label="Branch Prefix" name="branch-prefix">
-        <UInput
-          v-model="branchPrefix"
-          placeholder="Enter branch prefix..."
-          class="flex-1"
-          :disabled="isProcessing"
-          @keyup.enter="createBranches"
-        />
+        <UButtonGroup>
+          <UInput
+            v-model="branchPrefix"
+            placeholder="Enter branch prefix..."
+            class="flex-1"
+            :disabled="isSyncing"
+          />
+
+          <BranchPrefixHelp :disabled="isSyncing" />
+        </UButtonGroup>
       </UFormField>
 
       <!-- Actions -->
-      <div class="flex flex-col sm:flex-row gap-3">
-        <UButton
-          size="lg"
-          :loading="isProcessing"
-          :disabled="!repositoryPath"
-          @click="createBranches"
-        >
-          <template #leading>
-            <span v-if="!isProcessing">🌿</span>
-          </template>
-          {{ isProcessing ? 'Processing...' : 'Create Virtual Branches' }}
-        </UButton>
-      </div>
+      <UButton
+        icon="i-heroicons-arrow-path"
+        :loading="isSyncing"
+        :disabled="isSyncing || !repositoryPath"
+        @click="createBranches"
+      >
+        Sync Virtual Branches
+      </UButton>
     </div>
     <!-- Loading State -->
-    <div v-if="isProcessing" class="text-center py-8">
-      <div class="inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-      <p class="text-gray-600">Processing repository...</p>
+    <div v-if="isSyncing" class="py-8 space-y-4">
+      <UProgress animation="carousel" />
     </div>
 
     <!-- Results -->
-    <UCard v-if="result && !isProcessing" class="mt-6">
+    <div v-if="result && !isSyncing" class="mt-6">
       <UAlert
-        v-if="result.error"
-        icon="i-heroicons-x-circle"
-        color="red"
+        v-if="result.branches?.length === 0"
+        color="info"
         variant="soft"
-        :title="`Error: ${result.error}`"
+        :title="`${result.message || 'No branches found'}`"
       />
+      <div v-else-if="result.success" class="space-y-4">
+        <USeparator />
 
-      <div v-else class="space-y-4">
-        <UAlert
-          icon="i-heroicons-check-circle"
-          color="green"
-          variant="soft"
-          :title="`${result.message}`"
-        />
+        <!-- Branches Tree -->
+        <div v-if="result.branches?.length > 0" class="space-y-4">
+          <UTree :items="branchTreeData" :ui="{linkLabel: 'grid grid-cols-4 justify-items-start place-content-end items-center gap-2 w-full'}">
+            <!--suppress VueUnrecognizedSlot -->
+            <template #item-label="{ item }">
+              <span class="truncate">{{ item.label }}</span>
 
-        <!-- Branches List -->
-        <div v-if="result.branches && result.branches.length > 0" class="space-y-4">
-          <UCard
-            v-for="branch in result.branches"
-            :key="branch.name"
-            :class="['relative', { 'border-l-4 border-l-red-500': branch.error, 'border-l-4 border-l-green-500': !branch.error }]"
-          >
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-              <h4 class="text-lg font-semibold flex items-center gap-2">
-                🌿 {{ branch.name }}
-              </h4>
-              <UBadge
-                v-if="!branch.error"
-                :color="branch.action?.toLowerCase() === 'created' ? 'green' : 'blue'"
-                variant="soft"
-              >
-                {{ branch.action }}
-              </UBadge>
-            </div>
-
-            <UAlert
-              v-if="branch.error"
-              icon="i-heroicons-exclamation-triangle"
-              color="red"
-              variant="soft"
-              :title="`Error: ${branch.error}`"
-            />
-
-            <div v-else class="space-y-3">
-              <p class="text-sm text-gray-600">
-                <strong>{{ branch.commitCount }} commit{{ branch.commitCount !== 1 ? 's' : '' }}</strong>
-              </p>
-
-              <!-- Commit List -->
-              <div v-if="branch.commitDetails && branch.commitDetails.length > 0" class="space-y-2">
-                <div
-                  v-for="commit in branch.commitDetails"
-                  :key="commit.hash"
-                  class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+              <div class="flex items-center gap-4">
+                <UButton
+                  v-if="item.meta.commitCount > 0 && item.meta?.name && !item.meta.error"
+                  size="xs"
+                  variant="outline"
+                  icon="i-heroicons-arrow-up-tray"
+                  :loading="isPushing(item.meta.name)"
+                  :disabled="isPushing(item.meta.name)"
+                  @click.stop="pushBranch(item.meta.name)"
                 >
-                  <span class="text-lg">{{ commit.isNew ? '✨' : '🔄' }}</span>
-                  <span class="commit-hash">{{ commit.hash.substring(0, 8) }}</span>
-                  <span class="flex-1 text-sm text-gray-700">{{ commit.message }}</span>
-                </div>
+                  {{ item.meta.syncStatus === backend.BranchSyncStatus.UPDATED ? "Force Push" : "Push" }}
+                </UButton>
+
+                <UBadge
+                  v-if="item.meta.syncStatus"
+                  :color="item.meta.error ? 'error' : 'info'"
+                  size="md"
+                  variant="soft"
+                >
+                  {{ item.meta.error ?? syncStatusToString.get(item.meta.syncStatus) }}
+                </UBadge>
               </div>
-            </div>
-          </UCard>
+
+              <span v-if="item.meta.commitCount" class="flex items-center gap-2 text-xs text-neutral-500">
+                {{ item.meta.commitCount }} commit{{ item.meta.commitCount === 1 ? "" : "s" }}
+              </span>
+            </template>
+
+            <!--suppress VueUnrecognizedSlot -->
+            <template #commit-label="{ item }">
+              <div class="flex items-center gap-3">
+                <span class="truncate flex-1">{{ item.label }}</span>
+                <span class="text-xs text-neutral-500 font-mono">
+                  {{ item.meta.hash.substring(0, 8) }}
+                </span>
+              </div>
+            </template>
+          </UTree>
         </div>
       </div>
-    </UCard>
+      <UAlert
+        v-else
+        icon="i-heroicons-x-circle"
+        color="error"
+        variant="soft"
+        :title="`Error: ${result.message}`"
+      />
+    </div>
   </UCard>
 </template>
 
-<script>
-import {CreateVirtualBranches, GetRepositoryInfo, OpenDirectoryDialog} from '../../wailsjs/go/main/App.js'
+<script setup lang="ts">
+import {computed} from "vue"
+import {OpenDirectoryDialog} from "../../wailsjs/go/main/App"
+import {backend} from "../../wailsjs/go/models"
+import {useRecentPath} from "../composables/recentPath"
+import {usePush} from "../composables/push"
+import {syncStatusToString, useSyncBranches} from "../composables/syncBranches"
+import {useVcsRequest} from "../composables/vcsRequest"
 
-export default {
-  name: 'BranchCreator',
-  data() {
-    return {
-      repositoryPath: '',
-      branchPrefix: 'develar/',
-      isProcessing: false,
-      result: null,
-      repositoryInfo: null
+const {recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath} = useRecentPath()
+
+// @ts-expect-error we use Suspense
+const {branchPrefix, vcsRequestFactory} = await useVcsRequest(repositoryPath)
+
+const {createBranches, result, isSyncing} = useSyncBranches(vcsRequestFactory)
+const {pushBranch, isPushing} = usePush(vcsRequestFactory)
+
+const browseRepository = async () => {
+  try {
+    const path = await OpenDirectoryDialog()
+    if (path) {
+      repositoryPath.value = path
+      await addToRecentPaths(path)
     }
-  },
-  methods: {
-    async createBranches() {
-      if (!this.repositoryPath.trim()) {
-        this.showError('Please enter a repository path')
-        return
-      }
-
-      this.isProcessing = true
-      this.result = null
-      this.repositoryInfo = null
-
-      try {
-        const result = await CreateVirtualBranches(this.repositoryPath.trim(), this.branchPrefix.trim())
-        this.result = result
-      } catch (error) {
-        this.result = {
-          success: false,
-          error: `Failed to process repository: ${error.message || error}`
-        }
-      } finally {
-        this.isProcessing = false
-      }
-    },
-
-    async getRepositoryInfo() {
-      if (!this.repositoryPath.trim()) {
-        this.showError('Please enter a repository path')
-        return
-      }
-
-      this.isProcessing = true
-      this.result = null
-
-      try {
-        const info = await GetRepositoryInfo(this.repositoryPath.trim())
-        this.repositoryInfo = info
-      } catch (error) {
-        this.repositoryInfo = {
-          error: `Failed to get repository info: ${error.message || error}`
-        }
-      } finally {
-        this.isProcessing = false
-      }
-    },
-
-    async browseRepository() {
-      try {
-        const path = await OpenDirectoryDialog()
-        if (path) {
-          this.repositoryPath = path
-        }
-      } catch (error) {
-        console.error('Failed to open directory dialog:', error)
-      }
-    },
-
-    showError(message) {
-      this.result = {
-        success: false,
-        error: message
-      }
-    }
+  } catch (error) {
+    console.error("Failed to open directory dialog:", error)
   }
 }
+
+const branchTreeData = computed(() => {
+  if (!result.value?.branches) {
+    return []
+  }
+
+  return result.value.branches.map((branch: backend.BranchResult, index) => {
+    let children = []
+
+    // add commits as children if they exist and no error
+    if (!branch.error && branch.commitDetails && branch.commitDetails.length > 0) {
+      children = branch.commitDetails.map((commit, commitIndex) => ({
+        id: `commit-${index}-${commitIndex}`,
+        label: commit.message,
+        slot: "commit",
+        meta: {
+          hash: commit.hash,
+        },
+      }))
+    }
+
+    // add error message as child if there's an error
+    if (branch.error) {
+      children = [
+        {
+          id: `error-${index}`,
+          label: branch.error,
+          icon: "i-heroicons-x-circle",
+          iconClass: "error",
+        },
+      ]
+    }
+
+    return {
+      id: `branch-${index}`,
+      label: branch.name,
+      meta: branch,
+      defaultExpanded: branch.syncStatus != backend.BranchSyncStatus.UNCHANGED,
+      children: children,
+    }
+  })
+})
 </script>
