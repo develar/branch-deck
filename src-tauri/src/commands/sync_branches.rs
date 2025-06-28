@@ -13,9 +13,7 @@ use tauri::ipc::Channel;
 pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progress: Channel<SyncEvent<'a>>) -> Result<SyncBranchResult, String> {
   let repo = git2::Repository::open(repository_path).map_err(|e| format!("Failed to open repository: {e}"))?;
 
-  progress
-    .send(SyncEvent::Progress { message: "get commits" })
-    .map_err(|e| format!("Failed to send progress: {e}"))?;
+  progress.send(SyncEvent { message: "get commits" }).unwrap();
 
   let commits = get_commit_list(&repo, "master").map_err(|e| format!("Failed to get_commit_list: {e}"))?;
 
@@ -31,7 +29,10 @@ pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progr
   let mut results: Vec<BranchInfo> = Vec::new();
   // group commits by prefix first to get all branch names
   // for each prefix, create a branch with only the relevant commits
-  for (branch_name, branch_commits) in group_commits_by_prefix(&commits) {
+  let grouped_commits = group_commits_by_prefix(&commits);
+  let total_branches = grouped_commits.len();
+  
+  for (current_branch_idx, (branch_name, branch_commits)) in grouped_commits.into_iter().enumerate() {
     let mut current_parent_hash = parent_commit_hash;
     let mut last_commit_hash: Oid = Oid::zero();
     let mut commit_details: Vec<CommitDetail> = Vec::new();
@@ -44,13 +45,26 @@ pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progr
     // let mut prev_original_commit: Oid = Oid::zero();
 
     // recreate each commit on top of the last one
-    for (clean_message, original_commit) in branch_commits {
+    let total_commits_in_branch = branch_commits.len();
+    for (current_commit_idx, (clean_message, original_commit)) in branch_commits.into_iter().enumerate() {
       // If any commit in the branch’s history up to this point has changed, we still need to copy this commit —
       // even if its own content didn’t change — so that its parent reference is updated.
       let reuse_if_possible = is_existing_branch && !is_any_commit_changed;
       // check if we can reuse the tree directly (avoid merge)
       // let reuse_tree_without_merge = prev_original_commit.is_zero() || original_commit.parent_id(0).unwrap() != prev_original_commit;
-      match create_or_update_commit(&clean_message, &original_commit, current_parent_hash, reuse_if_possible, &repo, progress.clone()) {
+      match create_or_update_commit(
+        &clean_message, 
+        &original_commit, 
+        current_parent_hash, 
+        reuse_if_possible, 
+        &repo, 
+        &progress,
+        &branch_name,
+        current_commit_idx,
+        total_commits_in_branch,
+        current_branch_idx,
+        total_branches,
+      ) {
         Ok((detail, new_id)) => {
           if detail.is_new {
             is_any_commit_changed = true;
@@ -124,7 +138,7 @@ pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progr
   // reverse - newest first
   results.reverse();
 
-  progress.send(SyncEvent::Finished {}).map_err(|e| format!("Failed to send progress: {e}"))?;
+  progress.send(SyncEvent {message: "finished"}).unwrap();
 
   Ok(SyncBranchResult { branches: results })
 }

@@ -48,7 +48,7 @@ export type BranchInfo = { name: string; sync_status: BranchSyncStatus; commit_c
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error"
 export type CommitDetail = { original_hash: string; hash: string; is_new: boolean; message: string; time: number }
 export type SyncBranchResult = { branches: BranchInfo[] }
-export type SyncEvent = { event: "progress"; data: { message: string } } | { event: "finished"; data: Record<string, never> }
+export type SyncEvent = { message: string }
 export type TAURI_CHANNEL<TSend> = null
 
 /** tauri-specta globals **/

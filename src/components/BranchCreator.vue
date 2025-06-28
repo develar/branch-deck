@@ -35,23 +35,27 @@
             placeholder="Enter branch prefix..."
           />
 
-          <BranchPrefixHelp :configured="branchPrefix.status == 'ok'" :disabled="isSyncing" />
+          <BranchPrefixHelp :configured="branchPrefix.status == 'ok'" :disabled="isSyncing"/>
         </UButtonGroup>
       </UFormField>
 
       <!-- Actions -->
       <UButton
+        v-if="!showProgress"
         :disabled="isSyncing || !repositoryPath || !mutableBranchPrefix"
-        :loading="isSyncing"
+        :loading="isSyncing && !showProgress"
         icon="i-heroicons-arrow-path"
         @click="createBranches"
       >
         Sync Virtual Branches
       </UButton>
-    </div>
-    <!-- Loading State -->
-    <div v-if="isSyncing" class="py-8 space-y-4">
-      <UProgress animation="carousel" status :value="syncProgress" />
+      <!-- Loading State -->
+      <div v-else-if="showProgress" class="flex flex-col items-center justify-center gap-3 py-2">
+        <span class="text-sm text-dimmed">
+          {{ syncProgress }}
+        </span>
+        <UProgress/>
+      </div>
     </div>
   </UCard>
 
@@ -132,12 +136,12 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
 import { BranchInfo, CommitDetail } from "../bindings.ts"
 import { formatTimestamp } from "./time.ts"
 
-const { recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath } = useRecentPath()
+const {recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath} = useRecentPath()
 
-const { branchPrefix, mutableBranchPrefix, vcsRequestFactory } = useVcsRequest(repositoryPath)
+const {branchPrefix, mutableBranchPrefix, vcsRequestFactory} = useVcsRequest(repositoryPath)
 
-const { createBranches, syncResult, isSyncing, syncProgress } = useSyncBranches(vcsRequestFactory)
-const { pushBranch, isPushing } = usePush(vcsRequestFactory)
+const {createBranches, syncResult, isSyncing, showProgress, syncProgress} = useSyncBranches(vcsRequestFactory)
+const {pushBranch, isPushing} = usePush(vcsRequestFactory)
 
 const browseRepository = async () => {
   try {
@@ -150,8 +154,7 @@ const browseRepository = async () => {
       repositoryPath.value = path
       await addToRecentPaths(path)
     }
-  }
-  catch (error) {
+  } catch (error) {
     console.error("Failed to open directory dialog:", error)
   }
 }

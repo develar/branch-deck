@@ -16,7 +16,12 @@ pub(crate) fn create_or_update_commit(
   reuse_if_possible: bool,
   // reuse_tree_without_merge: bool,
   repo: &Repository,
-  progress: Channel<SyncEvent<'_>>,
+  progress: &Channel<SyncEvent<'_>>,
+  branch_name: &str,
+  current_commit_idx: usize,
+  total_commits_in_branch: usize,
+  current_branch_idx: usize,
+  total_branches: usize,
 ) -> anyhow::Result<(CommitDetail, Oid)> {
   if reuse_if_possible {
     if let Ok(note) = repo.find_note(None, original_commit.id()) {
@@ -60,14 +65,30 @@ pub(crate) fn create_or_update_commit(
   // If the trees match, it means the new parent has exactly the same content as the original parent.
   // In this case, we can apply the original commit directly without merging.
   let new_tree = if original_parent_tree_id == new_parent_tree_id {
-    progress.send(SyncEvent::Progress {
-      message: &format!("Creating commit for {:.7} with existing tree {:.7}", original_commit.id(), original_tree.id()),
+    progress.send(SyncEvent {
+      message: &format!(
+        "[{}/{}] {}: Creating commit {}/{} ({:.7}) with existing tree", 
+        current_branch_idx + 1, 
+        total_branches, 
+        branch_name, 
+        current_commit_idx + 1, 
+        total_commits_in_branch, 
+        original_commit.id()
+      ),
     })?;
     // trees are identical, we can skip the merge and just use the original tree
     original_tree
   } else {
-    progress.send(SyncEvent::Progress {
-      message: &format!("Creating commit for {:.7} using a 3-way merge {:.7}", original_commit.id(), original_tree.id()),
+    progress.send(SyncEvent {
+      message: &format!(
+        "[{}/{}] {}: Creating commit {}/{} ({:.7}) using 3-way merge", 
+        current_branch_idx + 1, 
+        total_branches, 
+        branch_name, 
+        current_commit_idx + 1, 
+        total_commits_in_branch, 
+        original_commit.id()
+      ),
     })?;
     // trees are different, we need to perform a 3-way merge
     perform_three_merge(repo, &original_parent_commit, &new_parent_commit, &original_tree)?
