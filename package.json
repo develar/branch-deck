@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "eslint --ext .vue,.ts --fix src"
+    "lint": "eslint --ext .vue,.ts --fix src",
+    "lint-rust": "cargo clippy --fix -- -W clippy::all -W clippy::pedantic"
   },
   "dependencies": {
     "@nuxt/ui": "^3.2.0",
@@ -21,7 +22,6 @@
     "@tauri-apps/plugin-window-state": "~2.3.0",
     "@unhead/vue": "^2.0.11",
     "@vueuse/core": "^13.4.0",
-    "date-fns": "^4.1.0",
     "tailwindcss": "^4.1.11",
     "vue": "^3.5.17",
     "vue-router": "^4.5.1"

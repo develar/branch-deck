@@ -35,7 +35,7 @@
             placeholder="Enter branch prefix..."
           />
 
-          <BranchPrefixHelp :configured="branchPrefix.status == 'ok'" :disabled="isSyncing"/>
+          <BranchPrefixHelp :configured="branchPrefix.status == 'ok'" :disabled="isSyncing" />
         </UButtonGroup>
       </UFormField>
 
@@ -51,7 +51,7 @@
     </div>
     <!-- Loading State -->
     <div v-if="isSyncing" class="py-8 space-y-4">
-      <UProgress animation="carousel"/>
+      <UProgress animation="carousel" status :value="syncProgress" />
     </div>
   </UCard>
 
@@ -73,43 +73,42 @@
     <div v-else class="space-y-4">
       <!-- Branches Tree -->
       <div v-if="syncResult.data.branches.length > 0" class="space-y-4">
-        <UTree :items="branchTreeData" :ui="{linkLabel: 'grid grid-cols-4 justify-items-start place-content-end items-center gap-2 w-full'}">
+        <UTree :items="branchTreeData" :ui="{linkLabel: 'grid grid-cols-4 justify-items-start items-center gap-2 w-full', }">
           <!--suppress VueUnrecognizedSlot -->
           <template #item-label="{ item }">
             <span class="truncate">{{ item.label }}</span>
 
             <div class="flex items-center gap-4">
               <UButton
-                v-if="item.meta.commit_count > 0 && item.meta?.name && !item.meta.error"
-                :disabled="isPushing(item.meta.name)"
-                :loading="isPushing(item.meta.name)"
+                v-if="item.branch.sync_status != 'Error' && item.branch.commit_count > 0"
+                :disabled="isPushing(item.branch.name)"
+                :loading="isPushing(item.branch.name)"
                 icon="i-heroicons-arrow-up-tray"
                 size="sm"
                 variant="outline"
-                @click.stop="pushBranch(item.meta.name)"
+                @click.stop="pushBranch(item.branch.name)"
               >
-                {{ item.meta.sync_status === "Updated" ? "Force Push" : "Push" }}
+                {{ item.branch.sync_status === "Updated" ? "Force Push" : "Push" }}
               </UButton>
-
               <UBadge
-                v-if="item.meta.sync_status"
-                :color="item.meta.error ? 'error' : 'info'"
+                v-if="item.branch.sync_status"
+                :color="item.branch.error ? 'error' : 'info'"
                 class="lowercase"
                 variant="soft"
               >
-                {{ item.meta.error ?? item.meta.sync_status }}
+                {{ item.branch.error ?? item.branch.sync_status }}
               </UBadge>
             </div>
 
-            <span v-if="item.meta.commit_count" class="flex items-center gap-2 text-xs text-neutral-500">
-              {{ item.meta.commit_count }} commit{{ item.meta.commit_count === 1 ? "" : "s" }}
+            <span v-if="item.branch.sync_status != 'Error'" class="flex items-center gap-2 text-xs text-neutral-500">
+              {{ item.branch.commit_count }} commit{{ item.branch.commit_count === 1 ? "" : "s" }}
             </span>
           </template>
 
           <!--suppress VueUnrecognizedSlot -->
           <!-- @vue-ignore -->
           <template #commit-label="{ item }">
-            <span class="truncate flex-1">{{ item.label }}</span>
+            <span class="truncate col-span-2">{{ item.label }}</span>
             <span class="text-xs text-neutral-500 font-mono">
               {{ formatTimestamp((item as BranchChild).commit!!.time) }}
             </span>
@@ -133,12 +132,12 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
 import { BranchInfo, CommitDetail } from "../bindings.ts"
 import { formatTimestamp } from "./time.ts"
 
-const {recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath} = useRecentPath()
+const { recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath } = useRecentPath()
 
-const {branchPrefix, mutableBranchPrefix, vcsRequestFactory} = useVcsRequest(repositoryPath)
+const { branchPrefix, mutableBranchPrefix, vcsRequestFactory } = useVcsRequest(repositoryPath)
 
-const {createBranches, syncResult, isSyncing} = useSyncBranches(vcsRequestFactory)
-const {pushBranch, isPushing} = usePush(vcsRequestFactory)
+const { createBranches, syncResult, isSyncing, syncProgress } = useSyncBranches(vcsRequestFactory)
+const { pushBranch, isPushing } = usePush(vcsRequestFactory)
 
 const browseRepository = async () => {
   try {
@@ -151,7 +150,8 @@ const browseRepository = async () => {
       repositoryPath.value = path
       await addToRecentPaths(path)
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error("Failed to open directory dialog:", error)
   }
 }
@@ -166,14 +166,7 @@ const branchTreeData = computed(() => {
 
     if (branch.sync_status === "Error") {
       // add error message as child if there's an error
-      children = [
-        {
-          id: `error-${index}`,
-          label: branch.error!,
-          icon: "i-heroicons-x-circle",
-          iconClass: "error",
-        },
-      ]
+      children = []
     }
     else if (branch.commit_details && branch.commit_details.length > 0) {
       // add commits as children if they exist and no error
@@ -191,7 +184,7 @@ const branchTreeData = computed(() => {
     return {
       id: `branch-${index}`,
       label: branch.name,
-      meta: branch,
+      branch,
       defaultExpanded: branch.sync_status != "Unchanged",
       children,
     }

@@ -16,9 +16,9 @@ async pushBranch(repositoryPath: string, branchPrefix: string, branchName: strin
     else return { status: "error", error: e  as any };
 }
 },
-async syncBranches(repositoryPath: string, branchPrefix: string) : Promise<Result<SyncBranchResult, string>> {
+async syncBranches(repositoryPath: string, branchPrefix: string, progress: TAURI_CHANNEL<SyncEvent>) : Promise<Result<SyncBranchResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_branches", { repositoryPath, branchPrefix }) };
+    return { status: "ok", data: await TAURI_INVOKE("sync_branches", { repositoryPath, branchPrefix, progress }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -48,6 +48,8 @@ export type BranchInfo = { name: string; sync_status: BranchSyncStatus; commit_c
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error"
 export type CommitDetail = { original_hash: string; hash: string; is_new: boolean; message: string; time: number }
 export type SyncBranchResult = { branches: BranchInfo[] }
+export type SyncEvent = { event: "progress"; data: { message: string } } | { event: "finished"; data: Record<string, never> }
+export type TAURI_CHANNEL<TSend> = null
 
 /** tauri-specta globals **/
 

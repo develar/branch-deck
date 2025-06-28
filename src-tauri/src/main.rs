@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  branch_deck_lib::run()
+  branch_deck_lib::run();
 }
