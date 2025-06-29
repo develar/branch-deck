@@ -37,6 +37,9 @@ git2 = {version = "0.20.2", features = ["vendored-libgit2"] }
 tauri-plugin-devtools = "2.0.0"
 anyhow = {version = "1.0.98", features = ["default", "backtrace"] }
 
+[dev-dependencies]
+tempfile = "3.14.0"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"

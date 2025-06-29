@@ -4,3 +4,6 @@ pub mod branch_prefix;
 pub mod push;
 #[macro_use]
 pub mod sync_branches;
+
+#[cfg(test)]
+mod sync_branches_test;

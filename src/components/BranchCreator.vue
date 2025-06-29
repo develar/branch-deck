@@ -35,7 +35,7 @@
             placeholder="Enter branch prefix..."
           />
 
-          <BranchPrefixHelp :configured="branchPrefix.status == 'ok'" :disabled="isSyncing"/>
+          <BranchPrefixHelp :configured="branchPrefix.status == 'ok'" :disabled="isSyncing" />
         </UButtonGroup>
       </UFormField>
 
@@ -54,7 +54,7 @@
         <span class="text-sm text-dimmed">
           {{ syncProgress }}
         </span>
-        <UProgress/>
+        <UProgress />
       </div>
     </div>
   </UCard>
@@ -77,7 +77,7 @@
     <div v-else class="space-y-4">
       <!-- Branches Tree -->
       <div v-if="syncResult.data.branches.length > 0" class="space-y-4">
-        <UTree :items="branchTreeData" :ui="{linkLabel: 'grid grid-cols-4 justify-items-start items-center gap-2 w-full', }">
+        <UTree :items="branchTreeData" :ui="{linkLabel: 'grid grid-cols-4 justify-items-start items-center gap-2 w-full' }">
           <!--suppress VueUnrecognizedSlot -->
           <template #item-label="{ item }">
             <span class="truncate">{{ item.label }}</span>
@@ -100,7 +100,7 @@
                 class="lowercase"
                 variant="soft"
               >
-                {{ item.branch.error ?? item.branch.sync_status }}
+                {{ (item.branch.error?.split(":")?.[1] ?? item.branch.error) ?? item.branch.sync_status }}
               </UBadge>
             </div>
 
@@ -114,11 +114,24 @@
           <template #commit-label="{ item }">
             <span class="truncate col-span-2">{{ item.label }}</span>
             <span class="text-xs text-neutral-500 font-mono">
-              {{ formatTimestamp((item as BranchChild).commit!!.time) }}
+              {{ formatTimestamp((item as BranchChild).commit.time) }}
             </span>
             <span class="text-xs text-neutral-500 font-mono">
-              {{ (item as BranchChild).commit!!.hash.substring(0, 8) }}
+              {{ (item as BranchChild).commit.hash.substring(0, 8) }}
             </span>
+          </template>
+          <!--suppress VueUnrecognizedSlot -->
+          <!-- @vue-ignore -->
+          <template #commit-error-label="{ item }">
+            <!-- https://github.com/nuxt/ui/issues/4424 -->
+            <UAlert
+              :description="item.commit.message"
+              color="error"
+              variant="outline"
+              icon="i-lucide-git-pull-request-closed"
+              class="col-span-4"
+            >
+            </UAlert>
           </template>
         </UTree>
       </div>
@@ -136,12 +149,12 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
 import { BranchInfo, CommitDetail } from "../bindings.ts"
 import { formatTimestamp } from "./time.ts"
 
-const {recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath} = useRecentPath()
+const { recentPaths, onRepositoryPathChange, addToRecentPaths, repositoryPath } = useRecentPath()
 
-const {branchPrefix, mutableBranchPrefix, vcsRequestFactory} = useVcsRequest(repositoryPath)
+const { branchPrefix, mutableBranchPrefix, vcsRequestFactory } = useVcsRequest(repositoryPath)
 
-const {createBranches, syncResult, isSyncing, showProgress, syncProgress} = useSyncBranches(vcsRequestFactory)
-const {pushBranch, isPushing} = usePush(vcsRequestFactory)
+const { createBranches, syncResult, isSyncing, showProgress, syncProgress } = useSyncBranches(vcsRequestFactory)
+const { pushBranch, isPushing } = usePush(vcsRequestFactory)
 
 const browseRepository = async () => {
   try {
@@ -154,7 +167,8 @@ const browseRepository = async () => {
       repositoryPath.value = path
       await addToRecentPaths(path)
     }
-  } catch (error) {
+  }
+  catch (error) {
     console.error("Failed to open directory dialog:", error)
   }
 }
@@ -169,7 +183,18 @@ const branchTreeData = computed(() => {
 
     if (branch.sync_status === "Error") {
       // add error message as child if there's an error
-      children = []
+      children = [{
+        id: `commit-${index}-0`,
+        label: "error",
+        slot: "commit-error",
+        commit: {
+          original_hash: "",
+          hash: "",
+          is_new: true,
+          time: 0,
+          message: branch.error || "Unknown error",
+        },
+      }]
     }
     else if (branch.commit_details && branch.commit_details.length > 0) {
       // add commits as children if they exist and no error
@@ -200,6 +225,6 @@ interface BranchChild {
   slot?: string
   icon?: string
   iconClass?: string
-  commit?: CommitDetail
+  commit: CommitDetail
 }
 </script>

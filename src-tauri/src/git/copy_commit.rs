@@ -2,26 +2,28 @@ use crate::git::model::CommitDetail;
 use crate::progress::SyncEvent;
 use anyhow::anyhow;
 use git2::{Oid, Repository, Signature, Tree};
-use std::fmt::Write;
 use tauri::ipc::Channel;
 
 const PREFIX: &str = "v-commit:";
 
+// Progress information for logging and user feedback
+pub struct ProgressInfo<'a> {
+  pub branch_name: &'a str,
+  pub current_commit_idx: usize,
+  pub total_commits_in_branch: usize,
+  pub current_branch_idx: usize,
+  pub total_branches: usize,
+}
+
 // Create or update a commit based on an original commit
-#[allow(clippy::too_many_lines)]
 pub(crate) fn create_or_update_commit(
   clean_message: &str,
   original_commit: &git2::Commit,
   new_parent_oid: Oid,
   reuse_if_possible: bool,
-  // reuse_tree_without_merge: bool,
   repo: &Repository,
-  progress: &Channel<SyncEvent<'_>>,
-  branch_name: &str,
-  current_commit_idx: usize,
-  total_commits_in_branch: usize,
-  current_branch_idx: usize,
-  total_branches: usize,
+  progress: &Channel<SyncEvent>,
+  progress_info: &ProgressInfo,
 ) -> anyhow::Result<(CommitDetail, Oid)> {
   if reuse_if_possible {
     if let Ok(note) = repo.find_note(None, original_commit.id()) {
@@ -67,12 +69,12 @@ pub(crate) fn create_or_update_commit(
   let new_tree = if original_parent_tree_id == new_parent_tree_id {
     progress.send(SyncEvent {
       message: &format!(
-        "[{}/{}] {}: Creating commit {}/{} ({:.7}) with existing tree", 
-        current_branch_idx + 1, 
-        total_branches, 
-        branch_name, 
-        current_commit_idx + 1, 
-        total_commits_in_branch, 
+        "[{}/{}] {}: Creating commit {}/{} ({:.7}) with existing tree",
+        progress_info.current_branch_idx + 1,
+        progress_info.total_branches,
+        progress_info.branch_name,
+        progress_info.current_commit_idx + 1,
+        progress_info.total_commits_in_branch,
         original_commit.id()
       ),
     })?;
@@ -81,17 +83,17 @@ pub(crate) fn create_or_update_commit(
   } else {
     progress.send(SyncEvent {
       message: &format!(
-        "[{}/{}] {}: Creating commit {}/{} ({:.7}) using 3-way merge", 
-        current_branch_idx + 1, 
-        total_branches, 
-        branch_name, 
-        current_commit_idx + 1, 
-        total_commits_in_branch, 
+        "[{}/{}] {}: Creating commit {}/{} ({:.7}) using git2 merge",
+        progress_info.current_branch_idx + 1,
+        progress_info.total_branches,
+        progress_info.branch_name,
+        progress_info.current_commit_idx + 1,
+        progress_info.total_commits_in_branch,
         original_commit.id()
       ),
     })?;
-    // trees are different, we need to perform a 3-way merge
-    perform_three_merge(repo, &original_parent_commit, &new_parent_commit, &original_tree)?
+    // trees are different, use git2's built-in merge_commits functionality
+    perform_git2_merge(repo, &new_parent_commit, original_commit)?
   };
 
   let committer = Signature::now("branch-deck", original_commit.author().email().unwrap_or_default())?;
@@ -128,30 +130,37 @@ pub(crate) fn create_or_update_commit(
   ))
 }
 
-fn perform_three_merge<'a>(repo: &'a Repository, original_parent_commit: &git2::Commit, new_parent_commit: &git2::Commit, original_tree: &Tree) -> anyhow::Result<Tree<'a>> {
-  let original_parent_tree = original_parent_commit.tree()?;
-  let new_parent_tree = new_parent_commit.tree()?;
-
-  // create an in-memory index for the merge
-  let mut index = repo.merge_trees(&original_parent_tree, &new_parent_tree, original_tree, None)?;
-
-  // check for conflicts
+/// Use git2's built-in `merge_commits` function - this is the proper way!
+fn perform_git2_merge<'a>(repo: &'a Repository, base_commit: &git2::Commit, cherry_commit: &git2::Commit) -> anyhow::Result<Tree<'a>> {
+  // git2's merge_commits does exactly what we want: a 3-way merge without touching working dir
+  let merge_options = git2::MergeOptions::new();
+  
+  // Let git2 handle the merge - this is much more robust than our custom logic
+  let mut index = repo.merge_commits(base_commit, cherry_commit, Some(&merge_options))?;
+  
   if index.has_conflicts() {
-    let mut conflict_details = String::new();
-    let mut conflicts = index.conflicts()?;
-    while let Some(Ok(conflict)) = conflicts.next() {
-      let ancestor = conflict.ancestor.map_or_else(|| "none".to_string(), |c| String::from_utf8_lossy(&c.path).to_string());
-      let ours = conflict.our.map_or_else(|| "none".to_string(), |c| String::from_utf8_lossy(&c.path).to_string());
-      let theirs = conflict.their.map_or_else(|| "none".to_string(), |c| String::from_utf8_lossy(&c.path).to_string());
-      let _ = writeln!(conflict_details, "  ancestor: {ancestor}, ours: {ours}, theirs: {theirs}");
+    // Build a simple error message showing the conflicts
+    let mut conflict_files = Vec::new();
+    for conflict_result in index.conflicts()? {
+      let conflict = conflict_result?;
+      let path = conflict.their
+        .as_ref()
+        .or(conflict.our.as_ref())
+        .or(conflict.ancestor.as_ref()).map_or_else(|| "<unknown>".to_string(), |entry| String::from_utf8_lossy(&entry.path).to_string());
+      conflict_files.push(path);
     }
-    return Err(anyhow!("Cherry-pick resulted in conflicts that could not be resolved automatically:\n{conflict_details}"));
+    
+    return Err(anyhow!(
+      "Cherry-pick resulted in conflicts in files: {}", 
+      conflict_files.join(", ")
+    ));
   }
-
-  // write the merge result as a tree
-  let oid = index.write_tree_to(repo)?;
-  Ok(repo.find_tree(oid)?)
+  
+  // No conflicts - write the tree and return it
+  let tree_id = index.write_tree_to(repo)?;
+  Ok(repo.find_tree(tree_id)?)
 }
+
 
 #[allow(clippy::cast_possible_truncation)]
 fn time_to_js(original_commit: &git2::Commit) -> u32 {

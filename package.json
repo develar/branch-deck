@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "cd src-tauri && cargo test --lib",
     "tauri": "tauri",
     "lint": "eslint --ext .vue,.ts --fix src",
-    "lint-rust": "cargo clippy --fix -- -W clippy::all -W clippy::pedantic"
+    "lint-rust": "cd src-tauri && cargo clippy --fix -- -W clippy::all",
+    "lint-all": "pnpm lint && pnpm lint-rust"
   },
   "dependencies": {
     "@nuxt/ui": "^3.2.0",

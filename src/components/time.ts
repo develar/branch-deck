@@ -3,7 +3,6 @@ const formatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 })
 
-
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 })

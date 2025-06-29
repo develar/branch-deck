@@ -7,15 +7,21 @@ pub struct GitCommandExecutor {
   enable_logging: bool,
 }
 
+impl Default for GitCommandExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GitCommandExecutor {
-  pub fn new() -> Self {
+  #[must_use] pub fn new() -> Self {
     Self {
       enable_logging: true,
       info: Mutex::new(None),
     }
   }
 
-  pub fn get_info(&self) -> Result<GitInfo, String> {
+  fn get_info(&self) -> Result<GitInfo, String> {
     let mut guard = self.info.lock().unwrap();
     if guard.is_none() {
       let info = GitInfo::discover()?;
@@ -43,14 +49,14 @@ impl GitCommandExecutor {
       .output()
       .map_err(|e| format!("Failed to execute git command: {e}"))?;
 
-    self.process_output(output, args, &git_info)
+    Self::process_output(&output, args, &git_info)
   }
 
   fn log_command(args: &[&str], git_info: &GitInfo, repository_path: &str) {
     log::info!("{repository_path}: {} {}", git_info.path, args.join(" "));
   }
 
-  fn process_output(&self, output: Output, args: &[&str], git_info: &GitInfo) -> Result<String, String> {
+  fn process_output(output: &Output, args: &[&str], git_info: &GitInfo) -> Result<String, String> {
     if output.status.success() {
       let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
       log::debug!("git command succeeded with output: {stdout}");

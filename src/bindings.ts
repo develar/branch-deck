@@ -16,6 +16,18 @@ async pushBranch(repositoryPath: string, branchPrefix: string, branchName: strin
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Synchronizes branches by grouping commits by prefix and creating/updating branches
+ * 
+ * # Errors
+ * Returns an error if:
+ * - Repository cannot be opened
+ * - Git operations fail
+ * - Branch creation/update fails
+ * 
+ * # Panics
+ * May panic if progress channel sends fail
+ */
 async syncBranches(repositoryPath: string, branchPrefix: string, progress: TAURI_CHANNEL<SyncEvent>) : Promise<Result<SyncBranchResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_branches", { repositoryPath, branchPrefix, progress }) };

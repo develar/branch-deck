@@ -8,18 +8,27 @@ use regex::Regex;
 use std::collections::HashSet;
 use tauri::ipc::Channel;
 
+/// Synchronizes branches by grouping commits by prefix and creating/updating branches
+/// 
+/// # Errors
+/// Returns an error if:
+/// - Repository cannot be opened
+/// - Git operations fail
+/// - Branch creation/update fails
+/// 
+/// # Panics
+/// May panic if progress channel sends fail
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progress: Channel<SyncEvent<'a>>) -> Result<SyncBranchResult, String> {
+pub async fn sync_branches(repository_path: &str, branch_prefix: &str, progress: Channel<SyncEvent<'_>>) -> Result<SyncBranchResult, String> {
   let repo = git2::Repository::open(repository_path).map_err(|e| format!("Failed to open repository: {e}"))?;
 
   progress.send(SyncEvent { message: "get commits" }).unwrap();
 
   let commits = get_commit_list(&repo, "master").map_err(|e| format!("Failed to get_commit_list: {e}"))?;
 
-  let oldest_head_commit = match commits.first() {
-    Some(commit) => commit,
-    None => return Ok(SyncBranchResult { branches: Vec::new() }),
+  let Some(oldest_head_commit) = commits.first() else {
+    return Ok(SyncBranchResult { branches: Vec::new() });
   };
 
   let parent_commit_hash = oldest_head_commit.parent(0).map_err(|e| format!("{e}"))?.id();
@@ -52,18 +61,21 @@ pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progr
       let reuse_if_possible = is_existing_branch && !is_any_commit_changed;
       // check if we can reuse the tree directly (avoid merge)
       // let reuse_tree_without_merge = prev_original_commit.is_zero() || original_commit.parent_id(0).unwrap() != prev_original_commit;
-      match create_or_update_commit(
-        &clean_message, 
-        &original_commit, 
-        current_parent_hash, 
-        reuse_if_possible, 
-        &repo, 
-        &progress,
-        &branch_name,
+      let progress_info = crate::git::copy_commit::ProgressInfo {
+        branch_name: &branch_name,
         current_commit_idx,
         total_commits_in_branch,
         current_branch_idx,
         total_branches,
+      };
+      match create_or_update_commit(
+        &clean_message,
+        &original_commit,
+        current_parent_hash,
+        reuse_if_possible,
+        &repo,
+        &progress,
+        &progress_info,
       ) {
         Ok((detail, new_id)) => {
           if detail.is_new {
@@ -144,7 +156,7 @@ pub async fn sync_branches<'a>(repository_path: &str, branch_prefix: &str, progr
 }
 
 // prepare branch refs for all branches at once
-fn check_existing_branches(repo: &git2::Repository, branch_prefix: &str) -> anyhow::Result<HashSet<String>> {
+pub(crate) fn check_existing_branches(repo: &git2::Repository, branch_prefix: &str) -> anyhow::Result<HashSet<String>> {
   let branches = repo.branches(Some(git2::BranchType::Local))?;
 
   let mut existing_branches = HashSet::new();
@@ -159,7 +171,7 @@ fn check_existing_branches(repo: &git2::Repository, branch_prefix: &str) -> anyh
   Ok(existing_branches)
 }
 
-fn group_commits_by_prefix<'a>(commits: &'a [git2::Commit<'a>]) -> IndexMap<String, Vec<(String, git2::Commit<'a>)>> {
+pub(crate) fn group_commits_by_prefix<'a>(commits: &'a [git2::Commit<'a>]) -> IndexMap<String, Vec<(String, git2::Commit<'a>)>> {
   // use index map - preserve insertion order
   let mut prefix_to_commits: IndexMap<String, Vec<(String, git2::Commit)>> = IndexMap::new();
   let prefix_pattern = Regex::new(r"\[(.+?)](.*?)(?:\r?\n|$)").unwrap();
@@ -183,3 +195,4 @@ fn group_commits_by_prefix<'a>(commits: &'a [git2::Commit<'a>]) -> IndexMap<Stri
   }
   prefix_to_commits
 }
+

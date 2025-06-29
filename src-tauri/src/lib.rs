@@ -1,7 +1,10 @@
 #[macro_use]
-mod commands;
-mod git;
-mod progress;
+pub mod commands;
+pub mod git;
+pub mod progress;
+
+#[cfg(test)]
+mod test_utils;
 
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::push::push_branch;
