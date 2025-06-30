@@ -6,7 +6,7 @@ use tauri::State;
 #[tauri::command]
 #[specta::specta]
 pub async fn push_branch(git_executor: State<'_, GitCommandExecutor>, repository_path: &str, branch_prefix: &str, branch_name: &str) -> Result<String, String> {
-  let final_branch_name = to_final_branch_name(branch_prefix, branch_name)?;
+  let final_branch_name = to_final_branch_name(branch_prefix, branch_name).map_err(|e| format!("{e:?}"))?;
   git_executor.execute_command(
     &[
       "-c",

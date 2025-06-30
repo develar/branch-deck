@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -32,19 +33,55 @@ pub struct SyncBranchResult {
   pub branches: Vec<BranchInfo>,
 }
 
+/// Information about a commit needed for parallel processing
+/// Contains only the essential data that can be safely sent across threads
+#[derive(Debug, Clone)]
+pub struct CommitInfo {
+  pub message: String,
+  pub id: git2::Oid,
+}
+
 pub fn to_final_branch_name(
   branch_prefix: &str,
   branch_name: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
   let prefix = branch_prefix.trim_end_matches('/').trim();
+  ensure!(!prefix.is_empty(), "branch prefix cannot be blank");
+
   let name = branch_name.trim_end_matches('/').trim();
-  if prefix.is_empty() {
-    return Err("branch prefix cannot be blank".to_string());
-  }
-  if name.is_empty() {
-    return Err("branch name cannot be blank".into());
-  }
-  Ok(format!("{prefix}/virtual/{name}"))
+  ensure!(!name.is_empty(), "branch name cannot be blank");
+  
+  // Sanitize branch name to make it valid for Git references
+  let sanitized_name = sanitize_branch_name(name);
+  
+  Ok(format!("{prefix}/virtual/{sanitized_name}"))
+}
+
+/// Sanitizes a branch name to make it valid for Git references
+/// Git reference names cannot contain spaces, certain special characters, etc.
+pub(crate) fn sanitize_branch_name(name: &str) -> String {
+  name
+    // Replace spaces with hyphens
+    .replace(' ', "-")
+    // Replace other problematic characters with hyphens
+    .replace(['~', '^', ':', '?', '*', '[', ']', '\\'], "-")
+    // Remove leading/trailing dots and slashes
+    .trim_matches('.')
+    .trim_matches('/')
+    // Replace multiple consecutive hyphens with a single hyphen
+    .chars()
+    .fold(String::new(), |mut acc, c| {
+      if c == '-' && acc.ends_with('-') {
+        // Skip consecutive hyphens
+        acc
+      } else {
+        acc.push(c);
+        acc
+      }
+    })
+    // Ensure it doesn't start or end with a hyphen
+    .trim_matches('-')
+    .to_string()
 }
 
 #[cfg(test)]
@@ -73,28 +110,28 @@ mod tests {
   fn test_to_final_branch_name_empty_prefix() {
     let result = to_final_branch_name("", "auth");
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "branch prefix cannot be blank");
+    assert_eq!(result.unwrap_err().to_string(), "branch prefix cannot be blank");
   }
 
   #[test]
   fn test_to_final_branch_name_whitespace_prefix() {
     let result = to_final_branch_name("   ", "auth");
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "branch prefix cannot be blank");
+    assert_eq!(result.unwrap_err().to_string(), "branch prefix cannot be blank");
   }
 
   #[test]
   fn test_to_final_branch_name_empty_name() {
     let result = to_final_branch_name("feature", "");
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "branch name cannot be blank");
+    assert_eq!(result.unwrap_err().to_string(), "branch name cannot be blank");
   }
 
   #[test]
   fn test_to_final_branch_name_whitespace_name() {
     let result = to_final_branch_name("feature", "   ");
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "branch name cannot be blank");
+    assert_eq!(result.unwrap_err().to_string(), "branch name cannot be blank");
   }
 
   #[test]
@@ -204,5 +241,72 @@ mod tests {
     assert_eq!(branch.name, deserialized.name);
     assert_eq!(branch.sync_status, deserialized.sync_status);
     assert_eq!(branch.commit_count, deserialized.commit_count);
+  }
+
+  #[test]
+  fn test_sanitize_branch_name_with_spaces() {
+    assert_eq!(sanitize_branch_name("ui dispatcher"), "ui-dispatcher");
+    assert_eq!(sanitize_branch_name("hello world test"), "hello-world-test");
+  }
+
+  #[test]
+  fn test_sanitize_branch_name_with_special_chars() {
+    assert_eq!(sanitize_branch_name("test~branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test^branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test:branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test?branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test*branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test[branch]"), "test-branch");
+    assert_eq!(sanitize_branch_name("test\\branch"), "test-branch");
+  }
+
+  #[test]
+  fn test_sanitize_branch_name_consecutive_hyphens() {
+    assert_eq!(sanitize_branch_name("test--branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test   branch"), "test-branch");
+    assert_eq!(sanitize_branch_name("test-~-branch"), "test-branch");
+  }
+
+  #[test]
+  fn test_sanitize_branch_name_edge_cases() {
+    assert_eq!(sanitize_branch_name("-test-"), "test");
+    assert_eq!(sanitize_branch_name(".test."), "test");
+    assert_eq!(sanitize_branch_name("/test/"), "test");
+    assert_eq!(sanitize_branch_name("---test---"), "test");
+  }
+
+  #[test]
+  fn test_to_final_branch_name_with_sanitization() {
+    let result = to_final_branch_name("develar", "ui dispatcher").unwrap();
+    assert_eq!(result, "develar/virtual/ui-dispatcher");
+    
+    let result = to_final_branch_name("feature", "test~branch").unwrap();
+    assert_eq!(result, "feature/virtual/test-branch");
+    
+    let result = to_final_branch_name("bugfix", "hello world test").unwrap();
+    assert_eq!(result, "bugfix/virtual/hello-world-test");
+  }
+
+  #[test]
+  fn test_commit_info_creation() {
+    let commit_info = CommitInfo {
+      message: "Test commit message".to_string(),
+      id: git2::Oid::from_str("1234567890abcdef1234567890abcdef12345678").unwrap(),
+    };
+    
+    assert_eq!(commit_info.message, "Test commit message");
+    assert_eq!(commit_info.id.to_string(), "1234567890abcdef1234567890abcdef12345678");
+  }
+
+  #[test]
+  fn test_commit_info_clone() {
+    let commit_info = CommitInfo {
+      message: "Original message".to_string(),
+      id: git2::Oid::from_str("abcdef1234567890abcdef1234567890abcdef12").unwrap(),
+    };
+    
+    let cloned = commit_info.clone();
+    assert_eq!(cloned.message, commit_info.message);
+    assert_eq!(cloned.id, commit_info.id);
   }
 }

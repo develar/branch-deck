@@ -18,15 +18,6 @@ async pushBranch(repositoryPath: string, branchPrefix: string, branchName: strin
 },
 /**
  * Synchronizes branches by grouping commits by prefix and creating/updating branches
- * 
- * # Errors
- * Returns an error if:
- * - Repository cannot be opened
- * - Git operations fail
- * - Branch creation/update fails
- * 
- * # Panics
- * May panic if progress channel sends fail
  */
 async syncBranches(repositoryPath: string, branchPrefix: string, progress: TAURI_CHANNEL<SyncEvent>) : Promise<Result<SyncBranchResult, string>> {
     try {
@@ -60,7 +51,7 @@ export type BranchInfo = { name: string; sync_status: BranchSyncStatus; commit_c
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error"
 export type CommitDetail = { original_hash: string; hash: string; is_new: boolean; message: string; time: number }
 export type SyncBranchResult = { branches: BranchInfo[] }
-export type SyncEvent = { message: string }
+export type SyncEvent = { message: string; index: number }
 export type TAURI_CHANNEL<TSend> = null
 
 /** tauri-specta globals **/

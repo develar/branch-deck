@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-  use super::super::sync_branches::*;
+  use super::super::sync_branches::{group_commits_by_prefix, check_branch_exists};
   use crate::test_utils::git_test_utils::{create_test_repo, create_commit};
 
   #[test]
@@ -104,41 +104,33 @@ mod tests {
   }
 
   #[test]
-  fn test_check_existing_branches() {
+  fn test_check_branch_exists() {
     let (_dir, repo) = create_test_repo();
     
     // Create initial commit
     let initial_commit_id = create_commit(&repo, "Initial commit", "README.md", "# Test");
     let initial_commit = repo.find_commit(initial_commit_id).unwrap();
     
-    // Create some test branches with the prefix
-    let prefix = "test-prefix";
-    repo.branch(&format!("{prefix}/virtual/feature-auth"), &initial_commit, false).unwrap();
-    repo.branch(&format!("{prefix}/virtual/bugfix-login"), &initial_commit, false).unwrap();
-    repo.branch("other-prefix/virtual/feature-other", &initial_commit, false).unwrap();
-    repo.branch("standalone-branch", &initial_commit, false).unwrap();
+    // Create some test branches
+    let branch_name = "test-prefix/virtual/feature-auth";
+    repo.branch(branch_name, &initial_commit, false).unwrap();
     
-    let existing = check_existing_branches(&repo, prefix).unwrap();
+    // Test that existing branch is found
+    assert!(check_branch_exists(&repo, branch_name));
     
-    // Should only include branches with our prefix
-    assert_eq!(existing.len(), 2);
-    assert!(existing.contains(&format!("{prefix}/virtual/feature-auth")));
-    assert!(existing.contains(&format!("{prefix}/virtual/bugfix-login")));
-    assert!(!existing.contains("other-prefix/virtual/feature-other"));
-    assert!(!existing.contains("standalone-branch"));
+    // Test that non-existing branch is not found
+    assert!(!check_branch_exists(&repo, "non-existent-branch"));
   }
 
   #[test]
-  fn test_check_existing_branches_empty() {
+  fn test_check_branch_exists_empty_repo() {
     let (_dir, repo) = create_test_repo();
     
     // Create initial commit
     create_commit(&repo, "Initial commit", "README.md", "# Test");
     
-    let existing = check_existing_branches(&repo, "nonexistent-prefix").unwrap();
-    
-    // Should be empty since no branches match
-    assert_eq!(existing.len(), 0);
+    // Test that non-existing branch returns false in empty repo
+    assert!(!check_branch_exists(&repo, "any-branch-name"));
   }
 
   #[test]
@@ -234,9 +226,8 @@ mod tests {
     let bugfix_commits = grouped.get("bugfix-session").unwrap();
     assert_eq!(bugfix_commits.len(), 3);
     
-    // Test that we can detect existing branches
-    let existing = check_existing_branches(&repo, "test-prefix").unwrap();
-    assert_eq!(existing.len(), 0); // No branches should exist yet
+    // Test that we can check for non-existing branches
+    assert!(!check_branch_exists(&repo, "test-prefix/virtual/some-branch")); // No branches should exist yet
     
     println!("Successfully validated conflict scenario setup with {} bugfix commits and {} feature commits", 
              bugfix_commits.len(), 
