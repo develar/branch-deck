@@ -130,8 +130,7 @@
               variant="outline"
               icon="i-lucide-git-pull-request-closed"
               class="col-span-4"
-            >
-            </UAlert>
+            />
           </template>
         </UTree>
       </div>
