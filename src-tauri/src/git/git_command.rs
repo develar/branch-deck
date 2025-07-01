@@ -1,5 +1,5 @@
 use crate::git::git_info::GitInfo;
-use std::process::{Command, Output};
+use std::process::{Command};
 use std::sync::Mutex;
 
 pub struct GitCommandExecutor {
@@ -40,7 +40,7 @@ impl GitCommandExecutor {
 
     let git_info = self.get_info()?;
     if self.enable_logging {
-      Self::log_command(args, &git_info, repository_path);
+      log::info!("{repository_path}: {} {}", git_info.path, args.join(" "));
     }
 
     let output = Command::new(&git_info.path)
@@ -49,14 +49,6 @@ impl GitCommandExecutor {
       .output()
       .map_err(|e| format!("Failed to execute git command: {e}"))?;
 
-    Self::process_output(&output, args, &git_info)
-  }
-
-  fn log_command(args: &[&str], git_info: &GitInfo, repository_path: &str) {
-    log::info!("{repository_path}: {} {}", git_info.path, args.join(" "));
-  }
-
-  fn process_output(output: &Output, args: &[&str], git_info: &GitInfo) -> Result<String, String> {
     if output.status.success() {
       let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
       log::debug!("git command succeeded with output: {stdout}");
