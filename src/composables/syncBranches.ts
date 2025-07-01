@@ -41,13 +41,13 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory) {
         }
 
         // combine all messages with | separator
-        let combined = "";
+        let combined = ""
         for (const [index, message] of messagesByIndex) {
           if ((index !== -1 || messagesByIndex.size == 1)) {
-            combined += (combined ? ' | ' : '') + message;
+            combined += (combined ? " | " : "") + message
           }
         }
-        syncProgress.value = combined;
+        syncProgress.value = combined
       }
 
       const request = vcsRequestFactory.createRequest()

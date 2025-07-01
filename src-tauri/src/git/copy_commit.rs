@@ -1,7 +1,7 @@
 use crate::git::model::{CommitDetail, CommitInfo};
 use crate::progress::SyncEvent;
 use anyhow::anyhow;
-use git2::{Oid, Repository, Signature, Tree};
+use git2::{Commit, Oid, Repository, Signature, Tree};
 use similar::TextDiff;
 use tauri::ipc::Channel;
 
@@ -26,47 +26,38 @@ pub(crate) fn create_or_update_commit(
   progress_info: &ProgressInfo,
   task_index: i16,
 ) -> anyhow::Result<(CommitDetail, Oid)> {
-  // Get the original commit from the repository
-  let original_commit = &repo.find_commit(commit_info.id)?;
   if reuse_if_possible {
     if let Ok(note) = repo.find_note(None, commit_info.id) {
       if let Some(message) = note.message() {
-        if let Some(hash) = message.strip_prefix(PREFIX) {
-          if !hash.is_empty() {
-            return Ok((
-              CommitDetail {
-                original_hash: commit_info.id.to_string(),
-                hash: hash.to_string(),
-                is_new: false,
-                time: time_to_js(original_commit),
-                message: commit_info.message.clone(),
-              },
-              Oid::from_str(hash)?,
-            ));
-          }
+        if let Some(hash) = message.strip_prefix(PREFIX) && !hash.is_empty() {
+          return Ok((
+            CommitDetail {
+              original_hash: commit_info.id.to_string(),
+              hash: hash.to_string(),
+              is_new: false,
+              time: commit_info.time,
+              message: commit_info.message.clone(),
+            },
+            Oid::from_str(hash)?,
+          ));
         }
       }
     }
   }
 
-  // get the parent of the original commit
-  let original_parent_commit = original_commit.parent(0)?;
+  let original_commit = &repo.find_commit(commit_info.id)?;
 
-  // get the new parent commit that we'll cherry-pick onto
   let new_parent_commit = repo.find_commit(new_parent_oid)?;
+  let original_commit_parent = original_commit.parent(0)?;
 
   // Commits are processed in order (oldest to newest).
-  // We can directly compare if the new parent commit is the same as the cherry-picked original parent.
+  // We can directly compare if the new parent tree is the same as the cherry-picked original parent tree.
   // This helps us identify if the parent relationship is preserved.
-  // If the parent hash matches the hash of the previously cherry-picked commit, we can skip the merge.
-
-  // check if we can reuse the tree directly (avoid merge)
-  let original_parent_tree_id = original_parent_commit.tree_id();
-  let new_parent_tree_id = new_parent_commit.tree_id();
+  // If the tree IDs match, we can skip the merge and reuse the original tree directly.
 
   // If the trees match, it means the new parent has exactly the same content as the original parent.
   // In this case, we can apply the original commit directly without merging.
-  let new_tree = if original_parent_tree_id == new_parent_tree_id {
+  let new_tree = if original_commit_parent.tree_id() == new_parent_commit.tree_id() {
     progress.send(SyncEvent {
       message: format!(
         "[{}/{}] {}: Creating commit {}/{} ({:.7}) with existing tree",
@@ -94,14 +85,13 @@ pub(crate) fn create_or_update_commit(
       ),
       index: task_index,
     })?;
-    // trees are different, use merge_commits
-    perform_merge(repo, &new_parent_commit, original_commit)?
+    // trees are different, use merge with the cached new_parent_commit
+    perform_merge(repo, &new_parent_commit.tree()?, original_commit, original_commit_parent)?
   };
-
   let committer = Signature::now("branch-deck", original_commit.author().email().unwrap_or_default())?;
 
   let new_commit_oid = repo.commit(
-    None, // Don't update any references
+    None, // don't update any references
     &original_commit.author(),
     &committer,
     &commit_info.message,
@@ -124,7 +114,7 @@ pub(crate) fn create_or_update_commit(
     CommitDetail {
       original_hash: commit_info.id.to_string(),
       hash: new_commit_oid.to_string(),
-      time: time_to_js(original_commit),
+      time: commit_info.time,
       message: commit_info.message.clone(),
       is_new: true,
     },
@@ -132,10 +122,15 @@ pub(crate) fn create_or_update_commit(
   ))
 }
 
-/// Use git2's built-in `merge_commits` function - this is the proper way!
-fn perform_merge<'a>(repo: &'a Repository, base_commit: &git2::Commit, cherry_commit: &git2::Commit) -> anyhow::Result<Tree<'a>> {
-  // git's merge_commits does exactly what we want: a 3-way merge without touching working dir
-  let mut index = repo.merge_commits(base_commit, cherry_commit, None)?;
+/// Use a 3-way merge with explicit merge base to isolate specific commit changes
+fn perform_merge<'a>(repo: &'a Repository, base_tree: &Tree, cherry_commit: &Commit, cherry_parent: Commit) -> anyhow::Result<Tree<'a>> {
+  // Perform a 3-way merge: merge_base -> base_commit vs merge_base -> cherry_commit
+  // This ensures we only apply the specific changes from the cherry commit
+  let cherry_tree = cherry_commit.tree()?;
+  let merge_base_tree = cherry_parent.tree()?;
+  
+  let merge_options = git2::MergeOptions::new();
+  let mut index = repo.merge_trees(&merge_base_tree, base_tree, &cherry_tree, Some(&merge_options))?;
 
   if index.has_conflicts() {
     let conflict_diff = render_conflict_diffs(repo, &index)?;
@@ -190,10 +185,6 @@ fn get_blob_content(repo: &Repository, entry: &Option<git2::IndexEntry>, fallbac
 }
 
 
-#[allow(clippy::cast_possible_truncation)]
-fn time_to_js(original_commit: &git2::Commit) -> u32 {
-  original_commit.author().when().seconds() as u32
-}
 
 #[cfg(test)]
 mod tests {
@@ -210,7 +201,7 @@ mod tests {
 
     // Create base commit that modifies the file
     let base_id = create_commit(&repo, "Base changes", "file.txt", "base_line1\nbase_line2\nbase_line3\n");
-    let base_commit = repo.find_commit(base_id).unwrap();
+    let base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
 
     // Reset to initial commit and create conflicting changes
     repo.reset(initial_commit.as_object(), git2::ResetType::Hard, None).unwrap();
@@ -218,7 +209,7 @@ mod tests {
     let cherry_commit = repo.find_commit(cherry_id).unwrap();
 
     // Attempt the merge, which should have conflicts
-    let result = perform_merge(&repo, &base_commit, &cherry_commit);
+    let result = perform_merge(&repo, &base_commit, &cherry_commit, cherry_commit.parent(0).unwrap());
 
     // Test that the error is reported and contains the diff format
     assert!(result.is_err());
@@ -251,7 +242,7 @@ mod tests {
     // Create base commit that modifies middle lines
     let base_content = "line1\nline2\nline3\nBASE_MODIFIED_4\nBASE_MODIFIED_5\nline6\nline7\nline8\nline9\nline10\n";
     let base_id = create_commit(&repo, "Base changes", "file.txt", base_content);
-    let base_commit = repo.find_commit(base_id).unwrap();
+    let base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
 
     // Reset to initial and create conflicting changes to same lines
     repo.reset(initial_commit.as_object(), git2::ResetType::Hard, None).unwrap();
@@ -260,7 +251,7 @@ mod tests {
     let cherry_commit = repo.find_commit(cherry_id).unwrap();
 
     // Attempt the merge, which should have conflicts
-    let result = perform_merge(&repo, &base_commit, &cherry_commit);
+    let result = perform_merge(&repo, &base_commit, &cherry_commit, cherry_commit.parent(0).unwrap());
 
     // Test that the error shows context lines
     assert!(result.is_err());
@@ -287,7 +278,7 @@ mod tests {
 
     // Create base commit that adds a file
     let base_id = create_commit(&repo, "Base changes", "base.txt", "base content\nadded by base\n");
-    let base_commit = repo.find_commit(base_id).unwrap();
+    let base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
 
     // Reset to initial and create non-conflicting changes (different file)
     repo.reset(initial_commit.as_object(), git2::ResetType::Hard, None).unwrap();
@@ -295,7 +286,7 @@ mod tests {
     let cherry_commit = repo.find_commit(cherry_id).unwrap();
 
     // Attempt the merge, which should succeed
-    let result = perform_merge(&repo, &base_commit, &cherry_commit);
+    let result = perform_merge(&repo, &base_commit, &cherry_commit, cherry_commit.parent(0).unwrap());
 
     // Should succeed without conflicts
     assert!(result.is_ok());
@@ -304,5 +295,76 @@ mod tests {
     // The resulting tree should contain both files
     assert!(tree.get_name("base.txt").is_some());
     assert!(tree.get_name("cherry.txt").is_some());
+  }
+
+  #[test]
+  fn test_perform_merge_isolates_specific_commit_changes() {
+    // This test reproduces the exact scenario from the idea-1 repository:
+    // - Commit [392] modifies files A, B, C
+    // - Commit [258] is based on [392] and modifies files D, E
+    // - When cherry-picking [258], we should only get changes to D, E
+    // - NOT the changes to A, B, C from [392]
+    
+    let (_dir, repo) = create_test_repo();
+
+    // Create initial state (master branch)
+    let initial_id = create_commit(&repo, "Initial commit", "README.md", "# Project\n");
+    let _initial_commit = repo.find_commit(initial_id).unwrap();
+
+    // Create commit [392] - modifies Kotlin files (analogous to the workspace model changes)
+    let commit_392_id = create_commit(&repo, "[392] pass workspace model to applyLoadedStorage", "ModuleBridgeLoaderService.kt", "// workspace model changes\nclass ModuleBridgeLoaderService {\n  // updated implementation\n}\n");
+    create_commit(&repo, "Update more files for 392", "DelayedProjectSynchronizer.kt", "// delayed synchronizer changes\nclass DelayedProjectSynchronizer {\n  // implementation\n}\n");
+    create_commit(&repo, "Final 392 changes", "JpsProjectModelSynchronizer.kt", "// jps synchronizer changes\nclass JpsProjectModelSynchronizer {\n  // implementation\n}\n");
+    
+    // Create commit [258] based on [392] - modifies Java files (analogous to EditorConfig changes)
+    let commit_258_id = create_commit(&repo, "[258] CPP-45258 EditorConfig Code Style settings are not loaded", "LanguageCodeStyleSettingsProvider.java", "// EditorConfig code style changes\npublic class LanguageCodeStyleSettingsProvider {\n  // implementation\n}\n");
+    create_commit(&repo, "Complete 258 changes", "LanguageCodeStyleSettingsProviderService.java", "// service implementation\npublic class LanguageCodeStyleSettingsProviderService {\n  // implementation\n}\n");
+    
+    let commit_392 = repo.find_commit(commit_392_id).unwrap();
+    let commit_258 = repo.find_commit(commit_258_id).unwrap();
+    
+    // Verify the relationship: commit_258 should be descendant of commit_392
+    assert!(repo.graph_descendant_of(commit_258.id(), commit_392.id()).unwrap());
+    
+    // Create a target branch base (simulating the branch we're cherry-picking onto)
+    // This represents the state before any of our changes
+    let target_base = repo.find_commit(initial_id).unwrap().tree().unwrap();
+    
+    // Perform the merge: cherry-pick commit [258] onto the target base
+    // This should ONLY include the Java file changes from [258]
+    // NOT the Kotlin file changes from [392]
+    let result = perform_merge(&repo, &target_base, &commit_258, commit_258.parent(0).unwrap());
+    
+    // Should succeed without conflicts
+    assert!(result.is_ok(), "Merge should succeed without conflicts");
+    let merged_tree = result.unwrap();
+    
+    // Verify the merged tree contains:
+    // 1. The original README.md from target_base
+    assert!(merged_tree.get_name("README.md").is_some(), "Should contain original README.md");
+    
+    // 2. The Java files from commit [258] (the cherry-picked commit)
+    assert!(merged_tree.get_name("LanguageCodeStyleSettingsProvider.java").is_some(), 
+            "Should contain Java file from commit [258]");
+    
+    // 3. But NOT the Kotlin files from commit [392] (the ancestor)
+    assert!(merged_tree.get_name("ModuleBridgeLoaderService.kt").is_none(), 
+            "Should NOT contain Kotlin file from ancestor commit [392]");
+    assert!(merged_tree.get_name("DelayedProjectSynchronizer.kt").is_none(), 
+            "Should NOT contain other Kotlin files from ancestor commits");
+    assert!(merged_tree.get_name("JpsProjectModelSynchronizer.kt").is_none(), 
+            "Should NOT contain more Kotlin files from ancestor commits");
+            
+    // Verify the content of the Java file matches what was in commit [258]
+    let java_entry = merged_tree.get_name("LanguageCodeStyleSettingsProvider.java").unwrap();
+    let java_blob = repo.find_blob(java_entry.id()).unwrap();
+    let java_content = String::from_utf8_lossy(java_blob.content());
+    assert!(java_content.contains("EditorConfig code style changes"), 
+            "Java file should contain the specific changes from commit [258]");
+    
+    println!("✅ Successfully isolated commit [258] changes:");
+    println!("   - Included Java files: LanguageCodeStyleSettingsProvider.java");
+    println!("   - Excluded Kotlin files from ancestor [392]: ModuleBridgeLoaderService.kt, etc.");
+    println!("   - This proves the fix prevents cross-contamination between logical branches");
   }
 }

@@ -2,7 +2,6 @@ use crate::git::commit_list::get_commit_list;
 use crate::git::copy_commit::create_or_update_commit;
 use crate::git::model::{BranchInfo, BranchSyncStatus, CommitDetail, CommitInfo, SyncBranchResult, to_final_branch_name};
 use crate::progress::SyncEvent;
-use anyhow::Context;
 use git2::Oid;
 use indexmap::IndexMap;
 use regex::Regex;
@@ -57,6 +56,7 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
           .map(|(message, commit)| CommitInfo {
             message,
             id: commit.id(),
+            time: commit.author().when().seconds() as u32,
           })
           .collect();
         (branch_name, commit_data)
@@ -217,9 +217,7 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
       index: task_index,
     });
     
-    repo.find_commit(last_commit_hash)
-      .and_then(|commit| repo.branch(&full_branch_name, &commit, true))
-      .context(format!("Failed to set branch reference for '{full_branch_name}'"))?;
+    repo.find_commit(last_commit_hash).and_then(|commit| repo.branch(&full_branch_name, &commit, true))?;
   }
   // reverse - newest first
   commit_details.reverse();
@@ -233,7 +231,7 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   Ok(BranchInfo {
     name: branch_name,
     sync_status: branch_sync_status,
-    commit_count: u32::try_from(commit_details.len()).unwrap_or_default(),
+    commit_count: u32::try_from(commit_details.len())?,
     commit_details,
     error: None,
   })

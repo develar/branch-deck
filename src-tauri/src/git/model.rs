@@ -39,6 +39,7 @@ pub struct SyncBranchResult {
 pub struct CommitInfo {
   pub message: String,
   pub id: git2::Oid,
+  pub time: u32,
 }
 
 pub fn to_final_branch_name(
@@ -292,10 +293,12 @@ mod tests {
     let commit_info = CommitInfo {
       message: "Test commit message".to_string(),
       id: git2::Oid::from_str("1234567890abcdef1234567890abcdef12345678").unwrap(),
+      time: 1_234_567_890,
     };
     
     assert_eq!(commit_info.message, "Test commit message");
     assert_eq!(commit_info.id.to_string(), "1234567890abcdef1234567890abcdef12345678");
+    assert_eq!(commit_info.time, 1_234_567_890);
   }
 
   #[test]
@@ -303,10 +306,12 @@ mod tests {
     let commit_info = CommitInfo {
       message: "Original message".to_string(),
       id: git2::Oid::from_str("abcdef1234567890abcdef1234567890abcdef12").unwrap(),
+      time: 1_000_000_000,
     };
     
     let cloned = commit_info.clone();
     assert_eq!(cloned.message, commit_info.message);
     assert_eq!(cloned.id, commit_info.id);
+    assert_eq!(cloned.time, commit_info.time);
   }
 }
