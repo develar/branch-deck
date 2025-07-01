@@ -9,10 +9,6 @@
           "type": "json",
           "path": "src-tauri/tauri.conf.json",
           "jsonpath": "$.version"
-        },
-        {
-          "type": "rust",
-          "path": "src-tauri/Cargo.toml"
         }
       ]
     }
