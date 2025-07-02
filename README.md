@@ -1,44 +1,56 @@
 # Branch Deck
 
-**💡 Consider [GitButler](https://gitbutler.com) first**
+**💡 First, consider [GitButler](https://gitbutler.com)**
 
-Branch Deck is a workaround for [performance](https://github.com/gitbutlerapp/gitbutler/issues/3235) 
-[issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) with GitButler on large repositories.
+Branch Deck is a lightweight workaround for [performance issues](https://github.com/gitbutlerapp/gitbutler/issues/3235) in GitButler when working with large repositories.
 
-Automatically create Git branches from commits with prefixed messages. Organize your work into separate branches without manual branch management.
+It automatically creates Git branches from commits with prefixed messages—helping you organize your work without the hassle of manual branch management.
 
 ![Branch Deck Screenshot](branch-deck-screenshot.png)
 
-## What It Does
+---
 
-Branch Deck creates Git branches from your commits based on message prefixes. Commits with the same prefix get cherry-picked into their own dedicated branch.
+## ✨ What It Does
 
-## How It Works
+Branch Deck scans your commit history and automatically generates Git branches based on commit message prefixes. All commits sharing the same prefix are cherry-picked into a dedicated branch.
 
-Branch Deck analyzes your commit history and creates separate branches based on commit message prefixes using the `[name]` format. For example:
-- Commits prefixed with `[feature-auth]` go to a `feature-auth` branch
-- Commits prefixed with `[bugfix-login]` go to a `bugfix-login` branch
-- Commits without prefixes remain on the main branch
+---
 
-This allows you to maintain a clean, organized Git history while working on multiple features simultaneously.
+## ⚙️ How It Works
 
-### Current Limitations
+Commit messages using the `[prefix]` format are used to create and populate new branches. For example:
+
+* `[feature-auth]` → branch `feature-auth`
+* `[bugfix-login]` → branch `bugfix-login`
+* Commits without a prefix remain on the main branch
+
+This makes it easy to maintain a clean, segmented Git history while developing multiple features or fixes in parallel.
+
+---
+
+## 🚧 Limitations
+
+* **No sub-branching yet**: Nested structures like `[feature-auth/oauth]` are not supported (yet).
+
+---
 
 - Sub-branches not yet supported: Nested branch structures (e.g., `[feature-auth/oauth]`) are not currently implemented.
 
-## Why Branch Deck?
+* **Simple**: Just prefix your commits with `[name]`
+* **Automatic**: Branches are created for you—no manual steps required
+* **Organized**: Your history is cleaner, and features are neatly separated
+* **Flexible**: Work on multiple tasks in one working directory without clutter
 
-- **Simple**: Just add `[name]` prefixes to your commit messages
-- **Automatic**: Creates actual Git branches without manual branch management
-- **Organized**: Each feature gets its own clean branch automatically
-- **Flexible**: Work on multiple features simultaneously in one working directory
+---
 
-## Installation
+## 🛠 Installation
 
-[Download the latest release](https://github.com/develar/branch-deck/releases/latest)
+👉 [Download the latest release](https://github.com/develar/branch-deck/releases/latest)
 
-Note: Auto-update is not yet supported but is planned for future releases.
+> ⚠️ Auto-update is not supported at the moment but is on the roadmap.
 
-## Contributing
+---
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for development setup and contribution guidelines.
+## 🤝 Contributing
+
+Interested in contributing? Check out [DEVELOPMENT.md](DEVELOPMENT.md) for setup instructions and guidelines.
