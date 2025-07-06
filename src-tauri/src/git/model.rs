@@ -42,19 +42,16 @@ pub struct CommitInfo {
   pub time: u32,
 }
 
-pub fn to_final_branch_name(
-  branch_prefix: &str,
-  branch_name: &str,
-) -> anyhow::Result<String> {
+pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::Result<String> {
   let prefix = branch_prefix.trim_end_matches('/').trim();
   ensure!(!prefix.is_empty(), "branch prefix cannot be blank");
 
   let name = branch_name.trim_end_matches('/').trim();
   ensure!(!name.is_empty(), "branch name cannot be blank");
-  
+
   // Sanitize branch name to make it valid for Git references
   let sanitized_name = sanitize_branch_name(name);
-  
+
   Ok(format!("{prefix}/virtual/{sanitized_name}"))
 }
 
@@ -150,7 +147,7 @@ mod tests {
       message: "Test commit".to_string(),
       time: 1_234_567_890,
     };
-    
+
     assert_eq!(commit.original_hash, "abc123");
     assert_eq!(commit.hash, "def456");
     assert!(commit.is_new);
@@ -216,9 +213,7 @@ mod tests {
       error: None,
     };
 
-    let result = SyncBranchResult {
-      branches: vec![branch1, branch2],
-    };
+    let result = SyncBranchResult { branches: vec![branch1, branch2] };
 
     assert_eq!(result.branches.len(), 2);
     assert_eq!(result.branches[0].name, "feature/auth");
@@ -238,7 +233,7 @@ mod tests {
     // Test that the struct can be serialized and deserialized
     let json = serde_json::to_string(&branch).unwrap();
     let deserialized: BranchInfo = serde_json::from_str(&json).unwrap();
-    
+
     assert_eq!(branch.name, deserialized.name);
     assert_eq!(branch.sync_status, deserialized.sync_status);
     assert_eq!(branch.commit_count, deserialized.commit_count);
@@ -280,10 +275,10 @@ mod tests {
   fn test_to_final_branch_name_with_sanitization() {
     let result = to_final_branch_name("develar", "ui dispatcher").unwrap();
     assert_eq!(result, "develar/virtual/ui-dispatcher");
-    
+
     let result = to_final_branch_name("feature", "test~branch").unwrap();
     assert_eq!(result, "feature/virtual/test-branch");
-    
+
     let result = to_final_branch_name("bugfix", "hello world test").unwrap();
     assert_eq!(result, "bugfix/virtual/hello-world-test");
   }
@@ -295,7 +290,7 @@ mod tests {
       id: git2::Oid::from_str("1234567890abcdef1234567890abcdef12345678").unwrap(),
       time: 1_234_567_890,
     };
-    
+
     assert_eq!(commit_info.message, "Test commit message");
     assert_eq!(commit_info.id.to_string(), "1234567890abcdef1234567890abcdef12345678");
     assert_eq!(commit_info.time, 1_234_567_890);
@@ -308,7 +303,7 @@ mod tests {
       id: git2::Oid::from_str("abcdef1234567890abcdef1234567890abcdef12").unwrap(),
       time: 1_000_000_000,
     };
-    
+
     let cloned = commit_info.clone();
     assert_eq!(cloned.message, commit_info.message);
     assert_eq!(cloned.id, commit_info.id);

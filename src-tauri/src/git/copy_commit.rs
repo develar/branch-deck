@@ -29,7 +29,9 @@ pub(crate) fn create_or_update_commit(
   if reuse_if_possible {
     if let Ok(note) = repo.find_note(None, commit_info.id) {
       if let Some(message) = note.message() {
-        if let Some(hash) = message.strip_prefix(PREFIX) && !hash.is_empty() {
+        if let Some(hash) = message.strip_prefix(PREFIX)
+          && !hash.is_empty()
+        {
           return Ok((
             CommitDetail {
               original_hash: commit_info.id.to_string(),
@@ -101,14 +103,7 @@ pub(crate) fn create_or_update_commit(
 
   // store the mapping in git notes
   // create a new commit with the merged tree
-  repo.note(
-    &original_commit.author(),
-    &committer,
-    None,
-    commit_info.id,
-    &format!("v-commit:{new_commit_oid}"),
-    true,
-  )?;
+  repo.note(&original_commit.author(), &committer, None, commit_info.id, &format!("v-commit:{new_commit_oid}"), true)?;
 
   Ok((
     CommitDetail {
@@ -128,7 +123,7 @@ fn perform_merge<'a>(repo: &'a Repository, base_tree: &Tree, cherry_commit: &Com
   // This ensures we only apply the specific changes from the cherry commit
   let cherry_tree = cherry_commit.tree()?;
   let merge_base_tree = cherry_parent.tree()?;
-  
+
   let merge_options = git2::MergeOptions::new();
   let mut index = repo.merge_trees(&merge_base_tree, base_tree, &cherry_tree, Some(&merge_options))?;
 
@@ -148,16 +143,17 @@ fn render_conflict_diffs(repo: &Repository, index: &git2::Index) -> anyhow::Resu
 
   for conflict in index.conflicts()? {
     let conflict = conflict?;
-    let path = conflict.their
+    let path = conflict
+      .their
       .as_ref()
       .or(conflict.our.as_ref())
       .or(conflict.ancestor.as_ref())
       .map_or_else(|| "<unknown>".to_string(), |entry| String::from_utf8_lossy(&entry.path).to_string());
-    
+
     // Get the different versions of the file
     let our_content = get_blob_content(repo, &conflict.our, "<file deleted in our version>");
     let their_content = get_blob_content(repo, &conflict.their, "<file deleted in their version>");
-    
+
     // Use similar crate's TextDiff for better diff output
     let diff = TextDiff::from_lines(&our_content, &their_content);
     let diff_content: String = diff
@@ -168,7 +164,7 @@ fn render_conflict_diffs(repo: &Repository, index: &git2::Index) -> anyhow::Resu
 
     conflict_info.push(diff_content);
   }
-  
+
   Ok(conflict_info.join("\n"))
 }
 
@@ -184,12 +180,10 @@ fn get_blob_content(repo: &Repository, entry: &Option<git2::IndexEntry>, fallbac
   }
 }
 
-
-
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::test_utils::git_test_utils::{create_test_repo, create_commit};
+  use crate::test_utils::git_test_utils::{create_commit, create_test_repo};
 
   #[test]
   fn test_perform_merge_displays_conflict_diffs() {
@@ -215,17 +209,17 @@ mod tests {
     assert!(result.is_err());
     let error = result.unwrap_err();
     let error_message = error.to_string();
-    
+
     // Check that it reports conflicts
     assert!(error_message.contains("Cherry-pick resulted in conflicts:"));
-    
+
     // Check that it shows diff format with file headers
     assert!(error_message.contains("--- a/file.txt"));
     assert!(error_message.contains("+++ b/file.txt"));
-    
+
     // Check that it shows actual diff content with - and + prefixes
     assert!(error_message.contains("-base_line") || error_message.contains("+cherry_line"));
-    
+
     println!("Conflict diff error message:");
     println!("{error_message}");
   }
@@ -257,10 +251,10 @@ mod tests {
     assert!(result.is_err());
     let error = result.unwrap_err();
     let error_message = error.to_string();
-    
+
     println!("Conflict diff with context lines:");
     println!("{error_message}");
-    
+
     // Should show context lines around the conflict
     assert!(error_message.contains(" line3")); // context before
     assert!(error_message.contains(" line6")); // context after
@@ -291,7 +285,7 @@ mod tests {
     // Should succeed without conflicts
     assert!(result.is_ok());
     let tree = result.unwrap();
-    
+
     // The resulting tree should contain both files
     assert!(tree.get_name("base.txt").is_some());
     assert!(tree.get_name("cherry.txt").is_some());
@@ -304,7 +298,7 @@ mod tests {
     // - Commit [258] is based on [392] and modifies files D, E
     // - When cherry-picking [258], we should only get changes to D, E
     // - NOT the changes to A, B, C from [392]
-    
+
     let (_dir, repo) = create_test_repo();
 
     // Create initial state (master branch)
@@ -312,56 +306,91 @@ mod tests {
     let _initial_commit = repo.find_commit(initial_id).unwrap();
 
     // Create commit [392] - modifies Kotlin files (analogous to the workspace model changes)
-    let commit_392_id = create_commit(&repo, "[392] pass workspace model to applyLoadedStorage", "ModuleBridgeLoaderService.kt", "// workspace model changes\nclass ModuleBridgeLoaderService {\n  // updated implementation\n}\n");
-    create_commit(&repo, "Update more files for 392", "DelayedProjectSynchronizer.kt", "// delayed synchronizer changes\nclass DelayedProjectSynchronizer {\n  // implementation\n}\n");
-    create_commit(&repo, "Final 392 changes", "JpsProjectModelSynchronizer.kt", "// jps synchronizer changes\nclass JpsProjectModelSynchronizer {\n  // implementation\n}\n");
-    
+    let commit_392_id = create_commit(
+      &repo,
+      "[392] pass workspace model to applyLoadedStorage",
+      "ModuleBridgeLoaderService.kt",
+      "// workspace model changes\nclass ModuleBridgeLoaderService {\n  // updated implementation\n}\n",
+    );
+    create_commit(
+      &repo,
+      "Update more files for 392",
+      "DelayedProjectSynchronizer.kt",
+      "// delayed synchronizer changes\nclass DelayedProjectSynchronizer {\n  // implementation\n}\n",
+    );
+    create_commit(
+      &repo,
+      "Final 392 changes",
+      "JpsProjectModelSynchronizer.kt",
+      "// jps synchronizer changes\nclass JpsProjectModelSynchronizer {\n  // implementation\n}\n",
+    );
+
     // Create commit [258] based on [392] - modifies Java files (analogous to EditorConfig changes)
-    let commit_258_id = create_commit(&repo, "[258] CPP-45258 EditorConfig Code Style settings are not loaded", "LanguageCodeStyleSettingsProvider.java", "// EditorConfig code style changes\npublic class LanguageCodeStyleSettingsProvider {\n  // implementation\n}\n");
-    create_commit(&repo, "Complete 258 changes", "LanguageCodeStyleSettingsProviderService.java", "// service implementation\npublic class LanguageCodeStyleSettingsProviderService {\n  // implementation\n}\n");
-    
+    let commit_258_id = create_commit(
+      &repo,
+      "[258] CPP-45258 EditorConfig Code Style settings are not loaded",
+      "LanguageCodeStyleSettingsProvider.java",
+      "// EditorConfig code style changes\npublic class LanguageCodeStyleSettingsProvider {\n  // implementation\n}\n",
+    );
+    create_commit(
+      &repo,
+      "Complete 258 changes",
+      "LanguageCodeStyleSettingsProviderService.java",
+      "// service implementation\npublic class LanguageCodeStyleSettingsProviderService {\n  // implementation\n}\n",
+    );
+
     let commit_392 = repo.find_commit(commit_392_id).unwrap();
     let commit_258 = repo.find_commit(commit_258_id).unwrap();
-    
+
     // Verify the relationship: commit_258 should be descendant of commit_392
     assert!(repo.graph_descendant_of(commit_258.id(), commit_392.id()).unwrap());
-    
+
     // Create a target branch base (simulating the branch we're cherry-picking onto)
     // This represents the state before any of our changes
     let target_base = repo.find_commit(initial_id).unwrap().tree().unwrap();
-    
+
     // Perform the merge: cherry-pick commit [258] onto the target base
     // This should ONLY include the Java file changes from [258]
     // NOT the Kotlin file changes from [392]
     let result = perform_merge(&repo, &target_base, &commit_258, commit_258.parent(0).unwrap());
-    
+
     // Should succeed without conflicts
     assert!(result.is_ok(), "Merge should succeed without conflicts");
     let merged_tree = result.unwrap();
-    
+
     // Verify the merged tree contains:
     // 1. The original README.md from target_base
     assert!(merged_tree.get_name("README.md").is_some(), "Should contain original README.md");
-    
+
     // 2. The Java files from commit [258] (the cherry-picked commit)
-    assert!(merged_tree.get_name("LanguageCodeStyleSettingsProvider.java").is_some(), 
-            "Should contain Java file from commit [258]");
-    
+    assert!(
+      merged_tree.get_name("LanguageCodeStyleSettingsProvider.java").is_some(),
+      "Should contain Java file from commit [258]"
+    );
+
     // 3. But NOT the Kotlin files from commit [392] (the ancestor)
-    assert!(merged_tree.get_name("ModuleBridgeLoaderService.kt").is_none(), 
-            "Should NOT contain Kotlin file from ancestor commit [392]");
-    assert!(merged_tree.get_name("DelayedProjectSynchronizer.kt").is_none(), 
-            "Should NOT contain other Kotlin files from ancestor commits");
-    assert!(merged_tree.get_name("JpsProjectModelSynchronizer.kt").is_none(), 
-            "Should NOT contain more Kotlin files from ancestor commits");
-            
+    assert!(
+      merged_tree.get_name("ModuleBridgeLoaderService.kt").is_none(),
+      "Should NOT contain Kotlin file from ancestor commit [392]"
+    );
+    assert!(
+      merged_tree.get_name("DelayedProjectSynchronizer.kt").is_none(),
+      "Should NOT contain other Kotlin files from ancestor commits"
+    );
+    assert!(
+      merged_tree.get_name("JpsProjectModelSynchronizer.kt").is_none(),
+      "Should NOT contain more Kotlin files from ancestor commits"
+    );
+
     // Verify the content of the Java file matches what was in commit [258]
     let java_entry = merged_tree.get_name("LanguageCodeStyleSettingsProvider.java").unwrap();
     let java_blob = repo.find_blob(java_entry.id()).unwrap();
     let java_content = String::from_utf8_lossy(java_blob.content());
-    assert!(java_content.contains("EditorConfig code style changes"), 
-            "Java file should contain the specific changes from commit [258]");
-    
+    assert!(
+      java_content.contains("EditorConfig code style changes"),
+      "Java file should contain the specific changes from commit [258]"
+    );
+
     println!("✅ Successfully isolated commit [258] changes:");
     println!("   - Included Java files: LanguageCodeStyleSettingsProvider.java");
     println!("   - Excluded Kotlin files from ancestor [392]: ModuleBridgeLoaderService.kt, etc.");

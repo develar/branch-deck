@@ -90,10 +90,8 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
       total_branches,
       progress: progress_clone,
     };
-    
-    let task = tauri::async_runtime::spawn(async move {
-      process_single_branch(params).await
-    });
+
+    let task = tauri::async_runtime::spawn(async move { process_single_branch(params).await });
 
     tasks.push((task, branch_name_for_error));
   }
@@ -148,7 +146,7 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
     total_branches,
     progress,
   } = params;
-  
+
   let task_index = current_branch_idx as i16;
   let repo = git2::Repository::open(&repository_path)?;
   let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
@@ -175,15 +173,7 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
       total_branches,
     };
 
-    let (detail, new_id) = create_or_update_commit(
-      &commit_info,
-      current_parent_hash,
-      reuse_if_possible,
-      &repo,
-      &progress,
-      &progress_info,
-      task_index,
-    )?;
+    let (detail, new_id) = create_or_update_commit(&commit_info, current_parent_hash, reuse_if_possible, &repo, &progress, &progress_info, task_index)?;
 
     if detail.is_new {
       is_any_commit_changed = true;
@@ -208,15 +198,10 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   // only update the branch if it's new or changed
   if branch_sync_status != BranchSyncStatus::Unchanged {
     let _ = progress.send(SyncEvent {
-      message: format!(
-        "[{}/{}] {}: Setting branch reference",
-        current_branch_idx + 1,
-        total_branches,
-        branch_name
-      ),
+      message: format!("[{}/{}] {}: Setting branch reference", current_branch_idx + 1, total_branches, branch_name),
       index: task_index,
     });
-    
+
     repo.find_commit(last_commit_hash).and_then(|commit| repo.branch(&full_branch_name, &commit, true))?;
   }
   // reverse - newest first

@@ -9,10 +9,14 @@ mod test_utils;
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::push::push_branch;
 use commands::sync_branches::sync_branches;
+use std::error::Error;
 use tauri_specta::{Builder, collect_commands};
 
 use git::git_command::GitCommandExecutor;
-use tauri::Manager;
+use tauri::{
+  App, Emitter, Manager,
+  menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,14 +38,97 @@ pub fn run() {
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_window_state::Builder::new().build())
     .plugin(tauri_plugin_store::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
     .invoke_handler(ts_builder.invoke_handler())
+    .on_menu_event(handle_menu_event)
     .setup(move |app| {
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
 
+      configure_app_menu(app)?;
+
       Ok(())
     })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
+  let check_for_updates = MenuItemBuilder::with_id("check_for_updates", "Check for updates…").build(app)?;
+
+  #[cfg(target_os = "macos")]
+  let app_name = app.package_info().name.clone();
+
+  #[cfg(target_os = "macos")]
+  let mac_menu = &SubmenuBuilder::new(app, app_name)
+    .about(None)
+    .separator()
+    .item(&check_for_updates)
+    .separator()
+    .services()
+    .separator()
+    .hide()
+    .hide_others()
+    .show_all()
+    .separator()
+    .quit()
+    .build()?;
+
+  #[cfg(not(target_os = "macos"))]
+  let file_menu = &SubmenuBuilder::new(app, "File").build()?;
+
+  #[cfg(not(target_os = "linux"))]
+  let edit_menu = &SubmenuBuilder::new(app, "Edit")
+    .items(&[
+      &PredefinedMenuItem::cut(app, None)?,
+      &PredefinedMenuItem::copy(app, None)?,
+      &PredefinedMenuItem::paste(app, None)?,
+    ])
+    .build()?;
+
+  #[cfg(target_os = "macos")]
+  edit_menu.append(&PredefinedMenuItem::select_all(app, None)?)?;
+
+  let view_menu = &SubmenuBuilder::new(app, "View").build()?;
+
+  #[cfg(target_os = "macos")]
+  view_menu.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+
+  #[cfg(target_os = "macos")]
+  let window_menu = &SubmenuBuilder::new(app, "Window")
+    .items(&[
+      &PredefinedMenuItem::minimize(app, None)?,
+      &PredefinedMenuItem::maximize(app, None)?,
+      &PredefinedMenuItem::separator(app)?,
+      &PredefinedMenuItem::close_window(app, None)?,
+    ])
+    .build()?;
+
+  let menu = Menu::with_items(
+    app,
+    &[
+      #[cfg(target_os = "macos")]
+      mac_menu,
+      #[cfg(not(target_os = "macos"))]
+      file_menu,
+      #[cfg(not(target_os = "linux"))]
+      edit_menu,
+      view_menu,
+      #[cfg(target_os = "macos")]
+      window_menu,
+    ],
+  )?;
+
+  app.set_menu(menu)?;
+  Ok(())
+}
+
+fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
+  if event.id() == "check_for_updates" {
+    let result = app.emit("check_for_updates", ());
+    if result.is_err() {
+      log::error!("Error while checking for updates: {:?}", result.err());
+    }
+  }
 }

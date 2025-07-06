@@ -1,5 +1,5 @@
 use crate::git::git_info::GitInfo;
-use std::process::{Command};
+use std::process::Command;
 use std::sync::Mutex;
 
 pub struct GitCommandExecutor {
@@ -8,13 +8,14 @@ pub struct GitCommandExecutor {
 }
 
 impl Default for GitCommandExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl GitCommandExecutor {
-  #[must_use] pub fn new() -> Self {
+  #[must_use]
+  pub fn new() -> Self {
     Self {
       enable_logging: true,
       info: Mutex::new(None),

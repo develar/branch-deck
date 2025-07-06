@@ -1,4 +1,4 @@
-import {defineConfig} from "vite"
+import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
 import ui from "@nuxt/ui/vite"
 
@@ -15,6 +15,11 @@ export default defineConfig(async () => ({
           // primary: 'indigo',
           // neutral: 'zinc'
         },
+        toast: {
+          slots: {
+            description: "text-sm text-muted select-text",
+          }
+        }
       },
     }),
   ],
@@ -40,4 +45,4 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+}))
