@@ -74,10 +74,10 @@
       title="No branches found"
       variant="soft"
     />
-    <div v-else class="space-y-4">
+    <template v-else>
       <!-- Branches Tree -->
       <div v-if="syncResult.data.branches.length > 0" class="space-y-4">
-        <UTree :items="branchTreeData" :ui="{linkLabel: 'grid grid-cols-4 justify-items-start items-center gap-2 w-full' }">
+        <UTree :items="branchTreeData" :ui="{linkLabel: 'grid text-left items-center grid-cols-[minmax(0,0.5fr)_auto_auto] gap-2 w-full' }">
           <!--suppress VueUnrecognizedSlot -->
           <template #item-label="{ item }">
             <span class="truncate">{{ item.label }}</span>
@@ -112,7 +112,7 @@
           <!--suppress VueUnrecognizedSlot -->
           <!-- @vue-ignore -->
           <template #commit-label="{ item }">
-            <span class="truncate col-span-2">{{ item.label }}</span>
+            <span class="truncate">{{ item.label }}</span>
             <span class="text-xs text-neutral-500 font-mono">
               {{ formatTimestamp((item as BranchChild).commit.time) }}
             </span>
@@ -134,7 +134,7 @@
           </template>
         </UTree>
       </div>
-    </div>
+    </template>
   </UCard>
 </template>
 
