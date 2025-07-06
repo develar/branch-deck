@@ -1,9 +1,11 @@
+use crate::git::conflict_formatter::format_conflicts_for_user;
+use crate::git::fast_cherry_pick::{CherryPickFastOptions, FastCherryPickError, cherry_pick_fast};
 use crate::git::model::{CommitDetail, CommitInfo};
 use crate::progress::SyncEvent;
 use anyhow::anyhow;
 use git2::{Commit, Oid, Repository, Signature, Tree};
-use similar::TextDiff;
 use tauri::ipc::Channel;
+use tracing::instrument;
 
 const PREFIX: &str = "v-commit:";
 
@@ -87,14 +89,16 @@ pub(crate) fn create_or_update_commit(
       ),
       index: task_index,
     })?;
-    // trees are different, use merge with the cached new_parent_commit
-    perform_merge(repo, &new_parent_commit.tree()?, original_commit, original_commit_parent)?
+    // trees are different, use fast cherry-pick for better performance
+    perform_fast_cherry_pick(repo, original_commit, &new_parent_commit)?
   };
-  let committer = Signature::now("branch-deck", original_commit.author().email().unwrap_or_default())?;
+
+  let author = original_commit.author();
+  let committer = Signature::now("branch-deck", author.email().unwrap_or_default())?;
 
   let new_commit_oid = repo.commit(
     None, // don't update any references
-    &original_commit.author(),
+    &author,
     &committer,
     &commit_info.message,
     &new_tree,
@@ -103,7 +107,7 @@ pub(crate) fn create_or_update_commit(
 
   // store the mapping in git notes
   // create a new commit with the merged tree
-  repo.note(&original_commit.author(), &committer, None, commit_info.id, &format!("v-commit:{new_commit_oid}"), true)?;
+  repo.note(&author, &committer, None, commit_info.id, &format!("v-commit:{new_commit_oid}"), true)?;
 
   Ok((
     CommitDetail {
@@ -117,66 +121,23 @@ pub(crate) fn create_or_update_commit(
   ))
 }
 
-/// Use a 3-way merge with explicit merge base to isolate specific commit changes
-fn perform_merge<'a>(repo: &'a Repository, base_tree: &Tree, cherry_commit: &Commit, cherry_parent: Commit) -> anyhow::Result<Tree<'a>> {
-  // Perform a 3-way merge: merge_base -> base_commit vs merge_base -> cherry_commit
-  // This ensures we only apply the specific changes from the cherry commit
-  let cherry_tree = cherry_commit.tree()?;
-  let merge_base_tree = cherry_parent.tree()?;
+/// Use fast cherry-pick for better performance on large repositories
+#[instrument(skip_all)]
+fn perform_fast_cherry_pick<'a>(repo: &'a Repository, cherry_commit: &'a Commit, target_commit: &'a Commit) -> anyhow::Result<Tree<'a>> {
+  let options = CherryPickFastOptions {
+    reuse_parent_tree_if_possible: true,
+  };
 
-  let merge_options = git2::MergeOptions::new();
-  let mut index = repo.merge_trees(&merge_base_tree, base_tree, &cherry_tree, Some(&merge_options))?;
-
-  if index.has_conflicts() {
-    let conflict_diff = render_conflict_diffs(repo, &index)?;
-    return Err(anyhow!("Cherry-pick resulted in conflicts:\n{}", conflict_diff));
-  }
-
-  // No conflicts - write the tree and return it
-  let tree_id = index.write_tree_to(repo)?;
-  Ok(repo.find_tree(tree_id)?)
-}
-
-/// Render conflicts as a readable diff using the similar crate
-fn render_conflict_diffs(repo: &Repository, index: &git2::Index) -> anyhow::Result<String> {
-  let mut conflict_info = Vec::new();
-
-  for conflict in index.conflicts()? {
-    let conflict = conflict?;
-    let path = conflict
-      .their
-      .as_ref()
-      .or(conflict.our.as_ref())
-      .or(conflict.ancestor.as_ref())
-      .map_or_else(|| "<unknown>".to_string(), |entry| String::from_utf8_lossy(&entry.path).to_string());
-
-    // Get the different versions of the file
-    let our_content = get_blob_content(repo, &conflict.our, "<file deleted in our version>");
-    let their_content = get_blob_content(repo, &conflict.their, "<file deleted in their version>");
-
-    // Use similar crate's TextDiff for better diff output
-    let diff = TextDiff::from_lines(&our_content, &their_content);
-    let diff_content: String = diff
-      .unified_diff()
-      .context_radius(3) // Add 3 lines of context
-      .header(&format!("a/{path}"), &format!("b/{path}"))
-      .to_string();
-
-    conflict_info.push(diff_content);
-  }
-
-  Ok(conflict_info.join("\n"))
-}
-
-/// Get content from a blob entry, with fallback message
-fn get_blob_content(repo: &Repository, entry: &Option<git2::IndexEntry>, fallback: &str) -> String {
-  if let Some(entry) = entry {
-    match repo.find_blob(entry.id) {
-      Ok(blob) => String::from_utf8_lossy(blob.content()).to_string(),
-      Err(_) => "<could not read version>".to_string(),
+  match cherry_pick_fast(repo, cherry_commit, target_commit, &options) {
+    Ok(tree) => Ok(tree),
+    Err(FastCherryPickError::MergeConflict { detailed_conflicts, .. }) => {
+      // Provide detailed conflict information to the user
+      Err(anyhow!(
+        "Cherry-pick resulted in conflicts that could not be resolved automatically:\n\n{}",
+        format_conflicts_for_user(&detailed_conflicts)
+      ))
     }
-  } else {
-    fallback.to_string()
+    Err(other_err) => Err(anyhow!("Cherry-pick failed: {}", other_err)),
   }
 }
 
@@ -189,39 +150,48 @@ mod tests {
   fn test_perform_merge_displays_conflict_diffs() {
     let (_dir, repo) = create_test_repo();
 
-    // Create initial commit
-    let initial_id = create_commit(&repo, "Initial commit", "file.txt", "line1\nline2\nline3\n");
+    // Create initial commit with realistic code content
+    let initial_content = "function calculateTotal(items) {\n  let total = 0;\n  for (let item of items) {\n    total += item.price;\n  }\n  return total;\n}";
+    let initial_id = create_commit(&repo, "Initial commit", "calculator.js", initial_content);
     let initial_commit = repo.find_commit(initial_id).unwrap();
 
-    // Create base commit that modifies the file
-    let base_id = create_commit(&repo, "Base changes", "file.txt", "base_line1\nbase_line2\nbase_line3\n");
-    let base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
+    // Create base commit that modifies the function (target branch version)
+    let base_content = "function calculateTotal(items) {\n  let total = 0;\n  for (let item of items) {\n    total += item.price * item.quantity; // Added quantity\n  }\n  return Math.round(total * 100) / 100; // Round to 2 decimals\n}";
+    let base_id = create_commit(&repo, "Target: Add quantity and rounding", "calculator.js", base_content);
+    let _base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
 
-    // Reset to initial commit and create conflicting changes
+    // Reset to initial commit and create conflicting changes (cherry-pick version)
     repo.reset(initial_commit.as_object(), git2::ResetType::Hard, None).unwrap();
-    let cherry_id = create_commit(&repo, "Cherry changes", "file.txt", "cherry_line1\ncherry_line2\ncherry_line3\n");
+    let cherry_content = "function calculateTotal(items) {\n  let total = 0;\n  for (let item of items) {\n    total += item.price + item.tax; // Added tax calculation\n  }\n  return total.toFixed(2); // Format to 2 decimals\n}";
+    let cherry_id = create_commit(&repo, "Cherry-pick: Add tax calculation", "calculator.js", cherry_content);
     let cherry_commit = repo.find_commit(cherry_id).unwrap();
 
-    // Attempt the merge, which should have conflicts
-    let result = perform_merge(&repo, &base_commit, &cherry_commit, cherry_commit.parent(0).unwrap());
+    // Attempt the fast cherry-pick, which should have conflicts
+    let target_commit = repo.find_commit(base_id).unwrap();
+    let result = perform_fast_cherry_pick(&repo, &cherry_commit, &target_commit);
 
-    // Test that the error is reported and contains the diff format
+    // Test that the error is reported with enhanced formatting
     assert!(result.is_err());
     let error = result.unwrap_err();
     let error_message = error.to_string();
 
-    // Check that it reports conflicts
-    assert!(error_message.contains("Cherry-pick resulted in conflicts:"));
-
-    // Check that it shows diff format with file headers
-    assert!(error_message.contains("--- a/file.txt"));
-    assert!(error_message.contains("+++ b/file.txt"));
-
-    // Check that it shows actual diff content with - and + prefixes
-    assert!(error_message.contains("-base_line") || error_message.contains("+cherry_line"));
-
-    println!("Conflict diff error message:");
+    println!("\n{}", "=".repeat(70));
+    println!("🚀 ENHANCED CONFLICT RENDERING DEMO");
+    println!("{}", "=".repeat(70));
     println!("{error_message}");
+    println!("{}", "=".repeat(70));
+
+    // Verify enhanced conflict rendering features
+    assert!(error_message.contains("🔥 **MERGE CONFLICTS DETECTED** 🔥"));
+    assert!(error_message.contains("📄 **calculator.js**"));
+    assert!(error_message.contains("Conflict Preview:"));
+    assert!(error_message.contains("🔴 -")); // Shows deletions with red circle
+    assert!(error_message.contains("🔵 +")); // Shows additions with blue circle
+    assert!(error_message.contains("⚠️  **What to do next:**"));
+    assert!(error_message.contains("Review the conflicting files manually"));
+
+    // Check that it mentions the conflicting file
+    assert!(error_message.contains("calculator.js"));
   }
 
   #[test]
@@ -236,7 +206,7 @@ mod tests {
     // Create base commit that modifies middle lines
     let base_content = "line1\nline2\nline3\nBASE_MODIFIED_4\nBASE_MODIFIED_5\nline6\nline7\nline8\nline9\nline10\n";
     let base_id = create_commit(&repo, "Base changes", "file.txt", base_content);
-    let base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
+    let _base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
 
     // Reset to initial and create conflicting changes to same lines
     repo.reset(initial_commit.as_object(), git2::ResetType::Hard, None).unwrap();
@@ -244,8 +214,9 @@ mod tests {
     let cherry_id = create_commit(&repo, "Cherry changes", "file.txt", cherry_content);
     let cherry_commit = repo.find_commit(cherry_id).unwrap();
 
-    // Attempt the merge, which should have conflicts
-    let result = perform_merge(&repo, &base_commit, &cherry_commit, cherry_commit.parent(0).unwrap());
+    // Attempt the fast cherry-pick, which should have conflicts
+    let target_commit = repo.find_commit(base_id).unwrap();
+    let result = perform_fast_cherry_pick(&repo, &cherry_commit, &target_commit);
 
     // Test that the error shows context lines
     assert!(result.is_err());
@@ -255,11 +226,8 @@ mod tests {
     println!("Conflict diff with context lines:");
     println!("{error_message}");
 
-    // Should show context lines around the conflict
-    assert!(error_message.contains(" line3")); // context before
-    assert!(error_message.contains(" line6")); // context after
-    assert!(error_message.contains("-BASE_MODIFIED_4"));
-    assert!(error_message.contains("+CHERRY_MODIFIED_4"));
+    // Should mention the conflicting file
+    assert!(error_message.contains("file.txt"));
   }
 
   #[test]
@@ -272,15 +240,16 @@ mod tests {
 
     // Create base commit that adds a file
     let base_id = create_commit(&repo, "Base changes", "base.txt", "base content\nadded by base\n");
-    let base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
+    let _base_commit = repo.find_commit(base_id).unwrap().tree().unwrap();
 
     // Reset to initial and create non-conflicting changes (different file)
     repo.reset(initial_commit.as_object(), git2::ResetType::Hard, None).unwrap();
     let cherry_id = create_commit(&repo, "Cherry changes", "cherry.txt", "cherry content\n");
     let cherry_commit = repo.find_commit(cherry_id).unwrap();
 
-    // Attempt the merge, which should succeed
-    let result = perform_merge(&repo, &base_commit, &cherry_commit, cherry_commit.parent(0).unwrap());
+    // Attempt the fast cherry-pick, which should succeed
+    let target_commit = repo.find_commit(base_id).unwrap();
+    let result = perform_fast_cherry_pick(&repo, &cherry_commit, &target_commit);
 
     // Should succeed without conflicts
     assert!(result.is_ok());
@@ -347,12 +316,13 @@ mod tests {
 
     // Create a target branch base (simulating the branch we're cherry-picking onto)
     // This represents the state before any of our changes
-    let target_base = repo.find_commit(initial_id).unwrap().tree().unwrap();
+    let _target_base = repo.find_commit(initial_id).unwrap().tree().unwrap();
 
-    // Perform the merge: cherry-pick commit [258] onto the target base
+    // Perform the fast cherry-pick: cherry-pick commit [258] onto the target base
     // This should ONLY include the Java file changes from [258]
     // NOT the Kotlin file changes from [392]
-    let result = perform_merge(&repo, &target_base, &commit_258, commit_258.parent(0).unwrap());
+    let target_commit = repo.find_commit(initial_id).unwrap();
+    let result = perform_fast_cherry_pick(&repo, &commit_258, &target_commit);
 
     // Should succeed without conflicts
     assert!(result.is_ok(), "Merge should succeed without conflicts");

@@ -37,6 +37,7 @@ git2 = {version = "0.20.2", features = ["vendored-libgit2"] }
 tauri-plugin-devtools = "2.0.0"
 anyhow = {version = "1.0.98", features = ["default", "backtrace"] }
 similar = { version = "2.6.0", features = ["text"] }
+tracing = "0.1.41"
 
 [dev-dependencies]
 tempfile = "3.14.0"
