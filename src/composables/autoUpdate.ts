@@ -39,7 +39,7 @@ export function useAutoUpdate() {
       description: `Version ${update.version} is available. Click to download and install.`,
       icon: "i-lucide-download",
       color: "info",
-      duration: 10_000,
+      duration: 10_000_000,
       actions: [
         {
           label: "Update now",
@@ -80,7 +80,30 @@ export function useAutoUpdate() {
 
       // remove download toast
       toast.remove(downloadToast.id)
-      await relaunch()
+
+      // show success message before relaunch
+      toast.add({
+        title: "Update installed",
+        description: "The app will restart to apply the update.",
+        icon: "i-lucide-check-circle",
+        color: "success",
+        duration: 2_000,
+      })
+
+      try {
+        await relaunch()
+      }
+      catch (relaunchError) {
+        // If relaunch fails, show manual restart instructions
+        await log.error(`Relaunch failed: ${relaunchError}`)
+        toast.add({
+          title: "Please restart manually",
+          description: "The update has been installed. Please close and reopen the app to complete the update.",
+          icon: "i-lucide-info",
+          color: "warning",
+          duration: 0,
+        })
+      }
     }
     catch (error) {
       await log.error(`Failed to download and install update: ${error}`)
