@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name of the draft release (e.g., v0.4.0)'
+        description: 'Tag name or identifier of the draft release (e.g., v0.4.0 or untagged-xxx)'
         required: true
         type: string
       
@@ -18,9 +18,17 @@ jobs:
       - name: Verify draft release exists
         id: check_release
         run: |
-          # Check if the release exists and is a draft
+          # First try to find by tag
           RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.tag_name }}")
+          
+          # If not found by tag, search through all releases
+          if ! echo "$RELEASE_INFO" | jq -e '.id' > /dev/null; then
+            echo "Release not found by tag, searching all releases..."
+            RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" | \
+              jq -r '.[] | select(.tag_name == "'"${{ inputs.tag_name }}"'" or .name == "'"${{ inputs.tag_name }}"'")' | head -n1)
+          fi
           
           if echo "$RELEASE_INFO" | jq -e '.draft == true' > /dev/null; then
             echo "✅ Found draft release: ${{ inputs.tag_name }}"
