@@ -1,0 +1,45 @@
+name: 'List Draft Releases'
+
+# This workflow lists all draft releases to help you identify which ones need assets
+on:
+  workflow_dispatch:
+
+jobs:
+  list-drafts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: List draft releases
+        run: |
+          echo "## 📋 Available Draft Releases" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Get all draft releases
+          DRAFT_RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" | \
+            jq -r '.[] | select(.draft == true) | "\(.tag_name)|\(.name)|\(.created_at)|\(.assets | length)"')
+          
+          if [ -z "$DRAFT_RELEASES" ]; then
+            echo "No draft releases found." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Tag | Name | Created | Assets |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----|------|---------|--------|" >> $GITHUB_STEP_SUMMARY
+            
+            echo "$DRAFT_RELEASES" | while IFS='|' read -r tag name created assets; do
+              created_date=$(date -d "$created" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "$created")
+              if [ "$assets" = "0" ]; then
+                assets_status="❌ No assets"
+              else
+                assets_status="✅ $assets assets"
+              fi
+              echo "| \`$tag\` | $name | $created_date | $assets_status |" >> $GITHUB_STEP_SUMMARY
+            done
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔧 To build assets for a draft release:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Go to **Actions** → **Build Assets for Draft Release**" >> $GITHUB_STEP_SUMMARY
+            echo "2. Click **Run workflow**" >> $GITHUB_STEP_SUMMARY
+            echo "3. Enter the tag name (e.g., \`v0.4.0\`)" >> $GITHUB_STEP_SUMMARY
+            echo "4. Click **Run workflow** to start building" >> $GITHUB_STEP_SUMMARY
+          fi

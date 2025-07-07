@@ -1,0 +1,56 @@
+name: 'Build Assets for Draft Release'
+
+# This workflow can be manually triggered to build and attach assets to existing draft releases
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name of the draft release (e.g., v0.4.0)'
+        required: true
+        type: string
+      
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.check_release.outputs.release_id }}
+    steps:
+      - name: Verify draft release exists
+        id: check_release
+        run: |
+          # Check if the release exists and is a draft
+          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.tag_name }}")
+          
+          if echo "$RELEASE_INFO" | jq -e '.draft == true' > /dev/null; then
+            echo "✅ Found draft release: ${{ inputs.tag_name }}"
+            echo "release_id=$(echo "$RELEASE_INFO" | jq -r '.id')" >> $GITHUB_OUTPUT
+          elif echo "$RELEASE_INFO" | jq -e '.draft == false' > /dev/null; then
+            echo "❌ Release ${{ inputs.tag_name }} exists but is already published"
+            exit 1
+          else
+            echo "❌ Draft release ${{ inputs.tag_name }} not found"
+            exit 1
+          fi
+
+  build-assets:
+    needs: check-release
+    uses: ./.github/workflows/build-tauri.yml
+    with:
+      tag_name: ${{ inputs.tag_name }}
+      release_id: ${{ needs.check-release.outputs.release_id }}
+    secrets: inherit
+
+  summary:
+    needs: build-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build summary
+        run: |
+          echo "## ✅ Assets Built Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Assets have been built and attached to draft release **${{ inputs.tag_name }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [View Draft Release](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "You can now review and publish the release when ready!" >> $GITHUB_STEP_SUMMARY

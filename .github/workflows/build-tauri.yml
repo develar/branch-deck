@@ -1,13 +1,20 @@
-name: 'Publish App'
+name: 'Build Tauri Assets'
 
-# This workflow builds and attaches assets to draft releases created by release-please
+# Reusable workflow for building Tauri assets
 on:
-  release:
-    types: [created]
+  workflow_call:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release'
+        required: true
+        type: string
+      release_id:
+        description: 'Release ID to attach assets to'
+        required: false
+        type: string
 
 jobs:
-  publish-tauri:
-    if: github.event.release.draft == true
+  build-tauri:
     permissions:
       contents: write
     strategy:
@@ -25,37 +32,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install pnpm
+      - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      - name: setup node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'pnpm'
 
-      - name: install Rust stable
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
-      - name: install dependencies (ubuntu only)
+      - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: install frontend dependencies
+      - name: Install frontend dependencies
         run: pnpm install
 
-      - uses: tauri-apps/tauri-action@v0.5
+      - name: Build and attach assets
+        uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.event.release.tag_name }}
-          releaseId: ${{ github.event.release.id }}
+          tagName: ${{ inputs.tag_name }}
+          releaseId: ${{ inputs.release_id }}
           args: ${{ matrix.args }}

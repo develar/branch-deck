@@ -27,7 +27,7 @@ jobs:
       - name: setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 22
           cache: 'pnpm'
 
       - name: install Rust stable
