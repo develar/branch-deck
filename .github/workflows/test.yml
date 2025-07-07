@@ -19,16 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: 'pnpm'
-
       - name: install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
+
+      - name: setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'pnpm'
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -45,14 +45,11 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install
 
-      - name: Run Rust tests
-        run: cd src-tauri && cargo test --lib
-
       - name: Run frontend linting
         run: pnpm lint
 
-      - name: Run frontend tests (if any)
-        run: pnpm test || echo "No tests configured yet"
+      - name: Run Rust tests
+        run: pnpm test
 
       - uses: tauri-apps/tauri-action@v0.5
         env:
