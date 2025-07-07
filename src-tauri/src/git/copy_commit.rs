@@ -5,11 +5,12 @@ use crate::progress::SyncEvent;
 use anyhow::anyhow;
 use git2::{Commit, Oid, Repository, Signature, Tree};
 use tauri::ipc::Channel;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 const PREFIX: &str = "v-commit:";
 
 // Progress information for logging and user feedback
+#[derive(Debug)]
 pub struct ProgressInfo<'a> {
   pub branch_name: &'a str,
   pub current_commit_idx: usize,
@@ -19,6 +20,7 @@ pub struct ProgressInfo<'a> {
 }
 
 // Create or update a commit based on an original commit
+#[instrument(skip(repo, progress), fields(commit_id = %commit_info.id, branch = %progress_info.branch_name))]
 pub(crate) fn create_or_update_commit(
   commit_info: &CommitInfo,
   new_parent_oid: Oid,
@@ -28,12 +30,14 @@ pub(crate) fn create_or_update_commit(
   progress_info: &ProgressInfo,
   task_index: i16,
 ) -> anyhow::Result<(CommitDetail, Oid)> {
+  debug!("Creating/updating commit: {}", commit_info.message);
   if reuse_if_possible {
     if let Ok(note) = repo.find_note(None, commit_info.id) {
       if let Some(message) = note.message() {
         if let Some(hash) = message.strip_prefix(PREFIX)
           && !hash.is_empty()
         {
+          debug!("Reusing existing commit: {} -> {}", commit_info.id, hash);
           return Ok((
             CommitDetail {
               original_hash: commit_info.id.to_string(),
@@ -62,6 +66,7 @@ pub(crate) fn create_or_update_commit(
   // If the trees match, it means the new parent has exactly the same content as the original parent.
   // In this case, we can apply the original commit directly without merging.
   let new_tree = if original_commit_parent.tree_id() == new_parent_commit.tree_id() {
+    debug!("Parent tree matches, reusing original commit tree for {}", commit_info.id);
     progress.send(SyncEvent {
       message: format!(
         "[{}/{}] {}: Creating commit {}/{} ({:.7}) with existing tree",
@@ -77,6 +82,7 @@ pub(crate) fn create_or_update_commit(
     // trees are identical, we can skip the merge and just use the original tree
     original_commit.tree()?
   } else {
+    debug!("Parent tree differs, merging for commit {}", commit_info.id);
     progress.send(SyncEvent {
       message: format!(
         "[{}/{}] {}: Creating commit {}/{} ({:.7}) using merge",

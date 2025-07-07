@@ -2,6 +2,7 @@
 pub mod commands;
 pub mod git;
 pub mod progress;
+pub mod telemetry;
 
 #[cfg(test)]
 mod test_utils;
@@ -31,7 +32,19 @@ pub fn run() {
   #[cfg(debug_assertions)]
   let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
   #[cfg(not(debug_assertions))]
-  let builder = tauri::Builder::default().plugin(tauri_plugin_log::Builder::new().build());
+  let builder = tauri::Builder::default().plugin(
+    tauri_plugin_log::Builder::new()
+      .filter(|metadata| {
+        // Filter out logs containing default_window_icon in the message
+        // This is a workaround since we can't access the message content in the filter
+        // So we filter out the specific log that typically contains this data
+        if metadata.target() == "tauri::app" && metadata.level() == log::Level::Info {
+          return false;
+        }
+        true
+      })
+      .build(),
+  );
 
   builder
     .plugin(tauri_plugin_dialog::init())
@@ -42,6 +55,10 @@ pub fn run() {
     .invoke_handler(ts_builder.invoke_handler())
     .on_menu_event(handle_menu_event)
     .setup(move |app| {
+      // let app_name = app.package_info().name.clone();
+      // Initialize telemetry now that Tauri's runtime is available
+      // telemetry::init_telemetry(&app_name);
+
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
@@ -50,8 +67,9 @@ pub fn run() {
 
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while running tauri application")
+    .run(|_app_handle, _event| {});
 }
 
 fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
@@ -128,7 +146,7 @@ fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
   if event.id() == "check_for_updates" {
     let result = app.emit("check_for_updates", ());
     if result.is_err() {
-      log::error!("Error while checking for updates: {:?}", result.err());
+      tracing::error!("Error while checking for updates: {:?}", result.err());
     }
   }
 }

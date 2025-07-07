@@ -6,6 +6,7 @@ use git2::Oid;
 use indexmap::IndexMap;
 use regex::Regex;
 use tauri::ipc::Channel;
+use tracing::{debug, info, warn, error, instrument};
 
 /// Parameters for processing a single branch
 struct BranchProcessingParams {
@@ -22,8 +23,13 @@ struct BranchProcessingParams {
 /// Synchronizes branches by grouping commits by prefix and creating/updating branches
 #[tauri::command]
 #[specta::specta]
+#[instrument(skip(progress))]
 pub async fn sync_branches(repository_path: &str, branch_prefix: &str, progress: Channel<SyncEvent>) -> Result<SyncBranchResult, String> {
-  do_sync_branches(repository_path, branch_prefix, progress).await.map_err(|e| format!("{e:?}"))
+  info!("Starting branch synchronization for repository: {}, prefix: {}", repository_path, branch_prefix);
+  do_sync_branches(repository_path, branch_prefix, progress).await.map_err(|e| {
+    error!("Branch synchronization failed: {}", e);
+    format!("{e:?}")
+  })
 }
 
 async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: Channel<SyncEvent>) -> anyhow::Result<SyncBranchResult> {
@@ -68,6 +74,8 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
 
   let total_branches = grouped_commit_data.len();
 
+  info!("Fetched and grouped commits. Total branches: {}.", total_branches);
+
   // process branches in parallel
   let repository_path_owned = repository_path.to_string();
   let branch_prefix_owned = branch_prefix.to_string();
@@ -75,6 +83,7 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
   let mut tasks = Vec::new();
 
   for (current_branch_idx, (branch_name, commit_data)) in grouped_commit_data.into_iter().enumerate() {
+    debug!("Processing branch {} of {}: {}", current_branch_idx + 1, total_branches, branch_name);
     let repository_path = repository_path_owned.clone();
     let branch_prefix = branch_prefix_owned.clone();
     let progress_clone = progress.clone();
@@ -102,6 +111,7 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
     match task.await {
       Ok(Ok(branch_info)) => results.push(branch_info),
       Ok(Err(e)) => {
+        warn!("Branch {} processing returned an error: {:?}", branch_name, e);
         // Task completed but returned an error
         results.push(BranchInfo {
           name: branch_name,
@@ -112,6 +122,7 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
         });
       }
       Err(e) => {
+        error!("Task for branch {} failed to join or panicked: {:?}", branch_name, e);
         // Task panicked or failed to join
         results.push(BranchInfo {
           name: branch_name,
@@ -135,6 +146,7 @@ async fn do_sync_branches(repository_path: &str, branch_prefix: &str, progress: 
   Ok(SyncBranchResult { branches: results })
 }
 
+#[instrument(skip(params), fields(branch_name = %params.branch_name))]
 async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result<BranchInfo> {
   let BranchProcessingParams {
     repository_path,
@@ -147,11 +159,14 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
     progress,
   } = params;
 
+  info!("Starting to process branch: {} ({} commits)", branch_name, commit_data.len());
+
   let task_index = current_branch_idx as i16;
   let repo = git2::Repository::open(&repository_path)?;
   let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
 
   let is_existing_branch = check_branch_exists(&repo, &full_branch_name);
+  debug!("Branch {} exists: {}", full_branch_name, is_existing_branch);
 
   let mut current_parent_hash = parent_commit_hash;
   let mut last_commit_hash: Oid = Oid::zero();
@@ -161,6 +176,8 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   // recreate each commit on top of the last one
   let total_commits_in_branch = commit_data.len();
   for (current_commit_idx, commit_info) in commit_data.into_iter().enumerate() {
+    debug!("Processing commit {}/{} in branch {}: {}", 
+           current_commit_idx + 1, total_commits_in_branch, branch_name, commit_info.id);
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
     // even if its own content didn't change — so that its parent reference is updated.
     let reuse_if_possible = is_existing_branch && !is_any_commit_changed;
@@ -188,11 +205,14 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   if is_existing_branch {
     if is_any_commit_changed {
       branch_sync_status = BranchSyncStatus::Updated;
+      info!("Branch {} was updated with new commits", branch_name);
     } else {
       branch_sync_status = BranchSyncStatus::Unchanged;
+      debug!("Branch {} is unchanged", branch_name);
     }
   } else {
     branch_sync_status = BranchSyncStatus::Created;
+    info!("Branch {} was created", branch_name);
   }
 
   // only update the branch if it's new or changed
@@ -226,7 +246,9 @@ pub(crate) fn check_branch_exists(repo: &git2::Repository, branch_name: &str) ->
   repo.find_branch(branch_name, git2::BranchType::Local).is_ok()
 }
 
+#[instrument(skip(commits))]
 pub(crate) fn group_commits_by_prefix<'repo>(commits: &[git2::Commit<'repo>]) -> IndexMap<String, Vec<(String, git2::Commit<'repo>)>> {
+  debug!("Grouping {} commits by prefix", commits.len());
   // use index map - preserve insertion order
   let mut prefix_to_commits: IndexMap<String, Vec<(String, git2::Commit)>> = IndexMap::new();
   let prefix_pattern = Regex::new(r"\[(.+?)](.*?)(?:\r?\n|$)").unwrap();
@@ -247,6 +269,10 @@ pub(crate) fn group_commits_by_prefix<'repo>(commits: &[git2::Commit<'repo>]) ->
         }
       }
     }
+  }
+  info!("Grouped commits into {} branches", prefix_to_commits.len());
+  for (prefix, commits) in &prefix_to_commits {
+    debug!("Branch '{}' has {} commits", prefix, commits.len());
   }
   prefix_to_commits
 }

@@ -27,3 +27,6 @@ dist-ssr
 # Test repositories
 test-repo/
 test-git-repo/
+
+# Downloaded tools
+.tools/

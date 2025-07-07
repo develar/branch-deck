@@ -1,6 +1,9 @@
 use git2::Error;
+use tracing::{debug, info, instrument};
 
+#[instrument(skip(repo))]
 pub fn get_commit_list<'a>(repo: &'a git2::Repository, main_branch_name: &'a str) -> Result<Vec<git2::Commit<'a>>, Error> {
+  info!("Getting commit list for branch: {}", main_branch_name);
   let mut rev_walk = repo.revwalk()?;
 
   // push HEAD to start walking from
@@ -12,21 +15,26 @@ pub fn get_commit_list<'a>(repo: &'a git2::Repository, main_branch_name: &'a str
   let remote_branch_name = format!("origin/{main_branch_name}");
   match repo.revparse_single(&remote_branch_name) {
     Ok(remote_obj) => {
+      debug!("Found remote branch: {}", remote_branch_name);
       // Remote branch exists, hide commits reachable from it
       rev_walk.hide(remote_obj.id())?;
     }
     Err(_) => {
+      debug!("No remote branch {} found, trying local branch", remote_branch_name);
       // No remote branch found, try local branch
       if let Ok(local_obj) = repo.revparse_single(main_branch_name) {
         // Check if local branch is the same as HEAD
         if local_obj.id() == head_oid {
+          debug!("Local branch {} and HEAD point to same commit, returning empty list", main_branch_name);
           // Local branch and HEAD are the same, return empty list
           // This is equivalent to `git log master..HEAD` when both point to the same commit
           return Ok(Vec::new());
         }
+        debug!("Local branch {} exists and differs from HEAD", main_branch_name);
         // Local branch exists and is different from HEAD, hide commits reachable from it
         rev_walk.hide(local_obj.id())?;
       } else {
+        debug!("Neither remote nor local branch {} found, returning all commits from HEAD", main_branch_name);
         // Neither remote nor local branch found, return all commits from HEAD
         // This might be useful for repositories without the specified branch
       }
@@ -39,6 +47,7 @@ pub fn get_commit_list<'a>(repo: &'a git2::Repository, main_branch_name: &'a str
   }
   commits.reverse();
 
+  info!("Found {} commits ahead of {}", commits.len(), main_branch_name);
   Ok(commits)
 }
 
