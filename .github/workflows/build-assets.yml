@@ -18,13 +18,19 @@ jobs:
       release_id: ${{ steps.check_release.outputs.release_id }}
       tag_name: ${{ steps.check_release.outputs.tag_name }}
     steps:
+      - name: Test token access
+        run: |
+          echo "Testing API access..."
+          curl -s -H "Authorization: token ${{ secrets.RELEASE_PLEASE }}" \
+            "https://api.github.com/user" | jq -r '.login // "Token invalid"'
+      
       - name: Find draft release
         id: check_release
         run: |
           echo "Looking for draft release: ${{ inputs.release_identifier }}"
           
           # Find matching draft release
-          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.RELEASE_PLEASE }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" | \
             jq -r '.[] | select(.draft == true and (.name == "${{ inputs.release_identifier }}" or .tag_name == "${{ inputs.release_identifier }}")) | @json' | head -n1)
           
@@ -34,8 +40,12 @@ jobs:
             echo "tag_name=$(echo "$RELEASE_INFO" | jq -r '.tag_name')" >> $GITHUB_OUTPUT
           else
             echo "❌ Draft release not found: ${{ inputs.release_identifier }}"
+            echo "All releases (draft and published):"
+            curl -s -H "Authorization: token ${{ secrets.RELEASE_PLEASE }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases" | \
+              jq -r '.[] | "  - \(.name) (\(.tag_name)) - Draft: \(.draft)"'
             echo "Available draft releases:"
-            curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            curl -s -H "Authorization: token ${{ secrets.RELEASE_PLEASE }}" \
               "https://api.github.com/repos/${{ github.repository }}/releases" | \
               jq -r '.[] | select(.draft == true) | "  - \(.name) (\(.tag_name))"'
             exit 1
