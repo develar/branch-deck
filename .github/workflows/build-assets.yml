@@ -4,8 +4,8 @@ name: 'Build Assets for Draft Release'
 on:
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'Tag name or identifier of the draft release (e.g., v0.4.0 or untagged-xxx)'
+      release_identifier:
+        description: 'Release version (e.g., 0.4.0) or release ID'
         required: true
         type: string
       
@@ -14,30 +14,36 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.check_release.outputs.release_id }}
+      tag_name: ${{ steps.check_release.outputs.tag_name }}
     steps:
       - name: Verify draft release exists
         id: check_release
         run: |
-          # First try to find by tag
-          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.tag_name }}")
+          # Search for draft release by version in name
+          echo "Searching for draft release with identifier: ${{ inputs.release_identifier }}"
           
-          # If not found by tag, search through all releases
-          if ! echo "$RELEASE_INFO" | jq -e '.id' > /dev/null; then
-            echo "Release not found by tag, searching all releases..."
-            RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" | \
-              jq -r '.[] | select(.tag_name == "'"${{ inputs.tag_name }}"'" or .name == "'"${{ inputs.tag_name }}"'")' | head -n1)
+          # Get all releases and search for matching draft
+          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" | \
+            jq -r '.[] | select(.draft == true and (.name | contains("${{ inputs.release_identifier }}") or .tag_name | contains("${{ inputs.release_identifier }}")))')
+          
+          # If multiple matches, take the first one
+          if [ -n "$RELEASE_INFO" ]; then
+            RELEASE_INFO=$(echo "$RELEASE_INFO" | jq -s '.[0]')
           fi
           
-          if echo "$RELEASE_INFO" | jq -e '.draft == true' > /dev/null; then
-            echo "✅ Found draft release: ${{ inputs.tag_name }}"
+          if echo "$RELEASE_INFO" | jq -e '.id' > /dev/null; then
+            RELEASE_NAME=$(echo "$RELEASE_INFO" | jq -r '.name')
+            RELEASE_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
+            echo "✅ Found draft release: $RELEASE_NAME (tag: $RELEASE_TAG)"
             echo "release_id=$(echo "$RELEASE_INFO" | jq -r '.id')" >> $GITHUB_OUTPUT
-          elif echo "$RELEASE_INFO" | jq -e '.draft == false' > /dev/null; then
-            echo "❌ Release ${{ inputs.tag_name }} exists but is already published"
-            exit 1
+            echo "tag_name=$(echo "$RELEASE_INFO" | jq -r '.tag_name')" >> $GITHUB_OUTPUT
           else
-            echo "❌ Draft release ${{ inputs.tag_name }} not found"
+            echo "❌ No draft release found matching: ${{ inputs.release_identifier }}"
+            echo "Available draft releases:"
+            curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" | \
+              jq -r '.[] | select(.draft == true) | "  - \(.name) (tag: \(.tag_name))"'
             exit 1
           fi
 
@@ -47,7 +53,7 @@ jobs:
       contents: write
     uses: ./.github/workflows/build-tauri.yml
     with:
-      tag_name: ${{ inputs.tag_name }}
+      tag_name: ${{ needs.check-release.outputs.tag_name }}
       release_id: ${{ needs.check-release.outputs.release_id }}
     secrets: inherit
 
