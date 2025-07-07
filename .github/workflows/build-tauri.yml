@@ -8,10 +8,6 @@ on:
         description: 'Tag name for the release'
         required: true
         type: string
-      release_id:
-        description: 'Release ID to attach assets to'
-        required: false
-        type: string
 
 jobs:
   build-tauri:
@@ -57,6 +53,21 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        shell: bash
+
+      - name: Get Changelog Entry
+        id: changelog_reader
+        uses: mindsers/changelog-reader-action@v2
+        with:
+          validation_depth: 10
+          version: ${{ steps.version.outputs.version }}
+          path: ./CHANGELOG.md
+
       - name: Build and attach assets
         uses: tauri-apps/tauri-action@v0.5
         env:
@@ -65,5 +76,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ inputs.tag_name }}
-          releaseId: ${{ inputs.release_id }}
+          releaseDraft: true
+          releaseBody: ${{ steps.changelog_reader.outputs.changes }}
           args: ${{ matrix.args }}
