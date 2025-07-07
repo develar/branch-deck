@@ -38,7 +38,7 @@ pub fn run() {
         // Filter out logs containing default_window_icon in the message
         // This is a workaround since we can't access the message content in the filter
         // So we filter out the specific log that typically contains this data
-        if metadata.target() == "tauri::app" && metadata.level() == log::Level::Info {
+        if metadata.target() == "tauri::app" && metadata.level() == tracing::log::Level::Info {
           return false;
         }
         true
