@@ -82,6 +82,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ inputs.tag_name }}
+          releaseName: ${{ inputs.tag_name }}
           releaseDraft: true
           releaseBody: ${{ steps.changelog_reader.outputs.changes }}
           args: ${{ matrix.args }}
