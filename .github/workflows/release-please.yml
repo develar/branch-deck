@@ -25,15 +25,6 @@ jobs:
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Debug release outputs
-        if: ${{ steps.release.outputs.release_created }}
-        run: |
-          echo "Release created: ${{ steps.release.outputs.release_created }}"
-          echo "Tag name: ${{ steps.release.outputs.tag_name }}"
-          echo "Version: ${{ steps.release.outputs.version }}"
-          echo "Release ID: ${{ steps.release.outputs.id }}"
-          echo "HTML URL: ${{ steps.release.outputs.html_url }}"
 
   build-tauri:
     needs: release-please

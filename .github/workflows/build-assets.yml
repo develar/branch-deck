@@ -5,45 +5,39 @@ on:
   workflow_dispatch:
     inputs:
       release_identifier:
-        description: 'Release version (e.g., 0.4.0) or release ID'
+        description: 'Release tag or name (e.g., v0.4.0)'
         required: true
         type: string
       
 jobs:
   check-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       release_id: ${{ steps.check_release.outputs.release_id }}
       tag_name: ${{ steps.check_release.outputs.tag_name }}
     steps:
-      - name: Verify draft release exists
+      - name: Find draft release
         id: check_release
         run: |
-          # Search for draft release by version in name
-          echo "Searching for draft release with identifier: ${{ inputs.release_identifier }}"
+          echo "Looking for draft release: ${{ inputs.release_identifier }}"
           
-          # Get all releases and search for matching draft
+          # Find matching draft release
           RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" | \
-            jq -r '.[] | select(.draft == true and (.name | contains("${{ inputs.release_identifier }}") or .tag_name | contains("${{ inputs.release_identifier }}")))')
+            "https://api.github.com/repos/${{ github.repository }}/releases" | \
+            jq -r '.[] | select(.draft == true and (.name == "${{ inputs.release_identifier }}" or .tag_name == "${{ inputs.release_identifier }}")) | @json' | head -n1)
           
-          # If multiple matches, take the first one
           if [ -n "$RELEASE_INFO" ]; then
-            RELEASE_INFO=$(echo "$RELEASE_INFO" | jq -s '.[0]')
-          fi
-          
-          if echo "$RELEASE_INFO" | jq -e '.id' > /dev/null; then
-            RELEASE_NAME=$(echo "$RELEASE_INFO" | jq -r '.name')
-            RELEASE_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
-            echo "✅ Found draft release: $RELEASE_NAME (tag: $RELEASE_TAG)"
+            echo "✅ Found draft release"
             echo "release_id=$(echo "$RELEASE_INFO" | jq -r '.id')" >> $GITHUB_OUTPUT
             echo "tag_name=$(echo "$RELEASE_INFO" | jq -r '.tag_name')" >> $GITHUB_OUTPUT
           else
-            echo "❌ No draft release found matching: ${{ inputs.release_identifier }}"
+            echo "❌ Draft release not found: ${{ inputs.release_identifier }}"
             echo "Available draft releases:"
             curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" | \
-              jq -r '.[] | select(.draft == true) | "  - \(.name) (tag: \(.tag_name))"'
+              "https://api.github.com/repos/${{ github.repository }}/releases" | \
+              jq -r '.[] | select(.draft == true) | "  - \(.name) (\(.tag_name))"'
             exit 1
           fi
 
@@ -58,15 +52,15 @@ jobs:
     secrets: inherit
 
   summary:
-    needs: build-assets
+    needs: [check-release, build-assets]
     runs-on: ubuntu-latest
     steps:
       - name: Build summary
         run: |
           echo "## ✅ Assets Built Successfully" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Assets have been built and attached to draft release **${{ inputs.tag_name }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Assets have been built and attached to draft release **${{ inputs.release_identifier }}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 [View Draft Release](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [View Draft Release](https://github.com/${{ github.repository }}/releases/tag/${{ needs.check-release.outputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "You can now review and publish the release when ready!" >> $GITHUB_STEP_SUMMARY
