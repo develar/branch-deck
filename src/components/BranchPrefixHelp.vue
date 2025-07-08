@@ -37,7 +37,7 @@
           <p class="text-sm">
             If you set <span class="font-mono">v-branch.branchPrefix</span> to <span class="font-mono">john</span> and create a virtual branch from commits with prefix <span
               class="font-mono"
-            >feature-login</span>, the branch will be named:
+            >(feature-login)</span>, the branch will be named:
           </p>
           <p class="font-mono font-medium mt-2">
             john/virtual/feature-login

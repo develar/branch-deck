@@ -9,11 +9,11 @@ mod tests {
 
     // Create commits with different branch prefixes
     let commits = [
-      create_commit(&repo, "[feature-auth] Add authentication", "auth1.js", "auth code 1"),
-      create_commit(&repo, "[feature-auth] Improve auth validation", "auth2.js", "auth code 2"),
-      create_commit(&repo, "[bugfix-login] Fix login timeout", "login.js", "login fix"),
-      create_commit(&repo, "[ui-components] Add button component", "button.vue", "button code"),
-      create_commit(&repo, "[feature-auth] Add two-factor auth", "auth3.js", "auth code 3"),
+      create_commit(&repo, "(feature-auth) Add authentication", "auth1.js", "auth code 1"),
+      create_commit(&repo, "(feature-auth) Improve auth validation", "auth2.js", "auth code 2"),
+      create_commit(&repo, "(bugfix-login) Fix login timeout", "login.js", "login fix"),
+      create_commit(&repo, "(ui-components) Add button component", "button.vue", "button code"),
+      create_commit(&repo, "(feature-auth) Add two-factor auth", "auth3.js", "auth code 3"),
       create_commit(&repo, "Regular commit without prefix", "regular.txt", "regular content"),
     ];
 
@@ -50,10 +50,10 @@ mod tests {
 
     // Create commits in a specific order
     let commits = [
-      create_commit(&repo, "[feature-auth] First auth commit", "auth1.js", "code1"),
-      create_commit(&repo, "[bugfix-login] Login fix", "login.js", "login fix"),
-      create_commit(&repo, "[feature-auth] Second auth commit", "auth2.js", "code2"),
-      create_commit(&repo, "[feature-auth] Third auth commit", "auth3.js", "code3"),
+      create_commit(&repo, "(feature-auth) First auth commit", "auth1.js", "code1"),
+      create_commit(&repo, "(bugfix-login) Login fix", "login.js", "login fix"),
+      create_commit(&repo, "(feature-auth) Second auth commit", "auth2.js", "code2"),
+      create_commit(&repo, "(feature-auth) Third auth commit", "auth3.js", "code3"),
     ];
 
     let commit_objects: Vec<git2::Commit> = commits.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
@@ -74,11 +74,11 @@ mod tests {
 
     // Create commits with various message formats
     let commits = [
-      create_commit(&repo, "[feature-auth] Valid commit", "valid.js", "valid code"),
-      create_commit(&repo, "[missing-closing-bracket Invalid commit", "invalid1.js", "invalid1"),
-      create_commit(&repo, "missing-opening-bracket] Invalid commit", "invalid2.js", "invalid2"),
-      create_commit(&repo, "[] Empty prefix", "empty.js", "empty"),
-      create_commit(&repo, "[  whitespace-prefix  ] Whitespace test", "ws.js", "whitespace"),
+      create_commit(&repo, "(feature-auth) Valid commit", "valid.js", "valid code"),
+      create_commit(&repo, "(missing-closing-paren Invalid commit", "invalid1.js", "invalid1"),
+      create_commit(&repo, "missing-opening-paren) Invalid commit", "invalid2.js", "invalid2"),
+      create_commit(&repo, "() Empty prefix", "empty.js", "empty"),
+      create_commit(&repo, "(  whitespace-prefix  ) Whitespace test", "ws.js", "whitespace"),
       create_commit(&repo, "No brackets at all", "none.js", "none"),
     ];
 
@@ -151,22 +151,22 @@ mod tests {
   fn test_prefix_regex_patterns() {
     let (_dir, repo) = create_test_repo();
 
-    // Test various bracket patterns and edge cases
+    // Test various parentheses patterns and edge cases
     let test_cases = vec![
-      ("[simple] message", Some(("simple", "message"))),
-      ("[with-dashes] message", Some(("with-dashes", "message"))),
-      ("[with_underscores] message", Some(("with_underscores", "message"))),
-      ("[CamelCase] message", Some(("CamelCase", "message"))),
-      ("[numbers123] message", Some(("numbers123", "message"))),
-      ("[feature/sub] message", Some(("feature/sub", "message"))),
-      ("[[nested]] message", Some(("[nested", "] message"))), // Only matches first bracket pair
-      ("prefix [middle] suffix", Some(("middle", "suffix"))), // Matches first occurrence
-      ("[empty-message]", Some(("empty-message", ""))),
-      ("[space-after] \nmultiline", Some(("space-after", ""))), // Regex stops at newline
-      ("no brackets", None),
-      ("[no closing bracket", None),
-      ("no opening bracket]", None),
-      ("[]", None), // Empty brackets
+      ("(simple) message", Some(("simple", "message"))),
+      ("(with-dashes) message", Some(("with-dashes", "message"))),
+      ("(with_underscores) message", Some(("with_underscores", "message"))),
+      ("(CamelCase) message", Some(("CamelCase", "message"))),
+      ("(numbers123) message", Some(("numbers123", "message"))),
+      ("(feature/sub) message", Some(("feature/sub", "message"))),
+      ("((nested)) message", Some(("(nested", ") message"))), // Only matches first paren pair
+      ("prefix (middle) suffix", Some(("middle", "suffix"))), // Matches first occurrence
+      ("(empty-message)", Some(("empty-message", ""))),
+      ("(space-after) \nmultiline", Some(("space-after", ""))), // Regex stops at newline
+      ("no parentheses", None),
+      ("(no closing paren", None),
+      ("no opening paren)", None),
+      ("()", None), // Empty parentheses
       ("", None),   // Empty string
     ];
 
@@ -201,20 +201,20 @@ mod tests {
 
     // Create a sequence of commits that modify the same file multiple times
     // This is the scenario that commonly causes cherry-pick conflicts
-    create_commit(&repo, "[bugfix-session] Create bugfix file", "bugfix.txt", "Initial bugfix content\n");
-    create_commit(&repo, "[bugfix-session] Update bugfix file", "bugfix.txt", "Updated bugfix content\nSecond line\n");
+    create_commit(&repo, "(bugfix-session) Create bugfix file", "bugfix.txt", "Initial bugfix content\n");
+    create_commit(&repo, "(bugfix-session) Update bugfix file", "bugfix.txt", "Updated bugfix content\nSecond line\n");
     create_commit(
       &repo,
-      "[bugfix-session] Final bugfix changes",
+      "(bugfix-session) Final bugfix changes",
       "bugfix.txt",
       "Final bugfix content\nSecond line\nThird line\n",
     );
 
     // Create commits for another branch to ensure we handle multiple branches
-    create_commit(&repo, "[feature-auth] Add auth module", "auth.js", "export function login() {}\n");
+    create_commit(&repo, "(feature-auth) Add auth module", "auth.js", "export function login() {}\n");
     create_commit(
       &repo,
-      "[feature-auth] Improve auth",
+      "(feature-auth) Improve auth",
       "auth.js",
       "export function login() {\n  // improved implementation\n}\n",
     );
@@ -270,7 +270,7 @@ mod tests {
     // First commit adds the file
     create_commit(
       &repo,
-      "[conflict-test] Add config file",
+      "(conflict-test) Add config file",
       "config.json",
       "{\n  \"version\": \"1.0\",\n  \"name\": \"test\"\n}\n",
     );
@@ -278,7 +278,7 @@ mod tests {
     // Second commit modifies the same file in a way that might cause conflicts
     create_commit(
       &repo,
-      "[conflict-test] Update config version",
+      "(conflict-test) Update config version",
       "config.json",
       "{\n  \"version\": \"2.0\",\n  \"name\": \"test\",\n  \"new_field\": \"value\"\n}\n",
     );
@@ -286,7 +286,7 @@ mod tests {
     // Third commit makes more changes to the same file
     create_commit(
       &repo,
-      "[conflict-test] Add environment config",
+      "(conflict-test) Add environment config",
       "config.json",
       "{\n  \"version\": \"2.1\",\n  \"name\": \"test-env\",\n  \"new_field\": \"updated_value\",\n  \"environment\": \"production\"\n}\n",
     );
@@ -342,11 +342,11 @@ mod tests {
     // This simulates the scenario where multiple commits in the same logical branch
     // modify the same file, which causes conflicts during cherry-pick
 
-    create_commit(&repo, "[bugfix-session] Create bugfix.txt", "bugfix.txt", "Initial bugfix content\nLine 2\n");
-    create_commit(&repo, "[bugfix-session] Update bugfix.txt", "bugfix.txt", "Modified bugfix content\nLine 2\nLine 3\n");
+    create_commit(&repo, "(bugfix-session) Create bugfix.txt", "bugfix.txt", "Initial bugfix content\nLine 2\n");
+    create_commit(&repo, "(bugfix-session) Update bugfix.txt", "bugfix.txt", "Modified bugfix content\nLine 2\nLine 3\n");
     create_commit(
       &repo,
-      "[bugfix-session] Final bugfix.txt changes",
+      "(bugfix-session) Final bugfix.txt changes",
       "bugfix.txt",
       "Final bugfix content\nModified Line 2\nLine 3\nLine 4\n",
     );

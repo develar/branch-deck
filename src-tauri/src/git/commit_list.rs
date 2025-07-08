@@ -76,8 +76,8 @@ mod tests {
 
     // Create multiple commits to simulate a real repository
     create_commit(&repo, "Initial commit", "README.md", "# Test");
-    create_commit(&repo, "[feature-auth] Add authentication", "auth.js", "auth code");
-    create_commit(&repo, "[bugfix-login] Fix login issue", "login.js", "login fix");
+    create_commit(&repo, "(feature-auth) Add authentication", "auth.js", "auth code");
+    create_commit(&repo, "(bugfix-login) Fix login issue", "login.js", "login fix");
     create_commit(&repo, "Regular commit", "regular.txt", "regular content");
 
     // In this scenario:
@@ -105,8 +105,8 @@ mod tests {
     repo.branch("baseline", &initial_commit, false).unwrap();
 
     // Create additional commits ahead of baseline
-    let id2 = create_commit(&repo, "[feature-auth] Add authentication", "auth.js", "auth code");
-    let id3 = create_commit(&repo, "[feature-auth] Improve auth", "auth.js", "better auth code");
+    let id2 = create_commit(&repo, "(feature-auth) Add authentication", "auth.js", "auth code");
+    let id3 = create_commit(&repo, "(feature-auth) Improve auth", "auth.js", "better auth code");
 
     // Get commits ahead of baseline
     let commits = get_commit_list(&repo, "baseline").unwrap();
@@ -115,8 +115,8 @@ mod tests {
     assert_eq!(commits.len(), 2);
     assert_eq!(commits[0].id(), id2);
     assert_eq!(commits[1].id(), id3);
-    assert_eq!(commits[0].message().unwrap(), "[feature-auth] Add authentication");
-    assert_eq!(commits[1].message().unwrap(), "[feature-auth] Improve auth");
+    assert_eq!(commits[0].message().unwrap(), "(feature-auth) Add authentication");
+    assert_eq!(commits[1].message().unwrap(), "(feature-auth) Improve auth");
   }
 
   #[test]
@@ -131,8 +131,8 @@ mod tests {
     repo.branch("origin/master", &initial_commit, false).unwrap();
 
     // Create commits ahead of origin/master
-    let id2 = create_commit(&repo, "[bugfix-login] Fix login issue", "login.js", "fixed login");
-    let id3 = create_commit(&repo, "[ui-components] Add button", "button.vue", "<button></button>");
+    let id2 = create_commit(&repo, "(bugfix-login) Fix login issue", "login.js", "fixed login");
+    let id3 = create_commit(&repo, "(ui-components) Add button", "button.vue", "<button></button>");
 
     // Get commits ahead of origin/master
     let commits = get_commit_list(&repo, "master").unwrap();
@@ -148,7 +148,7 @@ mod tests {
 
     // Create some commits
     create_commit(&repo, "Initial commit", "README.md", "# Test");
-    create_commit(&repo, "[feature-test] Test feature", "test.js", "test code");
+    create_commit(&repo, "(feature-test) Test feature", "test.js", "test code");
 
     // Try to get commits against a non-existent branch
     let result = get_commit_list(&repo, "nonexistent-branch");
@@ -171,11 +171,11 @@ mod tests {
 
     // Create multiple commits in sequence
     let messages = [
-      "[feature-auth] First auth commit",
-      "[feature-auth] Second auth commit",
-      "[bugfix-login] Login fix",
-      "[feature-auth] Third auth commit",
-      "[ui-components] UI commit",
+      "(feature-auth) First auth commit",
+      "(feature-auth) Second auth commit",
+      "(bugfix-login) Login fix",
+      "(feature-auth) Third auth commit",
+      "(ui-components) UI commit",
     ];
 
     let mut commit_ids = Vec::new();

@@ -256,7 +256,7 @@ pub(crate) fn group_commits_by_prefix<'repo>(commits: &[git2::Commit<'repo>]) ->
   debug!("Grouping {} commits by prefix", commits.len());
   // use index map - preserve insertion order
   let mut prefix_to_commits: IndexMap<String, Vec<(String, git2::Commit)>> = IndexMap::new();
-  let prefix_pattern = Regex::new(r"\[(.+?)](.*?)(?:\r?\n|$)").unwrap();
+  let prefix_pattern = Regex::new(r"\((.+?)\)(.*?)(?:\r?\n|$)").unwrap();
 
   // group commits by prefix
   for commit in commits {

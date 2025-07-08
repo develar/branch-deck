@@ -15,20 +15,20 @@ Branch Deck creates Git branches from your commits based on message prefixes. Co
 
 ## How It Works
 
-Branch Deck analyzes your commit history and creates separate branches based on commit message prefixes using the `[name]` format. For example:
-- Commits prefixed with `[feature-auth]` go to a `feature-auth` branch
-- Commits prefixed with `[bugfix-login]` go to a `bugfix-login` branch
+Branch Deck analyzes your commit history and creates separate branches based on commit message prefixes using the `(name)` format. For example:
+- Commits prefixed with `(feature-auth)` go to a `username/virtual/feature-auth` branch
+- Commits prefixed with `(bugfix-login)` go to a `username/virtual/bugfix-login` branch
 - Commits without prefixes remain on the main branch
 
 This allows you to maintain a clean, organized Git history while working on multiple features simultaneously.
 
 ### Current Limitations
 
-- Sub-branches not yet supported: Nested branch structures (e.g., `[feature-auth/oauth]`) are not currently implemented.
+- Sub-branches not yet supported: Nested branch structures (e.g., `(feature-auth/oauth)`) are not currently implemented.
 
 ## Why Branch Deck?
 
-- **Simple**: Just add `[name]` prefixes to your commit messages
+- **Simple**: Just add `(name)` prefixes to your commit messages
 - **Automatic**: Creates actual Git branches without manual branch management
 - **Organized**: Each feature gets its own clean branch automatically
 - **Flexible**: Work on multiple features simultaneously in one working directory

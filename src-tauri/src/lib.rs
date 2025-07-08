@@ -15,7 +15,10 @@ use std::error::Error;
 use tauri_specta::{Builder, collect_commands};
 
 use git::git_command::GitCommandExecutor;
-use tauri::{App, Manager, menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder}, Emitter};
+use tauri::{
+  App, Emitter, Manager,
+  menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
