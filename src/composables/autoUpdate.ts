@@ -1,10 +1,9 @@
-import { relaunch } from "@tauri-apps/plugin-process"
 import { listen } from "@tauri-apps/api/event"
 import { onMounted, onUnmounted } from "vue"
 import { useTimeoutFn } from "@vueuse/core"
-import { check, Update } from "@tauri-apps/plugin-updater"
 import * as log from "@tauri-apps/plugin-log"
-import { getName, getVersion } from "@tauri-apps/api/app"
+import { getName } from "@tauri-apps/api/app"
+import { commands, UpdateInfo } from "../bindings"
 
 export function useAutoUpdate() {
   const toast = useToast()
@@ -12,38 +11,44 @@ export function useAutoUpdate() {
 
   async function checkForUpdates(showNoUpdateToast: boolean = false) {
     try {
-      const update = await check()
-      if (update != null) {
-        showUpdateAvailableToast(update)
+      const updateInfo = await commands.checkForUpdates()
+      if (updateInfo.status === "ok") {
+        if (updateInfo.data.is_update_available) {
+          showUpdateAvailableToast(updateInfo.data)
+        }
+        else if (showNoUpdateToast) {
+          toast.add({
+            title: "You're up to date!",
+            description: `${await getName()} ${updateInfo.data.current_version} is currently the newest version available.`,
+            icon: "i-lucide-check",
+            color: "success",
+          })
+        }
       }
       else if (showNoUpdateToast) {
-        toast.add({
-          title: "You’re up to date!",
-          description: `${await getName()} ${await getVersion()} is currently the newest version available.`,
-          icon: "i-lucide-check",
-          color: "success",
-        })
+        showUpdateErrorToast()
       }
     }
     catch (error) {
       await log.error(`Failed to check for updates: ${error}`)
       if (showNoUpdateToast) {
-        showUpdateErrorToast("Could not check for updates. Please try again later.")
+        showUpdateErrorToast()
       }
     }
   }
 
-  function showUpdateAvailableToast(update: Update) {
+  function showUpdateAvailableToast(updateInfo: UpdateInfo) {
+    // By the time we show this toast, the update is already downloaded (from check command)
     toast.add({
       title: "Update available",
-      description: `Version ${update.version} is available. Click to download and install.`,
+      description: `Version ${updateInfo.available_version} is ready to install.`,
       icon: "i-lucide-download",
       color: "info",
-      duration: 10_000_000,
+      duration: 0,
       actions: [
         {
-          label: "Update now",
-          onClick: () => downloadAndInstallUpdate(update),
+          label: "Install now and restart",
+          onClick: () => installUpdateNow(),
         },
         {
           label: "Later",
@@ -54,7 +59,7 @@ export function useAutoUpdate() {
     })
   }
 
-  function showUpdateErrorToast(message: string) {
+  function showUpdateErrorToast(message: string = "Could not check for updates. Please try again later.") {
     toast.add({
       title: "Update check failed",
       description: message,
@@ -63,53 +68,15 @@ export function useAutoUpdate() {
     })
   }
 
-  async function downloadAndInstallUpdate(update: Update) {
+  async function installUpdateNow() {
     try {
-      // show download progress toast
-      const downloadToast = toast.add({
-        title: "Downloading update...",
-        description: `Downloading version ${update.version}`,
-        icon: "i-lucide-download",
-        color: "info",
-        duration: 10_000_000,
-        progress: false,
-      })
-
-      // download and install the update
-      await update.downloadAndInstall()
-
-      // remove download toast
-      toast.remove(downloadToast.id)
-
-      // show success message before relaunch
-      toast.add({
-        title: "Update installed",
-        description: "The app will restart to apply the update.",
-        icon: "i-lucide-check-circle",
-        color: "success",
-        duration: 2_000,
-      })
-
-      try {
-        await relaunch()
-      }
-      catch (relaunchError) {
-        // If relaunch fails, show manual restart instructions
-        await log.error(`Relaunch failed: ${relaunchError}`)
-        toast.add({
-          title: "Please restart manually",
-          description: "The update has been installed. Please close and reopen the app to complete the update.",
-          icon: "i-lucide-info",
-          color: "warning",
-          duration: 0,
-        })
-      }
+      await commands.installUpdate()
     }
     catch (error) {
-      await log.error(`Failed to download and install update: ${error}`)
+      await log.error(`Failed to install update: ${error}`)
       toast.add({
         title: "Update failed",
-        description: `Failed to download or install the update (${error instanceof Error ? error.message : error}).`,
+        description: `Failed to install the update (${error instanceof Error ? error.message : error}).`,
         icon: "i-lucide-triangle-alert",
         color: "error",
       })
@@ -129,11 +96,11 @@ export function useAutoUpdate() {
     // Listen for update available event from menu
     unlistenCheckForUpdates = await listen("check_for_updates", () => {
       const checkForUpdatesPromise = checkForUpdates(true)
-
       const progressToastId = toast.add({
         title: "Checking for updates…",
         color: "info",
         progress: false,
+        duration: 0,
         close: false,
       }).id
 

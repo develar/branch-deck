@@ -6,7 +6,7 @@ use git2::Oid;
 use indexmap::IndexMap;
 use regex::Regex;
 use tauri::ipc::Channel;
-use tracing::{debug, info, warn, error, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Parameters for processing a single branch
 struct BranchProcessingParams {
@@ -176,8 +176,13 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   // recreate each commit on top of the last one
   let total_commits_in_branch = commit_data.len();
   for (current_commit_idx, commit_info) in commit_data.into_iter().enumerate() {
-    debug!("Processing commit {}/{} in branch {}: {}", 
-           current_commit_idx + 1, total_commits_in_branch, branch_name, commit_info.id);
+    debug!(
+      "Processing commit {}/{} in branch {}: {}",
+      current_commit_idx + 1,
+      total_commits_in_branch,
+      branch_name,
+      commit_info.id
+    );
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
     // even if its own content didn't change — so that its parent reference is updated.
     let reuse_if_possible = is_existing_branch && !is_any_commit_changed;

@@ -2,7 +2,7 @@ use git2;
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn get_branch_prefix_from_git_config(repository_path: &str) -> Result<String, String> {
+pub async fn get_branch_prefix_from_git_config(repository_path: &str) -> Result<String, String> {
   let config = if repository_path.is_empty() {
     // if no repository path, open default config (global and system)
     git2::Config::open_default().map_err(|e| format!("Failed to open git config: {e}"))?

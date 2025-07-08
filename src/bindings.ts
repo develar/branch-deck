@@ -34,6 +34,30 @@ async getBranchPrefixFromGitConfig(repositoryPath: string) : Promise<Result<stri
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async checkForUpdates() : Promise<Result<UpdateInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_for_updates") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getUpdateStatus() : Promise<Result<UpdateInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_update_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async installUpdate() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_update") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -53,6 +77,8 @@ export type CommitDetail = { original_hash: string; hash: string; is_new: boolea
 export type SyncBranchResult = { branches: BranchInfo[] }
 export type SyncEvent = { message: string; index: number }
 export type TAURI_CHANNEL<TSend> = null
+export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }
+export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string }
 
 /** tauri-specta globals **/
 
