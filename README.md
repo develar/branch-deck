@@ -37,8 +37,6 @@ This allows you to maintain a clean, organized Git history while working on mult
 
 [Download the latest release](https://github.com/develar/branch-deck/releases/latest)
 
-Note: Auto-update is not yet supported but is planned for future releases.
-
 ## Contributing
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for development setup and contribution guidelines.
