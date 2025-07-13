@@ -10,6 +10,7 @@
   ],
   "permissions": [
     "window-state:default",
+    "log:default",
     "dialog:allow-open"
   ]
 }

@@ -392,7 +392,10 @@ pub(crate) fn group_commits_by_prefix<'repo>(commits: &[git2::Commit<'repo>]) ->
 
     if let Some(issue_match) = issue_pattern.find(first_line) {
       let issue_number = issue_match.as_str();
-      prefix_to_commits.entry(issue_number.to_string()).or_default().push((message.to_string(), commit.clone()));
+      prefix_to_commits
+        .entry(issue_number.to_string())
+        .or_default()
+        .push((message.trim().to_string(), commit.clone()));
     }
   }
 

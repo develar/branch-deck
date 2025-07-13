@@ -76,13 +76,13 @@
     </div>
 
     <template #footer>
-      <div class="bg-elevated rounded-lg p-4">
-        <div class="flex items-center gap-2 mb-3">
-          <UIcon name="i-lucide-lightbulb" class="w-4 h-4 text-warning" />
-          <h3 class="text-sm font-medium text-highlighted">Resolution Steps</h3>
-        </div>
-        <p class="text-sm text-toned mb-2">To resolve this conflict, you can:</p>
-        <ul class="space-y-2 text-sm text-default">
+      <InfoCard
+        title="Resolution Steps"
+        icon="i-lucide-lightbulb"
+        icon-class="text-warning"
+      >
+        <p class="mb-2">To resolve this conflict, you can:</p>
+        <ul class="space-y-2 text-default">
           <li class="flex items-start gap-2">
             <span class="text-muted mt-0.5">•</span>
             <span>Include the missing commits in this branch by changing their prefix to match.</span>
@@ -96,7 +96,7 @@
             <span>Exclude this commit from the branch by changing its prefix.</span>
           </li>
         </ul>
-      </div>
+      </InfoCard>
     </template>
   </UCard>
 </template>
@@ -129,6 +129,7 @@ async function openMissingCommitsWindow() {
   const data = {
     conflictCommitHash: props.conflict.commitHash,
     conflictCommitMessage: props.conflict.commitMessage,
+    conflictCommitTime: props.conflict.commitTime,
     branchName: props.branchName || 'Unknown',
     missingCommits: props.conflict.conflictAnalysis?.missingCommits || [],
     mergeBase: props.conflict.conflictAnalysis ? {

@@ -24,7 +24,7 @@
       >
         <CollapsibleFileHeader
           :file-name="conflict.file"
-          :expanded="expandedFiles[index]"
+          :expanded="expandedFiles[index] ?? false"
           @toggle="toggleFile(index)"
         >
           <template #actions>

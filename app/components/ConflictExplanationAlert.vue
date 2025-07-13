@@ -1,11 +1,14 @@
 <template>
-  <UAlert
+  <InfoCard
+    title="Missing commits cause conflicts"
     icon="i-lucide-info"
-    color="neutral"
-    variant="subtle"
+    icon-class="text-blue"
   >
-    <template #description>
-      These files contain merge conflicts that prevent git from automatically copying the commit.
-    </template>
-  </UAlert>
+    <p>
+      This commit cannot be copied to the virtual branch because other commits modified the same files first.
+    </p>
+    <p>
+      Apply the missing commits shown above to resolve conflicts automatically.
+    </p>
+  </InfoCard>
 </template>

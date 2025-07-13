@@ -7,6 +7,9 @@
     "conflicting-files"
   ],
   "permissions": [
-    "core:event:default"
+    "core:event:default",
+    "window-state:default",
+    "core:window:allow-close",
+    "log:default"
   ]
 }

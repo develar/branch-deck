@@ -1,24 +1,25 @@
 #[cfg(test)]
 mod tests {
-  use super::super::sync_branches::{check_branch_exists, group_commits_by_prefix};
-  use crate::test_utils::git_test_utils::{create_commit, create_test_repo};
+  use super::super::sync_branches::group_commits_by_prefix;
+  use crate::test_utils::git_test_utils::TestRepo;
 
   #[test]
   fn test_group_commits_by_prefix() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create commits with different branch prefixes
     let commits = [
-      create_commit(&repo, "(feature-auth) Add authentication", "auth1.js", "auth code 1"),
-      create_commit(&repo, "(feature-auth) Improve auth validation", "auth2.js", "auth code 2"),
-      create_commit(&repo, "(bugfix-login) Fix login timeout", "login.js", "login fix"),
-      create_commit(&repo, "(ui-components) Add button component", "button.vue", "button code"),
-      create_commit(&repo, "(feature-auth) Add two-factor auth", "auth3.js", "auth code 3"),
-      create_commit(&repo, "Regular commit without prefix", "regular.txt", "regular content"),
+      test_repo.create_commit("(feature-auth) Add authentication", "auth1.js", "auth code 1"),
+      test_repo.create_commit("(feature-auth) Improve auth validation", "auth2.js", "auth code 2"),
+      test_repo.create_commit("(bugfix-login) Fix login timeout", "login.js", "login fix"),
+      test_repo.create_commit("(ui-components) Add button component", "button.vue", "button code"),
+      test_repo.create_commit("(feature-auth) Add two-factor auth", "auth3.js", "auth code 3"),
+      test_repo.create_commit("Regular commit without prefix", "regular.txt", "regular content"),
     ];
 
-    // Get the commit objects
-    let commit_objects: Vec<git2::Commit> = commits.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    // Get the commit objects using TestRepo framework
+    let repo = test_repo.repository();
+    let commit_objects = test_repo.get_commits(&commits, &repo);
 
     let grouped = group_commits_by_prefix(&commit_objects);
 
@@ -46,17 +47,18 @@ mod tests {
 
   #[test]
   fn test_group_commits_by_prefix_preserves_order() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create commits in a specific order
     let commits = [
-      create_commit(&repo, "(feature-auth) First auth commit", "auth1.js", "code1"),
-      create_commit(&repo, "(bugfix-login) Login fix", "login.js", "login fix"),
-      create_commit(&repo, "(feature-auth) Second auth commit", "auth2.js", "code2"),
-      create_commit(&repo, "(feature-auth) Third auth commit", "auth3.js", "code3"),
+      test_repo.create_commit("(feature-auth) First auth commit", "auth1.js", "code1"),
+      test_repo.create_commit("(bugfix-login) Login fix", "login.js", "login fix"),
+      test_repo.create_commit("(feature-auth) Second auth commit", "auth2.js", "code2"),
+      test_repo.create_commit("(feature-auth) Third auth commit", "auth3.js", "code3"),
     ];
 
-    let commit_objects: Vec<git2::Commit> = commits.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    let repo = test_repo.repository();
+    let commit_objects = test_repo.get_commits(&commits, &repo);
 
     let grouped = group_commits_by_prefix(&commit_objects);
 
@@ -70,19 +72,20 @@ mod tests {
 
   #[test]
   fn test_group_commits_by_prefix_handles_malformed_messages() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create commits with various message formats
     let commits = [
-      create_commit(&repo, "(feature-auth) Valid commit", "valid.js", "valid code"),
-      create_commit(&repo, "(missing-closing-paren Invalid commit", "invalid1.js", "invalid1"),
-      create_commit(&repo, "missing-opening-paren) Invalid commit", "invalid2.js", "invalid2"),
-      create_commit(&repo, "() Empty prefix", "empty.js", "empty"),
-      create_commit(&repo, "(  whitespace-prefix  ) Whitespace test", "ws.js", "whitespace"),
-      create_commit(&repo, "No brackets at all", "none.js", "none"),
+      test_repo.create_commit("(feature-auth) Valid commit", "valid.js", "valid code"),
+      test_repo.create_commit("(missing-closing-paren Invalid commit", "invalid1.js", "invalid1"),
+      test_repo.create_commit("missing-opening-paren) Invalid commit", "invalid2.js", "invalid2"),
+      test_repo.create_commit("() Empty prefix", "empty.js", "empty"),
+      test_repo.create_commit("(  whitespace-prefix  ) Whitespace test", "ws.js", "whitespace"),
+      test_repo.create_commit("No brackets at all", "none.js", "none"),
     ];
 
-    let commit_objects: Vec<git2::Commit> = commits.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    let repo = test_repo.repository();
+    let commit_objects = test_repo.get_commits(&commits, &repo);
 
     let grouped = group_commits_by_prefix(&commit_objects);
 
@@ -102,37 +105,36 @@ mod tests {
 
   #[test]
   fn test_check_branch_exists() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create initial commit
-    let initial_commit_id = create_commit(&repo, "Initial commit", "README.md", "# Test");
-    let initial_commit = repo.find_commit(initial_commit_id).unwrap();
+    let initial_commit_id = test_repo.create_commit("Initial commit", "README.md", "# Test");
 
     // Create some test branches
     let branch_name = "test-prefix/virtual/feature-auth";
-    repo.branch(branch_name, &initial_commit, false).unwrap();
+    test_repo.create_branch_at(branch_name, &initial_commit_id).unwrap();
 
     // Test that existing branch is found
-    assert!(check_branch_exists(&repo, branch_name));
+    assert!(test_repo.branch_exists(branch_name));
 
     // Test that non-existing branch is not found
-    assert!(!check_branch_exists(&repo, "non-existent-branch"));
+    assert!(!test_repo.branch_exists("non-existent-branch"));
   }
 
   #[test]
   fn test_check_branch_exists_empty_repo() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create initial commit
-    create_commit(&repo, "Initial commit", "README.md", "# Test");
+    test_repo.create_commit("Initial commit", "README.md", "# Test");
 
     // Test that non-existing branch returns false in empty repo
-    assert!(!check_branch_exists(&repo, "any-branch-name"));
+    assert!(!test_repo.branch_exists("any-branch-name"));
   }
 
   #[test]
   fn test_group_commits_edge_cases() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Test with empty commit list
     let empty_commits: Vec<git2::Commit> = vec![];
@@ -140,8 +142,9 @@ mod tests {
     assert_eq!(grouped.len(), 0);
 
     // Test with commit that has no message
-    let commit_id = create_commit(&repo, "", "empty.txt", "empty content");
-    let commit_obj = repo.find_commit(commit_id).unwrap();
+    let commit_id = test_repo.create_commit("", "empty.txt", "empty content");
+    let repo = test_repo.repository();
+    let commit_obj = test_repo.get_commit(&commit_id, &repo);
     let single_commit = vec![commit_obj];
     let grouped = group_commits_by_prefix(&single_commit);
     assert_eq!(grouped.len(), 0);
@@ -149,7 +152,7 @@ mod tests {
 
   #[test]
   fn test_prefix_regex_patterns() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Test various parentheses patterns and edge cases
     let test_cases = vec![
@@ -170,9 +173,10 @@ mod tests {
       ("", None),   // Empty string
     ];
 
-    for (message, expected) in test_cases {
-      let commit_id = create_commit(&repo, message, &format!("test_{}.txt", message.len()), "content");
-      let commit_obj = repo.find_commit(commit_id).unwrap();
+    for (i, (message, expected)) in test_cases.into_iter().enumerate() {
+      let commit_id = test_repo.create_commit(message, &format!("test_{i}.txt"), "content");
+      let repo = test_repo.repository();
+      let commit_obj = test_repo.get_commit(&commit_id, &repo);
       let commits = vec![commit_obj];
       let grouped = group_commits_by_prefix(&commits);
 
@@ -192,34 +196,23 @@ mod tests {
 
   #[test]
   fn test_sync_branches_with_conflicting_commits() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Create initial commit and baseline branch
-    let initial_id = create_commit(&repo, "Initial commit", "README.md", "# Project");
-    let initial_commit = repo.find_commit(initial_id).unwrap();
-    repo.branch("baseline", &initial_commit, false).unwrap();
+    let initial_id = test_repo.create_commit("Initial commit", "README.md", "# Project");
+    test_repo.create_branch_at("baseline", &initial_id).unwrap();
 
     // Create a sequence of commits that modify the same file multiple times
     // This is the scenario that commonly causes cherry-pick conflicts
-    create_commit(&repo, "(bugfix-session) Create bugfix file", "bugfix.txt", "Initial bugfix content\n");
-    create_commit(&repo, "(bugfix-session) Update bugfix file", "bugfix.txt", "Updated bugfix content\nSecond line\n");
-    create_commit(
-      &repo,
-      "(bugfix-session) Final bugfix changes",
-      "bugfix.txt",
-      "Final bugfix content\nSecond line\nThird line\n",
-    );
+    test_repo.create_commit("(bugfix-session) Create bugfix file", "bugfix.txt", "Initial bugfix content\n");
+    test_repo.create_commit("(bugfix-session) Update bugfix file", "bugfix.txt", "Updated bugfix content\nSecond line\n");
+    test_repo.create_commit("(bugfix-session) Final bugfix changes", "bugfix.txt", "Final bugfix content\nSecond line\nThird line\n");
 
     // Create commits for another branch to ensure we handle multiple branches
-    create_commit(&repo, "(feature-auth) Add auth module", "auth.js", "export function login() {}\n");
-    create_commit(
-      &repo,
-      "(feature-auth) Improve auth",
-      "auth.js",
-      "export function login() {\n  // improved implementation\n}\n",
-    );
+    test_repo.create_commit("(feature-auth) Add auth module", "auth.js", "export function login() {}\n");
+    test_repo.create_commit("(feature-auth) Improve auth", "auth.js", "export function login() {\n  // improved implementation\n}\n");
 
     // Test that we can get the commit list ahead of baseline
+    let repo = test_repo.repository();
     let commits = crate::git::commit_list::get_commit_list(&repo, "baseline").unwrap();
     assert!(!commits.is_empty());
     assert_eq!(commits.len(), 5); // 3 bugfix + 2 feature commits
@@ -234,7 +227,7 @@ mod tests {
     assert_eq!(bugfix_commits.len(), 3);
 
     // Test that we can check for non-existing branches
-    assert!(!check_branch_exists(&repo, "test-prefix/virtual/some-branch")); // No branches should exist yet
+    assert!(!test_repo.branch_exists("test-prefix/virtual/some-branch")); // No branches should exist yet
 
     println!(
       "Successfully validated conflict scenario setup with {} bugfix commits and {} feature commits",
@@ -255,37 +248,28 @@ mod tests {
 
   #[test]
   fn test_conflict_prone_commit_sequences() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Create initial commit and set up baseline branch
-    let initial_id = create_commit(&repo, "Initial commit", "base.txt", "base content\n");
-    let initial_commit = repo.find_commit(initial_id).unwrap();
+    let initial_id = test_repo.create_commit("Initial commit", "base.txt", "base content\n");
 
     // Create a baseline branch (simulating origin/master or a stable branch)
-    repo.branch("baseline", &initial_commit, false).unwrap();
+    test_repo.create_branch_at("baseline", &initial_id).unwrap();
 
     // Create a sequence that's known to cause cherry-pick conflicts:
     // Multiple commits modifying the same file in ways that create merge conflicts
 
     // First commit adds the file
-    create_commit(
-      &repo,
-      "(conflict-test) Add config file",
-      "config.json",
-      "{\n  \"version\": \"1.0\",\n  \"name\": \"test\"\n}\n",
-    );
+    test_repo.create_commit("(conflict-test) Add config file", "config.json", "{\n  \"version\": \"1.0\",\n  \"name\": \"test\"\n}\n");
 
     // Second commit modifies the same file in a way that might cause conflicts
-    create_commit(
-      &repo,
+    test_repo.create_commit(
       "(conflict-test) Update config version",
       "config.json",
       "{\n  \"version\": \"2.0\",\n  \"name\": \"test\",\n  \"new_field\": \"value\"\n}\n",
     );
 
     // Third commit makes more changes to the same file
-    create_commit(
-      &repo,
+    test_repo.create_commit(
       "(conflict-test) Add environment config",
       "config.json",
       "{\n  \"version\": \"2.1\",\n  \"name\": \"test-env\",\n  \"new_field\": \"updated_value\",\n  \"environment\": \"production\"\n}\n",
@@ -293,6 +277,7 @@ mod tests {
 
     // Test that our core functions can handle this scenario
     // Use the baseline branch to get commits ahead of it
+    let repo = test_repo.repository();
     let commits = crate::git::commit_list::get_commit_list(&repo, "baseline").unwrap();
     assert_eq!(commits.len(), 3); // 3 conflict-test commits ahead of baseline
 
@@ -326,22 +311,21 @@ mod tests {
 
   #[test]
   fn test_group_commits_with_issue_numbers() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Create commits with issue numbers
     let commit_ids = [
-      create_commit(
-        &repo,
+      test_repo.create_commit(
         "IJPL-163558: Fix observability of pending and running background write actions",
         "write_actions.txt",
         "Initial content\n",
       ),
-      create_commit(&repo, "XYZ-1001: Improve performance of data fetching", "data_fetch.txt", "Some data fetching logic\n"),
-      create_commit(&repo, "IJPL-163558: Enhance logging during writes", "write_actions.txt", "Additional log content\n"),
+      test_repo.create_commit("XYZ-1001: Improve performance of data fetching", "data_fetch.txt", "Some data fetching logic\n"),
+      test_repo.create_commit("IJPL-163558: Enhance logging during writes", "write_actions.txt", "Additional log content\n"),
     ];
 
     // Get the commit objects directly
-    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    let repo = test_repo.repository();
+    let commits = test_repo.get_commits(commit_ids.as_slice(), &repo);
     assert_eq!(commits.len(), 3);
 
     let grouped = group_commits_by_prefix(&commits);
@@ -362,19 +346,19 @@ mod tests {
 
   #[test]
   fn test_group_commits_mixed_patterns() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Create commits with mixed patterns - some with explicit prefix, some with issue numbers
     let commit_ids = [
-      create_commit(&repo, "(threading) IJPL-163558: Fix observability", "threading.txt", "Content\n"),
-      create_commit(&repo, "ABC-456: Update documentation", "docs.txt", "Doc content\n"),
-      create_commit(&repo, "(ui) Improve button styling", "button.css", "CSS content\n"),
-      create_commit(&repo, "Regular commit without pattern", "misc.txt", "Misc content\n"),
-      create_commit(&repo, "[subsystem] This uses square brackets", "subsystem.txt", "Subsystem content\n"),
+      test_repo.create_commit("(threading) IJPL-163558: Fix observability", "threading.txt", "Content\n"),
+      test_repo.create_commit("ABC-456: Update documentation", "docs.txt", "Doc content\n"),
+      test_repo.create_commit("(ui) Improve button styling", "button.css", "CSS content\n"),
+      test_repo.create_commit("Regular commit without pattern", "misc.txt", "Misc content\n"),
+      test_repo.create_commit("[subsystem] This uses square brackets", "subsystem.txt", "Subsystem content\n"),
     ];
 
     // Get the commit objects directly
-    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    let repo = test_repo.repository();
+    let commits = test_repo.get_commits(commit_ids.as_slice(), &repo);
     assert_eq!(commits.len(), 5);
 
     let grouped = group_commits_by_prefix(&commits);
@@ -393,23 +377,22 @@ mod tests {
 
   #[test]
   fn test_issue_numbers_with_square_brackets() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Create commits with square brackets and issue numbers
     let commit_ids = [
-      create_commit(
-        &repo,
+      test_repo.create_commit(
         "[threading] IJPL-163558: Fix observability of pending and running background write actions",
         "threading.txt",
         "Content\n",
       ),
-      create_commit(&repo, "[subsystem] ABC-456: Update documentation", "docs.txt", "Doc content\n"),
-      create_commit(&repo, "[threading] IJPL-163558: Enhance logging", "threading2.txt", "More content\n"),
-      create_commit(&repo, "[database] IJPL-163558: Update schema", "schema.sql", "Schema content\n"),
+      test_repo.create_commit("[subsystem] ABC-456: Update documentation", "docs.txt", "Doc content\n"),
+      test_repo.create_commit("[threading] IJPL-163558: Enhance logging", "threading2.txt", "More content\n"),
+      test_repo.create_commit("[database] IJPL-163558: Update schema", "schema.sql", "Schema content\n"),
     ];
 
     // Get the commit objects directly
-    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    let repo = test_repo.repository();
+    let commits = test_repo.get_commits(commit_ids.as_slice(), &repo);
     assert_eq!(commits.len(), 4);
 
     let grouped = group_commits_by_prefix(&commits);
@@ -435,27 +418,26 @@ mod tests {
 
   #[test]
   fn test_issue_numbers_only_in_first_line() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Create commits with issue numbers in different parts of the message
     let commit_ids = [
       // Issue number in first line - should be detected
-      create_commit(&repo, "ABC-123: Fix authentication", "file1.txt", "Content\n"),
+      test_repo.create_commit("ABC-123: Fix authentication", "file1.txt", "Content\n"),
       // Issue number only in body - should NOT be detected
-      create_commit(
-        &repo,
+      test_repo.create_commit(
         "Refactor authentication module\n\nThis fixes issue DEF-456 which was causing login failures",
         "file2.txt",
         "Content\n",
       ),
       // Issue number in first line with square brackets - should be detected
-      create_commit(&repo, "[auth] GHI-789: Update login flow", "file3.txt", "Content\n"),
+      test_repo.create_commit("[auth] GHI-789: Update login flow", "file3.txt", "Content\n"),
       // No issue number in first line - should NOT be grouped
-      create_commit(&repo, "Update dependencies\n\nResolves: JKL-111", "file4.txt", "Content\n"),
+      test_repo.create_commit("Update dependencies\n\nResolves: JKL-111", "file4.txt", "Content\n"),
     ];
 
     // Get the commit objects directly
-    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    let repo = test_repo.repository();
+    let commits = test_repo.get_commits(commit_ids.as_slice(), &repo);
     assert_eq!(commits.len(), 4);
 
     let grouped = group_commits_by_prefix(&commits);
@@ -472,32 +454,30 @@ mod tests {
 
   #[test]
   fn test_reproduce_bugfix_txt_conflict_scenario() {
-    let (_dir, repo) = create_test_repo();
-
+    let test_repo = TestRepo::new();
     // Reproduce the exact scenario that caused the original error:
     // "create_or_update_commit failed with 'Failed to create or update commit:
     // Cherry-pick resulted in conflicts that could not be resolved automatically:
     // ancestor: bugfix.txt, ours: none, theirs: bugfix.txt'"
 
     // Create initial commit and baseline (simulates the state before bugfix-session commits)
-    let initial_id = create_commit(&repo, "Initial commit", "README.md", "# Initial");
-    let initial_commit = repo.find_commit(initial_id).unwrap();
-    repo.branch("baseline", &initial_commit, false).unwrap();
+    let initial_id = test_repo.create_commit("Initial commit", "README.md", "# Initial");
+    test_repo.create_branch_at("baseline", &initial_id).unwrap();
 
     // Create the bugfix-session commits that modify the same file
     // This simulates the scenario where multiple commits in the same logical branch
     // modify the same file, which causes conflicts during cherry-pick
 
-    create_commit(&repo, "(bugfix-session) Create bugfix.txt", "bugfix.txt", "Initial bugfix content\nLine 2\n");
-    create_commit(&repo, "(bugfix-session) Update bugfix.txt", "bugfix.txt", "Modified bugfix content\nLine 2\nLine 3\n");
-    create_commit(
-      &repo,
+    test_repo.create_commit("(bugfix-session) Create bugfix.txt", "bugfix.txt", "Initial bugfix content\nLine 2\n");
+    test_repo.create_commit("(bugfix-session) Update bugfix.txt", "bugfix.txt", "Modified bugfix content\nLine 2\nLine 3\n");
+    test_repo.create_commit(
       "(bugfix-session) Final bugfix.txt changes",
       "bugfix.txt",
       "Final bugfix content\nModified Line 2\nLine 3\nLine 4\n",
     );
 
     // Get the commits and test the grouping
+    let repo = test_repo.repository();
     let commits = crate::git::commit_list::get_commit_list(&repo, "baseline").unwrap();
     assert_eq!(commits.len(), 3);
 
@@ -541,19 +521,20 @@ mod tests {
 
   #[test]
   fn test_git2_merge_commits_directly() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Test git2's merge_commits function directly to validate our approach
-    let base_id = create_commit(&repo, "Base commit", "base.txt", "base content\n");
-    let base_commit = repo.find_commit(base_id).unwrap();
+    let base_id = test_repo.create_commit("Base commit", "base.txt", "base content\n");
+    let repo = test_repo.repository();
+    let base_commit = test_repo.get_commit(&base_id, &repo);
 
     // Create a new file in a commit (non-conflicting change)
-    let feature_id = create_commit(&repo, "Add feature", "feature.txt", "feature content\n");
-    let feature_commit = repo.find_commit(feature_id).unwrap();
+    let feature_id = test_repo.create_commit("Add feature", "feature.txt", "feature content\n");
+    let feature_commit = test_repo.get_commit(&feature_id, &repo);
 
     // Test git2's merge_commits function directly
     let merge_options = git2::MergeOptions::new();
-    let index = repo.merge_commits(&base_commit, &feature_commit, Some(&merge_options));
+    let index = test_repo.repository().merge_commits(&base_commit, &feature_commit, Some(&merge_options));
 
     assert!(index.is_ok(), "git2::merge_commits should succeed for non-conflicting changes");
 
@@ -568,16 +549,18 @@ mod tests {
 
   #[test]
   fn test_rename_commit() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create initial commit
-    let base_id = create_commit(&repo, "Initial commit", "original.txt", "Initial content\n");
-    let base_commit = repo.find_commit(base_id).unwrap();
-    repo.branch("baseline", &base_commit, false).unwrap();
+    let base_id = test_repo.create_commit("Initial commit", "original.txt", "Initial content\n");
+    let repo = test_repo.repository();
+    let base_commit = test_repo.get_commit(&base_id, &repo);
+    test_repo.create_branch_at("baseline", &base_id).unwrap();
 
     // Create second commit that simulates a rename (delete old file, create new file with same content)
     // First, we need to remove the old file
-    let tree = repo.find_commit(base_id).unwrap().tree().unwrap();
+    let tree = base_commit.tree().unwrap();
+    let repo = test_repo.repository();
     let mut builder = repo.treebuilder(Some(&tree)).unwrap();
     builder.remove("original.txt").unwrap();
 
@@ -594,13 +577,13 @@ mod tests {
 
     // Test that we can successfully create a cherry-pick of a rename commit
     // using our new plumbing cherry-pick implementation
-    use crate::git::plumbing_cherry_pick::perform_fast_cherry_pick;
+    use crate::git::cherry_pick::perform_fast_cherry_pick;
 
     let rename_commit = repo.find_commit(rename_id).unwrap();
 
     // Create a new target branch to apply the rename to
-    let target_branch_id = create_commit(&repo, "Target branch", "other.txt", "Other content\n");
-    let target_commit = repo.find_commit(target_branch_id).unwrap();
+    let target_branch_id = test_repo.create_commit("Target branch", "other.txt", "Other content\n");
+    let target_commit = test_repo.get_commit(&target_branch_id, &repo);
 
     // Test cherry-picking the rename commit
     let result = perform_fast_cherry_pick(&repo, &rename_commit, &target_commit);
@@ -621,14 +604,16 @@ mod tests {
 
   #[test]
   fn test_complex_rename_scenario() {
-    let (_dir, repo) = create_test_repo();
+    let test_repo = TestRepo::new();
 
     // Create a more complex scenario with content changes and rename
-    let base_id = create_commit(&repo, "Initial commit", "file.txt", "Initial content\nLine 2\n");
-    let base_commit = repo.find_commit(base_id).unwrap();
+    let base_id = test_repo.create_commit("Initial commit", "file.txt", "Initial content\nLine 2\n");
+    let repo = test_repo.repository();
+    let base_commit = test_repo.get_commit(&base_id, &repo);
 
     // Create a commit that both renames and modifies the file
     let tree = base_commit.tree().unwrap();
+    let repo = test_repo.repository();
     let mut builder = repo.treebuilder(Some(&tree)).unwrap();
     builder.remove("file.txt").unwrap();
 

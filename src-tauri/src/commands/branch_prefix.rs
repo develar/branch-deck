@@ -1,105 +1,98 @@
-use git2;
-use tracing::{debug, instrument};
+use crate::git::git_command::GitCommandExecutor;
+use tauri::State;
+use tracing::instrument;
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_branch_prefix_from_git_config(repository_path: &str) -> Result<String, String> {
-  get_branch_prefix_from_git_config_sync(repository_path).map_err(|e| e.to_string())
+pub async fn get_branch_prefix_from_git_config(git_executor: State<'_, GitCommandExecutor>, repository_path: &str) -> Result<String, String> {
+  get_branch_prefix_from_git_config_sync(&git_executor, repository_path).map_err(|e| e.to_string())
 }
 
 //noinspection SpellCheckingInspection
-#[instrument]
-fn get_branch_prefix_from_git_config_sync(repository_path: &str) -> anyhow::Result<String> {
-  let config = if repository_path.is_empty() {
-    git2::Config::open_default()?
+#[instrument(skip(git_executor))]
+fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<String> {
+  // Git config keys are case-insensitive, so we can use any case
+  let args = if repository_path.is_empty() {
+    vec!["config", "--global", "branchdeck.branchPrefix"]
   } else {
-    match git2::Repository::open(repository_path) {
-      Ok(repo) => repo.config()?,
-      Err(_) => git2::Config::open_default()?,
-    }
+    vec!["config", "branchdeck.branchPrefix"]
   };
 
-  match config.get_string("branchdeck.branchPrefix") {
-    Ok(value) => Ok(value),
-    Err(e) if e.code() == git2::ErrorCode::NotFound => {
-      let mut entries = config.entries(None)?;
-      while let Some(entry) = entries.next() {
-        if let Ok(entry) = entry {
-          if let Some(name) = entry.name() {
-            if name.eq_ignore_ascii_case("branchdeck.branchprefix") {
-              if let Some(value) = entry.value() {
-                debug!(key = %name, value = %value, "found branch prefix with case-insensitive match");
-                return Ok(value.to_string());
-              }
-            }
-          }
-        }
-      }
+  // For global config, we need to pass a valid path but git will ignore it when --global is used
+  let effective_path = if repository_path.is_empty() { "." } else { repository_path };
+
+  match git_executor.execute_command(&args, effective_path) {
+    Ok(value) => Ok(value.trim().to_string()),
+    Err(_) => {
+      // Config key not found, return empty string
       Ok(String::new())
     }
-    Err(e) => Err(e.into()),
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use tempfile::TempDir;
+  use crate::test_utils::git_test_utils::TestRepo;
 
   //noinspection SpellCheckingInspection
   #[test]
   fn test_get_branch_prefix_case_insensitive() {
-    // Create a temporary directory for the test repository
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path();
+    // Create a test repository
+    let test_repo = TestRepo::new();
 
-    // Initialize a git repository
-    let repo = git2::Repository::init(repo_path).unwrap();
-    let mut config = repo.config().unwrap();
+    // Create a GitCommandExecutor for testing
+    let git_executor = GitCommandExecutor::new();
 
     // Test 1: Set with different case variations
-    config.set_str("BranchDeck.BranchPrefix", "test-prefix-1").unwrap();
-    let result = get_branch_prefix_from_git_config_sync(repo_path.to_str().unwrap()).unwrap();
+    test_repo.set_config("BranchDeck.BranchPrefix", "test-prefix-1").unwrap();
+    let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
     assert_eq!(result, "test-prefix-1", "Should find config with different case");
 
     // Clean up for next test
-    config.remove("BranchDeck.BranchPrefix").unwrap();
+    let _ = test_repo
+      .executor()
+      .execute_command(&["config", "--unset", "BranchDeck.BranchPrefix"], test_repo.path().to_str().unwrap());
 
     // Test 2: All lowercase
-    config.set_str("branchdeck.branchprefix", "test-prefix-2").unwrap();
-    let result = get_branch_prefix_from_git_config_sync(repo_path.to_str().unwrap()).unwrap();
+    test_repo.set_config("branchdeck.branchprefix", "test-prefix-2").unwrap();
+    let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
     assert_eq!(result, "test-prefix-2", "Should find all lowercase config");
 
     // Clean up for next test
-    config.remove("branchdeck.branchprefix").unwrap();
+    let _ = test_repo
+      .executor()
+      .execute_command(&["config", "--unset", "branchdeck.branchprefix"], test_repo.path().to_str().unwrap());
 
     // Test 3: Mixed case
-    config.set_str("branchDECK.branchPREFIX", "test-prefix-3").unwrap();
-    let result = get_branch_prefix_from_git_config_sync(repo_path.to_str().unwrap()).unwrap();
+    test_repo.set_config("branchDECK.branchPREFIX", "test-prefix-3").unwrap();
+    let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap()).unwrap();
     assert_eq!(result, "test-prefix-3", "Should find mixed case config");
   }
 
   #[test]
   fn test_get_branch_prefix_not_found() {
-    // Create a temporary directory for the test repository
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path();
+    // Create a test repository
+    let test_repo = TestRepo::new();
 
-    // Initialize a git repository
-    let repo = git2::Repository::init(repo_path).unwrap();
-    let mut config = repo.config().unwrap();
+    // Create a GitCommandExecutor for testing
+    let git_executor = GitCommandExecutor::new();
 
     // Explicitly remove any existing config (in case it's inherited from global)
-    let _ = config.remove("branchdeck.branchPrefix");
-    let _ = config.remove("BranchDeck.BranchPrefix");
+    let _ = test_repo
+      .executor()
+      .execute_command(&["config", "--unset", "branchdeck.branchPrefix"], test_repo.path().to_str().unwrap());
+    let _ = test_repo
+      .executor()
+      .execute_command(&["config", "--unset", "BranchDeck.BranchPrefix"], test_repo.path().to_str().unwrap());
 
     // Set a dummy config entry to ensure we're testing the local repo config
-    config.set_str("test.dummy", "value").unwrap();
+    test_repo.set_config("test.dummy", "value").unwrap();
 
     // Now test - since we're looking at the local repo config specifically,
     // and we've ensured branchdeck.branchPrefix doesn't exist there,
     // this test checks the case-insensitive lookup behavior when the key is not found
-    let result = get_branch_prefix_from_git_config_sync(repo_path.to_str().unwrap());
+    let result = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path().to_str().unwrap());
 
     // The result could be empty (if no global config) or have a value (if global config exists)
     // What we're really testing is that the function doesn't error when the key is not found
@@ -110,7 +103,8 @@ mod tests {
   fn test_get_branch_prefix_empty_path() {
     // When called with empty path, it should use global config
     // This test might fail if the user has a global branchdeck.branchPrefix set
-    let result = get_branch_prefix_from_git_config_sync("");
+    let git_executor = GitCommandExecutor::new();
+    let result = get_branch_prefix_from_git_config_sync(&git_executor, "");
     assert!(result.is_ok(), "Should not error when using global config");
   }
 }

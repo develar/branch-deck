@@ -55,53 +55,23 @@
     />
 
     <!-- Conflicting Files List -->
-    <UCard class="overflow-hidden">
-      <template #header>
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <h2 class="text-sm font-medium text-highlighted">
-              Conflicting Files
-            </h2>
-            <UBadge color="warning" variant="subtle" size="sm">
-              {{ conflict.conflictingFiles.length }} {{ conflict.conflictingFiles.length === 1 ? "file" : "files" }}
-            </UBadge>
-          </div>
-          <UButton
-            size="xs"
-            variant="ghost"
-            icon="i-lucide-external-link"
-            @click="openConflictingFilesWindow"
-          >
-            Open in Window
-          </UButton>
-        </div>
-      </template>
-
-      <ConflictExplanationAlert />
-
-      <ConflictingFilesSection
-        ref="conflictingFilesSection"
-        :conflicts="conflict.conflictingFiles"
-        :conflict-info="conflict"
-        :conflict-marker-commits="conflictMarkerCommits"
-      />
-    </UCard>
+    <ConflictingFilesCard
+      :conflicts="conflict.conflictingFiles"
+      :conflict-info="conflict"
+      :conflict-marker-commits="conflictMarkerCommits"
+      :branch-name="branchName"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
 import type { MergeConflictInfo } from "~/utils/bindings"
-import { ref, computed } from "vue"
-import { openSubWindow } from '~/utils/window-management'
-import ConflictingFilesSection from './ConflictingFilesSection.vue'
+import { computed } from "vue"
 
 const props = defineProps<{
   conflict: MergeConflictInfo
   branchName?: string
 }>()
-
-// Ref to the conflicting files section component
-const conflictingFilesSection = ref<InstanceType<typeof ConflictingFilesSection>>()
 
 // Get conflict marker commits from the conflict info
 const conflictMarkerCommits = computed(() => {
@@ -120,22 +90,4 @@ const conflictMarkerCommits = computed(() => {
   }
   return {}
 })
-
-// Open conflicting files window
-async function openConflictingFilesWindow() {
-  const data = {
-    conflict: props.conflict,
-    branchName: props.branchName || 'Unknown',
-    showConflictsOnly: conflictingFilesSection.value?.showConflictsOnly || true,
-    viewMode: conflictingFilesSection.value?.viewMode || 'diff',
-    conflictDiffViewMode: conflictingFilesSection.value?.conflictDiffViewMode || 'unified'
-  }
-  
-  await openSubWindow({
-    windowId: 'conflicting-files',
-    url: '/conflicting-files',
-    title: `Conflicting Files - ${props.branchName || 'Unknown Branch'}`,
-    data
-  })
-}
 </script>

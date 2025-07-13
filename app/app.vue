@@ -5,8 +5,8 @@
 </template>
 
 <script lang="ts" setup>
-import { provide, computed } from 'vue'
-import { appStore, appStoreKey } from '~/utils/app-store'
+import { provide, computed, onMounted } from 'vue'
+import { appStore, appStoreKey, initializeStoreHandlers } from '~/utils/app-store'
 import { useColorSelector } from './composables/colorSelector'
 
 const appConfig = useAppConfig()
@@ -25,4 +25,9 @@ provide(appStoreKey, appStore)
 
 // Initialize color selector to listen for menu events after mount
 useColorSelector(appStore)
+
+// Initialize store handlers for main window
+onMounted(() => {
+  initializeStoreHandlers()
+})
 </script>

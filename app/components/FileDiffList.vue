@@ -29,7 +29,7 @@
     >
       <CollapsibleFileHeader
         :file-name="diff.newFile.fileName"
-        :expanded="expandedDiffs[idx]"
+        :expanded="expandedDiffs[idx] ?? false"
         @toggle="toggleDiff(idx)"
       >
         <template #actions>

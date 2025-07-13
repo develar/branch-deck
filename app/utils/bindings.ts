@@ -58,6 +58,14 @@ async installUpdate() : Promise<Result<null, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async openSubWindow(windowId: string, url: string, title: string, width: number | null, height: number | null, data: string) : Promise<Result<null, WindowError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_sub_window", { windowId, url, title, width, height, data }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -157,6 +165,7 @@ export type SyncEvent =
 export type TAURI_CHANNEL<TSend> = null
 export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string }
+export type WindowError = { message: string }
 
 /** tauri-specta globals **/
 

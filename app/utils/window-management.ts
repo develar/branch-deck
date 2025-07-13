@@ -1,5 +1,4 @@
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { emit } from '@tauri-apps/api/event'
+import { commands } from "./bindings"
 
 interface SubWindowOptions<T = unknown> {
   windowId: string
@@ -17,23 +16,20 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>) {
     title,
     width = 1400,
     height = 900,
-    data
+    data,
   } = options
 
-  // Create the sub-window
-  const subWindow = new WebviewWindow(windowId, {
+  // Use the Rust command to create/focus the window
+  const result = await commands.openSubWindow(
+    windowId,
     url,
     title,
     width,
     height,
-    center: true,
-    resizable: true,
-    skipTaskbar: true,
-  })
+    JSON.stringify(data)
+  )
   
-  // Listen for the ready signal from the window
-  subWindow.once(`${windowId}-ready`, async () => {
-    // Send the data when the window signals it's ready
-    await emit(`init-${windowId}-data`, data)
-  })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
 }

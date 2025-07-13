@@ -12,6 +12,7 @@ use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::push::push_branch;
 use commands::sync_branches::sync_branches;
+use commands::window_management::open_sub_window;
 use tauri_specta::{Builder, collect_commands};
 
 use git::git_command::GitCommandExecutor;
@@ -27,6 +28,7 @@ pub fn run() {
     check_for_updates,
     get_update_status,
     install_update,
+    open_sub_window,
   ]);
 
   // only export on non-release builds
@@ -35,7 +37,7 @@ pub fn run() {
     .export(specta_typescript::Typescript::default(), "../app/utils/bindings.ts")
     .expect("Failed to export TypeScript bindings");
 
-  #[cfg(debug_assertions)]
+  // #[cfg(debug_assertions)]
   // let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
   // #[cfg(not(debug_assertions))]
   let builder = tauri::Builder::default().plugin(

@@ -1,28 +1,25 @@
 use crate::git::conflict_analysis::{FileInfo, get_files_content_at_commit};
 use crate::git::copy_commit::CopyCommitError;
 use crate::git::git_command::GitCommandExecutor;
-use crate::git::model::{BranchError, ConflictDetail, ConflictMarkerCommitInfo, MergeConflictInfo};
-use crate::progress::SyncEvent;
+use crate::git::model::{ConflictDetail, ConflictMarkerCommitInfo};
 use anyhow::{Result, anyhow};
-use git2::{Commit, Oid, Repository, Tree};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::ipc::Channel;
 use tracing::{debug, instrument};
 
 // Store conflict file info with object IDs for each stage
 #[derive(Debug)]
-struct ConflictFileInfo {
-  path: PathBuf,
-  base_oid: Option<String>,   // stage 1 - common ancestor
-  ours_oid: Option<String>,   // stage 2 - target branch
-  theirs_oid: Option<String>, // stage 3 - cherry-picked commit
+pub struct ConflictFileInfo {
+  pub path: PathBuf,
+  pub base_oid: Option<String>,   // stage 1 - common ancestor
+  pub ours_oid: Option<String>,   // stage 2 - target branch
+  pub theirs_oid: Option<String>, // stage 3 - cherry-picked commit
 }
 
 /// Generate diff hunks between two versions of a file
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip(git_executor, from_content, to_content), fields(file = %file_path))]
-fn generate_diff_hunks(
+pub fn generate_diff_hunks(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   from_commit: &str,
@@ -192,7 +189,7 @@ fn generate_diff_hunks(
 
 /// Get commit information for multiple commits in a single batch operation
 #[instrument(skip(git_executor, commit_ids))]
-fn get_commit_info_batch(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids: &[&str]) -> Result<HashMap<String, ConflictMarkerCommitInfo>, CopyCommitError> {
+pub fn get_commit_info_batch(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids: &[&str]) -> Result<HashMap<String, ConflictMarkerCommitInfo>, CopyCommitError> {
   let mut result = HashMap::new();
 
   if commit_ids.is_empty() {
@@ -200,16 +197,16 @@ fn get_commit_info_batch(git_executor: &GitCommandExecutor, repo_path: &str, com
   }
 
   // Use git log with --no-walk to get info for specific commits efficiently
-  let mut args = vec!["log", "--no-walk", "--format=%H%x00%s%x00%ct%x00%an%x00"];
+  let mut args = vec!["log", "--no-walk", "--format=%H%x00%s%x00%ct%x00%an"];
   args.extend(commit_ids);
 
   let output = git_executor
     .execute_command(&args, repo_path)
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get batch commit info: {}", e)))?;
 
-  // Parse the output - each commit's info is terminated by null character
-  for commit_info in output.split('\0').filter(|s| !s.is_empty()) {
-    let parts: Vec<&str> = commit_info.splitn(4, '\0').collect();
+  // Parse the output - each line is a commit with null-separated fields
+  for line in output.lines() {
+    let parts: Vec<&str> = line.split('\0').collect();
     if parts.len() >= 4 {
       let commit_info = ConflictMarkerCommitInfo {
         hash: parts[0].to_string(),
@@ -226,7 +223,7 @@ fn get_commit_info_batch(git_executor: &GitCommandExecutor, repo_path: &str, com
 
 /// Get merge conflict content with conflict markers for a specific file using the merge tree
 #[instrument(skip(git_executor))]
-fn get_merge_conflict_content_from_tree(git_executor: &GitCommandExecutor, repo_path: &str, merge_tree_oid: &str, file_path: &str) -> Result<String, CopyCommitError> {
+pub fn get_merge_conflict_content_from_tree(git_executor: &GitCommandExecutor, repo_path: &str, merge_tree_oid: &str, file_path: &str) -> Result<String, CopyCommitError> {
   // Use git cat-file to extract the file content from the merged tree
   // This tree contains conflict markers for conflicted files
   let object_path = format!("{merge_tree_oid}:{file_path}");
@@ -241,20 +238,20 @@ fn get_merge_conflict_content_from_tree(git_executor: &GitCommandExecutor, repo_
 }
 
 /// Parameters for extract_conflict_details function
-struct ConflictDetailsParams<'a> {
-  git_executor: &'a GitCommandExecutor,
-  repo_path: &'a str,
-  conflict_files: &'a HashMap<PathBuf, ConflictFileInfo>,
-  merge_tree_oid: &'a str,
-  parent_commit_id: &'a str,
-  target_commit_id: &'a str,
-  cherry_commit_id: &'a str,
+pub struct ConflictDetailsParams<'a> {
+  pub git_executor: &'a GitCommandExecutor,
+  pub repo_path: &'a str,
+  pub conflict_files: &'a HashMap<PathBuf, ConflictFileInfo>,
+  pub merge_tree_oid: &'a str,
+  pub parent_commit_id: &'a str,
+  pub target_commit_id: &'a str,
+  pub cherry_commit_id: &'a str,
 }
 
 /// Extract conflict details with actual merge conflicts and conflict markers
 /// Returns a tuple of (conflict_details, commit_info_map)
 #[instrument(skip_all, fields(conflict_files = params.conflict_files.len()))]
-fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<ConflictDetail>, HashMap<String, ConflictMarkerCommitInfo>), CopyCommitError> {
+pub fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<ConflictDetail>, HashMap<String, ConflictMarkerCommitInfo>), CopyCommitError> {
   let mut conflict_details = Vec::new();
 
   // Pre-fetch commit information for all the commits involved in conflicts
@@ -270,6 +267,30 @@ fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Confli
 
   // Use batch operation to fetch all commit info at once
   let commit_info_map: HashMap<String, ConflictMarkerCommitInfo> = get_commit_info_batch(params.git_executor, params.repo_path, &commits_to_fetch)?;
+
+  // Collect all files we need to fetch content for
+  let all_file_paths: Vec<String> = params.conflict_files.keys().map(|p| p.display().to_string()).collect();
+
+  // Batch fetch all file contents for all commits at once
+  let mut all_file_contents: HashMap<String, HashMap<String, String>> = HashMap::new();
+
+  // Fetch base content
+  all_file_contents.insert(
+    merge_base_id.clone(),
+    get_files_content_at_commit(params.git_executor, params.repo_path, &merge_base_id, &all_file_paths).unwrap_or_default(),
+  );
+
+  // Fetch target content
+  all_file_contents.insert(
+    params.target_commit_id.to_string(),
+    get_files_content_at_commit(params.git_executor, params.repo_path, params.target_commit_id, &all_file_paths).unwrap_or_default(),
+  );
+
+  // Fetch cherry content
+  all_file_contents.insert(
+    params.cherry_commit_id.to_string(),
+    get_files_content_at_commit(params.git_executor, params.repo_path, params.cherry_commit_id, &all_file_paths).unwrap_or_default(),
+  );
 
   for info in params.conflict_files.values() {
     let file_path = info.path.display().to_string();
@@ -448,27 +469,25 @@ fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Confli
     };
 
     // Generate individual file info for 3-way merge view
-    // Find the merge base between parent of cherry-pick and target branch
-    // This shows the actual divergence point that causes the conflict
-    let merge_base_id = match crate::git::conflict_analysis::find_merge_base(params.git_executor, params.repo_path, params.parent_commit_id, params.target_commit_id) {
-      Ok(base_id) => base_id,
-      Err(_) => params.parent_commit_id.to_string(), // Fallback to parent if merge-base fails
-    };
+    // The merge_base_id was already calculated above, reuse it
 
-    // Get file content for each version
-    let base_content = get_files_content_at_commit(params.git_executor, params.repo_path, &merge_base_id, &[file_path.clone()])
-      .ok()
-      .and_then(|mut contents| contents.remove(&file_path))
+    // Get file content for each version from pre-fetched data
+    let base_content = all_file_contents
+      .get(&merge_base_id)
+      .and_then(|contents| contents.get(&file_path))
+      .cloned()
       .unwrap_or_default();
 
-    let target_content = get_files_content_at_commit(params.git_executor, params.repo_path, params.target_commit_id, &[file_path.clone()])
-      .ok()
-      .and_then(|mut contents| contents.remove(&file_path))
+    let target_content = all_file_contents
+      .get(params.target_commit_id)
+      .and_then(|contents| contents.get(&file_path))
+      .cloned()
       .unwrap_or_default();
 
-    let cherry_content = get_files_content_at_commit(params.git_executor, params.repo_path, params.cherry_commit_id, &[file_path.clone()])
-      .ok()
-      .and_then(|mut contents| contents.remove(&file_path))
+    let cherry_content = all_file_contents
+      .get(params.cherry_commit_id)
+      .and_then(|contents| contents.get(&file_path))
+      .cloned()
       .unwrap_or_default();
 
     // Create FileInfo structs for each version
@@ -527,198 +546,4 @@ fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Confli
   }
 
   Ok((conflict_details, commit_info_map))
-}
-
-/// Cherry-pick implementation using Git plumbing commands (git merge-tree)
-/// This performs the cherry-pick without touching the working directory
-/// This version is for production use with GitCommandExecutor
-#[instrument(skip_all)]
-pub fn perform_fast_cherry_pick_with_context<'a>(
-  repo: &'a Repository,
-  cherry_commit: &'a Commit,
-  target_commit: &'a Commit,
-  git_executor: &GitCommandExecutor,
-  progress: Option<(&Channel<SyncEvent>, &str, i16)>, // (channel, branch_name, task_index)
-) -> Result<Tree<'a>, CopyCommitError> {
-  // Fast path: if parent tree matches target tree, reuse commit tree
-  if cherry_commit.parent_count() > 0 {
-    let parent = cherry_commit.parent(0)?;
-    if parent.tree_id() == target_commit.tree_id() {
-      debug!("parent tree matches target tree, reusing commit tree");
-      return Ok(cherry_commit.tree()?);
-    }
-  }
-
-  // Get repository path
-  let repo_path = repo.path().parent().ok_or_else(|| CopyCommitError::Other(anyhow!("Could not get repository path")))?;
-  let repo_path_str = repo_path.to_str().ok_or_else(|| CopyCommitError::Other(anyhow!("Repository path is not valid UTF-8")))?;
-
-  // Get the commit's tree and parent
-  let commit_tree_id = cherry_commit.tree_id();
-  let parent = cherry_commit
-    .parent(0)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Cannot cherry-pick a root commit: {}", e)))?;
-  let parent_tree_id = parent.tree_id();
-  let target_tree_id = target_commit.tree_id();
-
-  debug!(
-    base_parent = %parent_tree_id,
-    ours_target = %target_tree_id, 
-    theirs_commit = %commit_tree_id,
-    "running git merge-tree"
-  );
-
-  // Use GitCommandExecutor to run git merge-tree
-  let parent_id = parent.id().to_string();
-  let target_id = target_commit.id().to_string();
-  let cherry_id = cherry_commit.id().to_string();
-
-  let args = vec![
-    "-c",
-    "merge.conflictStyle=zdiff3", // Set conflict style to include base content
-    "merge-tree",
-    "--write-tree",
-    "-z", // Use NUL character as separator for better parsing
-    "--merge-base",
-    &parent_id,
-    &target_id,
-    &cherry_id,
-  ];
-
-  let output = git_executor
-    .execute_command(&args, repo_path_str)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {}", e)))?;
-
-  debug!(output_length = output.len(), "git merge-tree completed");
-
-  // Check if command produced output
-  if output.is_empty() {
-    return Err(CopyCommitError::Other(anyhow!("git merge-tree did not produce output")));
-  }
-
-  // Parse the NUL-separated output
-  let parts: Vec<&str> = output.trim_end_matches('\0').split('\0').collect();
-
-  if parts.is_empty() || parts[0].is_empty() {
-    return Err(CopyCommitError::Other(anyhow!("No output from git merge-tree")));
-  }
-
-  let tree_oid = parts[0]
-    .parse::<Oid>()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid tree OID '{}' from merge-tree: {}", parts[0], e)))?;
-
-  // Check if there were conflicts by looking for file entries
-  if parts.len() > 1 {
-    let mut conflict_files: HashMap<PathBuf, ConflictFileInfo> = HashMap::new();
-
-    // Parse file entries (mode object stage\tfilename)
-    for part in parts.iter().skip(1).take_while(|p| !p.is_empty()) {
-      // File entries have format: "<mode> <object> <stage>\t<filename>"
-      if let Some(tab_pos) = part.find('\t') {
-        let (prefix, filename) = part.split_at(tab_pos);
-        let filename = &filename[1..]; // Skip the tab
-        let path = PathBuf::from(filename);
-
-        // Parse mode, object, stage
-        let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
-        if prefix_parts.len() == 3 {
-          let object_id = prefix_parts[1].to_string();
-          let stage = prefix_parts[2];
-
-          let entry = conflict_files.entry(path.clone()).or_insert(ConflictFileInfo {
-            path,
-            base_oid: None,
-            ours_oid: None,
-            theirs_oid: None,
-          });
-
-          match stage {
-            "1" => entry.base_oid = Some(object_id),
-            "2" => entry.ours_oid = Some(object_id),
-            "3" => entry.theirs_oid = Some(object_id),
-            _ => {}
-          }
-        }
-      }
-    }
-
-    // Skip empty separator and subsequent sections
-    // We only care about the actual conflicting file paths
-
-    if !conflict_files.is_empty() {
-      // Send branch status event for conflict analysis if progress channel is available
-      if let Some((progress_channel, branch_name, _task_index)) = &progress {
-        let _ = progress_channel.send(SyncEvent::BranchStatusUpdate {
-          branch_name: branch_name.to_string(),
-          status: crate::git::model::BranchSyncStatus::AnalyzingConflict,
-        });
-      }
-
-      // Get detailed conflict information with diffs
-      let original_parent = cherry_commit.parent(0)?;
-      let (detailed_conflicts, conflict_marker_commits) = extract_conflict_details(ConflictDetailsParams {
-        git_executor,
-        repo_path: repo_path_str,
-        conflict_files: &conflict_files,
-        merge_tree_oid: parts[0], // merge_tree_oid
-        parent_commit_id: &original_parent.id().to_string(),
-        target_commit_id: &target_commit.id().to_string(),
-        cherry_commit_id: &cherry_commit.id().to_string(),
-      })?;
-
-      // Analyze the conflict to find missing commits
-      let conflicting_paths: Vec<PathBuf> = conflict_files.keys().cloned().collect();
-      let conflict_analysis = match crate::git::conflict_analysis::analyze_conflict(
-        git_executor,
-        repo_path_str,
-        &original_parent.id().to_string(),
-        &target_commit.id().to_string(),
-        &conflicting_paths,
-      ) {
-        Ok(analysis) => analysis,
-        Err(e) => {
-          // If conflict analysis fails, create a default analysis with empty data
-          debug!(error = %e, "failed to analyze conflict");
-          crate::git::conflict_analysis::ConflictAnalysis {
-            missing_commits: vec![],
-            merge_base_hash: String::new(),
-            merge_base_message: String::new(),
-            merge_base_time: 0,
-            merge_base_author: String::new(),
-            divergence_summary: crate::git::conflict_analysis::DivergenceSummary {
-              commits_ahead_in_source: 0,
-              commits_ahead_in_target: 0,
-              common_ancestor_distance: 0,
-            },
-          }
-        }
-      };
-
-      return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo {
-        commit_message: cherry_commit.summary().unwrap_or_default().to_string(),
-        commit_hash: cherry_commit.id().to_string(),
-        commit_time: cherry_commit.time().seconds() as u32,
-        original_parent_message: original_parent.summary().unwrap_or_default().to_string(),
-        original_parent_hash: original_parent.id().to_string(),
-        original_parent_time: original_parent.time().seconds() as u32,
-        target_branch_message: target_commit.summary().unwrap_or_default().to_string(),
-        target_branch_hash: target_commit.id().to_string(),
-        target_branch_time: target_commit.time().seconds() as u32,
-        conflicting_files: detailed_conflicts,
-        conflict_analysis,
-        conflict_marker_commits,
-      }))));
-    }
-  }
-
-  // No conflicts, return the merged tree
-  let tree = repo.find_tree(tree_oid)?;
-  Ok(tree)
-}
-
-/// Backward compatibility function that creates its own GitCommandExecutor
-/// Used by existing tests and code that hasn't been updated yet
-pub fn perform_fast_cherry_pick<'a>(repo: &'a Repository, cherry_commit: &'a Commit, target_commit: &'a Commit) -> Result<Tree<'a>, CopyCommitError> {
-  let git_executor = GitCommandExecutor::new();
-  perform_fast_cherry_pick_with_context(repo, cherry_commit, target_commit, &git_executor, None)
 }

@@ -144,7 +144,7 @@ pub(crate) fn create_or_update_commit(params: CreateCommitParams) -> Result<(Com
       index: task_index,
     })?;
     // trees are different, use fast cherry-pick for better performance
-    crate::git::plumbing_cherry_pick::perform_fast_cherry_pick_with_context(
+    crate::git::cherry_pick::perform_fast_cherry_pick_with_context(
       repo,
       original_commit,
       &new_parent_commit,
