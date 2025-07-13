@@ -6,6 +6,11 @@ version = "0.1.0"
 description = "Branch Deck"
 authors = ["you"]
 edition = "2024"
+default-run = "branch-deck"
+
+[features]
+default = []
+auto-update = ["dep:tauri-plugin-updater"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +20,11 @@ edition = "2024"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "branch_deck_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Define the main binary
+[[bin]]
+name = "branch-deck"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -29,14 +39,14 @@ specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
 regex = "1.11.1"
 indexmap = "2.10.0"
 tauri-plugin-log = "2"
-git2 = {version = "0.20.2", features = ["vendored-libgit2"] }
+git2 = { git = "https://github.com/rust-lang/git2-rs", rev = "bb658dd7764937bc9e47151bc504a41b5944c58f", features = ["vendored-libgit2"] }
 tauri-plugin-devtools = "2.0.0"
 anyhow = {version = "1.0.98", features = ["default", "backtrace"] }
-similar = { version = "2.6.0", features = ["text"] }
-tracing = "0.1.41"
+tracing = { version = "0.1.41", features = ["max_level_debug", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
 tracing-log = "0.2"
 opentelemetry = "0.30.0"
@@ -44,12 +54,10 @@ opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"]
 opentelemetry-otlp = { version = "0.30.0", features = ["http-proto", "reqwest-blocking-client"] }
 tracing-opentelemetry = "0.31.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-
-[dev-dependencies]
 tempfile = "3.20.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-updater = "2"
+tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-window-state = "2"
 
 [profile.dev]

@@ -325,6 +325,152 @@ mod tests {
   }
 
   #[test]
+  fn test_group_commits_with_issue_numbers() {
+    let (_dir, repo) = create_test_repo();
+
+    // Create commits with issue numbers
+    let commit_ids = [
+      create_commit(
+        &repo,
+        "IJPL-163558: Fix observability of pending and running background write actions",
+        "write_actions.txt",
+        "Initial content\n",
+      ),
+      create_commit(&repo, "XYZ-1001: Improve performance of data fetching", "data_fetch.txt", "Some data fetching logic\n"),
+      create_commit(&repo, "IJPL-163558: Enhance logging during writes", "write_actions.txt", "Additional log content\n"),
+    ];
+
+    // Get the commit objects directly
+    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    assert_eq!(commits.len(), 3);
+
+    let grouped = group_commits_by_prefix(&commits);
+    assert_eq!(grouped.len(), 2);
+    assert!(grouped.contains_key("IJPL-163558"));
+    assert!(grouped.contains_key("XYZ-1001"));
+
+    let ijpl_commits = grouped.get("IJPL-163558").unwrap();
+    assert_eq!(ijpl_commits.len(), 2);
+    let xyz_commits = grouped.get("XYZ-1001").unwrap();
+    assert_eq!(xyz_commits.len(), 1);
+
+    // Verify the commit messages are correctly extracted
+    assert_eq!(ijpl_commits[0].0, "IJPL-163558: Fix observability of pending and running background write actions");
+    assert_eq!(ijpl_commits[1].0, "IJPL-163558: Enhance logging during writes");
+    assert_eq!(xyz_commits[0].0, "XYZ-1001: Improve performance of data fetching");
+  }
+
+  #[test]
+  fn test_group_commits_mixed_patterns() {
+    let (_dir, repo) = create_test_repo();
+
+    // Create commits with mixed patterns - some with explicit prefix, some with issue numbers
+    let commit_ids = [
+      create_commit(&repo, "(threading) IJPL-163558: Fix observability", "threading.txt", "Content\n"),
+      create_commit(&repo, "ABC-456: Update documentation", "docs.txt", "Doc content\n"),
+      create_commit(&repo, "(ui) Improve button styling", "button.css", "CSS content\n"),
+      create_commit(&repo, "Regular commit without pattern", "misc.txt", "Misc content\n"),
+      create_commit(&repo, "[subsystem] This uses square brackets", "subsystem.txt", "Subsystem content\n"),
+    ];
+
+    // Get the commit objects directly
+    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    assert_eq!(commits.len(), 5);
+
+    let grouped = group_commits_by_prefix(&commits);
+    // Should have 3 groups: threading, ABC-456, and ui
+    // The commit with square brackets and the regular commit should not be grouped
+    assert_eq!(grouped.len(), 3);
+    assert!(grouped.contains_key("threading"));
+    assert!(grouped.contains_key("ABC-456"));
+    assert!(grouped.contains_key("ui"));
+
+    // Verify explicit prefix takes precedence over issue number
+    let threading_commits = grouped.get("threading").unwrap();
+    assert_eq!(threading_commits.len(), 1);
+    assert_eq!(threading_commits[0].0, "IJPL-163558: Fix observability");
+  }
+
+  #[test]
+  fn test_issue_numbers_with_square_brackets() {
+    let (_dir, repo) = create_test_repo();
+
+    // Create commits with square brackets and issue numbers
+    let commit_ids = [
+      create_commit(
+        &repo,
+        "[threading] IJPL-163558: Fix observability of pending and running background write actions",
+        "threading.txt",
+        "Content\n",
+      ),
+      create_commit(&repo, "[subsystem] ABC-456: Update documentation", "docs.txt", "Doc content\n"),
+      create_commit(&repo, "[threading] IJPL-163558: Enhance logging", "threading2.txt", "More content\n"),
+      create_commit(&repo, "[database] IJPL-163558: Update schema", "schema.sql", "Schema content\n"),
+    ];
+
+    // Get the commit objects directly
+    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    assert_eq!(commits.len(), 4);
+
+    let grouped = group_commits_by_prefix(&commits);
+    // Should have 2 groups based on issue numbers, not square bracket prefixes
+    assert_eq!(grouped.len(), 2);
+    assert!(grouped.contains_key("IJPL-163558"));
+    assert!(grouped.contains_key("ABC-456"));
+
+    // All IJPL-163558 commits should be grouped together regardless of [subsystem] prefix
+    let ijpl_commits = grouped.get("IJPL-163558").unwrap();
+    assert_eq!(ijpl_commits.len(), 3);
+    assert_eq!(
+      ijpl_commits[0].0,
+      "[threading] IJPL-163558: Fix observability of pending and running background write actions"
+    );
+    assert_eq!(ijpl_commits[1].0, "[threading] IJPL-163558: Enhance logging");
+    assert_eq!(ijpl_commits[2].0, "[database] IJPL-163558: Update schema");
+
+    let abc_commits = grouped.get("ABC-456").unwrap();
+    assert_eq!(abc_commits.len(), 1);
+    assert_eq!(abc_commits[0].0, "[subsystem] ABC-456: Update documentation");
+  }
+
+  #[test]
+  fn test_issue_numbers_only_in_first_line() {
+    let (_dir, repo) = create_test_repo();
+
+    // Create commits with issue numbers in different parts of the message
+    let commit_ids = [
+      // Issue number in first line - should be detected
+      create_commit(&repo, "ABC-123: Fix authentication", "file1.txt", "Content\n"),
+      // Issue number only in body - should NOT be detected
+      create_commit(
+        &repo,
+        "Refactor authentication module\n\nThis fixes issue DEF-456 which was causing login failures",
+        "file2.txt",
+        "Content\n",
+      ),
+      // Issue number in first line with square brackets - should be detected
+      create_commit(&repo, "[auth] GHI-789: Update login flow", "file3.txt", "Content\n"),
+      // No issue number in first line - should NOT be grouped
+      create_commit(&repo, "Update dependencies\n\nResolves: JKL-111", "file4.txt", "Content\n"),
+    ];
+
+    // Get the commit objects directly
+    let commits: Vec<git2::Commit> = commit_ids.iter().map(|oid| repo.find_commit(*oid).unwrap()).collect();
+    assert_eq!(commits.len(), 4);
+
+    let grouped = group_commits_by_prefix(&commits);
+
+    // Should only find issue numbers in first line
+    assert_eq!(grouped.len(), 2, "Should have exactly 2 groups");
+    assert!(grouped.contains_key("ABC-123"), "Should find ABC-123 in first line");
+    assert!(grouped.contains_key("GHI-789"), "Should find GHI-789 in first line with [auth] prefix");
+
+    // Should NOT find issue numbers in body or footer
+    assert!(!grouped.contains_key("DEF-456"), "Should NOT find DEF-456 in commit body");
+    assert!(!grouped.contains_key("JKL-111"), "Should NOT find JKL-111 in commit footer");
+  }
+
+  #[test]
   fn test_reproduce_bugfix_txt_conflict_scenario() {
     let (_dir, repo) = create_test_repo();
 
@@ -415,6 +561,105 @@ mod tests {
     assert!(!index.has_conflicts(), "Should not have conflicts for clean merge");
 
     println!("✅ Direct git2::merge_commits test passed - validates our simplified approach");
+
+    println!("   - git2::Repository::merge_commits works without touching working directory");
+    println!("   - Much simpler than our previous custom 3-way merge logic");
+  }
+
+  #[test]
+  fn test_rename_commit() {
+    let (_dir, repo) = create_test_repo();
+
+    // Create initial commit
+    let base_id = create_commit(&repo, "Initial commit", "original.txt", "Initial content\n");
+    let base_commit = repo.find_commit(base_id).unwrap();
+    repo.branch("baseline", &base_commit, false).unwrap();
+
+    // Create second commit that simulates a rename (delete old file, create new file with same content)
+    // First, we need to remove the old file
+    let tree = repo.find_commit(base_id).unwrap().tree().unwrap();
+    let mut builder = repo.treebuilder(Some(&tree)).unwrap();
+    builder.remove("original.txt").unwrap();
+
+    // Add the new file with the same content
+    let blob_oid = repo.blob(b"Initial content\n").unwrap();
+    builder.insert("renamed.txt", blob_oid, 0o100644).unwrap();
+
+    let new_tree_oid = builder.write().unwrap();
+    let new_tree = repo.find_tree(new_tree_oid).unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    let rename_id = repo
+      .commit(Some("HEAD"), &sig, &sig, "(test-rename) Rename original.txt to renamed.txt", &new_tree, &[&base_commit])
+      .unwrap();
+
+    // Test that we can successfully create a cherry-pick of a rename commit
+    // using our new plumbing cherry-pick implementation
+    use crate::git::plumbing_cherry_pick::perform_fast_cherry_pick;
+
+    let rename_commit = repo.find_commit(rename_id).unwrap();
+
+    // Create a new target branch to apply the rename to
+    let target_branch_id = create_commit(&repo, "Target branch", "other.txt", "Other content\n");
+    let target_commit = repo.find_commit(target_branch_id).unwrap();
+
+    // Test cherry-picking the rename commit
+    let result = perform_fast_cherry_pick(&repo, &rename_commit, &target_commit);
+
+    match result {
+      Ok(tree) => {
+        // Verify the resulting tree has the renamed file
+        assert!(tree.get_name("renamed.txt").is_some(), "Renamed file should exist in the tree");
+        assert!(tree.get_name("original.txt").is_none(), "Original file should not exist in the tree");
+        assert!(tree.get_name("other.txt").is_some(), "Other file from target should still exist");
+        println!("✅ Rename commit test passed - cherry-pick handled rename correctly");
+      }
+      Err(e) => {
+        panic!("Cherry-pick of rename commit failed: {e:?}");
+      }
+    }
+  }
+
+  #[test]
+  fn test_complex_rename_scenario() {
+    let (_dir, repo) = create_test_repo();
+
+    // Create a more complex scenario with content changes and rename
+    let base_id = create_commit(&repo, "Initial commit", "file.txt", "Initial content\nLine 2\n");
+    let base_commit = repo.find_commit(base_id).unwrap();
+
+    // Create a commit that both renames and modifies the file
+    let tree = base_commit.tree().unwrap();
+    let mut builder = repo.treebuilder(Some(&tree)).unwrap();
+    builder.remove("file.txt").unwrap();
+
+    // Add renamed file with modified content
+    let blob_oid = repo.blob(b"Modified content\nLine 2\nLine 3\n").unwrap();
+    builder.insert("renamed_file.txt", blob_oid, 0o100644).unwrap();
+
+    let new_tree_oid = builder.write().unwrap();
+    let new_tree = repo.find_tree(new_tree_oid).unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    let _rename_modify_id = repo
+      .commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        "(test-rename) Rename and modify file.txt to renamed_file.txt",
+        &new_tree,
+        &[&base_commit],
+      )
+      .unwrap();
+
+    // Test grouping of commits with rename prefix
+    let commits = crate::git::commit_list::get_commit_list(&repo, "HEAD~1").unwrap();
+    let grouped = group_commits_by_prefix(&commits);
+
+    assert!(grouped.contains_key("test-rename"), "Should find test-rename group");
+    let rename_group = grouped.get("test-rename").unwrap();
+    assert_eq!(rename_group.len(), 1, "Should have one commit in rename group");
+    assert_eq!(rename_group[0].0, "Rename and modify file.txt to renamed_file.txt");
+
+    println!("✅ Complex rename scenario test passed");
     println!("   - git2::Repository::merge_commits works without touching working directory");
     println!("   - Much simpler than our previous custom 3-way merge logic");
   }

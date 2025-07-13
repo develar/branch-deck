@@ -10,7 +10,6 @@
   ],
   "permissions": [
     "window-state:default",
-    "updater:default",
     "dialog:allow-open"
   ]
 }

@@ -7,8 +7,11 @@
   ],
   "permissions": [
     "core:default",
+    "core:event:default",
+    "core:webview:allow-create-webview-window",
     "store:default",
     "dialog:allow-open",
-    "log:default"
+    "log:default",
+    "window-state:default"
   ]
 }

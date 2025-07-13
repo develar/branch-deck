@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "sub-windows",
+  "description": "Capability for all sub-windows (missing commits, conflicting files, etc.)",
+  "windows": [
+    "missing-commits",
+    "conflicting-files"
+  ],
+  "permissions": [
+    "core:event:default"
+  ]
+}

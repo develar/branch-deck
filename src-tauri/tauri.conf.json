@@ -7,12 +7,14 @@
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist",
-    "removeUnusedCommands": true
+    "frontendDist": "../.output/public",
+    "removeUnusedCommands": true,
+    "features": ["auto-update"]
   },
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "BranchDeck",
         "width": 1024,
         "height": 768

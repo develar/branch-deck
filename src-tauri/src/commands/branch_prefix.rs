@@ -1,5 +1,5 @@
 use git2;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 #[tauri::command]
 #[specta::specta]
@@ -8,6 +8,7 @@ pub async fn get_branch_prefix_from_git_config(repository_path: &str) -> Result<
 }
 
 //noinspection SpellCheckingInspection
+#[instrument]
 fn get_branch_prefix_from_git_config_sync(repository_path: &str) -> anyhow::Result<String> {
   let config = if repository_path.is_empty() {
     git2::Config::open_default()?
@@ -27,7 +28,7 @@ fn get_branch_prefix_from_git_config_sync(repository_path: &str) -> anyhow::Resu
           if let Some(name) = entry.name() {
             if name.eq_ignore_ascii_case("branchdeck.branchprefix") {
               if let Some(value) = entry.value() {
-                debug!("Found branch prefix with key '{}': {}", name, value);
+                debug!(key = %name, value = %value, "found branch prefix with case-insensitive match");
                 return Ok(value.to_string());
               }
             }

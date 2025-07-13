@@ -9,9 +9,17 @@ lerna-debug.log*
 
 .idea/
 node_modules
-dist
-dist-ssr
 *.local
+
+# Nuxt build output
+.nuxt
+.nitro
+.cache
+.output
+.nuxt-*
+
+# Migration backups
+migration-backup/
 
 # Editor directories and files
 .vscode/*
@@ -23,10 +31,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-# Test repositories
-test-repo/
-test-git-repo/
 
 # Downloaded tools
 .tools/

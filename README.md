@@ -15,10 +15,24 @@ Branch Deck creates Git branches from your commits based on message prefixes. Co
 
 ## How It Works
 
-Branch Deck analyzes your commit history and creates separate branches based on commit message prefixes using the `(name)` format. For example:
+Branch Deck analyzes your commit history and creates separate branches based on commit message patterns:
+
+### Explicit Prefixes
+Use the `(name)` format in your commit messages:
 - Commits prefixed with `(feature-auth)` go to a `username/virtual/feature-auth` branch
 - Commits prefixed with `(bugfix-login)` go to a `username/virtual/bugfix-login` branch
-- Commits without prefixes remain on the main branch
+
+### Issue Numbers
+If no explicit prefix is found, Branch Deck automatically detects issue numbers (e.g., `JIRA-123`, `ABC-456`) in the first line of the commit message:
+- Commits with `IJPL-163558: Fix observability` go to a `username/virtual/IJPL-163558` branch
+- Commits with `[threading] IJPL-163558: Fix observability` also go to `username/virtual/IJPL-163558` branch
+- Square bracket prefixes like `[subsystem]` are ignored when grouping by issue numbers
+- Multiple commits with the same issue number are grouped together
+- Issue numbers must be in the first line of the commit message
+
+### Priority
+- Explicit prefixes `(name)` take precedence over issue numbers
+- Commits without either pattern remain on the main branch
 
 This allows you to maintain a clean, organized Git history while working on multiple features simultaneously.
 
@@ -28,7 +42,7 @@ This allows you to maintain a clean, organized Git history while working on mult
 
 ## Why Branch Deck?
 
-- **Simple**: Just add `(name)` prefixes to your commit messages
+- **Simple**: Just add `(name)` prefixes or use issue numbers in your commit messages
 - **Automatic**: Creates actual Git branches without manual branch management
 - **Organized**: Each feature gets its own clean branch automatically
 - **Flexible**: Work on multiple features simultaneously in one working directory

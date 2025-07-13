@@ -1,28 +1,22 @@
-import pluginVue from "eslint-plugin-vue"
+// @ts-check
+import withNuxt from './.nuxt/eslint.config.mjs'
 
-import {defineConfigWithVueTs, vueTsConfigs} from "@vue/eslint-config-typescript"
-import stylistic from '@stylistic/eslint-plugin'
-import {globalIgnores} from "eslint/config"
-
-export default defineConfigWithVueTs(
-  pluginVue.configs["flat/recommended"],
-  vueTsConfigs.recommended,
-  stylistic.configs.recommended,
-  globalIgnores(["src/bindings.ts", "src/vite-env.d.ts"]),
-  {
+export default withNuxt()
+  .append({
+    files: ['**/*.{js,mjs,cjs,ts,vue}'],
     rules: {
-      "vue/max-attributes-per-line": [
-        "error",
-        {
-          singleline: {
-            max: 3,
-          },
-          multiline: {
-            max: 1,
-          },
-        },
-      ],
-      "@stylistic/quotes": ["error", "double"],
-    },
-  },
-)
+      'vue/max-attributes-per-line': ['error', {
+        singleline: { max: 3 },
+        multiline: { max: 1 }
+      }],
+      'vue/multi-word-component-names': 'off',
+    }
+  })
+  .append({
+    ignores: [
+      '**/app/utils/bindings.ts',
+      '**/src-tauri/target/**',
+      '**/migration-backup/**',
+      '**/.tools/**'
+    ]
+  })
