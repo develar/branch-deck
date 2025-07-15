@@ -52,7 +52,7 @@ export function useRecentPath() {
   }
 }
 
-async function loadRecentPaths(appStore: import('~/utils/app-store').AppStore, recentPaths: Ref<string[]>, repositoryPath: Ref<string>) {
+async function loadRecentPaths(appStore: import('~/utils/app-store').IAppStore, recentPaths: Ref<string[]>, repositoryPath: Ref<string>) {
   const toast = useToast()
   try {
     recentPaths.value = await appStore.getRecentPaths()

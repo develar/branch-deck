@@ -90,7 +90,7 @@ export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "
 /**
  * Details about a synchronized commit.
  */
-export type CommitDetail = { original_hash: string; hash: string; message: string; time: number; status: CommitSyncStatus; error: BranchError | null }
+export type CommitDetail = { originalHash: string; hash: string; message: string; authorTime: number; committerTime: number; status: CommitSyncStatus; error: BranchError | null }
 /**
  * Status of a commit synchronization.
  */
@@ -132,7 +132,7 @@ export type MergeConflictInfo = { commitMessage: string; commitHash: string; com
  * Represents a commit that exists in the source branch but is missing from the target branch.
  * These commits might be causing merge conflicts.
  */
-export type MissingCommit = { hash: string; message: string; time: number; author: string; filesTouched: string[]; fileDiffs: FileDiff[] }
+export type MissingCommit = { hash: string; message: string; authorTime: number; committerTime: number; author: string; filesTouched: string[]; fileDiffs: FileDiff[] }
 export type SyncEvent = 
 /**
  * Initial progress message

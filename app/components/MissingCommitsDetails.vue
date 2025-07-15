@@ -56,7 +56,8 @@
             <CommitInfo 
               :hash="commit.hash"
               :author="commit.author"
-              :timestamp="commit.time"
+              :timestamp="commit.authorTime"
+              :committer-timestamp="commit.committerTime"
               :file-count="commit.fileDiffs?.length"
               class="mt-1"
             />

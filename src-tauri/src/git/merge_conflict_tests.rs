@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
+  use super::super::cache::TreeIdCache;
   use super::super::cherry_pick::perform_fast_cherry_pick_with_context;
   use super::super::copy_commit::CopyCommitError;
   use super::super::model::BranchError;
   use crate::test_utils::git_test_utils::{ConflictTestBuilder, TestRepo, setup_deletion_conflict};
-  use git2::Repository;
 
   #[test]
   fn test_conflict_hunks_extraction() {
@@ -18,13 +18,16 @@ mod tests {
       .with_cherry_changes(vec![("test.txt", "line1\\nline2 modified by cherry\\nline3\\nline4\\nline5\\n")], "Cherry-pick changes")
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Attempt cherry-pick which should create a conflict
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Verify it's a conflict
     assert!(result.is_err());
@@ -84,13 +87,16 @@ mod tests {
     // Use the helper function for deletion conflict setup
     let scenario = setup_deletion_conflict(&test_repo);
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Attempt cherry-pick which should create a conflict
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Verify it's a conflict
     assert!(result.is_err());
@@ -143,13 +149,9 @@ mod tests {
     // Create cherry-pick with changes to different file (no conflict)
     let cherry_commit_hash = test_repo.create_commit("Cherry-pick", "cherry.txt", "cherry content\n");
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&cherry_commit_hash).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&target_commit_hash).unwrap()).unwrap();
-
     // Attempt cherry-pick - should succeed without conflicts
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_commit_hash, &target_commit_hash, None, &cache);
 
     // Should succeed
     assert!(result.is_ok(), "Cherry-pick should succeed without conflicts");
@@ -167,13 +169,16 @@ mod tests {
       .with_cherry_changes(vec![("test.js", "function hello() {\n  console.log('hello from cherry');\n}\n")], "Cherry-pick changes")
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // This function is not public, so we'll test it indirectly through the cherry-pick process
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Verify it's a conflict and check the file_diff content
     assert!(result.is_err());
@@ -230,13 +235,16 @@ mod tests {
       )
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Perform cherry-pick
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Verify conflict structure
     assert!(result.is_err());
@@ -312,13 +320,16 @@ mod tests {
       )
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Perform cherry-pick
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Verify multiple conflicts
     assert!(result.is_err());
@@ -364,13 +375,16 @@ mod tests {
       .with_cherry_changes(vec![("empty.txt", "cherry content\n")], "Cherry adds content")
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Perform cherry-pick
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Verify conflict with proper content
     assert!(result.is_err());
@@ -468,13 +482,16 @@ mod tests {
       .with_cherry_changes(vec![("Stealer.kt", cherry_content)], "Refactor to use new event type")
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Attempt cherry-pick
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Should produce conflicts
     assert!(result.is_err());
@@ -569,13 +586,16 @@ mod tests {
       .with_cherry_changes(vec![("processor.js", cherry_content)], "Add type safety and async")
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Attempt cherry-pick
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Should produce conflicts
     assert!(result.is_err());
@@ -691,13 +711,16 @@ mod tests {
       .with_cherry_changes(vec![("SuvorovProgress.kt", cherry_content)], "Refactor to new event system")
       .build();
 
-    // Open repository and get commit objects
-    let repo = Repository::open(test_repo.path()).unwrap();
-    let cherry_commit = repo.find_commit(git2::Oid::from_str(&scenario.cherry_commit).unwrap()).unwrap();
-    let target_commit = repo.find_commit(git2::Oid::from_str(&scenario.target_commit).unwrap()).unwrap();
-
     // Attempt cherry-pick
-    let result = perform_fast_cherry_pick_with_context(&repo, &cherry_commit, &target_commit, git_executor, None);
+    let cache = TreeIdCache::new();
+    let result = perform_fast_cherry_pick_with_context(
+      git_executor,
+      test_repo.path().to_str().unwrap(),
+      &scenario.cherry_commit,
+      &scenario.target_commit,
+      None,
+      &cache,
+    );
 
     // Should produce conflicts
     assert!(result.is_err());

@@ -1,9 +1,9 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { listen } from '@tauri-apps/api/event'
-import type { AppStore } from '~/utils/app-store'
+import type { IAppStore } from '~/utils/app-store'
 import ColorSelectorModal from '~/components/ColorSelectorModal.vue'
 
-export function useColorSelector(appStore: AppStore) {
+export function useColorSelector(appStore: IAppStore) {
   const appConfig = useAppConfig()
   let unlisten: (() => void) | null = null
   

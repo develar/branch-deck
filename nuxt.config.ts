@@ -5,6 +5,27 @@ export default defineNuxtConfig({
     compatibilityVersion: 4,
   },
 
+  vite: {
+    optimizeDeps: {
+      // avoid "optimized dependencies changed. reloading"
+      force: true,
+      
+      include: [
+        "@tauri-apps/plugin-store",
+        "@tauri-apps/api/webviewWindow",
+        "@tauri-apps/api/event",
+        "tailwindcss/colors",
+        "@vueuse/core",
+        "@tauri-apps/plugin-log",
+        "@tauri-apps/api/app",
+        "@tauri-apps/plugin-dialog",
+        "@tauri-apps/api/core",
+        "@git-diff-view/vue",
+        "reka-ui"
+      ],
+    }
+  },
+
   // Compatibility date for Nitro
   compatibilityDate: "2025-07-09",
 
@@ -23,6 +44,9 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
     shim: false,
+    tsConfig: {
+      exclude: ["**/utils/bindings.ts"],
+    },
   },
 
   devServer: {

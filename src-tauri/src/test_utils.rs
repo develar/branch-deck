@@ -168,23 +168,6 @@ pub mod git_test_utils {
       }
     }
 
-    /// Remove a file and commit the removal
-    pub fn remove_file(&self, filename: &str, message: &str) -> Result<String, String> {
-      let output = Command::new("git").args(["--no-pager", "rm", filename]).current_dir(self.path()).output().unwrap();
-
-      if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-      }
-
-      let output = Command::new("git").args(["--no-pager", "commit", "-m", message]).current_dir(self.path()).output().unwrap();
-
-      if output.status.success() {
-        Ok(self.head())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
     /// Creates a commit with multiple files
     pub fn create_commit_with_files(&self, message: &str, files: &[(&str, &str)]) -> String {
       for (filename, content) in files {
@@ -206,89 +189,12 @@ pub mod git_test_utils {
       self.head()
     }
 
-    /// Set upstream for current branch
-    pub fn set_upstream(&self, remote: &str, branch: &str) -> Result<(), String> {
-      let output = Command::new("git")
-        .args(["--no-pager", "branch", "--set-upstream-to", &format!("{remote}/{branch}")])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      if output.status.success() {
-        Ok(())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
-    /// Add a remote
-    pub fn add_remote(&self, name: &str, url: &str) -> Result<(), String> {
-      let output = Command::new("git")
-        .args(["--no-pager", "remote", "add", name, url])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      if output.status.success() {
-        Ok(())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
-    /// Get config value
-    pub fn get_config(&self, key: &str) -> Result<String, String> {
-      let output = Command::new("git").args(["--no-pager", "config", key]).current_dir(self.path()).output().unwrap();
-
-      if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
     /// Set config value
     pub fn set_config(&self, key: &str, value: &str) -> Result<(), String> {
       let output = Command::new("git").args(["--no-pager", "config", key, value]).current_dir(self.path()).output().unwrap();
 
       if output.status.success() {
         Ok(())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
-    /// Check if a file exists in the working directory
-    pub fn file_exists(&self, filename: &str) -> bool {
-      self.path().join(filename).exists()
-    }
-
-    /// Get file content from working directory
-    pub fn read_file(&self, filename: &str) -> Result<String, String> {
-      fs::read_to_string(self.path().join(filename)).map_err(|e| format!("Failed to read file {filename}: {e}"))
-    }
-
-    /// Check if file exists in a specific commit using git ls-tree
-    pub fn file_exists_in_commit(&self, commit_hash: &str, filename: &str) -> bool {
-      let output = Command::new("git")
-        .args(["--no-pager", "ls-tree", commit_hash, "--", filename])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      output.status.success() && !output.stdout.is_empty()
-    }
-
-    /// Get file content at a specific commit
-    pub fn get_file_at_commit(&self, commit_hash: &str, filename: &str) -> Result<String, String> {
-      let output = Command::new("git")
-        .args(["--no-pager", "show", &format!("{commit_hash}:{filename}")])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
       } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
       }
@@ -305,40 +211,6 @@ pub mod git_test_utils {
       output.status.success()
     }
 
-    /// Get list of all branches
-    pub fn get_branches(&self) -> Vec<String> {
-      let output = Command::new("git")
-        .args(["--no-pager", "branch", "--format=%(refname:short)"])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      if output.status.success() {
-        String::from_utf8_lossy(&output.stdout)
-          .lines()
-          .map(|s| s.trim().to_string())
-          .filter(|s| !s.is_empty())
-          .collect()
-      } else {
-        vec![]
-      }
-    }
-
-    /// Get commit message
-    pub fn get_commit_message(&self, commit_hash: &str) -> Result<String, String> {
-      let output = Command::new("git")
-        .args(["--no-pager", "log", "-1", "--format=%s", commit_hash])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
     /// Get list of files in a commit
     pub fn get_files_in_commit(&self, commit_hash: &str) -> Result<Vec<String>, String> {
       let output = Command::new("git")
@@ -352,53 +224,6 @@ pub mod git_test_utils {
       } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
       }
-    }
-
-    /// Apply a stash (useful for conflict testing)
-    pub fn stash_apply(&self) -> Result<(), String> {
-      let output = Command::new("git").args(["--no-pager", "stash", "apply"]).current_dir(self.path()).output().unwrap();
-
-      if output.status.success() {
-        Ok(())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
-    /// Create a stash
-    pub fn stash_create(&self, message: &str) -> Result<(), String> {
-      let output = Command::new("git")
-        .args(["--no-pager", "stash", "push", "-m", message])
-        .current_dir(self.path())
-        .output()
-        .unwrap();
-
-      if output.status.success() {
-        Ok(())
-      } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-      }
-    }
-
-    /// Get git2::Commit objects for testing functions that require them
-    /// This encapsulates libgit2 usage within the test framework
-    /// Note: The Repository must be kept alive while using the returned commits
-    pub fn get_commits<'a>(&self, commit_hashes: &[String], repo: &'a git2::Repository) -> Vec<git2::Commit<'a>> {
-      commit_hashes.iter().map(|hash| repo.find_commit(git2::Oid::from_str(hash).unwrap()).unwrap()).collect()
-    }
-
-    /// Get a single git2::Commit object for testing
-    /// This encapsulates libgit2 usage within the test framework  
-    /// Note: The Repository must be kept alive while using the returned commit
-    pub fn get_commit<'a>(&self, commit_hash: &str, repo: &'a git2::Repository) -> git2::Commit<'a> {
-      repo.find_commit(git2::Oid::from_str(commit_hash).unwrap()).unwrap()
-    }
-
-    /// Get git2::Repository for advanced operations that require it
-    /// This should be used sparingly and only when TestRepo methods are insufficient
-    /// Prefer using TestRepo methods over this when possible
-    pub fn repository(&self) -> git2::Repository {
-      git2::Repository::open(self.path()).unwrap()
     }
   }
 

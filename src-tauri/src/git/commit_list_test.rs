@@ -1,153 +1,220 @@
 use crate::git::commit_list::*;
+use crate::git::git_command::GitCommandExecutor;
 use crate::test_utils::git_test_utils::TestRepo;
 
 #[test]
-fn test_get_commit_list_with_no_commits_ahead() {
+fn test_get_commit_list_no_upstream() {
   let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
 
-  // Create only the initial commit
+  // Create initial commit
   test_repo.create_commit("Initial commit", "README.md", "# Test");
 
-  // Open repository to get git2::Repository
-  let repo = git2::Repository::open(test_repo.path()).unwrap();
-
-  // Since there's no remote branch and no commits with prefixes,
-  // we should get an empty list
-  let commits = get_commit_list(&repo, "master").unwrap();
-  assert_eq!(commits.len(), 0, "Should return 0 commits when no prefixed commits exist");
-}
-
-#[test]
-fn test_get_commit_list_head_equals_local_branch_no_upstream() {
-  let test_repo = TestRepo::new();
-
-  // Create multiple commits to simulate a real repository
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  // Add commits with prefixes
   test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
   test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
   test_repo.create_commit("Regular commit", "regular.txt", "regular content");
   test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
 
-  // In this scenario:
-  // - No origin/master exists (no upstream)
-  // - HEAD and master point to the same commit (last commit)
-  // - This mimics a local repository without upstream
-  let repo = git2::Repository::open(test_repo.path()).unwrap();
-  let commits = get_commit_list(&repo, "master").unwrap();
-
-  // Should return commits with branch prefixes when no upstream is configured
-  assert_eq!(commits.len(), 3, "Should return commits with branch prefixes when no upstream");
-
-  // Verify the commits are the ones with prefixes (in chronological order)
-  assert_eq!(commits[0].message().unwrap().trim(), "(feature-auth) Add authentication");
-  assert_eq!(commits[1].message().unwrap().trim(), "(bugfix-login) Fix login issue");
-  assert_eq!(commits[2].message().unwrap().trim(), "(ui-components) Add button");
-
-  // Verify that HEAD and master indeed point to the same commit
-  let head_hash = test_repo.head();
-  let master_hash = test_repo.rev_parse("master").unwrap();
-  assert_eq!(head_hash, master_hash, "HEAD and master should point to the same commit");
+  // Since there's no origin/master, git rev-list origin/master..HEAD will fail
+  // This is expected behavior - we need origin/master to exist
+  let result = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master");
+  assert!(result.is_err(), "Should fail when origin/master doesn't exist");
 }
 
 #[test]
-fn test_get_commit_list_with_commits_ahead() {
+fn test_get_commit_list_with_origin() {
   let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
 
-  // Create an initial commit
-  let id1 = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
 
-  // Create a baseline branch reference
-  test_repo.create_branch_at("baseline", &id1).unwrap();
+  // Simulate origin/master at initial commit
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
 
-  // Create additional commits ahead of baseline
-  let id2 = test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
-  let id3 = test_repo.create_commit("(feature-auth) Improve auth", "auth.js", "better auth code");
-
-  // Get commits ahead of baseline
-  let repo = git2::Repository::open(test_repo.path()).unwrap();
-  let commits = get_commit_list(&repo, "baseline").unwrap();
-
-  // Should return commits in chronological order (oldest first)
-  assert_eq!(commits.len(), 2);
-  assert_eq!(commits[0].id().to_string(), id2);
-  assert_eq!(commits[1].id().to_string(), id3);
-  assert_eq!(commits[0].message().unwrap().trim(), "(feature-auth) Add authentication");
-  assert_eq!(commits[1].message().unwrap().trim(), "(feature-auth) Improve auth");
-}
-
-#[test]
-fn test_get_commit_list_with_remote_branch() {
-  let test_repo = TestRepo::new();
-
-  // Create an initial commit
-  let initial_commit_id = test_repo.create_commit("Initial commit", "README.md", "# Test");
-
-  // Create a remote branch reference to simulate origin/master
-  test_repo.create_branch_at("origin/master", &initial_commit_id).unwrap();
-
-  // Create commits ahead of origin/master
-  let id2 = test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "fixed login");
-  let id3 = test_repo.create_commit("(ui-components) Add button", "button.vue", "<button></button>");
+  // Add commits with different patterns
+  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
+  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+  test_repo.create_commit("Regular commit without prefix", "regular.txt", "regular content");
+  test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
 
   // Get commits ahead of origin/master
-  let repo = git2::Repository::open(test_repo.path()).unwrap();
-  let commits = get_commit_list(&repo, "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
 
-  assert_eq!(commits.len(), 2);
-  assert_eq!(commits[0].id().to_string(), id2);
-  assert_eq!(commits[1].id().to_string(), id3);
+  // Should return all 4 commits (including the one without prefix)
+  assert_eq!(commits.len(), 4);
+
+  // Verify commits are in chronological order (oldest first due to --reverse)
+  assert_eq!(commits[0].message, "(feature-auth) Add authentication");
+  assert_eq!(commits[1].message, "(bugfix-login) Fix login issue");
+  assert_eq!(commits[2].message, "Regular commit without prefix");
+  assert_eq!(commits[3].message, "(ui-components) Add button");
+
+  // Verify other fields are populated
+  assert!(!commits[0].id.is_empty());
+  assert!(!commits[0].author_name.is_empty());
+  assert!(!commits[0].author_email.is_empty());
+  assert!(commits[0].committer_timestamp > 0);
+  assert!(commits[0].note.is_none()); // No notes in test commits
+  assert!(commits[0].mapped_commit_id.is_none());
 }
 
 #[test]
-fn test_get_commit_list_handles_missing_branch() {
+fn test_get_commit_list_with_merges() {
   let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
 
-  // Create some commits
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(feature-test) Test feature", "test.js", "test code");
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
 
-  // Try to get commits against a non-existent branch
-  let repo = git2::Repository::open(test_repo.path()).unwrap();
-  let result = get_commit_list(&repo, "nonexistent-branch");
+  // Create feature branch
+  test_repo.create_branch("feature").unwrap();
+  test_repo.checkout("feature").unwrap();
+  let _feature_commit = test_repo.create_commit("(feature) Add feature", "feature.txt", "feature");
 
-  // Should succeed and return all commits from HEAD since neither remote nor local branch exists
-  // This behavior allows the function to work even when the specified baseline branch doesn't exist
-  assert!(result.is_ok());
-  let commits = result.unwrap();
-  assert_eq!(commits.len(), 2, "Should return all commits when baseline branch doesn't exist");
+  // Go back to master and create another commit
+  test_repo.checkout("master").unwrap();
+  test_repo.create_commit("(master) Master change", "master.txt", "master");
+
+  // Merge feature branch (this creates a merge commit)
+  let output = std::process::Command::new("git")
+    .args(["--no-pager", "merge", "feature", "-m", "Merge feature branch"])
+    .current_dir(test_repo.path())
+    .output()
+    .unwrap();
+  assert!(output.status.success());
+
+  // Add one more regular commit
+  test_repo.create_commit("(post-merge) After merge", "post.txt", "post");
+
+  // Get commits - should exclude the merge commit
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+
+  // Should have 3 commits (feature, master change, post-merge) - merge commit excluded
+  assert_eq!(commits.len(), 3);
+  assert_eq!(commits[0].message, "(feature) Add feature");
+  assert_eq!(commits[1].message, "(master) Master change");
+  assert_eq!(commits[2].message, "(post-merge) After merge");
 }
 
 #[test]
-fn test_get_commit_list_preserves_commit_order() {
+fn test_get_commit_list_empty_range() {
   let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
 
-  // Create an initial commit and branch it
-  let initial_id = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("baseline", &initial_id).unwrap();
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
 
-  // Create multiple commits in sequence
-  let messages = [
-    "(feature-auth) First auth commit",
-    "(feature-auth) Second auth commit",
-    "(bugfix-login) Login fix",
-    "(feature-auth) Third auth commit",
-    "(ui-components) UI commit",
-  ];
+  // Set origin/master to current HEAD (no commits ahead)
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
 
-  let mut commit_ids = Vec::new();
-  for (i, message) in messages.iter().enumerate() {
-    let id = test_repo.create_commit(message, &format!("file{i}.txt"), &format!("content {i}"));
-    commit_ids.push(id);
-  }
+  // Get commits - should be empty
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  assert_eq!(commits.len(), 0);
+}
 
-  // Get commits ahead of baseline
-  let repo = git2::Repository::open(test_repo.path()).unwrap();
-  let commits = get_commit_list(&repo, "baseline").unwrap();
+#[test]
+fn test_has_branch_prefix() {
+  // Valid prefixes
+  assert!(has_branch_prefix("(feature) Add feature"));
+  assert!(has_branch_prefix("(bugfix-123) Fix bug"));
+  assert!(has_branch_prefix("(a) Short prefix"));
 
-  // Verify all commits are present and in chronological order (oldest first)
-  assert_eq!(commits.len(), 5);
-  for (i, commit) in commits.iter().enumerate() {
-    assert_eq!(commit.id().to_string(), commit_ids[i]);
-    assert_eq!(commit.message().unwrap().trim(), messages[i]);
-  }
+  // Invalid prefixes
+  assert!(!has_branch_prefix("() Empty prefix"));
+  assert!(!has_branch_prefix("("));
+  assert!(!has_branch_prefix("No prefix here"));
+  assert!(!has_branch_prefix(""));
+  assert!(!has_branch_prefix("Almost (but not)"));
+}
+
+#[test]
+fn test_parse_commit_with_multiline_message() {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+
+  // Create commit with multiline message using -F
+  let multiline_message = "(feature) Add feature\n\nThis is a detailed description\nwith multiple lines.";
+  std::fs::write(test_repo.path().join("commit_msg.txt"), multiline_message).unwrap();
+  std::fs::write(test_repo.path().join("test.txt"), "test content").unwrap();
+
+  std::process::Command::new("git")
+    .args(["--no-pager", "add", "test.txt"])
+    .current_dir(test_repo.path())
+    .output()
+    .unwrap();
+
+  std::process::Command::new("git")
+    .args(["--no-pager", "commit", "-F", "commit_msg.txt"])
+    .current_dir(test_repo.path())
+    .output()
+    .unwrap();
+
+  // Get commits
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+
+  assert_eq!(commits.len(), 1);
+  // Only the subject line should be in the message field
+  assert_eq!(commits[0].message, "(feature) Add feature");
+}
+
+#[test]
+fn test_commit_with_notes() {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+
+  // Create a commit
+  let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
+
+  // Add a note with the v-commit-v1: prefix
+  std::process::Command::new("git")
+    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:abc123def456", &commit_hash])
+    .current_dir(test_repo.path())
+    .output()
+    .unwrap();
+
+  // Get commits
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+
+  assert_eq!(commits.len(), 1);
+  assert_eq!(commits[0].message, "(feature) Add feature");
+  assert_eq!(commits[0].note, Some("v-commit-v1:abc123def456".to_string()));
+  assert_eq!(commits[0].mapped_commit_id, Some("abc123def456".to_string()));
+}
+
+#[test]
+fn test_commit_with_non_mapping_notes() {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+
+  // Create a commit
+  let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
+
+  // Add a note without the v-commit-v1: prefix
+  std::process::Command::new("git")
+    .args(["--no-pager", "notes", "add", "-m", "This is just a regular note", &commit_hash])
+    .current_dir(test_repo.path())
+    .output()
+    .unwrap();
+
+  // Get commits
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+
+  assert_eq!(commits.len(), 1);
+  assert_eq!(commits[0].note, Some("This is just a regular note".to_string()));
+  assert_eq!(commits[0].mapped_commit_id, None); // No mapped ID since no v-commit-v1: prefix
 }

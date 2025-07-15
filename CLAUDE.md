@@ -1,9 +1,9 @@
 # Branch Deck Development Context
 
 ## Project Overview
-Desktop Git branch management tool built with:
+Desktop Git branch management tool:
 - **Frontend**: Nuxt 4 (Vue 3) + Nuxt UI v3 + UI Pro
-- **Backend**: Rust + Tauri v2
+- **Backend**: Rust + Tauri v2  
 - **Purpose**: Sync virtual branches from commits, display status, push changes
 - **Package Manager**: pnpm only (never npm/yarn)
 
@@ -19,9 +19,12 @@ pnpm test            # Run Rust tests
 
 ## Development Rules
 
-### Git Commands
+### Git Operations
+- **CLI Only**: All git operations use git CLI via `GitCommandExecutor` (git2 dependency completely removed)
 - Always use `--no-pager` flag to prevent hanging
 - Handle special exit codes (e.g., merge-tree exit 1 = conflicts, not error)
+- Batch operations: Use `--stdin` for bulk updates (notes, refs)
+- Performance: Git CLI is more efficient than libgit2 for most operations
 
 ### Code Style
 - **Colors**: Use semantic colors (`text-muted`, `bg-default`, `border-default`)
@@ -30,36 +33,13 @@ pnpm test            # Run Rust tests
 - **Maps**: Use `.size` not `.length`, iterate with `.values()`
 - **Badges**: Use `size="sm"` or default (never `size="xs"`)
 - **TypeScript**: Use u32 for timestamps (JS compatible), avoid i64
+- **Tracing**: Use `#[instrument]` instead of manual debug!/info! calls
 
 ### Testing & Linting
 - Run `pnpm lint` before commits
 - Run tests after changes
 - Use `cargo check` from src-tauri/ for Rust type checking
-
-### Test Framework Rules
-- **NEVER use libgit2 in tests** - Only use Git CLI via TestRepo framework
-- **Always use TestRepo** for repository operations in tests
-- **Use ConflictTestBuilder** for complex conflict test scenarios
-- **Prefer TestRepo methods** over raw git commands where possible
-
-```rust
-// ✅ Correct test pattern
-let test_repo = TestRepo::new();
-let commit_hash = test_repo.create_commit("Test commit", "file.txt", "content");
-test_repo.create_branch_at("feature", &commit_hash).unwrap();
-assert!(test_repo.branch_exists("feature"));
-
-// ❌ Never use libgit2 in tests
-let repo = Repository::open(test_repo.path()).unwrap(); // FORBIDDEN
-let commit = repo.find_commit(oid).unwrap(); // FORBIDDEN
-
-// ✅ Use ConflictTestBuilder for complex scenarios
-let scenario = ConflictTestBuilder::new(&test_repo)
-    .with_initial_state(vec![("file.txt", "initial")], "Initial")
-    .with_target_changes(vec![("file.txt", "target")], "Target changes")
-    .with_cherry_changes(vec![("file.txt", "cherry")], "Cherry changes")
-    .build();
-```
+- **Always use TestRepo** framework in tests (uses git CLI internally)
 
 ## Architecture Patterns
 
@@ -73,34 +53,24 @@ const branchArray = computed(() => Array.from(branches.values()))
 const branchArray = Array.from(branches.values())
 ```
 
-### Template Usage
-```vue
-<!-- ✅ Correct Map usage -->
-<div v-for="branch in branches.values()" :key="branch.name">
-<div v-if="branches.size > 0">
-
-<!-- ❌ Maps don't have length -->
-<div v-if="branches.length > 0">
-```
-
 ### Rust Patterns
 ```rust
-// Shared state pattern
+// Git CLI executor pattern
 #[derive(Clone)]
 pub struct GitCommandExecutor {
   info: Arc<Mutex<Option<GitInfo>>>,
 }
 
-// Logging with #[instrument]
-#[instrument(skip(repo, large_data))]
-fn process_data(repo: &Repository, id: &str, large_data: &[u8]) -> Result<()> {
-    debug!("Processing {} items", items.len()); // Meaningful context only
+// Logging with #[instrument] - ALWAYS prefer this
+#[instrument(skip(git_executor, large_data), fields(branch = %branch_name))]
+fn process_data(git_executor: &GitCommandExecutor, branch_name: &str, large_data: &[u8]) -> Result<()> {
+    // Tracing context automatically included
     Ok(())
 }
 
-// Git notes optimization
-find_existing_commit(repo, commit_id)         // Read: No mutex needed
-write_commit_notes(repo, notes, &git_notes_mutex) // Write: Mutex required
+// Batch git operations
+let args = vec!["update-ref", "--stdin"];
+git_executor.execute_command_with_input(&args, repo_path, &batch_input)?;
 ```
 
 ### AppStore Architecture

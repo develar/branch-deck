@@ -120,4 +120,41 @@ impl GitCommandExecutor {
       Err(anyhow!("git command failed: {} {}\nError: {stderr}", git_info.path, args.join(" ")))
     }
   }
+
+  #[instrument(
+    skip(self),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      success = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_with_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)]) -> Result<String> {
+    if repository_path.is_empty() {
+      return Err(anyhow!("repository path cannot be blank"));
+    }
+
+    let git_info = self.get_info()?;
+
+    let mut cmd = Command::new(&git_info.path);
+    cmd.args(args).current_dir(repository_path);
+
+    // Set environment variables
+    for (key, value) in env_vars {
+      cmd.env(key, value);
+    }
+
+    let output = cmd.output().map_err(|e| anyhow!("Failed to execute git command: {e}"))?;
+
+    if output.status.success() {
+      let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+      tracing::Span::current().record("success", true);
+      Ok(stdout)
+    } else {
+      let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+      tracing::Span::current().record("success", false);
+      tracing::error!(stderr = %stderr, "git command failed");
+      Err(anyhow!("git command failed: {} {}\nError: {stderr}", git_info.path, args.join(" ")))
+    }
+  }
 }

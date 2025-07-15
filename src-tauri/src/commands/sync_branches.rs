@@ -1,10 +1,10 @@
-use crate::git::commit_list::get_commit_list;
+use crate::git::cache::TreeIdCache;
+use crate::git::commit_list::{Commit, get_commit_list};
 use crate::git::copy_commit::{CopyCommitError, CreateCommitParams, create_or_update_commit};
 use crate::git::git_command::GitCommandExecutor;
 use crate::git::model::{BranchError, BranchSyncStatus, CommitDetail, CommitInfo, CommitSyncStatus, to_final_branch_name};
 use crate::git::notes::{CommitNoteInfo, write_commit_notes};
 use crate::progress::{GroupedBranchInfo, SyncEvent};
-use git2::Oid;
 use indexmap::IndexMap;
 use regex::Regex;
 use std::sync::Mutex;
@@ -19,12 +19,13 @@ struct BranchProcessingParams {
   branch_prefix: String,
   branch_name: String,
   commit_data: Vec<CommitInfo>,
-  parent_commit_hash: Oid,
+  parent_commit_hash: String,
   current_branch_idx: usize,
   total_branches: usize,
   progress: Channel<SyncEvent>,
   git_notes_mutex: Arc<Mutex<()>>,
   git_executor: GitCommandExecutor,
+  tree_id_cache: TreeIdCache,
 }
 
 /// Synchronizes branches by grouping commits by prefix and creating/updating branches
@@ -45,41 +46,48 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
     index: -1,
   })?;
 
-  // extract all the data we need from git2 types before spawning tasks
-  let (grouped_commit_data, parent_commit_hash) = {
-    let repo = git2::Repository::open(repository_path)?;
-    let commits = get_commit_list(&repo, "master")?;
+  // Use the new GitCommandExecutor-based API
+  let commits = get_commit_list(&git_executor, repository_path, "master")?;
 
-    let Some(oldest_head_commit) = commits.first() else {
-      // No commits to sync
-      progress.send(SyncEvent::Completed)?;
-      return Ok(());
-    };
+  let Some(oldest_head_commit) = commits.first() else {
+    // No commits to sync
+    progress.send(SyncEvent::Completed)?;
+    return Ok(());
+  };
 
-    let parent_commit_hash = oldest_head_commit.parent(0)?.id();
+  // Get parent commit hash using git CLI
+  let parent_commit_hash = {
+    let parent_ref = format!("{}^", oldest_head_commit.id);
+    let args = vec!["rev-parse", &parent_ref];
+    let output = git_executor.execute_command(&args, repository_path)?;
+    output.trim().to_string()
+  };
 
-    // group commits by prefix first to get all branch names
-    // for each prefix, create a branch with only the relevant commits
-    let grouped_commits = group_commits_by_prefix(&commits);
+  // group commits by prefix first to get all branch names
+  // for each prefix, create a branch with only the relevant commits
+  let grouped_commits = group_commits_by_prefix_new(&commits);
 
-    // extract commit IDs and messages to avoid lifetime issues with git2 types
-    let grouped_commit_data: Vec<(String, Vec<CommitInfo>)> = grouped_commits
-      .into_iter()
-      .map(|(branch_name, branch_commits)| {
-        let commit_data = branch_commits
-          .into_iter()
-          .map(|(message, commit)| CommitInfo {
-            message,
-            id: commit.id(),
-            time: commit.author().when().seconds() as u32,
-          })
-          .collect();
-        (branch_name, commit_data)
-      })
-      .collect();
-
-    (grouped_commit_data, parent_commit_hash)
-  }; // repo and commits are dropped here, before we spawn tasks
+  // extract commit IDs and messages for processing
+  let grouped_commit_data: Vec<(String, Vec<CommitInfo>)> = grouped_commits
+    .into_iter()
+    .map(|(branch_name, branch_commits)| {
+      let commit_data = branch_commits
+        .into_iter()
+        .map(|(message, commit)| CommitInfo {
+          message,
+          id: commit.id.clone(),
+          author_name: commit.author_name.clone(),
+          author_email: commit.author_email.clone(),
+          author_time: commit.author_timestamp,
+          committer_time: commit.committer_timestamp,
+          parent_id: commit.parent_id.clone(),
+          tree_id: commit.tree_id.clone(),
+          mapped_commit_id: commit.mapped_commit_id.clone(),
+        })
+        .collect();
+      (branch_name, commit_data)
+    })
+    .collect();
 
   let total_branches = grouped_commit_data.len();
 
@@ -99,7 +107,8 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
           original_hash: commit.id.to_string(),
           hash: String::new(), // Will be filled after sync
           message: commit.message.clone(),
-          time: commit.time,
+          author_time: commit.author_time,
+          committer_time: commit.committer_time,
           status: CommitSyncStatus::Pending,
           error: None,
         })
@@ -118,6 +127,9 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
   // Create a mutex for this sync operation to serialize git notes access
   let git_notes_mutex = Arc::new(Mutex::new(()));
 
+  // Create a shared cache for tree IDs for this sync operation
+  let tree_id_cache = TreeIdCache::new();
+
   let mut tasks = Vec::new();
 
   for (current_branch_idx, (branch_name, commit_data)) in grouped_commit_data.into_iter().enumerate() {
@@ -128,18 +140,20 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
     let branch_name_for_error = branch_name.clone();
     let git_notes_mutex_clone = git_notes_mutex.clone();
     let git_executor_clone = (*git_executor).clone();
+    let tree_id_cache_clone = tree_id_cache.clone();
 
     let params = BranchProcessingParams {
       repository_path,
       branch_prefix,
       branch_name,
       commit_data,
-      parent_commit_hash,
+      parent_commit_hash: parent_commit_hash.clone(),
       current_branch_idx,
       total_branches,
       progress: progress_clone,
       git_notes_mutex: git_notes_mutex_clone,
       git_executor: git_executor_clone,
+      tree_id_cache: tree_id_cache_clone,
     };
     let task = tauri::async_runtime::spawn(async move { process_single_branch(params).await });
 
@@ -187,17 +201,17 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
     progress,
     git_notes_mutex,
     git_executor,
+    tree_id_cache,
   } = params;
 
   let task_index = current_branch_idx as i16;
-  let repo = git2::Repository::open(&repository_path)?;
   let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
 
-  let is_existing_branch = check_branch_exists(&repo, &full_branch_name);
+  let is_existing_branch = check_branch_exists(&git_executor, &repository_path, &full_branch_name);
   debug!("Branch {full_branch_name} exists: {is_existing_branch}");
 
   let mut current_parent_hash = parent_commit_hash;
-  let mut last_commit_hash: Oid = Oid::zero();
+  let mut last_commit_hash = String::new();
   let mut commit_details: Vec<CommitDetail> = Vec::new();
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<CommitNoteInfo> = Vec::new();
@@ -230,26 +244,26 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
       commit_info: &commit_info,
       new_parent_oid: current_parent_hash,
       reuse_if_possible,
-      repo: &repo,
+      repo_path: &repository_path,
       progress: &progress,
       progress_info: &progress_info,
       task_index,
-      git_notes_mutex: &git_notes_mutex,
       git_executor: &git_executor,
+      tree_id_cache: &tree_id_cache,
     };
 
     let original_hash = commit_info.id.to_string();
 
     let (detail, new_id, note_info) = match create_or_update_commit(commit_params) {
-      Ok((detail, oid, note)) => {
+      Ok((detail, commit_hash, note)) => {
         // Send success event with status
         let _ = progress.send(SyncEvent::CommitSynced {
           branch_name: branch_name.clone(),
           commit_hash: original_hash.clone(),
-          new_hash: oid.to_string(),
+          new_hash: commit_hash.clone(),
           status: detail.status.clone(),
         });
-        (detail, oid, note)
+        (detail, commit_hash, note)
       }
       Err(CopyCommitError::BranchError(branch_error)) => {
         // Send error event for this commit
@@ -295,7 +309,7 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
       pending_notes.push(note);
     }
 
-    current_parent_hash = new_id;
+    current_parent_hash = new_id.clone();
     last_commit_hash = new_id;
     commit_details.push(detail);
   }
@@ -321,13 +335,16 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
       index: task_index,
     });
 
-    repo.find_commit(last_commit_hash).and_then(|commit| repo.branch(&full_branch_name, &commit, true))?;
+    // Use git CLI to update branch reference
+    let commit_hash_str = last_commit_hash.to_string();
+    let args = vec!["branch", "-f", &full_branch_name, &commit_hash_str];
+    git_executor.execute_command(&args, &repository_path)?;
   }
 
   // Write all commit notes after successful branch sync
   if !pending_notes.is_empty() {
     debug!("Writing {} commit notes for branch {branch_name}", pending_notes.len());
-    write_commit_notes(&repo, pending_notes, &git_notes_mutex)?;
+    write_commit_notes(&git_executor, &repository_path, pending_notes, &git_notes_mutex)?;
   }
 
   // Send branch status update event
@@ -345,8 +362,11 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   Ok(())
 }
 
-pub(crate) fn check_branch_exists(repo: &git2::Repository, branch_name: &str) -> bool {
-  repo.find_branch(branch_name, git2::BranchType::Local).is_ok()
+pub(crate) fn check_branch_exists(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str) -> bool {
+  // Use git show-ref to check if branch exists - more efficient than rev-parse
+  let branch_ref = format!("refs/heads/{branch_name}");
+  let args = vec!["show-ref", "--verify", "--quiet", &branch_ref];
+  git_executor.execute_command(&args, repo_path).is_ok()
 }
 
 // Static regex patterns - compiled once on first use
@@ -354,7 +374,9 @@ static PREFIX_PATTERN: OnceLock<Regex> = OnceLock::new();
 static ISSUE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 #[instrument(skip(commits))]
-pub(crate) fn group_commits_by_prefix<'repo>(commits: &[git2::Commit<'repo>]) -> IndexMap<String, Vec<(String, git2::Commit<'repo>)>> {
+
+/// Group commits by prefix using the new Commit struct
+pub(crate) fn group_commits_by_prefix_new(commits: &[Commit]) -> IndexMap<String, Vec<(String, Commit)>> {
   debug!("Grouping {} commits by prefix", commits.len());
 
   if commits.is_empty() {
@@ -366,13 +388,11 @@ pub(crate) fn group_commits_by_prefix<'repo>(commits: &[git2::Commit<'repo>]) ->
   let issue_pattern = ISSUE_PATTERN.get_or_init(|| Regex::new(r"\b([A-Z]+-\d+)\b").unwrap());
 
   // use index map - preserve insertion order
-  let mut prefix_to_commits: IndexMap<String, Vec<(String, git2::Commit)>> = IndexMap::new();
+  let mut prefix_to_commits: IndexMap<String, Vec<(String, Commit)>> = IndexMap::new();
 
   // group commits by prefix
   for commit in commits {
-    let Some(message) = commit.message() else {
-      continue;
-    };
+    let message = &commit.message;
 
     // First try to find explicit prefix in parentheses
     if let Some(captures) = prefix_pattern.captures(message) {

@@ -1,8 +1,8 @@
 <template>
   <div class="flex items-center gap-2 text-xs text-muted">
-    <span class="font-mono">{{ shortHash }}</span>
+    <span class="font-mono">{{ formatShortHash(hash) }}</span>
     <span v-if="author">by {{ author }}</span>
-    <span v-if="timestamp">{{ formatTimestamp(timestamp) }}</span>
+    <TimestampWithPopover v-if="timestamp" :author-time="timestamp" :committer-time="committerTimestamp" />
     <span v-if="fileCount !== undefined" class="flex items-center gap-1">
       <span>•</span>
       <UIcon name="i-lucide-file-code" class="w-3 h-3"/>
@@ -12,17 +12,13 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
-import { formatTimestamp } from '~/utils/time'
+import { formatShortHash } from "~/utils/hash"
 
-const props = defineProps<{
+defineProps<{
   hash: string
   author?: string
   timestamp?: number
+  committerTimestamp?: number
   fileCount?: number
 }>()
-
-const shortHash = computed(() => {
-  return props.hash.substring(0, 8)
-})
 </script>

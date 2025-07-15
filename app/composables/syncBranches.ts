@@ -84,7 +84,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
               newBranchNames.add(branch.name)
               const commitMap = new Map<string, CommitDetail>()
               for (const commit of branch.commits) {
-                commitMap.set(commit.original_hash, commit)
+                commitMap.set(commit.originalHash, commit)
               }
 
               let branchItem = branchMap.get(branch.name)

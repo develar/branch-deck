@@ -1,59 +1,50 @@
+use crate::git::cache::TreeIdCache;
 use crate::git::copy_commit::CopyCommitError;
 use crate::git::git_command::GitCommandExecutor;
 use crate::git::merge_conflict::{ConflictDetailsParams, ConflictFileInfo, extract_conflict_details};
-use crate::git::model::{BranchError, MergeConflictInfo};
+use crate::git::model::{BranchError, CommitInfo, MergeConflictInfo};
 use crate::progress::SyncEvent;
 use anyhow::{Result, anyhow};
-use git2::{Commit, Oid, Repository, Tree};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::ipc::Channel;
 use tracing::{debug, instrument};
 
-/// Cherry-pick implementation using Git plumbing commands (git merge-tree)
+/// Cherry-pick implementation using Git CLI commands (git merge-tree)
 /// This performs the cherry-pick without touching the working directory
-/// This version is for production use with GitCommandExecutor
-#[instrument(skip_all)]
-pub fn perform_fast_cherry_pick_with_context<'a>(
-  repo: &'a Repository,
-  cherry_commit: &'a Commit,
-  target_commit: &'a Commit,
+/// This version uses git CLI exclusively for better performance
+#[instrument(skip(git_executor, progress, tree_id_cache), fields(cherry_id = %cherry_commit_id, target_id = %target_commit_id))]
+pub fn perform_fast_cherry_pick_with_context(
   git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  cherry_commit_id: &str,
+  target_commit_id: &str,
   progress: Option<(&Channel<SyncEvent>, &str, i16)>, // (channel, branch_name, task_index)
-) -> Result<Tree<'a>, CopyCommitError> {
-  // Fast path: if parent tree matches target tree, reuse commit tree
-  if cherry_commit.parent_count() > 0 {
-    let parent = cherry_commit.parent(0)?;
-    if parent.tree_id() == target_commit.tree_id() {
-      debug!("parent tree matches target tree, reusing commit tree");
-      return Ok(cherry_commit.tree()?);
-    }
+  tree_id_cache: &TreeIdCache,
+) -> Result<String, CopyCommitError> {
+  // Get commit information using git CLI
+  let cherry_parent_id = get_commit_parent(git_executor, repo_path, cherry_commit_id)?;
+
+  // Fast path: check if parent tree matches target tree
+  let cherry_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, &cherry_parent_id)?;
+  let target_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, target_commit_id)?;
+
+  if cherry_parent_tree_id == target_tree_id {
+    debug!("parent tree matches target tree, reusing commit tree");
+    return tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id);
   }
 
-  // Get repository path
-  let repo_path = repo.path().parent().ok_or_else(|| CopyCommitError::Other(anyhow!("Could not get repository path")))?;
-  let repo_path_str = repo_path.to_str().ok_or_else(|| CopyCommitError::Other(anyhow!("Repository path is not valid UTF-8")))?;
-
-  // Get the commit's tree and parent
-  let commit_tree_id = cherry_commit.tree_id();
-  let parent = cherry_commit
-    .parent(0)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Cannot cherry-pick a root commit: {}", e)))?;
-  let parent_tree_id = parent.tree_id();
-  let target_tree_id = target_commit.tree_id();
+  // Get the commit's tree ID for debugging
+  let commit_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id)?;
 
   debug!(
-    base_parent = %parent_tree_id,
+    base_parent = %cherry_parent_tree_id,
     ours_target = %target_tree_id,
     theirs_commit = %commit_tree_id,
     "running git merge-tree"
   );
 
-  // Use GitCommandExecutor to run git merge-tree
-  let parent_id = parent.id().to_string();
-  let target_id = target_commit.id().to_string();
-  let cherry_id = cherry_commit.id().to_string();
-
+  // Use git merge-tree for 3-way merge
   let args = vec![
     "-c",
     "merge.conflictStyle=zdiff3", // Set conflict style to include base content
@@ -61,13 +52,13 @@ pub fn perform_fast_cherry_pick_with_context<'a>(
     "--write-tree",
     "-z", // Use NUL character as separator for better parsing
     "--merge-base",
-    &parent_id,
-    &target_id,
-    &cherry_id,
+    &cherry_parent_id,
+    target_commit_id,
+    cherry_commit_id,
   ];
 
   let output = git_executor
-    .execute_command(&args, repo_path_str)
+    .execute_command(&args, repo_path)
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {}", e)))?;
 
   debug!(output_length = output.len(), "git merge-tree completed");
@@ -84,9 +75,7 @@ pub fn perform_fast_cherry_pick_with_context<'a>(
     return Err(CopyCommitError::Other(anyhow!("No output from git merge-tree")));
   }
 
-  let tree_oid = parts[0]
-    .parse::<Oid>()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid tree OID '{}' from merge-tree: {}", parts[0], e)))?;
+  let tree_oid = parts[0];
 
   // Check if there were conflicts by looking for file entries
   if parts.len() > 1 {
@@ -123,9 +112,6 @@ pub fn perform_fast_cherry_pick_with_context<'a>(
       }
     }
 
-    // Skip empty separator and subsequent sections
-    // We only care about the actual conflicting file paths
-
     if !conflict_files.is_empty() {
       // Send branch status event for conflict analysis if progress channel is available
       if let Some((progress_channel, branch_name, _task_index)) = &progress {
@@ -136,26 +122,19 @@ pub fn perform_fast_cherry_pick_with_context<'a>(
       }
 
       // Get detailed conflict information with diffs
-      let original_parent = cherry_commit.parent(0)?;
       let (detailed_conflicts, conflict_marker_commits) = extract_conflict_details(ConflictDetailsParams {
         git_executor,
-        repo_path: repo_path_str,
+        repo_path,
         conflict_files: &conflict_files,
         merge_tree_oid: parts[0], // merge_tree_oid
-        parent_commit_id: &original_parent.id().to_string(),
-        target_commit_id: &target_commit.id().to_string(),
-        cherry_commit_id: &cherry_commit.id().to_string(),
+        parent_commit_id: &cherry_parent_id,
+        target_commit_id,
+        cherry_commit_id,
       })?;
 
       // Analyze the conflict to find missing commits
       let conflicting_paths: Vec<PathBuf> = conflict_files.keys().cloned().collect();
-      let conflict_analysis = match crate::git::conflict_analysis::analyze_conflict(
-        git_executor,
-        repo_path_str,
-        &original_parent.id().to_string(),
-        &target_commit.id().to_string(),
-        &conflicting_paths,
-      ) {
+      let conflict_analysis = match crate::git::conflict_analysis::analyze_conflict(git_executor, repo_path, &cherry_parent_id, target_commit_id, &conflicting_paths) {
         Ok(analysis) => analysis,
         Err(e) => {
           // If conflict analysis fails, create a default analysis with empty data
@@ -175,16 +154,21 @@ pub fn perform_fast_cherry_pick_with_context<'a>(
         }
       };
 
+      // Get commit information for error reporting
+      let cherry_commit_info = get_commit_info(git_executor, repo_path, cherry_commit_id)?;
+      let cherry_parent_info = get_commit_info(git_executor, repo_path, &cherry_parent_id)?;
+      let target_commit_info = get_commit_info(git_executor, repo_path, target_commit_id)?;
+
       return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo {
-        commit_message: cherry_commit.summary().unwrap_or_default().to_string(),
-        commit_hash: cherry_commit.id().to_string(),
-        commit_time: cherry_commit.time().seconds() as u32,
-        original_parent_message: original_parent.summary().unwrap_or_default().to_string(),
-        original_parent_hash: original_parent.id().to_string(),
-        original_parent_time: original_parent.time().seconds() as u32,
-        target_branch_message: target_commit.summary().unwrap_or_default().to_string(),
-        target_branch_hash: target_commit.id().to_string(),
-        target_branch_time: target_commit.time().seconds() as u32,
+        commit_message: cherry_commit_info.message,
+        commit_hash: cherry_commit_id.to_string(),
+        commit_time: cherry_commit_info.committer_time,
+        original_parent_message: cherry_parent_info.message,
+        original_parent_hash: cherry_parent_id,
+        original_parent_time: cherry_parent_info.committer_time,
+        target_branch_message: target_commit_info.message,
+        target_branch_hash: target_commit_id.to_string(),
+        target_branch_time: target_commit_info.committer_time,
         conflicting_files: detailed_conflicts,
         conflict_analysis,
         conflict_marker_commits,
@@ -192,14 +176,50 @@ pub fn perform_fast_cherry_pick_with_context<'a>(
     }
   }
 
-  // No conflicts, return the merged tree
-  let tree = repo.find_tree(tree_oid)?;
-  Ok(tree)
+  // No conflicts, return the merged tree ID
+  Ok(tree_oid.to_string())
 }
 
-/// Backward compatibility function that creates its own GitCommandExecutor
-/// Used by existing tests and code that hasn't been updated yet
-pub fn perform_fast_cherry_pick<'a>(repo: &'a Repository, cherry_commit: &'a Commit, target_commit: &'a Commit) -> Result<Tree<'a>, CopyCommitError> {
-  let git_executor = GitCommandExecutor::new();
-  perform_fast_cherry_pick_with_context(repo, cherry_commit, target_commit, &git_executor, None)
+/// Get the parent commit ID using git CLI
+#[instrument(skip(git_executor), fields(commit_id = %commit_id))]
+fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<String, CopyCommitError> {
+  let parent_ref = format!("{commit_id}^");
+  let args = vec!["rev-parse", &parent_ref];
+  let output = git_executor
+    .execute_command(&args, repo_path)
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get parent for {}: {}", commit_id, e)))?;
+  Ok(output.trim().to_string())
+}
+
+/// Get basic commit information using git CLI
+#[instrument(skip(git_executor), fields(commit_id = %commit_id))]
+fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<CommitInfo, CopyCommitError> {
+  // Get commit message
+  let message_args = vec!["log", "-1", "--format=%s", commit_id];
+  let message_output = git_executor
+    .execute_command(&message_args, repo_path)
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit message for {}: {}", commit_id, e)))?;
+  let message = message_output.trim().to_string();
+
+  // Get commit timestamp
+  let timestamp_args = vec!["log", "-1", "--format=%ct", commit_id];
+  let timestamp_output = git_executor
+    .execute_command(&timestamp_args, repo_path)
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit timestamp for {}: {}", commit_id, e)))?;
+  let timestamp: u32 = timestamp_output
+    .trim()
+    .parse()
+    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid timestamp for commit {}: {}", commit_id, e)))?;
+
+  Ok(CommitInfo {
+    message,
+    id: commit_id.to_string(),
+    author_name: String::new(),  // Not available from this query
+    author_email: String::new(), // Not available from this query
+    author_time: timestamp,
+    committer_time: timestamp,
+    parent_id: None,        // Not relevant for error reporting
+    tree_id: String::new(), // Not relevant for error reporting
+    mapped_commit_id: None, // Not relevant for error reporting
+  })
 }

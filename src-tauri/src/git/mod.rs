@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod cherry_pick;
 pub mod commit_list;
 pub mod conflict_analysis;

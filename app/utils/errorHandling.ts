@@ -4,8 +4,8 @@ export function reportError(title: string, error: unknown, toast: { add: (toast:
   toast.add({
     color: "error",
     title: title,
-    description: error,
-    delay: 10_000,
+    description: error instanceof Error ? error.message : String(error),
+    duration: 0,
     progress: false,
   })
 }

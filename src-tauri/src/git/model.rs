@@ -15,11 +15,13 @@ pub enum BranchSyncStatus {
 
 /// Details about a synchronized commit.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct CommitDetail {
   pub original_hash: String,
   pub hash: String,
   pub message: String,
-  pub time: u32,
+  pub author_time: u32,
+  pub committer_time: u32,
   pub status: CommitSyncStatus,
   pub error: Option<BranchError>,
 }
@@ -94,8 +96,14 @@ pub enum BranchError {
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
   pub message: String,
-  pub id: git2::Oid,
-  pub time: u32,
+  pub id: String,
+  pub author_name: String,
+  pub author_email: String,
+  pub author_time: u32,
+  pub committer_time: u32,
+  pub parent_id: Option<String>,
+  pub tree_id: String,
+  pub mapped_commit_id: Option<String>, // Extracted from git note if present
 }
 
 pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::Result<String> {
@@ -200,7 +208,8 @@ mod tests {
       original_hash: "abc123".to_string(),
       hash: "def456".to_string(),
       message: "Test commit".to_string(),
-      time: 1_234_567_890,
+      author_time: 1_234_567_890,
+      committer_time: 1_234_567_890,
       status: CommitSyncStatus::Created,
       error: None,
     };
@@ -209,7 +218,8 @@ mod tests {
     assert_eq!(commit.hash, "def456");
     assert_eq!(commit.status, CommitSyncStatus::Created);
     assert_eq!(commit.message, "Test commit");
-    assert_eq!(commit.time, 1_234_567_890);
+    assert_eq!(commit.author_time, 1_234_567_890);
+    assert_eq!(commit.committer_time, 1_234_567_890);
   }
 
   #[test]
@@ -260,26 +270,42 @@ mod tests {
   fn test_commit_info_creation() {
     let commit_info = CommitInfo {
       message: "Test commit message".to_string(),
-      id: git2::Oid::from_str("1234567890abcdef1234567890abcdef12345678").unwrap(),
-      time: 1_234_567_890,
+      id: "1234567890abcdef1234567890abcdef12345678".to_string(),
+      author_name: "Test Author".to_string(),
+      author_email: "test@example.com".to_string(),
+      author_time: 1_234_567_890,
+      committer_time: 1_234_567_890,
+      parent_id: None,
+      tree_id: "tree123".to_string(),
+      mapped_commit_id: None,
     };
 
     assert_eq!(commit_info.message, "Test commit message");
-    assert_eq!(commit_info.id.to_string(), "1234567890abcdef1234567890abcdef12345678");
-    assert_eq!(commit_info.time, 1_234_567_890);
+    assert_eq!(commit_info.id, "1234567890abcdef1234567890abcdef12345678");
+    assert_eq!(commit_info.author_time, 1_234_567_890);
+    assert_eq!(commit_info.committer_time, 1_234_567_890);
+    assert_eq!(commit_info.mapped_commit_id, None);
   }
 
   #[test]
   fn test_commit_info_clone() {
     let commit_info = CommitInfo {
       message: "Original message".to_string(),
-      id: git2::Oid::from_str("abcdef1234567890abcdef1234567890abcdef12").unwrap(),
-      time: 1_000_000_000,
+      id: "abcdef1234567890abcdef1234567890abcdef12".to_string(),
+      author_name: "Test Author".to_string(),
+      author_email: "test@example.com".to_string(),
+      author_time: 1_000_000_000,
+      committer_time: 1_000_000_000,
+      parent_id: Some("parent123".to_string()),
+      tree_id: "tree456".to_string(),
+      mapped_commit_id: Some("fedcba9876543210".to_string()),
     };
 
     let cloned = commit_info.clone();
     assert_eq!(cloned.message, commit_info.message);
     assert_eq!(cloned.id, commit_info.id);
-    assert_eq!(cloned.time, commit_info.time);
+    assert_eq!(cloned.author_time, commit_info.author_time);
+    assert_eq!(cloned.committer_time, commit_info.committer_time);
+    assert_eq!(cloned.mapped_commit_id, commit_info.mapped_commit_id);
   }
 }

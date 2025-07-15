@@ -106,7 +106,7 @@ branch-deck/
 
 - **Frontend**: Vue.js 3 with Composition API, Nuxt UI components, TypeScript
 - **Backend**: Rust with Tauri framework for native desktop app
-- **Git Integration**: libgit2 Rust bindings for direct Git operations
+- **Git Integration**: Git CLI operations via custom GitCommandExecutor
 - **IPC**: Tauri's built-in IPC for frontend-backend communication
 - **Type Safety**: Specta for generating TypeScript types from Rust structs
 
@@ -115,7 +115,7 @@ branch-deck/
 - **Tauri**: Cross-platform desktop app framework
 - **Vue 3**: Progressive JavaScript framework
 - **Rust**: Systems programming language for performance
-- **libgit2**: Native Git implementation
+- **Git CLI**: Native Git command-line interface for operations
 - **Vite**: Fast build tool and development server
 
 ## Development Workflow

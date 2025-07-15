@@ -1,134 +1,109 @@
-use git2::Error;
+use crate::git::git_command::GitCommandExecutor;
+use anyhow::{Result, anyhow};
 use tracing::{debug, instrument};
 
-const MAX_COMMITS_TO_SCAN: usize = 50;
+/// Struct to hold commit data returned by git CLI
+#[derive(Debug, Clone)]
+pub struct Commit {
+  pub id: String,
+  pub message: String,
+  pub author_name: String,
+  pub author_email: String,
+  pub author_timestamp: u32,
+  pub committer_timestamp: u32,
+  pub parent_id: Option<String>,
+  pub tree_id: String,
+  pub note: Option<String>,
+  pub mapped_commit_id: Option<String>, // Extracted from note if it has v-commit-v1: prefix
+}
 
-#[instrument(skip(repo))]
-pub fn get_commit_list<'a>(repo: &'a git2::Repository, main_branch_name: &'a str) -> Result<Vec<git2::Commit<'a>>, Error> {
-  // #[instrument] handles logging the function call
+/// Get list of commits between baseline branch and HEAD
+#[instrument(skip(git_executor))]
+pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, main_branch_name: &str) -> Result<Vec<Commit>> {
+  let range = format!("origin/{main_branch_name}..HEAD");
+  let args = vec![
+    "--no-pager",
+    "log",
+    "--reverse",
+    "--no-merges",
+    "--pretty=format:%H%x00%s%x00%an%x00%ae%x00%at%x00%ct%x00%P%x00%T%x00%N%x00",
+    &range,
+  ];
 
-  let mut rev_walk = repo.revwalk()?;
-  let head = repo.head()?;
-  let head_oid = head.target().ok_or_else(|| Error::from_str("HEAD has no target"))?;
-  rev_walk.push(head_oid)?;
+  let output = git_executor.execute_command(&args, repo_path)?;
+  let commits = parse_commit_output(&output)?;
 
-  // Check if current branch has upstream
-  let has_upstream = check_has_upstream(repo)?;
-
-  // Try to find the baseline branch (remote or local)
-  let baseline_oid = find_baseline_branch(repo, main_branch_name)?;
-
-  match baseline_oid {
-    Some((oid, is_remote)) => {
-      if oid == head_oid && !is_remote && !has_upstream {
-        // Special case: local branch same as HEAD with no upstream
-        // Return commits with branch prefixes for organization
-        debug!("No upstream configured, looking for commits with branch prefixes");
-        return get_prefixed_commits(repo, &mut rev_walk);
-      } else if oid == head_oid {
-        // HEAD equals baseline with upstream or remote exists
-        debug!("HEAD equals baseline branch, returning empty list");
-        return Ok(Vec::new());
-      } else {
-        // Hide commits reachable from baseline
-        rev_walk.hide(oid)?;
-      }
-    }
-    None => {
-      debug!("No baseline branch {main_branch_name} found, returning all commits from HEAD");
-      // Continue with all commits from HEAD
-    }
-  }
-
-  // Collect commits ahead of baseline
-  let commits = collect_commits_from_revwalk(repo, rev_walk)?;
   debug!(commits_count = commits.len(), branch = %main_branch_name, "found commits ahead of baseline");
   Ok(commits)
 }
 
-/// Check if the current branch has an upstream configured
-#[instrument(skip(repo))]
-fn check_has_upstream(repo: &git2::Repository) -> Result<bool, Error> {
-  let current_branch = repo.head()?.shorthand().unwrap_or("HEAD").to_string();
+/// Parse the output from git log with NUL-separated format
+#[instrument(skip(output))]
+fn parse_commit_output(output: &str) -> Result<Vec<Commit>> {
+  let mut commits = Vec::new();
 
-  if current_branch == "HEAD" {
-    return Ok(false);
-  }
+  // Split by newline to get individual commit records (git log uses newline to separate commits)
+  let lines: Vec<&str> = output.lines().filter(|s| !s.is_empty()).collect();
 
-  Ok(
-    repo
-      .find_branch(&current_branch, git2::BranchType::Local)
-      .ok()
-      .and_then(|branch| branch.upstream().ok())
-      .is_some(),
-  )
-}
+  for line in lines {
+    // Split by NUL to get fields
+    let fields: Vec<&str> = line.split('\0').collect();
 
-/// Find the baseline branch (remote or local) and return its OID
-/// Returns Some((oid, is_remote)) or None if not found
-#[instrument(skip(repo))]
-fn find_baseline_branch(repo: &git2::Repository, branch_name: &str) -> Result<Option<(git2::Oid, bool)>, Error> {
-  // Try remote branch first
-  let remote_branch_name = format!("origin/{branch_name}");
-  if let Ok(remote_obj) = repo.revparse_single(&remote_branch_name) {
-    debug!("Found remote branch: {remote_branch_name}");
-    return Ok(Some((remote_obj.id(), true)));
-  }
+    if fields.len() >= 8 {
+      let id = fields[0].to_string();
+      let message = fields[1].to_string();
+      let author_name = fields[2].to_string();
+      let author_email = fields[3].to_string();
+      let author_timestamp = fields[4].parse::<u32>().map_err(|e| anyhow!("Failed to parse author timestamp '{}': {}", fields[4], e))?;
+      let committer_timestamp = fields[5]
+        .parse::<u32>()
+        .map_err(|e| anyhow!("Failed to parse committer timestamp '{}': {}", fields[5], e))?;
 
-  // Try local branch
-  debug!("No remote branch {remote_branch_name} found, trying local branch");
-  if let Ok(local_obj) = repo.revparse_single(branch_name) {
-    debug!("Found local branch: {branch_name}");
-    return Ok(Some((local_obj.id(), false)));
-  }
+      // Parse parent IDs - take the first one if multiple parents exist
+      let parent_id = if !fields[6].is_empty() {
+        Some(fields[6].split_whitespace().next().unwrap_or("").to_string())
+      } else {
+        None
+      };
 
-  Ok(None)
-}
+      let tree_id = fields[7].to_string();
 
-/// Get commits with branch prefix patterns
-#[instrument(skip(repo, rev_walk))]
-fn get_prefixed_commits<'a>(repo: &'a git2::Repository, rev_walk: &mut git2::Revwalk<'a>) -> Result<Vec<git2::Commit<'a>>, Error> {
-  let mut prefixed_commits = Vec::new();
+      // Parse note if present (9th field)
+      let (note, mapped_commit_id) = if fields.len() > 8 && !fields[8].is_empty() {
+        let note_content = fields[8].trim();
+        let mapped_id = note_content.strip_prefix("v-commit-v1:").map(|stripped| stripped.trim().to_string());
+        (Some(note_content.to_string()), mapped_id)
+      } else {
+        (None, None)
+      };
 
-  // Collect recent commits up to the limit
-  for (count, oid) in rev_walk.enumerate() {
-    if count >= MAX_COMMITS_TO_SCAN {
-      break;
+      commits.push(Commit {
+        id,
+        message,
+        author_name,
+        author_email,
+        author_timestamp,
+        committer_timestamp,
+        parent_id,
+        tree_id,
+        note,
+        mapped_commit_id,
+      });
     }
-
-    let commit = repo.find_commit(oid?)?;
-    if has_branch_prefix(commit.message()) {
-      prefixed_commits.push(commit);
-    }
   }
 
-  prefixed_commits.reverse();
-  debug!(commits_count = prefixed_commits.len(), "found commits with branch prefixes (no upstream configured)");
-  Ok(prefixed_commits)
+  Ok(commits)
 }
 
 /// Check if a commit message has a branch prefix pattern
 #[instrument]
-fn has_branch_prefix(message: Option<&str>) -> bool {
-  if let Some(msg) = message {
-    if msg.starts_with('(') {
-      if let Some(close_paren) = msg.find(')') {
-        return close_paren > 1; // Ensure content between parentheses
-      }
+pub fn has_branch_prefix(message: &str) -> bool {
+  if message.starts_with('(') {
+    if let Some(close_paren) = message.find(')') {
+      return close_paren > 1; // Ensure content between parentheses
     }
   }
   false
-}
-
-/// Collect all commits from the revwalk iterator
-#[instrument(skip(repo, rev_walk))]
-fn collect_commits_from_revwalk<'a>(repo: &'a git2::Repository, rev_walk: git2::Revwalk<'a>) -> Result<Vec<git2::Commit<'a>>, Error> {
-  let mut commits = Vec::new();
-  for oid in rev_walk {
-    commits.push(repo.find_commit(oid?)?);
-  }
-  commits.reverse();
-  Ok(commits)
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "lint:rust": "cd src-tauri && cargo clippy --allow-dirty --fix -- -W clippy::all && cargo fmt",
     "lint:js": "eslint . --fix",
+    "typecheck": " typecheck",
     "lint": "pnpm run \"/^lint:.*/\""
   },
   "dependencies": {

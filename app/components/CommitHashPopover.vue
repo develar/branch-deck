@@ -1,7 +1,7 @@
 <template>
   <UPopover mode="hover">
     <span class="font-mono">
-      {{ shortHash }}
+      {{ formatShortHash(hash) }}
     </span>
     <template #content>
       <div class="p-3 space-y-2 min-w-[300px]">
@@ -13,16 +13,12 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
+import { formatShortHash } from "~/utils/hash"
 
-const props = defineProps<{
+defineProps<{
   hash: string
   message?: string
   author?: string
   timestamp?: number
 }>()
-
-const shortHash = computed(() => {
-  return props.hash.substring(0, 8)
-})
 </script>

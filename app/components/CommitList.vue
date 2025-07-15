@@ -2,7 +2,7 @@
   <div class="divide-y divide-default">
     <div
       v-for="commit in commits.values()"
-      :key="commit.original_hash"
+      :key="commit.originalHash"
       class="flex items-center justify-between px-6 py-3 hover:bg-muted transition-colors"
     >
       <div class="flex-1 min-w-0">
@@ -20,7 +20,7 @@
               />
             </UTooltip>
             <UTooltip
-              v-else-if="commit.status === 'Syncing'"
+              v-else-if="commit.status === 'Pending'"
               text="Syncing"
             >
               <UProgress
@@ -38,15 +38,15 @@
 
         <div class="mt-1 flex items-center gap-4 text-xs text-muted">
           <!-- Original hash -->
-          <span class="font-mono">{{ commit.original_hash.substring(0, 7) }}</span>
+          <span class="font-mono">{{ formatShortHash(commit.originalHash) }}</span>
 
           <!-- New hash if synced -->
           <span v-if="commit.hash" class="font-mono">
-            → {{ commit.hash.substring(0, 7) }}
+            → {{ formatShortHash(commit.hash) }}
           </span>
 
           <!-- Timestamp -->
-          <span>{{ formatTimestamp(commit.time) }}</span>
+          <TimestampWithPopover :author-time="commit.authorTime" :committer-time="commit.committerTime" />
 
           <!-- Status text -->
           <span :class="getCommitStatusClass(commit.status)">
@@ -77,7 +77,7 @@
 
 <script lang="ts" setup>
 import type { CommitDetail, CommitSyncStatus, BranchError } from "~/utils/bindings"
-import { formatTimestamp } from "~/utils/time"
+import { formatShortHash } from "~/utils/hash"
 
 defineProps<{
   commits: Map<string, CommitDetail>
@@ -105,8 +105,6 @@ function getCommitStatusClass(status: CommitSyncStatus): string {
   switch (status) {
     case "Pending":
       return "text-dimmed"
-    case "Syncing":
-      return "text-info"
     case "Error":
       return "text-error"
     case "Blocked":

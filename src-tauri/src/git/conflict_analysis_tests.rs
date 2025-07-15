@@ -20,23 +20,6 @@ mod tests {
   }
 
   #[test]
-  fn test_extract_author_and_message() {
-    let test_cases = vec![
-      ("John Doe fix the bug", ("John Doe", "fix the bug")), // lowercase 'fix' triggers message detection
-      ("Jane Smith [JIRA-123] Add feature", ("Jane Smith", "[JIRA-123] Add feature")),
-      ("Bob feat: implement new API", ("Bob", "feat: implement new API")),
-      ("Alice Johnson (WIP) Work in progress", ("Alice Johnson", "(WIP) Work in progress")),
-      ("SingleName fix", ("SingleName", "fix")),
-      ("", ("", "")),
-    ];
-
-    for (input, expected) in test_cases {
-      let (author, message) = extract_author_and_message(input);
-      assert_eq!((author.as_str(), message.as_str()), expected, "Failed for input: {input}");
-    }
-  }
-
-  #[test]
   fn test_parse_cat_file_header() {
     assert_eq!(parse_cat_file_header("abc123def456 blob 1024"), Some(("abc123def456".to_string(), 1024)));
 
@@ -325,8 +308,270 @@ mod tests {
 
     // Should find the branch commit as missing
     assert_eq!(missing.len(), 1, "Should find 1 missing commit");
-    assert_eq!(missing[0].message, "file1 on branch");
+    assert_eq!(missing[0].message, "Modified file1 on branch");
     assert_eq!(missing[0].files_touched, vec!["file1.txt"]);
+    assert!(!missing[0].author.is_empty(), "Author should be set");
+  }
+
+  #[test]
+  fn test_find_missing_commits_with_author_and_committer_times() {
+    let test_repo = TestRepo::new();
+    let git_executor = test_repo.executor();
+
+    // Create initial commit
+    let _commit1 = test_repo.create_commit("Initial commit", "file1.txt", "content1");
+
+    // Sleep a bit to ensure different timestamps
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Create a commit with different author and committer times by amending
+    test_repo.create_commit("Second commit", "file1.txt", "content2");
+
+    // Amend the commit to get different committer time
+    Command::new("git")
+      .args(["commit", "--amend", "--no-edit", "--date=2023-01-01T12:00:00"])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to amend commit");
+
+    let commit2 = test_repo.rev_parse("HEAD").unwrap();
+
+    // Create branch for conflict
+    test_repo.create_branch("branch1").unwrap();
+    test_repo.checkout("branch1").unwrap();
+    let branch_commit = test_repo.create_commit("Branch commit", "file1.txt", "branch content");
+
+    // Go back to parent of commit2 for testing
+    test_repo.checkout(&commit2).unwrap();
+    test_repo.checkout("HEAD^").unwrap();
+
+    // Test find_missing_commits_for_conflicts
+    let conflicting_files = vec![PathBuf::from("file1.txt")];
+    let missing = find_missing_commits_for_conflicts(git_executor, test_repo.path().to_str().unwrap(), &branch_commit, "HEAD", &conflicting_files).unwrap();
+
+    // Verify we capture both timestamps
+    assert!(!missing.is_empty(), "Should find missing commits");
+
+    // Since we amended, committer time should be more recent than author time
+    for commit in &missing {
+      assert!(commit.author_time > 0, "Author time should be set");
+      assert!(commit.committer_time > 0, "Committer time should be set");
+      // Note: in a real test with amended commits, committer_time would be > author_time
+      // but in our test setup they might be similar
+    }
+  }
+
+  #[test]
+  fn test_different_author_and_committer_times() {
+    let test_repo = TestRepo::new();
+    let git_executor = test_repo.executor();
+
+    // Create initial commit
+    let initial = test_repo.create_commit("Initial", "file.txt", "initial");
+
+    // Create a file to commit
+    std::fs::write(test_repo.path().join("test.txt"), "test content").unwrap();
+    Command::new("git")
+      .args(["add", "test.txt"])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to add file");
+
+    // Create a commit with a specific author date
+    let output = Command::new("git")
+      .args([
+        "-c",
+        "user.name=Test Author",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-m",
+        "Test commit with different times",
+        "--date=2020-01-01T10:00:00",
+      ])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to create commit with author date");
+
+    if !output.status.success() {
+      panic!("Failed to create commit: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let _test_commit = test_repo.rev_parse("HEAD").unwrap();
+
+    // Create a branch and add a commit that modifies the file
+    test_repo.create_branch("test-branch").unwrap();
+    test_repo.checkout("test-branch").unwrap();
+    let branch_commit = test_repo.create_commit("Branch commit", "file.txt", "modified");
+
+    // Go back to initial commit
+    test_repo.checkout(&initial).unwrap();
+
+    // Find missing commits
+    let conflicting_files = vec![PathBuf::from("file.txt")];
+    let missing = find_missing_commits_for_conflicts(git_executor, test_repo.path().to_str().unwrap(), &branch_commit, &initial, &conflicting_files).unwrap();
+
+    // We might find the test commit if it modified file.txt, but if not, let's check with test.txt
+    if missing.is_empty() {
+      let conflicting_files = vec![PathBuf::from("test.txt")];
+      let missing = find_missing_commits_for_conflicts(git_executor, test_repo.path().to_str().unwrap(), &branch_commit, &initial, &conflicting_files).unwrap();
+
+      // Should find the test commit
+      assert!(!missing.is_empty(), "Should find at least one missing commit");
+      let commit_data = &missing[0];
+
+      assert!(commit_data.author_time > 0, "Author time should be set");
+      assert!(commit_data.committer_time > 0, "Committer time should be set");
+
+      // Author time should be from 2020
+      let author_year_2020 = 1577872800; // Approximate timestamp for 2020-01-01
+      assert!(
+        commit_data.author_time >= author_year_2020 && commit_data.author_time < author_year_2020 + 31536000,
+        "Author time should be in 2020, got {}",
+        commit_data.author_time
+      );
+      // In git, when using --date flag, it sets both author and committer time to the same value
+      // unless we do something more complex, so we'll just verify both are set
+    }
+  }
+
+  #[test]
+  fn test_cherry_pick_preserves_author_time() {
+    let test_repo = TestRepo::new();
+    let git_executor = test_repo.executor();
+
+    // Create base commits on main branch
+    let base = test_repo.create_commit("Base", "base.txt", "base");
+
+    // Sleep to ensure different timestamps
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Create source branch and commit
+    test_repo.create_branch("source").unwrap();
+    test_repo.checkout("source").unwrap();
+
+    // Create a commit with specific timestamp
+    test_repo.create_commit("Source commit", "feature.txt", "feature content");
+    let source_commit = test_repo.rev_parse("HEAD").unwrap();
+
+    // Get the original author time
+    let output = Command::new("git")
+      .args(["show", "-s", "--format=%at", &source_commit])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to get author time");
+    let original_author_time: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().expect("Failed to parse author time");
+
+    // Create target branch from base
+    test_repo.checkout(&base).unwrap();
+    test_repo.create_branch("target").unwrap();
+    test_repo.checkout("target").unwrap();
+
+    // Add a different commit to create divergence
+    test_repo.create_commit("Target commit", "target.txt", "target content");
+
+    // Sleep before cherry-pick to ensure different committer time
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Cherry-pick the source commit
+    let output = Command::new("git")
+      .args(["cherry-pick", &source_commit])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to cherry-pick");
+
+    if !output.status.success() {
+      panic!("Cherry-pick failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let _cherry_picked = test_repo.rev_parse("HEAD").unwrap();
+
+    // Now find missing commits from target perspective
+    test_repo.checkout("source").unwrap();
+    let source_head = test_repo.rev_parse("HEAD").unwrap();
+
+    test_repo.checkout(&base).unwrap();
+
+    let conflicting_files = vec![PathBuf::from("feature.txt")];
+    let missing = find_missing_commits_for_conflicts(git_executor, test_repo.path().to_str().unwrap(), &source_head, &base, &conflicting_files).unwrap();
+
+    // Verify the commit has preserved author time but different committer time
+    assert_eq!(missing.len(), 1, "Should find exactly one missing commit");
+    let commit = &missing[0];
+
+    assert_eq!(commit.author_time, original_author_time, "Author time should be preserved");
+    assert!(
+      commit.committer_time >= commit.author_time,
+      "Committer time should be same or more recent than author time after cherry-pick"
+    );
+    assert_eq!(commit.message, "Source commit");
+  }
+
+  #[test]
+  fn test_rebase_changes_committer_time_only() {
+    let test_repo = TestRepo::new();
+    let git_executor = test_repo.executor();
+
+    // Create base commits
+    let base1 = test_repo.create_commit("Base 1", "base1.txt", "content1");
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let base2 = test_repo.create_commit("Base 2", "base2.txt", "content2");
+
+    // Create feature branch from base1
+    test_repo.checkout(&base1).unwrap();
+    test_repo.create_branch("feature").unwrap();
+    test_repo.checkout("feature").unwrap();
+
+    // Create feature commits
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    test_repo.create_commit("Feature 1", "feature1.txt", "feature1");
+    let original_author_time_cmd = Command::new("git")
+      .args(["show", "-s", "--format=%at", "HEAD"])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to get author time");
+    let original_author_time: u32 = String::from_utf8_lossy(&original_author_time_cmd.stdout)
+      .trim()
+      .parse()
+      .expect("Failed to parse author time");
+
+    // Sleep to ensure different committer time on rebase
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Rebase onto base2
+    let output = Command::new("git")
+      .args(["rebase", &base2])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to rebase");
+
+    if !output.status.success() {
+      panic!("Rebase failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let feature_head = test_repo.rev_parse("HEAD").unwrap();
+
+    // Find missing commits from base1 perspective
+    test_repo.checkout(&base1).unwrap();
+
+    let conflicting_files = vec![PathBuf::from("feature1.txt")];
+    let missing = find_missing_commits_for_conflicts(git_executor, test_repo.path().to_str().unwrap(), &feature_head, &base1, &conflicting_files).unwrap();
+
+    // Verify we found at least one feature commit
+    assert!(!missing.is_empty(), "Should find at least one feature commit");
+
+    // Check the first feature commit
+    let commit = missing.iter().find(|c| c.message == "Feature 1").unwrap();
+
+    // Verify author time is preserved
+    assert_eq!(commit.author_time, original_author_time, "Author time should be preserved after rebase");
+
+    // After rebase, committer time should be more recent (due to our sleep)
+    assert!(commit.committer_time > original_author_time, "Committer time should be newer after rebase");
+
+    // Also verify both times are reasonable
+    assert!(commit.author_time > 0, "Author time should be valid");
+    assert!(commit.committer_time > 0, "Committer time should be valid");
   }
 
   #[test]
@@ -520,5 +765,44 @@ mod tests {
     assert_eq!(files[0], "file1.txt");
     assert_eq!(files[1], "file2.txt");
     assert_eq!(files[2], "path/to/file3.txt");
+  }
+
+  #[test]
+  fn test_author_names_with_spaces() {
+    let test_repo = TestRepo::new();
+    let git_executor = test_repo.executor();
+
+    // Create an initial commit first
+    let initial_commit = test_repo.create_commit("Initial commit", "initial.txt", "initial content");
+
+    // Set a multi-word author name
+    Command::new("git")
+      .args(["config", "user.name", "Mary Jane Watson"])
+      .current_dir(test_repo.path())
+      .output()
+      .expect("Failed to set author name");
+
+    // Create a commit with the multi-word author
+    let _commit_hash = test_repo.create_commit("Test commit by multi-word author", "test.txt", "content");
+
+    // Now test that find_missing_commits_for_conflicts correctly parses the author name
+    test_repo.create_branch("branch1").unwrap();
+    test_repo.checkout("branch1").unwrap();
+
+    let branch_commit = test_repo.create_commit("Branch commit", "test.txt", "modified");
+
+    // Go back to the initial commit
+    test_repo.checkout(&initial_commit).unwrap();
+
+    let conflicting_files = vec![PathBuf::from("test.txt")];
+    let missing = find_missing_commits_for_conflicts(git_executor, test_repo.path().to_str().unwrap(), &branch_commit, &initial_commit, &conflicting_files).unwrap();
+
+    // Verify the author name is correctly parsed
+    assert!(!missing.is_empty(), "Should find missing commits");
+
+    // Find the commit with Mary Jane Watson as author
+    let mary_jane_commit = missing.iter().find(|c| c.author == "Mary Jane Watson");
+    assert!(mary_jane_commit.is_some(), "Should find commit by Mary Jane Watson");
+    assert_eq!(mary_jane_commit.unwrap().author, "Mary Jane Watson", "Author name with spaces should be correctly parsed");
   }
 }

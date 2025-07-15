@@ -13,7 +13,8 @@ use tracing::{debug, instrument};
 pub struct MissingCommit {
   pub hash: String,
   pub message: String,
-  pub time: u32,
+  pub author_time: u32,
+  pub committer_time: u32,
   pub author: String,
   pub files_touched: Vec<String>,
   pub file_diffs: Vec<FileDiff>,
@@ -112,8 +113,8 @@ pub(crate) fn find_missing_commits_for_conflicts(
   let exclude_target = format!("^{target_commit_hash}");
   let mut args = vec![
     "log",
-    "--format=COMMIT:%H %ct %an %s", // Custom marker to identify commit lines
-    "--name-only",                   // Show file names changed in each commit
+    "--format=COMMIT:%H%x00%at%x00%ct%x00%an%x00%s", // Use null bytes as delimiters for machine-readable parsing
+    "--name-only",                                   // Show file names changed in each commit
     "--no-merges",
     original_parent_hash,
     &exclude_target,
@@ -133,28 +134,30 @@ pub(crate) fn find_missing_commits_for_conflicts(
   let conflicting_files_set: HashSet<String> = file_paths.into_iter().collect();
 
   // Parse the combined output and collect commit data
-  let mut current_commit: Option<(String, u32, String, String)> = None;
+  let mut current_commit: Option<(String, u32, u32, String, String)> = None;
   let mut current_files: Vec<String> = Vec::new();
-  let mut commits_to_process: Vec<(String, u32, String, String, Vec<String>)> = Vec::new();
+  let mut commits_to_process: Vec<(String, u32, u32, String, String, Vec<String>)> = Vec::new();
 
   for line in output.lines() {
     if let Some(commit_data) = line.strip_prefix("COMMIT:") {
       // Process previous commit if exists
-      if let Some((hash, time, author, message)) = current_commit.take() {
+      if let Some((hash, author_time, committer_time, author, message)) = current_commit.take() {
         if !current_files.is_empty() {
-          commits_to_process.push((hash, time, author, message, current_files.clone()));
+          commits_to_process.push((hash, author_time, committer_time, author, message, current_files.clone()));
         }
       }
 
-      // Parse new commit line
-      // Skip "COMMIT:"
-      let parts: Vec<&str> = commit_data.splitn(3, ' ').collect();
-      if parts.len() >= 3 {
+      // Parse new commit line with null-delimited format
+      // Format: hash\0author_time\0committer_time\0author\0message
+      let parts: Vec<&str> = commit_data.split('\0').collect();
+      if parts.len() >= 5 {
         let hash = parts[0].to_string();
-        let time = parts[1].parse::<u32>().unwrap_or(0);
-        let (author, message) = extract_author_and_message(parts[2]);
+        let author_time = parts[1].parse::<u32>().unwrap_or(0);
+        let committer_time = parts[2].parse::<u32>().unwrap_or(0);
+        let author = parts[3].to_string();
+        let message = parts[4].to_string();
 
-        current_commit = Some((hash, time, author, message));
+        current_commit = Some((hash, author_time, committer_time, author, message));
         current_files.clear();
       }
     } else if !line.is_empty() && !line.starts_with("commit ") {
@@ -166,20 +169,20 @@ pub(crate) fn find_missing_commits_for_conflicts(
   }
 
   // Process the last commit
-  if let Some((hash, time, author, message)) = current_commit {
+  if let Some((hash, author_time, committer_time, author, message)) = current_commit {
     if !current_files.is_empty() {
-      commits_to_process.push((hash, time, author, message, current_files));
+      commits_to_process.push((hash, author_time, committer_time, author, message, current_files));
     }
   }
 
   // Batch get all file diffs
   if !commits_to_process.is_empty() {
-    let commit_files_map: Vec<(String, Vec<String>)> = commits_to_process.iter().map(|(hash, _, _, _, files)| (hash.clone(), files.clone())).collect();
+    let commit_files_map: Vec<(String, Vec<String>)> = commits_to_process.iter().map(|(hash, _, _, _, _, files)| (hash.clone(), files.clone())).collect();
 
     let all_file_diffs = batch_get_file_diffs(git_executor, repo_path, &commit_files_map)?;
 
     // Build the final missing commits with their diffs
-    for (hash, time, author, message, files_touched) in commits_to_process {
+    for (hash, author_time, committer_time, author, message, files_touched) in commits_to_process {
       let file_diffs = all_file_diffs.get(&hash).cloned().unwrap_or_default();
 
       debug!(commit_hash = %hash, ?files_touched, "found missing commit that touches conflicting files");
@@ -187,7 +190,8 @@ pub(crate) fn find_missing_commits_for_conflicts(
       missing_commits.push(MissingCommit {
         hash,
         message,
-        time,
+        author_time,
+        committer_time,
         author,
         files_touched,
         file_diffs,
@@ -420,40 +424,6 @@ pub(crate) fn batch_get_file_diffs(
   }
 
   Ok(result)
-}
-
-/// Extract author name and commit message from a combined string
-#[instrument]
-pub(crate) fn extract_author_and_message(author_and_message: &str) -> (String, String) {
-  // Common patterns for commit messages:
-  // - Start with lowercase letter (unless it's a proper name)
-  // - Start with brackets like [, (, {
-  // - Start with special prefixes like "fix:", "feat:", etc.
-
-  let words: Vec<&str> = author_and_message.split_whitespace().collect();
-  if words.is_empty() {
-    return (String::new(), String::new());
-  }
-
-  // Try to find where the message starts
-  let mut message_start_idx = 0;
-  for (i, word) in words.iter().enumerate() {
-    // Check if this word looks like the start of a commit message
-    if word.starts_with('[') || word.starts_with('(') || word.starts_with('{') || word.contains(':') || (i > 0 && word.chars().next().is_some_and(|c| c.is_lowercase())) {
-      message_start_idx = i;
-      break;
-    }
-  }
-
-  // If we didn't find a clear message start, assume first 2 words are the name
-  if message_start_idx == 0 {
-    message_start_idx = words.len().min(2);
-  }
-
-  let author = words[..message_start_idx].join(" ");
-  let message = words[message_start_idx..].join(" ");
-
-  (author, message)
 }
 
 /// Get content of multiple files at a specific commit using batch operation
