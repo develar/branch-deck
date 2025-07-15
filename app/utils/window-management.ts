@@ -26,9 +26,9 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>) {
     title,
     width,
     height,
-    JSON.stringify(data)
+    JSON.stringify(data),
   )
-  
+
   if (result.status === "error") {
     throw new Error(result.error.message)
   }

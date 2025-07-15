@@ -90,7 +90,7 @@ export function useAutoUpdate() {
     if (import.meta.env.DEV) {
       return
     }
-    
+
     // wait a bit after app startup to avoid interfering with initial load
     useTimeoutFn(() => {
       checkForUpdates(false).catch(error => log.error(`${error}`))

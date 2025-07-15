@@ -4,17 +4,17 @@
     <div class="flex items-center gap-2 px-4 py-2">
       <div class="flex items-center gap-2">
         <!-- Icon based on conflict type -->
-        <UIcon 
+        <UIcon
           :name="conflictIcon"
           :class="conflictIconClass"
           class="w-4 h-4"
         />
-        
+
         <!-- Conflict description -->
         <span class="text-sm font-medium" :class="conflictTextClass">
           {{ conflictDescription }}
         </span>
-        
+
         <!-- Commit/branch info if available -->
         <div v-if="data.conflictInfo" class="text-xs text-muted">
           <span v-if="data.conflictInfo.branch && !isCommitHash(data.conflictInfo.branch)">
@@ -25,14 +25,14 @@
             :hash="data.conflictInfo.branch"
             :message="getCommitInfo(data.conflictInfo.branch)?.message"
             :author="getCommitInfo(data.conflictInfo.branch)?.author"
-            :timestamp="getCommitInfo(data.conflictInfo.branch)?.timestamp"
+            :author-time="getCommitInfo(data.conflictInfo.branch)?.authorTime"
           />
           <CommitHashPopover
             v-else-if="data.conflictInfo.base && isCommitHash(data.conflictInfo.base)"
             :hash="data.conflictInfo.base"
             :message="getCommitInfo(data.conflictInfo.base)?.message"
             :author="getCommitInfo(data.conflictInfo.base)?.author"
-            :timestamp="getCommitInfo(data.conflictInfo.base)?.timestamp"
+            :author-time="getCommitInfo(data.conflictInfo.base)?.authorTime"
           />
           <span v-else-if="data.conflictInfo.base && !isCommitHash(data.conflictInfo.base)">
             {{ data.conflictInfo.base }}
@@ -42,20 +42,20 @@
             :hash="data.conflictInfo.commit"
             :message="getCommitInfo(data.conflictInfo.commit)?.message"
             :author="getCommitInfo(data.conflictInfo.commit)?.author"
-            :timestamp="getCommitInfo(data.conflictInfo.commit)?.timestamp"
+            :author-time="getCommitInfo(data.conflictInfo.commit)?.authorTime"
           />
           <span v-else-if="data.conflictInfo.commit && !isCommitHash(data.conflictInfo.commit)">
             {{ data.conflictInfo.commit }}
           </span>
         </div>
       </div>
-      
+
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
+import { computed } from "vue"
 
 // Props from the extend slot
 const props = defineProps<{
@@ -73,12 +73,12 @@ const props = defineProps<{
       hash: string
       message: string
       author: string
-      timestamp: number
+      authorTime: number
+      committerTime: number
     }>
   }
   diffFile: unknown
 }>()
-
 
 // Check if this line is a conflict marker
 const isConflictLine = computed(() => {
@@ -89,16 +89,16 @@ const isConflictLine = computed(() => {
 const conflictIcon = computed(() => {
   const type = props.data.conflictInfo?.type
   switch (type) {
-    case 'conflict-start':
-      return 'i-lucide-git-branch'
-    case 'conflict-base':
-      return 'i-lucide-git-commit'
-    case 'conflict-separator':
-      return 'i-lucide-split'
-    case 'conflict-end':
-      return 'i-lucide-git-merge'
+    case "conflict-start":
+      return "i-lucide-git-branch"
+    case "conflict-base":
+      return "i-lucide-git-commit"
+    case "conflict-separator":
+      return "i-lucide-split"
+    case "conflict-end":
+      return "i-lucide-git-merge"
     default:
-      return 'i-lucide-alert-circle'
+      return "i-lucide-alert-circle"
   }
 })
 
@@ -106,16 +106,16 @@ const conflictIcon = computed(() => {
 const conflictIconClass = computed(() => {
   const type = props.data.conflictInfo?.type
   switch (type) {
-    case 'conflict-start':
-      return 'text-red-500'
-    case 'conflict-base':
-      return 'text-muted'
-    case 'conflict-separator':
-      return 'text-yellow-500'
-    case 'conflict-end':
-      return 'text-green-500'
+    case "conflict-start":
+      return "text-red-500"
+    case "conflict-base":
+      return "text-muted"
+    case "conflict-separator":
+      return "text-yellow-500"
+    case "conflict-end":
+      return "text-green-500"
     default:
-      return 'text-muted'
+      return "text-muted"
   }
 })
 
@@ -123,16 +123,16 @@ const conflictIconClass = computed(() => {
 const conflictTextClass = computed(() => {
   const type = props.data.conflictInfo?.type
   switch (type) {
-    case 'conflict-start':
-      return 'text-red-500'
-    case 'conflict-base':
-      return 'text-muted'
-    case 'conflict-separator':
-      return 'text-yellow-500'
-    case 'conflict-end':
-      return 'text-green-500'
+    case "conflict-start":
+      return "text-red-500"
+    case "conflict-base":
+      return "text-muted"
+    case "conflict-separator":
+      return "text-yellow-500"
+    case "conflict-end":
+      return "text-green-500"
     default:
-      return ''
+      return ""
   }
 })
 
@@ -140,16 +140,16 @@ const conflictTextClass = computed(() => {
 const conflictBorderClass = computed(() => {
   const type = props.data.conflictInfo?.type
   switch (type) {
-    case 'conflict-start':
-      return 'border-red-500'
-    case 'conflict-base':
-      return 'border-gray-500'
-    case 'conflict-separator':
-      return 'border-yellow-500'
-    case 'conflict-end':
-      return 'border-green-500'
+    case "conflict-start":
+      return "border-red-500"
+    case "conflict-base":
+      return "border-gray-500"
+    case "conflict-separator":
+      return "border-yellow-500"
+    case "conflict-end":
+      return "border-green-500"
     default:
-      return 'border-gray-500'
+      return "border-gray-500"
   }
 })
 
@@ -157,16 +157,16 @@ const conflictBorderClass = computed(() => {
 const conflictDescription = computed(() => {
   const type = props.data.conflictInfo?.type
   switch (type) {
-    case 'conflict-start':
-      return 'Current changes (HEAD)'
-    case 'conflict-base':
-      return 'Common ancestor'
-    case 'conflict-separator':
-      return 'Conflict separator'
-    case 'conflict-end':
-      return 'Incoming changes'
+    case "conflict-start":
+      return "Current changes (HEAD)"
+    case "conflict-base":
+      return "Common ancestor"
+    case "conflict-separator":
+      return "Conflict separator"
+    case "conflict-end":
+      return "Incoming changes"
     default:
-      return 'Conflict marker'
+      return "Conflict marker"
   }
 })
 

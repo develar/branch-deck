@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3">
-    <UTabs 
-      v-model="selectedTab" 
+    <UTabs
+      v-model="selectedTab"
       :items="tabItems"
       variant="link"
       size="sm"
@@ -11,8 +11,8 @@
         <div class="space-y-3 mt-4">
           <!-- Controls for diff view -->
           <div class="flex justify-between items-center">
-            <USwitch 
-              v-model="showConflictsOnly" 
+            <USwitch
+              v-model="showConflictsOnly"
               size="sm"
               label="Conflicts only"
             />
@@ -35,10 +35,10 @@
               </UButton>
             </UButtonGroup>
           </div>
-          
+
           <!-- Diff content -->
-          <FileDiffList 
-            :file-diffs="showConflictsOnly ? conflictingFileDiffsFiltered : conflictingFileDiffs" 
+          <FileDiffList
+            :file-diffs="showConflictsOnly ? conflictingFileDiffsFiltered : conflictingFileDiffs"
             key-prefix="conflict"
             :conflict-marker-commits="conflictMarkerCommits"
             :hide-controls="true"
@@ -57,10 +57,10 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
-import type { ConflictDetail, MergeConflictInfo } from '~/utils/bindings'
-import GitDiffMergeView from './GitDiffMergeView.vue'
-import { useConflictViewerSettings } from '~/composables/conflictViewerSettings'
+import { computed } from "vue"
+import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
+import GitDiffMergeView from "./GitDiffMergeView.vue"
+import { useConflictViewerSettings } from "~/composables/conflictViewerSettings"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]
@@ -69,7 +69,8 @@ const props = defineProps<{
     hash: string
     message: string
     author: string
-    timestamp: number
+    authorTime: number
+    committerTime: number
   }>
 }>()
 
@@ -79,30 +80,30 @@ const { showConflictsOnly, viewMode, conflictDiffViewMode } = useConflictViewerS
 // Use viewMode as selectedTab for UTabs
 const selectedTab = computed({
   get: () => viewMode.value,
-  set: (value) => { viewMode.value = value }
+  set: (value) => { viewMode.value = value },
 })
 
 // Tab items for the UTabs component
 const tabItems = [
-  { 
-    value: 'diff',
-    slot: 'diff',
-    label: 'Diff View',
-    icon: 'i-lucide-align-left'
+  {
+    value: "diff",
+    slot: "diff",
+    label: "Diff View",
+    icon: "i-lucide-align-left",
   },
-  { 
-    value: '3way',
-    slot: '3way',
-    label: '3-way Merge',
-    icon: 'i-lucide-columns-3'
-  }
+  {
+    value: "3way",
+    slot: "3way",
+    label: "3-way Merge",
+    icon: "i-lucide-columns-3",
+  },
 ]
 
 // Expose current state for parent components
 defineExpose({
   showConflictsOnly,
   viewMode,
-  conflictDiffViewMode
+  conflictDiffViewMode,
 })
 
 // Convert conflicting files to FileDiff format for FileDiffList component
@@ -112,22 +113,22 @@ const conflictingFileDiffs = computed(() => {
 
 // Filter file diffs to show only hunks with conflicts
 const conflictingFileDiffsFiltered = computed(() => {
-  return conflictingFileDiffs.value.map(fileDiff => {
+  return conflictingFileDiffs.value.map((fileDiff) => {
     // Check if any hunk contains conflict markers
     const hasConflictMarkers = (hunk: string) => {
-      return hunk.includes('<<<<<<<') || 
-             hunk.includes('|||||||') || 
-             hunk.includes('=======') || 
-             hunk.includes('>>>>>>>')
+      return hunk.includes("<<<<<<<")
+        || hunk.includes("|||||||")
+        || hunk.includes("=======")
+        || hunk.includes(">>>>>>>")
     }
-    
+
     // Filter hunks to only include those with conflict markers
     const filteredHunks = fileDiff.hunks.filter(hasConflictMarkers)
-    
+
     // Return a new FileDiff with only conflict hunks
     return {
       ...fileDiff,
-      hunks: filteredHunks
+      hunks: filteredHunks,
     }
   }).filter(fileDiff => fileDiff.hunks.length > 0)
 })

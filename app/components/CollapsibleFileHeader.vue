@@ -1,5 +1,5 @@
 <template>
-  <div 
+  <div
     class="w-full px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer group"
     @click="$emit('toggle')"
   >

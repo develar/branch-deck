@@ -11,10 +11,11 @@ Desktop Git branch management tool:
 ```bash
 pnpm install         # Install dependencies
 pnpm run dev         # Start dev server
-pnpm lint            # Lint Rust + JS/TS
+pnpm lint            # Lint Rust + JS/TS + TypeScript
 pnpm run tauri dev   # Run Tauri app
 cargo check          # Check Rust code (from src-tauri/)
 pnpm test            # Run Rust tests
+pnpm test:unit       # Run Vue component unit tests
 ```
 
 ## Development Rules
@@ -28,18 +29,21 @@ pnpm test            # Run Rust tests
 
 ### Code Style
 - **Colors**: Use semantic colors (`text-muted`, `bg-default`, `border-default`)
-- **Icons**: Use Lucide icons (`i-lucide-upload`) never heroicons
+- **Icons**: Use Lucide icons (`i-lucide-upload`) never heroicons, use semantic sizes (`size-3`, `size-4`, `size-5`) not `w-* h-*`
 - **Rust Bindings**: Use snake_case (`commit.original_hash`)
 - **Maps**: Use `.size` not `.length`, iterate with `.values()`
 - **Badges**: Use `size="sm"` or default (never `size="xs"`)
 - **TypeScript**: Use u32 for timestamps (JS compatible), avoid i64
 - **Tracing**: Use `#[instrument]` instead of manual debug!/info! calls
+- **ESLint**: Enforces double quotes, no semicolons, 2-space indentation, no forced newline at EOF
 
 ### Testing & Linting
 - Run `pnpm lint` before commits
 - Run tests after changes
 - Use `cargo check` from src-tauri/ for Rust type checking
-- **Always use TestRepo** framework in tests (uses git CLI internally)
+- **Always use TestRepo** framework in Rust tests (uses git CLI internally)
+- **Vue Component Tests**: Use `pnpm test:unit` with Nuxt vitest setup
+- **Test Setup**: Tests use `@nuxt/test-utils` with `mountSuspended` for component testing
 
 ## Architecture Patterns
 
@@ -76,18 +80,18 @@ git_executor.execute_command_with_input(&args, repo_path, &batch_input)?;
 ### AppStore Architecture
 ```typescript
 // Centralized settings store
-import { appStore, appStoreKey } from '~/utils/app-store'
+import { appStore, appStoreKey } from "~/utils/app-store"
 
 // Provide in app.vue
 provide(appStoreKey, appStore)
 
 // Use in components
 const appStore = inject(appStoreKey)
-if (!appStore) throw new Error('AppStore not provided')
+if (!appStore) throw new Error("AppStore not provided")
 
 // Auto-persisted settings
 const settings = await appStore.getConflictViewerSettings()
-await appStore.updateAppSetting('primaryColor', 'blue')
+await appStore.updateAppSetting("primaryColor", "blue")
 ```
 
 ## UI Component Patterns
@@ -115,8 +119,8 @@ await appStore.updateAppSetting('primaryColor', 'blue')
 <UTabs 
   v-model="selectedTab" 
   :items="[
-    { value: 'diff', slot: 'diff', label: 'Diff', icon: 'i-lucide-align-left' },
-    { value: '3way', slot: '3way', label: '3-way', icon: 'i-lucide-columns-3' }
+    { value: "diff", slot: "diff", label: "Diff", icon: "i-lucide-align-left" },
+    { value: "3way", slot: "3way", label: "3-way", icon: "i-lucide-columns-3" }
   ]"
   variant="link"
   color="neutral"
@@ -171,14 +175,14 @@ let merge_base_id = find_merge_base(
 
 ### Creating Sub-Windows
 ```typescript
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { emit } from '@tauri-apps/api/event'
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
+import { emit } from "@tauri-apps/api/event"
 
 async function openSubWindow() {
   const data = { /* prepare data */ }
   
-  const subWindow = new WebviewWindow('window-id', {
-    url: '/page-name',
+  const subWindow = new WebviewWindow("window-id", {
+    url: "/page-name",
     title: `Title - ${contextInfo}`,
     width: 1400,
     height: 900,
@@ -187,8 +191,8 @@ async function openSubWindow() {
   })
   
   // Handshake pattern
-  subWindow.once('window-ready', async () => {
-    await emit('init-window-data', data)
+  subWindow.once("window-ready", async () => {
+    await emit("init-window-data", data)
   })
 }
 ```
@@ -200,20 +204,20 @@ definePageMeta({ layout: false })
 
 onMounted(async () => {
   // Check sessionStorage for hot reload
-  const stored = sessionStorage.getItem('window-data')
+  const stored = sessionStorage.getItem("window-data")
   if (stored) {
     windowData.value = JSON.parse(stored)
     return
   }
 
   // Listen for data
-  const unlisten = await listen('init-window-data', (event) => {
+  const unlisten = await listen("init-window-data", (event) => {
     windowData.value = event.payload
-    sessionStorage.setItem('window-data', JSON.stringify(event.payload))
+    sessionStorage.setItem("window-data", JSON.stringify(event.payload))
     unlisten()
   })
   
-  await emit('window-ready', {})
+  await emit("window-ready", {})
 })
 </script>
 ```
@@ -251,7 +255,7 @@ fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
 ### Frontend Menu Handlers
 ```typescript
 onMounted(async () => {
-  unlisten = await listen('open_color_selector', () => {
+  unlisten = await listen("open_color_selector", () => {
     isOpen.value = true
   })
 })
@@ -281,6 +285,28 @@ MergeConflictViewer.vue          # Primary conflict display component
 ```
 
 ### Key UI Components
+
+#### **CommitList.vue**
+- Unified commit list component replacing multiple implementations
+- Supports three variants: `compact`, `detailed`, `status`
+- Accepts `CommitDetail[]`, `Map<string, CommitDetail>`, `GenericCommit[]`, or `MissingCommit[]`
+- Features configurable via props: `showAuthor`, `showFileCount`, `showDividers`, `showHover`
+- Provides `after-commit` slot for custom content after each commit
+- Type-safe with runtime type guards for union types
+- Example usage:
+```vue
+<CommitList
+  :commits="missingCommits"
+  variant="detailed"
+  :show-file-count="true"
+  container-class="space-y-4"
+  item-class="pb-4 border-b border-default last:border-0 last:pb-0"
+>
+  <template #after-commit="{ commit }">
+    <!-- Custom content -->
+  </template>
+</CommitList>
+```
 
 #### **MergeConflictViewer.vue**
 - Main conflict display with commit overview
@@ -332,8 +358,8 @@ async function openConflictingFilesWindow() {
   }
   
   await openSubWindow({
-    windowId: 'conflicting-files',
-    url: '/conflicting-files',
+    windowId: "conflicting-files",
+    url: "/conflicting-files",
     title: `Files Modified by Missing Commits - ${branchName}`,
     data
   })

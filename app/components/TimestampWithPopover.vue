@@ -22,7 +22,7 @@
 </template>
 
 <script lang="ts" setup>
-import { formatTimestamp } from '~/utils/time'
+import { formatTimestamp } from "~/utils/time"
 
 defineProps<{
   authorTime: number

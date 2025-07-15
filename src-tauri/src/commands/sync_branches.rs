@@ -42,12 +42,20 @@ pub async fn sync_branches(git_executor: State<'_, GitCommandExecutor>, reposito
 
 async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repository_path: &str, branch_prefix: &str, progress: Channel<SyncEvent>) -> anyhow::Result<()> {
   progress.send(SyncEvent::Progress {
-    message: "get commits".to_string(),
+    message: "detecting baseline branch".to_string(),
+    index: -1,
+  })?;
+
+  // Detect the baseline branch (origin/master, origin/main, or local master/main)
+  let baseline_branch = git_executor.detect_baseline_branch(repository_path, "master")?;
+
+  progress.send(SyncEvent::Progress {
+    message: format!("getting commits from {baseline_branch}"),
     index: -1,
   })?;
 
   // Use the new GitCommandExecutor-based API
-  let commits = get_commit_list(&git_executor, repository_path, "master")?;
+  let commits = get_commit_list(&git_executor, repository_path, &baseline_branch)?;
 
   let Some(oldest_head_commit) = commits.first() else {
     // No commits to sync
@@ -65,7 +73,7 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
 
   // group commits by prefix first to get all branch names
   // for each prefix, create a branch with only the relevant commits
-  let grouped_commits = group_commits_by_prefix_new(&commits);
+  let (grouped_commits, unassigned_commits) = group_commits_by_prefix_new(&commits);
 
   // extract commit IDs and messages for processing
   let grouped_commit_data: Vec<(String, Vec<CommitInfo>)> = grouped_commits
@@ -107,6 +115,7 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
           original_hash: commit.id.to_string(),
           hash: String::new(), // Will be filled after sync
           message: commit.message.clone(),
+          author: commit.author_name.clone(),
           author_time: commit.author_time,
           committer_time: commit.committer_time,
           status: CommitSyncStatus::Pending,
@@ -119,6 +128,28 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped_branches_for_ui,
   })?;
+
+  // Send unassigned commits if any
+  if !unassigned_commits.is_empty() {
+    let unassigned_commits_for_ui: Vec<CommitDetail> = unassigned_commits
+      .iter()
+      .rev() // Reverse to show newest commits first
+      .map(|commit| CommitDetail {
+        original_hash: commit.id.to_string(),
+        hash: String::new(), // No synced hash for unassigned commits
+        message: commit.message.clone(),
+        author: commit.author_name.clone(),
+        author_time: commit.author_timestamp,
+        committer_time: commit.committer_timestamp,
+        status: CommitSyncStatus::Pending,
+        error: None,
+      })
+      .collect();
+
+    progress.send(SyncEvent::UnassignedCommits {
+      commits: unassigned_commits_for_ui,
+    })?;
+  }
 
   // process branches in parallel
   let repository_path_owned = repository_path.to_string();
@@ -163,21 +194,29 @@ async fn do_sync_branches(git_executor: State<'_, GitCommandExecutor>, repositor
   // wait for all tasks to complete
   for (task, branch_name) in tasks {
     match task.await {
-      Ok(Ok(_)) => {}
+      Ok(Ok(_)) => {
+        // Branch processing completed successfully
+        // Status updates have already been sent by process_single_branch
+      }
       Ok(Err(e)) => {
-        warn!("Branch {branch_name} processing returned an error: {e:?}");
-        // Send branch error event
+        // This should rarely happen since process_single_branch handles its own errors
+        // Only send error status if the function returned an actual error
+        error!("Branch {branch_name} processing returned an unexpected error: {e:?}");
+        // Send branch error event only for unexpected errors
         let _ = progress.send(SyncEvent::BranchStatusUpdate {
           branch_name,
           status: BranchSyncStatus::Error,
+          error: Some(BranchError::Generic(e.to_string())),
         });
       }
       Err(e) => {
+        // Task panicked or was cancelled
         error!("Task for branch {branch_name} failed to join or panicked: {e:?}");
-        // Send branch error event
+        // Send branch error event for task failures
         let _ = progress.send(SyncEvent::BranchStatusUpdate {
           branch_name,
           status: BranchSyncStatus::Error,
+          error: Some(BranchError::Generic(format!("Task failed: {e}"))),
         });
       }
     }
@@ -292,6 +331,7 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
         let _ = progress.send(SyncEvent::BranchStatusUpdate {
           branch_name: branch_name.clone(),
           status,
+          error: None,
         });
 
         // Return early - error already sent via events
@@ -344,13 +384,31 @@ async fn process_single_branch(params: BranchProcessingParams) -> anyhow::Result
   // Write all commit notes after successful branch sync
   if !pending_notes.is_empty() {
     debug!("Writing {} commit notes for branch {branch_name}", pending_notes.len());
-    write_commit_notes(&git_executor, &repository_path, pending_notes, &git_notes_mutex)?;
+    if let Err(e) = write_commit_notes(&git_executor, &repository_path, pending_notes, &git_notes_mutex) {
+      error!("Failed to write commit notes for branch {branch_name}: {e}");
+      // Send error status for git notes failure
+      let _ = progress.send(SyncEvent::BranchStatusUpdate {
+        branch_name: branch_name.clone(),
+        status: BranchSyncStatus::Error,
+        error: Some(BranchError::Generic(format!("Failed to write commit notes: {e}"))),
+      });
+
+      // send end-of-task progress with empty message
+      progress.send(SyncEvent::Progress {
+        message: String::new(),
+        index: task_index,
+      })?;
+
+      return Err(e);
+    }
   }
 
   // Send branch status update event
+  debug!("Sending final branch status for {branch_name}: {:?}", branch_sync_status);
   let _ = progress.send(SyncEvent::BranchStatusUpdate {
     branch_name: branch_name.clone(),
     status: branch_sync_status.clone(),
+    error: None,
   });
 
   // send end-of-task progress with empty message
@@ -373,14 +431,18 @@ pub(crate) fn check_branch_exists(git_executor: &GitCommandExecutor, repo_path: 
 static PREFIX_PATTERN: OnceLock<Regex> = OnceLock::new();
 static ISSUE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
+// Type alias for grouped commits result
+type GroupedCommitsResult = (IndexMap<String, Vec<(String, Commit)>>, Vec<Commit>);
+
 #[instrument(skip(commits))]
 
 /// Group commits by prefix using the new Commit struct
-pub(crate) fn group_commits_by_prefix_new(commits: &[Commit]) -> IndexMap<String, Vec<(String, Commit)>> {
+/// Returns (grouped commits, unassigned commits)
+pub(crate) fn group_commits_by_prefix_new(commits: &[Commit]) -> GroupedCommitsResult {
   debug!("Grouping {} commits by prefix", commits.len());
 
   if commits.is_empty() {
-    return IndexMap::new();
+    return (IndexMap::new(), Vec::new());
   }
 
   // Initialize regex patterns on first use
@@ -389,10 +451,12 @@ pub(crate) fn group_commits_by_prefix_new(commits: &[Commit]) -> IndexMap<String
 
   // use index map - preserve insertion order
   let mut prefix_to_commits: IndexMap<String, Vec<(String, Commit)>> = IndexMap::new();
+  let mut unassigned_commits: Vec<Commit> = Vec::new();
 
   // group commits by prefix
   for commit in commits {
     let message = &commit.message;
+    let mut has_prefix = false;
 
     // First try to find explicit prefix in parentheses
     if let Some(captures) = prefix_pattern.captures(message) {
@@ -401,27 +465,35 @@ pub(crate) fn group_commits_by_prefix_new(commits: &[Commit]) -> IndexMap<String
         let message_text = message_match.as_str().trim();
 
         prefix_to_commits.entry(prefix.to_string()).or_default().push((message_text.to_string(), commit.clone()));
-        continue;
+        has_prefix = true;
       }
     }
 
-    // If no explicit parentheses prefix, look for issue number pattern in the first line only
-    // More efficient than lines().next() - find first newline directly
-    let first_line_end = message.find('\n').unwrap_or(message.len());
-    let first_line = &message[..first_line_end];
+    if !has_prefix {
+      // If no explicit parentheses prefix, look for issue number pattern in the first line only
+      // More efficient than lines().next() - find first newline directly
+      let first_line_end = message.find('\n').unwrap_or(message.len());
+      let first_line = &message[..first_line_end];
 
-    if let Some(issue_match) = issue_pattern.find(first_line) {
-      let issue_number = issue_match.as_str();
-      prefix_to_commits
-        .entry(issue_number.to_string())
-        .or_default()
-        .push((message.trim().to_string(), commit.clone()));
+      if let Some(issue_match) = issue_pattern.find(first_line) {
+        let issue_number = issue_match.as_str();
+        prefix_to_commits
+          .entry(issue_number.to_string())
+          .or_default()
+          .push((message.trim().to_string(), commit.clone()));
+        has_prefix = true;
+      }
+    }
+
+    // If no prefix found, add to unassigned commits
+    if !has_prefix {
+      unassigned_commits.push(commit.clone());
     }
   }
 
-  info!("Grouped commits into {} branches", prefix_to_commits.len());
+  info!("Grouped commits into {} branches, {} unassigned commits", prefix_to_commits.len(), unassigned_commits.len());
   for (prefix, commits) in &prefix_to_commits {
     debug!("Branch '{prefix}' has {} commits", commits.len());
   }
-  prefix_to_commits
+  (prefix_to_commits, unassigned_commits)
 }

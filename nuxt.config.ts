@@ -9,7 +9,7 @@ export default defineNuxtConfig({
     optimizeDeps: {
       // avoid "optimized dependencies changed. reloading"
       force: true,
-      
+
       include: [
         "@tauri-apps/plugin-store",
         "@tauri-apps/api/webviewWindow",
@@ -21,9 +21,9 @@ export default defineNuxtConfig({
         "@tauri-apps/plugin-dialog",
         "@tauri-apps/api/core",
         "@git-diff-view/vue",
-        "reka-ui"
+        "reka-ui",
       ],
-    }
+    },
   },
 
   nitro: {
@@ -37,7 +37,7 @@ export default defineNuxtConfig({
   ssr: false,
 
   // Enable devtools
-  devtools: {enabled: true},
+  devtools: { enabled: true },
 
   // Modules
   modules: ["@nuxt/ui-pro", "@nuxt/eslint", "@nuxt/icon"],
@@ -48,9 +48,6 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
     shim: false,
-    tsConfig: {
-      exclude: ["**/utils/bindings.ts"],
-    },
   },
 
   devServer: {
@@ -66,8 +63,8 @@ export default defineNuxtConfig({
     head: {
       title: "Branch Deck",
       meta: [
-        {charset: "utf-8"},
-        {name: "viewport", content: "width=device-width, initial-scale=1"},
+        { charset: "utf-8" },
+        { name: "viewport", content: "width=device-width, initial-scale=1" },
       ],
     },
   },

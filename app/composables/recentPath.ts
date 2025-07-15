@@ -1,4 +1,4 @@
-import type { Ref} from "vue";
+import type { Ref } from "vue"
 import { ref, inject } from "vue"
 import { appStoreKey } from "~/utils/app-store"
 
@@ -11,9 +11,9 @@ export interface RecentPath {
 export function useRecentPath() {
   const appStore = inject(appStoreKey)
   if (!appStore) {
-    throw new Error('AppStore not provided')
+    throw new Error("AppStore not provided")
   }
-  
+
   const recentPaths = ref<string[]>([])
   const repositoryPath = ref("")
 
@@ -52,7 +52,7 @@ export function useRecentPath() {
   }
 }
 
-async function loadRecentPaths(appStore: import('~/utils/app-store').IAppStore, recentPaths: Ref<string[]>, repositoryPath: Ref<string>) {
+async function loadRecentPaths(appStore: import("~/utils/app-store").IAppStore, recentPaths: Ref<string[]>, repositoryPath: Ref<string>) {
   const toast = useToast()
   try {
     recentPaths.value = await appStore.getRecentPaths()

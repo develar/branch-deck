@@ -17,3 +17,6 @@ mod copy_commit_test;
 
 #[cfg(test)]
 mod merge_conflict_tests;
+
+#[cfg(test)]
+mod notes_test;

@@ -3,23 +3,33 @@ use crate::git::git_command::GitCommandExecutor;
 use crate::test_utils::git_test_utils::TestRepo;
 
 #[test]
-fn test_get_commit_list_no_upstream() {
+fn test_get_commit_list_local_repository() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
 
-  // Create initial commit
+  // Create initial commit on master
   test_repo.create_commit("Initial commit", "README.md", "# Test");
 
-  // Add commits with prefixes
+  // No need to create master branch - it already exists from git init
+
+  // Create a feature branch and switch to it
+  test_repo.create_branch("feature").unwrap();
+  test_repo.checkout("feature").unwrap();
+
+  // Add commits with prefixes on feature branch
   test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
   test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
   test_repo.create_commit("Regular commit", "regular.txt", "regular content");
   test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
 
-  // Since there's no origin/master, git rev-list origin/master..HEAD will fail
-  // This is expected behavior - we need origin/master to exist
-  let result = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master");
-  assert!(result.is_err(), "Should fail when origin/master doesn't exist");
+  // Should work with local master branch (no remote needed)
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+
+  assert_eq!(commits.len(), 4);
+  assert_eq!(commits[0].message, "(feature-auth) Add authentication");
+  assert_eq!(commits[1].message, "(bugfix-login) Fix login issue");
+  assert_eq!(commits[2].message, "Regular commit");
+  assert_eq!(commits[3].message, "(ui-components) Add button");
 }
 
 #[test]
@@ -40,7 +50,7 @@ fn test_get_commit_list_with_origin() {
   test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
 
   // Get commits ahead of origin/master
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
 
   // Should return all 4 commits (including the one without prefix)
   assert_eq!(commits.len(), 4);
@@ -90,7 +100,7 @@ fn test_get_commit_list_with_merges() {
   test_repo.create_commit("(post-merge) After merge", "post.txt", "post");
 
   // Get commits - should exclude the merge commit
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
 
   // Should have 3 commits (feature, master change, post-merge) - merge commit excluded
   assert_eq!(commits.len(), 3);
@@ -111,7 +121,7 @@ fn test_get_commit_list_empty_range() {
   test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
 
   // Get commits - should be empty
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
   assert_eq!(commits.len(), 0);
 }
 
@@ -157,7 +167,7 @@ fn test_parse_commit_with_multiline_message() {
     .unwrap();
 
   // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
 
   assert_eq!(commits.len(), 1);
   // Only the subject line should be in the message field
@@ -184,7 +194,7 @@ fn test_commit_with_notes() {
     .unwrap();
 
   // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
 
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0].message, "(feature) Add feature");
@@ -212,9 +222,93 @@ fn test_commit_with_non_mapping_notes() {
     .unwrap();
 
   // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
 
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0].note, Some("This is just a regular note".to_string()));
   assert_eq!(commits[0].mapped_commit_id, None); // No mapped ID since no v-commit-v1: prefix
+}
+
+#[test]
+fn test_get_commit_list_with_main_branch() {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+
+  // Create initial commit
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
+
+  // Create origin/main instead of origin/master
+  test_repo.create_branch_at("origin/main", &initial_commit).unwrap();
+
+  // Add commits
+  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
+  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+
+  // Get commits ahead of origin/main
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+
+  assert_eq!(commits.len(), 2);
+  assert_eq!(commits[0].message, "(feature-auth) Add authentication");
+  assert_eq!(commits[1].message, "(bugfix-login) Fix login issue");
+}
+
+#[test]
+fn test_detect_baseline_branch_scenarios() {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+
+  // Scenario 1: Local repository without remotes
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  // No need to create master branch - it already exists from git init
+
+  let baseline = git_executor.detect_baseline_branch(test_repo.path().to_str().unwrap(), "master").unwrap();
+  assert_eq!(baseline, "master");
+
+  // Scenario 2: Repository with main branch instead of master
+  let test_repo2 = TestRepo::new();
+  test_repo2.create_commit("Initial commit", "README.md", "# Test");
+  // Rename master to main
+  std::process::Command::new("git")
+    .args(["--no-pager", "branch", "-m", "master", "main"])
+    .current_dir(test_repo2.path())
+    .output()
+    .unwrap();
+
+  let baseline = git_executor.detect_baseline_branch(test_repo2.path().to_str().unwrap(), "master").unwrap();
+  assert_eq!(baseline, "main");
+
+  // Scenario 3: Repository with remote (simulated by creating origin/* branches)
+  let test_repo3 = TestRepo::new();
+  let initial = test_repo3.create_commit("Initial commit", "README.md", "# Test");
+  test_repo3.create_branch_at("origin/main", &initial).unwrap();
+
+  // Add a fake remote (git branch can simulate remote branches even without actual remotes)
+  std::process::Command::new("git")
+    .args(["--no-pager", "remote", "add", "origin", "fake-url"])
+    .current_dir(test_repo3.path())
+    .output()
+    .unwrap();
+
+  let baseline = git_executor.detect_baseline_branch(test_repo3.path().to_str().unwrap(), "master").unwrap();
+  assert_eq!(baseline, "origin/main");
+}
+
+#[test]
+fn test_get_commit_list_on_baseline_branch() {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+
+  // Create initial commit
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+
+  // Add commits while on master branch (the baseline)
+  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
+  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+
+  // Should get all commits except the initial one when on baseline branch
+  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
+
+  assert_eq!(commits.len(), 2);
+  assert_eq!(commits[0].message, "(feature-auth) Add authentication");
+  assert_eq!(commits[1].message, "(bugfix-login) Fix login issue");
 }

@@ -770,7 +770,8 @@ mod tests {
     let commit1_info = result.get(&commit1_id).unwrap();
     assert_eq!(commit1_info.message, "First commit");
     assert_eq!(commit1_info.author, "Test User");
-    assert!(commit1_info.timestamp > 0);
+    assert!(commit1_info.author_time > 0);
+    assert!(commit1_info.committer_time > 0);
 
     let commit2_info = result.get(&commit2_id).unwrap();
     assert_eq!(commit2_info.message, "Second commit");

@@ -3,7 +3,6 @@ pub mod commands;
 pub mod git;
 pub mod menu;
 pub mod progress;
-pub mod telemetry;
 
 #[cfg(test)]
 mod test_utils;
@@ -11,6 +10,7 @@ mod test_utils;
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::push::push_branch;
+use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::sync_branches::sync_branches;
 use commands::window_management::open_sub_window;
 use tauri_specta::{Builder, collect_commands};
@@ -25,6 +25,8 @@ pub fn run() {
     push_branch,
     sync_branches,
     get_branch_prefix_from_git_config,
+    browse_repository,
+    validate_repository_path,
     check_for_updates,
     get_update_status,
     install_update,
@@ -34,12 +36,12 @@ pub fn run() {
   // only export on non-release builds
   #[cfg(debug_assertions)]
   ts_builder
-    .export(specta_typescript::Typescript::default(), "../app/utils/bindings.ts")
+    .export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), "../app/utils/bindings.ts")
     .expect("Failed to export TypeScript bindings");
 
-  // #[cfg(debug_assertions)]
-  // let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
-  // #[cfg(not(debug_assertions))]
+  #[cfg(debug_assertions)]
+  let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
+  #[cfg(not(debug_assertions))]
   let builder = tauri::Builder::default().plugin(
     tauri_plugin_log::Builder::new()
       .filter(|metadata| {

@@ -118,6 +118,7 @@ pub fn perform_fast_cherry_pick_with_context(
         let _ = progress_channel.send(SyncEvent::BranchStatusUpdate {
           branch_name: branch_name.to_string(),
           status: crate::git::model::BranchSyncStatus::AnalyzingConflict,
+          error: None,
         });
       }
 
@@ -162,13 +163,16 @@ pub fn perform_fast_cherry_pick_with_context(
       return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo {
         commit_message: cherry_commit_info.message,
         commit_hash: cherry_commit_id.to_string(),
-        commit_time: cherry_commit_info.committer_time,
+        commit_author_time: cherry_commit_info.author_time,
+        commit_committer_time: cherry_commit_info.committer_time,
         original_parent_message: cherry_parent_info.message,
         original_parent_hash: cherry_parent_id,
-        original_parent_time: cherry_parent_info.committer_time,
+        original_parent_author_time: cherry_parent_info.author_time,
+        original_parent_committer_time: cherry_parent_info.committer_time,
         target_branch_message: target_commit_info.message,
         target_branch_hash: target_commit_id.to_string(),
-        target_branch_time: target_commit_info.committer_time,
+        target_branch_author_time: target_commit_info.author_time,
+        target_branch_committer_time: target_commit_info.committer_time,
         conflicting_files: detailed_conflicts,
         conflict_analysis,
         conflict_marker_commits,

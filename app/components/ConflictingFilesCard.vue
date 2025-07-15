@@ -1,25 +1,24 @@
 <template>
   <UCard class="overflow-hidden">
     <template #header>
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <h2 class="text-sm font-medium text-highlighted">
-            Conflicting Files
-          </h2>
-          <UBadge color="warning" variant="subtle" size="sm">
-            {{ conflicts.length }} {{ conflicts.length === 1 ? 'file' : 'files' }}
-          </UBadge>
-        </div>
-        <UButton
-          v-if="!isInWindow"
-          size="xs"
-          variant="ghost"
-          icon="i-lucide-external-link"
-          @click="openConflictingFilesWindow"
-        >
-          Open in Window
-        </UButton>
-      </div>
+      <CardHeader
+        title="Conflicting Files"
+        :count="conflicts.length"
+        item-singular="file"
+        item-plural="files"
+      >
+        <template #actions>
+          <UButton
+            v-if="!isInWindow"
+            size="xs"
+            variant="ghost"
+            icon="i-lucide-external-link"
+            @click="openConflictingFilesWindow"
+          >
+            Open in Window
+          </UButton>
+        </template>
+      </CardHeader>
     </template>
 
     <ConflictingFilesSection
@@ -29,16 +28,25 @@
     />
 
     <template #footer>
-      <ConflictExplanationAlert />
+      <InfoCard
+        title="Missing commits cause conflicts"
+        icon="i-lucide-info"
+      >
+        <p>
+          This commit cannot be copied to the virtual branch because other commits modified the same files first.
+        </p>
+        <p>
+          Apply the missing commits shown above to resolve conflicts automatically.
+        </p>
+      </InfoCard>
     </template>
   </UCard>
 </template>
 
 <script lang="ts" setup>
-import type { ConflictDetail, MergeConflictInfo, ConflictMarkerCommitInfo } from '~/utils/bindings'
-import { openSubWindow } from '~/utils/window-management'
-import ConflictingFilesSection from './ConflictingFilesSection.vue'
-import ConflictExplanationAlert from './ConflictExplanationAlert.vue'
+import type { ConflictDetail, MergeConflictInfo, ConflictMarkerCommitInfo } from "~/utils/bindings"
+import { openSubWindow } from "~/utils/window-management"
+import ConflictingFilesSection from "./ConflictingFilesSection.vue"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]
@@ -52,17 +60,17 @@ async function openConflictingFilesWindow() {
   // Get current settings from ConflictingFilesSection if needed
   const data = {
     conflict: props.conflictInfo,
-    branchName: props.branchName || 'Unknown',
+    branchName: props.branchName || "Unknown",
     showConflictsOnly: false,
-    viewMode: 'diff',
-    conflictDiffViewMode: 'unified' as const
+    viewMode: "diff",
+    conflictDiffViewMode: "unified" as const,
   }
-  
+
   await openSubWindow({
-    windowId: 'conflicting-files',
-    url: '/conflicting-files',
-    title: `Conflicting Files - ${props.branchName || 'Unknown Branch'}`,
-    data
+    windowId: "conflicting-files",
+    url: "/conflicting-files",
+    title: `Conflicting Files - ${props.branchName || "Unknown Branch"}`,
+    data,
   })
 }
 </script>

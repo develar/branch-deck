@@ -8,7 +8,8 @@
             title="Cannot apply commit"
             :commit-message="conflictData.conflict.commitMessage"
             :commit-hash="conflictData.conflict.commitHash"
-            :commit-time="conflictData.conflict.commitTime"
+            :commit-author-time="conflictData.conflict.commitAuthorTime"
+            :commit-committer-time="conflictData.conflict.commitCommitterTime"
             :branch-name="conflictData.branchName"
           />
         </template>
@@ -27,7 +28,7 @@
     <!-- Loading state -->
     <div v-else class="flex items-center justify-center min-h-[400px]">
       <div class="text-center">
-        <UIcon name="i-lucide-loader-2" class="w-8 h-8 text-muted animate-spin mx-auto mb-3"/>
+        <UIcon name="i-lucide-loader-2" class="size-8 text-muted animate-spin mx-auto mb-3"/>
         <p class="text-sm text-muted">Loading conflicting files data...</p>
       </div>
     </div>
@@ -41,7 +42,7 @@ import { useSubWindowData } from "~/composables/useSubWindowData"
 
 // Disable layout for sub-window
 definePageMeta({
-  layout: false
+  layout: false,
 })
 
 interface ConflictingFilesData {
@@ -61,7 +62,7 @@ const conflictMarkerCommits = computed(() => {
   }
 
   const commits = conflictData.value.conflict.conflictMarkerCommits
-  const result: Record<string, { hash: string; message: string; author: string; timestamp: number }> = {}
+  const result: Record<string, { hash: string, message: string, author: string, authorTime: number, committerTime: number }> = {}
 
   for (const [key, value] of Object.entries(commits)) {
     if (value) {

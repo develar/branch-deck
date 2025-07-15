@@ -9,6 +9,8 @@ pub enum SyncEvent {
   Progress { message: String, index: i16 },
   /// Sent immediately after grouping commits
   BranchesGrouped { branches: Vec<GroupedBranchInfo> },
+  /// Sent for commits that don't match any prefix pattern
+  UnassignedCommits { commits: Vec<CommitDetail> },
   /// Sent when a commit is successfully cherry-picked
   CommitSynced {
     branch_name: String,
@@ -24,6 +26,8 @@ pub enum SyncEvent {
   BranchStatusUpdate {
     branch_name: String,
     status: crate::git::model::BranchSyncStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<BranchError>,
   },
   /// Final completion event
   Completed,

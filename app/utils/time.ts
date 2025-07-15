@@ -1,5 +1,5 @@
 const formatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "short",
+  dateStyle: "medium",
   timeStyle: "short",
 })
 

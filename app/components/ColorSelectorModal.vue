@@ -1,5 +1,5 @@
 <template>
-  <UModal 
+  <UModal
     :overlay="false"
     title="Theme"
   >
@@ -92,8 +92,8 @@
 </template>
 
 <script lang="ts" setup>
-import colors from 'tailwindcss/colors'
-import { omit } from '#ui/utils'
+import colors from "tailwindcss/colors"
+import { omit } from "#ui/utils"
 
 interface Props {
   currentColor?: string
@@ -103,10 +103,10 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  currentColor: 'blue',
+  currentColor: "blue",
   currentRadius: 0.25,
-  currentNeutral: 'slate',
-  onChange: () => {}
+  currentNeutral: "slate",
+  onChange: () => {},
 })
 
 const emit = defineEmits<{
@@ -114,15 +114,15 @@ const emit = defineEmits<{
 }>()
 
 // Compute colors exactly like ThemePicker
-const neutralColors = ['slate', 'gray', 'zinc', 'neutral', 'stone']
-const colorsToOmit = ['inherit', 'current', 'transparent', 'black', 'white', ...neutralColors]
+const neutralColors = ["slate", "gray", "zinc", "neutral", "stone"]
+const colorsToOmit = ["inherit", "current", "transparent", "black", "white", ...neutralColors]
 const primaryColors = Object.keys(omit(colors, colorsToOmit as (keyof typeof colors)[]))
 
 // Create color objects with hex values from Tailwind colors
 const primaryColorOptions = computed(() => {
   return primaryColors.map(color => ({
     name: color,
-    hex: colors[color as keyof typeof colors]?.[500] || '#3b82f6' // fallback to blue
+    hex: colors[color as keyof typeof colors]?.[500] || "#3b82f6", // fallback to blue
   }))
 })
 
@@ -137,8 +137,8 @@ const primaryColorOptions = computed(() => {
 // const radiuses = [0, 0.125, 0.25, 0.375, 0.5]
 
 const selectColor = (color: string) => {
-  const setting = { type: 'primary', value: color }
-  emit('change', setting)
+  const setting = { type: "primary", value: color }
+  emit("change", setting)
   props.onChange?.(setting)
 }
 

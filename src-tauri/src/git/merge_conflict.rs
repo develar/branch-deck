@@ -197,7 +197,7 @@ pub fn get_commit_info_batch(git_executor: &GitCommandExecutor, repo_path: &str,
   }
 
   // Use git log with --no-walk to get info for specific commits efficiently
-  let mut args = vec!["log", "--no-walk", "--format=%H%x00%s%x00%ct%x00%an"];
+  let mut args = vec!["log", "--no-walk", "--format=%H%x00%s%x00%at%x00%ct%x00%an"];
   args.extend(commit_ids);
 
   let output = git_executor
@@ -207,12 +207,13 @@ pub fn get_commit_info_batch(git_executor: &GitCommandExecutor, repo_path: &str,
   // Parse the output - each line is a commit with null-separated fields
   for line in output.lines() {
     let parts: Vec<&str> = line.split('\0').collect();
-    if parts.len() >= 4 {
+    if parts.len() >= 5 {
       let commit_info = ConflictMarkerCommitInfo {
         hash: parts[0].to_string(),
         message: parts[1].to_string(),
-        timestamp: parts[2].parse::<u32>().unwrap_or(0),
-        author: parts[3].to_string(),
+        author_time: parts[2].parse::<u32>().unwrap_or(0),
+        committer_time: parts[3].parse::<u32>().unwrap_or(0),
+        author: parts[4].to_string(),
       };
       result.insert(parts[0].to_string(), commit_info);
     }

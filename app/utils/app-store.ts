@@ -6,7 +6,7 @@ import type { InjectionKey } from "vue"
 export interface ConflictViewerSettings {
   showConflictsOnly: boolean
   viewMode: string
-  conflictDiffViewMode: 'unified' | 'split'
+  conflictDiffViewMode: "unified" | "split"
 }
 
 export interface AppSettings {
@@ -57,8 +57,8 @@ class MainAppStore implements IAppStore {
     const settings = await this.store.get<ConflictViewerSettings>("conflictViewerSettings")
     return settings ?? {
       showConflictsOnly: true,
-      viewMode: 'diff',
-      conflictDiffViewMode: 'unified'
+      viewMode: "diff",
+      conflictDiffViewMode: "unified",
     }
   }
 
@@ -67,8 +67,8 @@ class MainAppStore implements IAppStore {
   }
 
   async updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(
-    key: K, 
-    value: ConflictViewerSettings[K]
+    key: K,
+    value: ConflictViewerSettings[K],
   ): Promise<void> {
     const current = await this.getConflictViewerSettings()
     current[key] = value
@@ -78,9 +78,9 @@ class MainAppStore implements IAppStore {
   async getAppSettings(): Promise<AppSettings> {
     const settings = await this.store.get<AppSettings>("appSettings")
     return settings ?? {
-      primaryColor: 'blue',
-      neutralColor: 'slate',
-      radius: 0.25
+      primaryColor: "blue",
+      neutralColor: "slate",
+      radius: 0.25,
     }
   }
 
@@ -90,7 +90,7 @@ class MainAppStore implements IAppStore {
 
   async updateAppSetting<K extends keyof AppSettings>(
     key: K,
-    value: AppSettings[K]
+    value: AppSettings[K],
   ): Promise<void> {
     const current = await this.getAppSettings()
     current[key] = value
@@ -105,54 +105,56 @@ class SubWindowAppStore implements IAppStore {
   // Proxy method to get data from main window
   private async getFromMain<T>(key: string): Promise<T> {
     const requestId = `store-get-${++this.requestCounter}`
-    
+
     // Set up listener for response
     const responsePromise = new Promise<T>((resolve, reject) => {
-      const unlisten = listen<{ requestId: string; success: boolean; data?: T; error?: string }>(
-        'store-response',
+      const unlisten = listen<{ requestId: string, success: boolean, data?: T, error?: string }>(
+        "store-response",
         (event) => {
           if (event.payload.requestId === requestId) {
             unlisten.then(fn => fn())
             if (event.payload.success) {
               resolve(event.payload.data as T)
-            } else {
-              reject(new Error(event.payload.error || 'Store get failed'))
+            }
+            else {
+              reject(new Error(event.payload.error || "Store get failed"))
             }
           }
-        }
+        },
       )
     })
 
     // Send request to main window
-    await emit('store-get-request', { requestId, key })
-    
+    await emit("store-get-request", { requestId, key })
+
     return responsePromise
   }
 
   // Proxy method to set data via main window
   private async setInMain(key: string, value: unknown): Promise<void> {
     const requestId = `store-set-${++this.requestCounter}`
-    
+
     // Set up listener for response
     const responsePromise = new Promise<void>((resolve, reject) => {
-      const unlisten = listen<{ requestId: string; success: boolean; error?: string }>(
-        'store-response',
+      const unlisten = listen<{ requestId: string, success: boolean, error?: string }>(
+        "store-response",
         (event) => {
           if (event.payload.requestId === requestId) {
             unlisten.then(fn => fn())
             if (event.payload.success) {
               resolve()
-            } else {
-              reject(new Error(event.payload.error || 'Store set failed'))
+            }
+            else {
+              reject(new Error(event.payload.error || "Store set failed"))
             }
           }
-        }
+        },
       )
     })
 
     // Send request to main window
-    await emit('store-set-request', { requestId, key, value })
-    
+    await emit("store-set-request", { requestId, key, value })
+
     return responsePromise
   }
 
@@ -176,8 +178,8 @@ class SubWindowAppStore implements IAppStore {
     const settings = await this.getFromMain<ConflictViewerSettings>("conflictViewerSettings")
     return settings ?? {
       showConflictsOnly: true,
-      viewMode: 'diff',
-      conflictDiffViewMode: 'unified'
+      viewMode: "diff",
+      conflictDiffViewMode: "unified",
     }
   }
 
@@ -186,8 +188,8 @@ class SubWindowAppStore implements IAppStore {
   }
 
   async updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(
-    key: K, 
-    value: ConflictViewerSettings[K]
+    key: K,
+    value: ConflictViewerSettings[K],
   ): Promise<void> {
     const current = await this.getConflictViewerSettings()
     current[key] = value
@@ -197,9 +199,9 @@ class SubWindowAppStore implements IAppStore {
   async getAppSettings(): Promise<AppSettings> {
     const settings = await this.getFromMain<AppSettings>("appSettings")
     return settings ?? {
-      primaryColor: 'blue',
-      neutralColor: 'slate',
-      radius: 0.25
+      primaryColor: "blue",
+      neutralColor: "slate",
+      radius: 0.25,
     }
   }
 
@@ -209,7 +211,7 @@ class SubWindowAppStore implements IAppStore {
 
   async updateAppSetting<K extends keyof AppSettings>(
     key: K,
-    value: AppSettings[K]
+    value: AppSettings[K],
   ): Promise<void> {
     const current = await this.getAppSettings()
     current[key] = value
@@ -222,12 +224,14 @@ function createAppStore(): IAppStore {
   try {
     const currentWindow = WebviewWindow.getCurrent()
     const label = currentWindow.label
-    if (label === 'main') {
+    if (label === "main") {
       return new MainAppStore()
-    } else {
+    }
+    else {
       return new SubWindowAppStore()
     }
-  } catch {
+  }
+  catch {
     // If we can't determine the window, assume we're in main
     return new MainAppStore()
   }
@@ -244,40 +248,42 @@ export function initializeStoreHandlers() {
   const mainStore = appStore
 
   // Handle store get requests from sub-windows
-  void listen<{ requestId: string; key: string }>('store-get-request', async (event) => {
+  void listen<{ requestId: string, key: string }>("store-get-request", async (event) => {
     try {
       const { requestId, key } = event.payload
       const data = await mainStore.store.get(key)
-      
-      await emit('store-response', {
+
+      await emit("store-response", {
         requestId,
         success: true,
-        data
+        data,
       })
-    } catch (error) {
-      await emit('store-response', {
+    }
+    catch (error) {
+      await emit("store-response", {
         requestId: event.payload.requestId,
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error",
       })
     }
   })
 
   // Handle store set requests from sub-windows
-  void listen<{ requestId: string; key: string; value: unknown }>('store-set-request', async (event) => {
+  void listen<{ requestId: string, key: string, value: unknown }>("store-set-request", async (event) => {
     try {
       const { requestId, key, value } = event.payload
       await mainStore.store.set(key, value)
-      
-      await emit('store-response', {
+
+      await emit("store-response", {
         requestId,
-        success: true
+        success: true,
       })
-    } catch (error) {
-      await emit('store-response', {
+    }
+    catch (error) {
+      await emit("store-response", {
         requestId: event.payload.requestId,
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : "Unknown error",
       })
     }
   })
@@ -287,4 +293,4 @@ export function initializeStoreHandlers() {
 export const appStore = createAppStore()
 
 // Injection key for Vue
-export const appStoreKey: InjectionKey<IAppStore> = Symbol('appStore')
+export const appStoreKey: InjectionKey<IAppStore> = Symbol("appStore")

@@ -23,12 +23,15 @@ mod tests {
 
     // Get the commits using CLI-based approach
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+    let (grouped, unassigned) = group_commits_by_prefix_new(&commits_vec);
 
     // Should have 3 groups (feature-auth, bugfix-login, ui-components)
-    // Regular commit without prefix should be ignored
     assert_eq!(grouped.len(), 3);
+
+    // Regular commit without prefix should be in unassigned
+    assert_eq!(unassigned.len(), 1);
+    assert_eq!(unassigned[0].message, "Regular commit without prefix");
 
     // Check feature-auth group has 3 commits
     let feature_auth = grouped.get("feature-auth").unwrap();
@@ -63,8 +66,8 @@ mod tests {
     test_repo.create_commit("(feature-auth) Third auth commit", "auth3.js", "code3");
 
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
 
     // feature-auth should have commits in the order they were created
     let feature_auth = grouped.get("feature-auth").unwrap();
@@ -91,11 +94,14 @@ mod tests {
     test_repo.create_commit("No brackets at all", "none.js", "none");
 
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+    let (grouped, unassigned) = group_commits_by_prefix_new(&commits_vec);
 
     // Should only have valid commits
     assert_eq!(grouped.len(), 2); // feature-auth and whitespace-prefix
+
+    // Invalid and malformed commits should be in unassigned
+    assert_eq!(unassigned.len(), 4); // All the invalid ones
 
     // Check valid commit
     assert!(grouped.contains_key("feature-auth"));
@@ -143,7 +149,7 @@ mod tests {
 
     // Test with empty commit list
     let empty_commits: Vec<Commit> = vec![];
-    let grouped = group_commits_by_prefix_new(&empty_commits);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&empty_commits);
     assert_eq!(grouped.len(), 0);
 
     // Test with commit that has no message
@@ -151,9 +157,10 @@ mod tests {
     test_repo.create_branch_at("origin/main", &test_repo.head()).unwrap();
     test_repo.create_commit("", "empty.txt", "empty content");
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+    let (grouped, unassigned) = group_commits_by_prefix_new(&commits_vec);
     assert_eq!(grouped.len(), 0);
+    assert_eq!(unassigned.len(), 1); // The empty message commit should be unassigned
   }
 
   #[test]
@@ -186,7 +193,7 @@ mod tests {
     for (i, (message, expected)) in test_cases.into_iter().enumerate() {
       test_repo.create_commit(message, &format!("test_{i}.txt"), "content");
       let git_executor = GitCommandExecutor::new();
-      let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
+      let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
       // Filter to only the current commit (last one)
       let current_commit = &commits_vec[commits_vec.len() - 1];
       let single_commit_vec = vec![current_commit.clone()];
@@ -194,13 +201,13 @@ mod tests {
 
       match expected {
         Some((expected_prefix, expected_message)) => {
-          assert_eq!(grouped.len(), 1, "Failed for message: '{message}'");
-          let (prefix, commit_list) = grouped.iter().next().unwrap();
+          assert_eq!(grouped.0.len(), 1, "Failed for message: '{message}'");
+          let (prefix, commit_list) = grouped.0.iter().next().unwrap();
           assert_eq!(prefix, expected_prefix, "Prefix mismatch for message: '{message}'");
           assert_eq!(commit_list[0].0.trim(), expected_message.trim(), "Message mismatch for message: '{message}'");
         }
         None => {
-          assert_eq!(grouped.len(), 0, "Expected no match for message: '{message}'");
+          assert_eq!(grouped.0.len(), 0, "Expected no match for message: '{message}'");
         }
       }
     }
@@ -225,12 +232,12 @@ mod tests {
 
     // Test that we can get the commit list ahead of baseline
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "baseline").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
     assert!(!commits_vec.is_empty());
     assert_eq!(commits_vec.len(), 5); // 3 bugfix + 2 feature commits
 
     // Test that grouping works correctly with conflict-prone commits
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
     assert_eq!(grouped.len(), 2);
     assert!(grouped.contains_key("bugfix-session"));
     assert!(grouped.contains_key("feature-auth"));
@@ -290,11 +297,11 @@ mod tests {
     // Test that our core functions can handle this scenario
     // Use the baseline branch to get commits ahead of it
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "baseline").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
     assert_eq!(commits_vec.len(), 3); // 3 conflict-test commits ahead of baseline
 
     // Test grouping of conflict-prone commits
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
     assert_eq!(grouped.len(), 1);
     assert!(grouped.contains_key("conflict-test"));
 
@@ -340,9 +347,9 @@ mod tests {
 
     // Get the commits using CLI-based approach
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
     assert_eq!(commits_vec.len(), 3);
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
     assert_eq!(grouped.len(), 2);
     assert!(grouped.contains_key("IJPL-163558"));
     assert!(grouped.contains_key("XYZ-1001"));
@@ -375,9 +382,9 @@ mod tests {
 
     // Get the commits using CLI-based approach
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
     assert_eq!(commits_vec.len(), 5);
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
     // Should have 3 groups: threading, ABC-456, and ui
     // The commit with square brackets and the regular commit should not be grouped
     assert_eq!(grouped.len(), 3);
@@ -411,9 +418,9 @@ mod tests {
 
     // Get the commits using CLI-based approach
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
     assert_eq!(commits_vec.len(), 4);
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
     // Should have 2 groups based on issue numbers, not square bracket prefixes
     assert_eq!(grouped.len(), 2);
     assert!(grouped.contains_key("IJPL-163558"));
@@ -458,9 +465,9 @@ mod tests {
 
     // Get the commits using CLI-based approach
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
     assert_eq!(commits_vec.len(), 4);
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
 
     // Should only find issue numbers in first line
     assert_eq!(grouped.len(), 2, "Should have exactly 2 groups");
@@ -498,9 +505,9 @@ mod tests {
 
     // Get the commits and test the grouping
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "baseline").unwrap();
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
     assert_eq!(commits_vec.len(), 3);
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
     assert_eq!(grouped.len(), 1);
     assert!(grouped.contains_key("bugfix-session"));
 
@@ -560,8 +567,8 @@ mod tests {
 
     // Test grouping with the rename prefix
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
 
     assert_eq!(grouped.len(), 1);
     assert!(grouped.contains_key("test-rename"));
@@ -598,8 +605,8 @@ mod tests {
 
     // Test grouping with rename prefix
     let git_executor = GitCommandExecutor::new();
-    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "main").unwrap();
-    let grouped = group_commits_by_prefix_new(&commits_vec);
+    let commits_vec = crate::git::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+    let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
 
     assert!(grouped.contains_key("test-rename"), "Should find test-rename group");
     let rename_group = grouped.get("test-rename").unwrap();

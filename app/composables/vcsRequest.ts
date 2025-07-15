@@ -1,4 +1,4 @@
-import type { Ref} from "vue";
+import type { Ref } from "vue"
 import { computed, shallowRef } from "vue"
 import { computedAsync } from "@vueuse/core"
 import { commands } from "~/utils/bindings"

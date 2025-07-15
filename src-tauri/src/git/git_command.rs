@@ -157,4 +157,62 @@ impl GitCommandExecutor {
       Err(anyhow!("git command failed: {} {}\nError: {stderr}", git_info.path, args.join(" ")))
     }
   }
+
+  /// Detect the baseline branch for comparing commits
+  /// This tries to find the appropriate upstream branch, handling cases where:
+  /// - The repository has no remotes (local-only)
+  /// - The main branch is named "main" instead of "master"
+  /// - The remote is not named "origin"
+  #[instrument(skip(self))]
+  pub fn detect_baseline_branch(&self, repository_path: &str, preferred_branch: &str) -> Result<String> {
+    // First, check if we have any remotes
+    let remotes_output = self.execute_command(&["--no-pager", "remote"], repository_path)?;
+    let has_remotes = !remotes_output.trim().is_empty();
+
+    if !has_remotes {
+      // Local repository without remotes
+      // Check if the preferred branch exists locally
+      if self.execute_command(&["--no-pager", "rev-parse", "--verify", preferred_branch], repository_path).is_ok() {
+        return Ok(preferred_branch.to_string());
+      }
+
+      // Try common branch names
+      for branch in &["master", "main"] {
+        if self.execute_command(&["--no-pager", "rev-parse", "--verify", branch], repository_path).is_ok() {
+          return Ok(branch.to_string());
+        }
+      }
+
+      return Err(anyhow!("No baseline branch found. Repository has no remotes and no master/main branch."));
+    }
+
+    // Try to get the upstream branch for the current branch
+    if let Ok(upstream) = self.execute_command(&["--no-pager", "rev-parse", "--abbrev-ref", "@{u}"], repository_path) {
+      return Ok(upstream);
+    }
+
+    // Try to find the remote tracking branch for the preferred branch
+    // Get the first remote (usually "origin")
+    let first_remote = remotes_output.lines().next().unwrap_or("origin");
+
+    // Try the preferred branch with the remote
+    let remote_branch = format!("{first_remote}/{preferred_branch}");
+    if self.execute_command(&["--no-pager", "rev-parse", "--verify", &remote_branch], repository_path).is_ok() {
+      return Ok(remote_branch);
+    }
+
+    // Try common branch names with the remote
+    for branch in &["master", "main"] {
+      let remote_branch = format!("{first_remote}/{branch}");
+      if self.execute_command(&["--no-pager", "rev-parse", "--verify", &remote_branch], repository_path).is_ok() {
+        return Ok(remote_branch);
+      }
+    }
+
+    Err(anyhow!(
+      "No baseline branch found. Tried upstream tracking, {}/{{{},master,main}}",
+      first_remote,
+      preferred_branch
+    ))
+  }
 }

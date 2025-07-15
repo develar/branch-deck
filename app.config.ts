@@ -1,11 +1,11 @@
 export default defineAppConfig({
   theme: {
-    radius: 0.25
+    radius: 0.25,
   },
   ui: {
     colors: {
       primary: "green",
-    }
+    },
   },
   toast: {
     slots: {

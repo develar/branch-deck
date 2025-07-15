@@ -1,16 +1,13 @@
 <template>
   <UCard class="overflow-hidden">
     <template #header>
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <h2 class="text-sm font-medium text-highlighted">
-            Missing Commits Details
-          </h2>
-          <UBadge color="warning" variant="subtle" size="sm">
-            {{ missingCommits.length }} {{ missingCommits.length === 1 ? 'commit' : 'commits' }}
-          </UBadge>
-        </div>
-        <div class="flex items-center gap-3">
+      <CardHeader
+        title="Missing Commits Details"
+        :count="missingCommits.length"
+        item-singular="commit"
+        item-plural="commits"
+      >
+        <template #actions>
           <!-- Global diff view toggle -->
           <UButtonGroup v-if="hasAnyFileDiffs" size="xs">
             <UButton
@@ -39,42 +36,29 @@
           >
             Open in Window
           </UButton>
-        </div>
-      </div>
+        </template>
+      </CardHeader>
     </template>
 
-    <div class="space-y-4">
-      <!-- Iterate through missing commits -->
-      <div
-        v-for="(commit) in missingCommits"
-        :key="commit.hash"
-        class="pb-4 border-b border-default last:border-0 last:pb-0"
-      >
-        <div class="space-y-2">
-          <div>
-            <p class="text-sm font-medium text-highlighted">{{ commit.message }}</p>
-            <CommitInfo 
-              :hash="commit.hash"
-              :author="commit.author"
-              :timestamp="commit.authorTime"
-              :committer-timestamp="commit.committerTime"
-              :file-count="commit.fileDiffs?.length"
-              class="mt-1"
-            />
-          </div>
-
-          <!-- File diffs -->
-          <div v-if="commit.fileDiffs && commit.fileDiffs.length > 0" class="mt-3">
-            <FileDiffList 
-              :file-diffs="commit.fileDiffs" 
-              :key-prefix="commit.hash" 
-              :hide-controls="true"
-              :diff-view-mode="diffViewMode"
-            />
-          </div>
+    <CommitList
+      :commits="missingCommits"
+      variant="detailed"
+      :show-file-count="true"
+      container-class="space-y-4"
+      item-class="pb-4 border-b border-default last:border-0 last:pb-0"
+    >
+      <template #after-commit="{ commit }">
+        <!-- File diffs -->
+        <div v-if="'fileDiffs' in commit && commit.fileDiffs && commit.fileDiffs.length > 0" class="mt-3">
+          <FileDiffList
+            :file-diffs="commit.fileDiffs"
+            :key-prefix="'hash' in commit ? commit.hash : ''"
+            :hide-controls="true"
+            :diff-view-mode="diffViewMode"
+          />
         </div>
-      </div>
-    </div>
+      </template>
+    </CommitList>
 
     <template #footer>
       <InfoCard
@@ -104,8 +88,8 @@
 
 <script lang="ts" setup>
 import type { MissingCommit, MergeConflictInfo } from "~/utils/bindings"
-import { ref, computed } from 'vue'
-import { openSubWindow } from '~/utils/window-management'
+import { ref, computed } from "vue"
+import { openSubWindow } from "~/utils/window-management"
 
 const props = defineProps<{
   missingCommits: MissingCommit[]
@@ -115,41 +99,44 @@ const props = defineProps<{
 }>()
 
 // Global diff view mode
-const diffViewMode = ref<'unified' | 'split'>('unified')
+const diffViewMode = ref<"unified" | "split">("unified")
 
 // Check if any commits have file diffs
 const hasAnyFileDiffs = computed(() => {
-  return props.missingCommits.some(commit => commit.fileDiffs && commit.fileDiffs.length > 0)
+  return props.missingCommits.some(commit => commit.fileDiffs.length > 0)
 })
 
 // Open missing commits window directly
 async function openMissingCommitsWindow() {
   if (!props.conflict) return
-  
+
   // Prepare the data
   const data = {
     conflictCommitHash: props.conflict.commitHash,
     conflictCommitMessage: props.conflict.commitMessage,
-    conflictCommitTime: props.conflict.commitTime,
-    branchName: props.branchName || 'Unknown',
+    conflictCommitAuthorTime: props.conflict.commitAuthorTime,
+    conflictCommitCommitterTime: props.conflict.commitCommitterTime,
+    branchName: props.branchName || "Unknown",
     missingCommits: props.conflict.conflictAnalysis?.missingCommits || [],
-    mergeBase: props.conflict.conflictAnalysis ? {
-      hash: props.conflict.conflictAnalysis.mergeBaseHash,
-      message: props.conflict.conflictAnalysis.mergeBaseMessage,
-      author: props.conflict.conflictAnalysis.mergeBaseAuthor,
-      time: props.conflict.conflictAnalysis.mergeBaseTime,
-    } : undefined,
-    divergenceSummary: props.conflict.conflictAnalysis?.divergenceSummary || { 
-      commitsAheadInSource: 0, 
-      commitsAheadInTarget: 0 
-    }
+    mergeBase: props.conflict.conflictAnalysis
+      ? {
+          hash: props.conflict.conflictAnalysis.mergeBaseHash,
+          message: props.conflict.conflictAnalysis.mergeBaseMessage,
+          author: props.conflict.conflictAnalysis.mergeBaseAuthor,
+          time: props.conflict.conflictAnalysis.mergeBaseTime,
+        }
+      : undefined,
+    divergenceSummary: props.conflict.conflictAnalysis?.divergenceSummary || {
+      commitsAheadInSource: 0,
+      commitsAheadInTarget: 0,
+    },
   }
-  
+
   await openSubWindow({
-    windowId: 'missing-commits',
-    url: '/missing-commits',
-    title: `Missing Commits Analysis - ${props.branchName || 'Unknown Branch'}`,
-    data
+    windowId: "missing-commits",
+    url: "/missing-commits",
+    title: `Missing Commits Analysis - ${props.branchName || "Unknown Branch"}`,
+    data,
   })
 }
 </script>

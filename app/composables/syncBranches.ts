@@ -3,7 +3,7 @@ import { useTimeoutFn } from "@vueuse/core"
 import { UserError } from "./vcsRequest"
 import type { VcsRequestFactory } from "./vcsRequest"
 import { commands } from "~/utils/bindings"
-import type { SyncEvent, CommitDetail } from "~/utils/bindings"
+import type { SyncEvent, CommitDetail, GroupedBranchInfo, BranchSyncStatus, BranchError } from "~/utils/bindings"
 import { Channel } from "@tauri-apps/api/core"
 
 // Reactive branch data that updates incrementally
@@ -15,6 +15,7 @@ export interface ReactiveBranch {
   statusText: string
   processedCount: number
   hasError: boolean
+  errorDetails?: BranchError
 }
 
 export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBranch: (branchName: string) => void) {
@@ -22,6 +23,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
   const isSyncing = shallowRef(false)
   const showProgress = shallowRef(false)
   const syncProgress = shallowRef("")
+  const hasCompletedSync = shallowRef(false)
 
   const expanded = ref<Record<string, boolean>>({})
 
@@ -31,12 +33,15 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
   // Reactive array that will be mutated directly
   const branchArray = ref<ReactiveBranch[]>([])
 
-  const {start: startProgressTimer, stop: stopProgressTimer} = useTimeoutFn(
+  // Unassigned commits (no prefix)
+  const unassignedCommits = ref<CommitDetail[]>([])
+
+  const { start: startProgressTimer, stop: stopProgressTimer } = useTimeoutFn(
     () => {
       showProgress.value = true
     },
     300,
-    {immediate: false},
+    { immediate: false },
   )
 
   const createBranches = async () => {
@@ -44,6 +49,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
     showProgress.value = false
     syncProgress.value = ""
     syncError.value = null
+    unassignedCommits.value = []
 
     // Track messages by index
     const messagesByIndex = new Map<number, string>()
@@ -56,7 +62,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
       onProgress.onmessage = (event) => {
         switch (event.type) {
           case "Progress": {
-            const {message, index} = event.data
+            const { message, index } = event.data
             if (message.length === 0) {
               // clear message for this specific task index
               messagesByIndex.delete(index)
@@ -112,7 +118,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
                 delete expanded.value[branchName]
               }
             }
-            
+
             // Update array if branches were removed
             if (hasRemovedBranches) {
               for (let i = branchArray.value.length - 1; i >= 0; i--) {
@@ -126,7 +132,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
 
           case "CommitSynced": {
             // update commit with the new hash and status
-            const {branch_name, commit_hash, new_hash, status} = event.data
+            const { branch_name, commit_hash, new_hash, status } = event.data
             const branch = branchMap.get(branch_name)
             const commit = branch?.commits.get(commit_hash)
             if (branch && commit) {
@@ -140,7 +146,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
 
           case "CommitError": {
             // update commit status to error
-            const {branch_name, commit_hash, error} = event.data
+            const { branch_name, commit_hash, error } = event.data
             const branch = branchMap.get(branch_name)
             const commit = branch?.commits.get(commit_hash)
             if (branch && commit) {
@@ -168,7 +174,7 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
 
           case "CommitsBlocked": {
             // Mark remaining commits as blocked
-            const {branch_name, blocked_commit_hashes} = event.data
+            const { branch_name, blocked_commit_hashes } = event.data
             const branch = branchMap.get(branch_name)
             if (branch) {
               for (const hash of blocked_commit_hashes) {
@@ -183,11 +189,18 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
 
           case "BranchStatusUpdate": {
             // Branch status update (during processing or completion)
-            const {branch_name, status} = event.data
+            const { branch_name, status, error } = event.data
             const branch = branchMap.get(branch_name)
             if (branch) {
               // Store the status in the branch data
               branch.status = status
+
+              // Store error details if provided
+              if (error) {
+                branch.errorDetails = error
+                branch.hasError = true
+              }
+
               // Format status text for display
               switch (status) {
                 case "MergeConflict":
@@ -198,11 +211,11 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
                   branch.statusText = "analyzing conflict…"
                   break
                 case "Error":
-                  branch.statusText = "error"
+                  branch.statusText = "internal error"
                   branch.hasError = true
                   break
                 default:
-                  branch.statusText = status
+                  branch.statusText = status.toLowerCase()
               }
 
               // Auto-expand branches with errors, conflicts, or meaningful changes
@@ -214,9 +227,16 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
             break
           }
 
+          case "UnassignedCommits": {
+            // Store unassigned commits
+            unassignedCommits.value = event.data.commits
+            break
+          }
+
           case "Completed": {
             // Sync completed
             syncProgress.value = "Sync completed"
+            hasCompletedSync.value = true
             break
           }
         }
@@ -245,7 +265,9 @@ export function useSyncBranches(vcsRequestFactory: VcsRequestFactory, expandBran
     showProgress,
     syncProgress,
     branches: branchArray,
+    unassignedCommits,
     expanded,
+    hasCompletedSync,
   }
 }
 
@@ -256,4 +278,5 @@ function resetBranch(branchItem: ReactiveBranch, commitMap: Map<string, CommitDe
   branchItem.statusText = "syncing"
   branchItem.processedCount = 0
   branchItem.hasError = false
+  branchItem.errorDetails = undefined
 }

@@ -19,8 +19,22 @@ pub struct Commit {
 
 /// Get list of commits between baseline branch and HEAD
 #[instrument(skip(git_executor))]
-pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, main_branch_name: &str) -> Result<Vec<Commit>> {
-  let range = format!("origin/{main_branch_name}..HEAD");
+pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Vec<Commit>> {
+  // Check if we're on the baseline branch itself (for local repos without remotes)
+  let current_branch = git_executor.execute_command(&["--no-pager", "rev-parse", "--abbrev-ref", "HEAD"], repo_path)?;
+  let current_branch = current_branch.trim();
+
+  // If we're on the baseline branch and it's a local branch (no remote prefix),
+  // get all commits except the first one
+  let range = if current_branch == baseline_branch && !baseline_branch.contains('/') {
+    // Get the first commit (root commit)
+    let root_commit = git_executor.execute_command(&["--no-pager", "rev-list", "--max-parents=0", "HEAD"], repo_path)?;
+    let root_commit = root_commit.trim();
+    format!("{root_commit}..HEAD")
+  } else {
+    format!("{baseline_branch}..HEAD")
+  };
+
   let args = vec![
     "--no-pager",
     "log",
@@ -33,7 +47,7 @@ pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, main_
   let output = git_executor.execute_command(&args, repo_path)?;
   let commits = parse_commit_output(&output)?;
 
-  debug!(commits_count = commits.len(), branch = %main_branch_name, "found commits ahead of baseline");
+  debug!(commits_count = commits.len(), branch = %baseline_branch, current_branch = %current_branch, range = %range, "found commits ahead of baseline");
   Ok(commits)
 }
 

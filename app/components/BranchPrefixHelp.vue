@@ -1,5 +1,5 @@
 <template>
-  <UModal title="Configure Branch Prefix" :ui="{ width: 'max-w-2xl' }">
+  <UModal title="Configure Branch Prefix" class="max-w-2xl">
     <UTooltip :disabled="configured" text="Please configure the branch prefix">
       <UButton
         :color="configured ? undefined : 'warning'"

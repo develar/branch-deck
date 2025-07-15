@@ -6,7 +6,7 @@
     <template #content>
       <div class="p-3 space-y-2 min-w-[300px]">
         <p class="text-sm text-toned">{{ message || "No message available" }}</p>
-        <CommitInfo :hash="hash" :author="author" :timestamp="timestamp" />
+        <CommitInfo :hash="hash" :author="author" :author-time="authorTime" />
       </div>
     </template>
   </UPopover>
@@ -19,6 +19,6 @@ defineProps<{
   hash: string
   message?: string
   author?: string
-  timestamp?: number
+  authorTime?: number
 }>()
 </script>

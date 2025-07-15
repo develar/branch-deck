@@ -20,6 +20,7 @@ pub struct CommitDetail {
   pub original_hash: String,
   pub hash: String,
   pub message: String,
+  pub author: String,
   pub author_time: u32,
   pub committer_time: u32,
   pub status: CommitSyncStatus,
@@ -60,15 +61,18 @@ pub struct ConflictDetail {
 pub struct MergeConflictInfo {
   pub commit_message: String,
   pub commit_hash: String,
-  pub commit_time: u32,
+  pub commit_author_time: u32,
+  pub commit_committer_time: u32,
   // Original parent of the cherry-picked commit
   pub original_parent_message: String,
   pub original_parent_hash: String,
-  pub original_parent_time: u32,
+  pub original_parent_author_time: u32,
+  pub original_parent_committer_time: u32,
   // Target branch HEAD where we're trying to apply the commit
   pub target_branch_message: String,
   pub target_branch_hash: String,
-  pub target_branch_time: u32,
+  pub target_branch_author_time: u32,
+  pub target_branch_committer_time: u32,
   pub conflicting_files: Vec<ConflictDetail>,
   pub conflict_analysis: crate::git::conflict_analysis::ConflictAnalysis,
   // Map of commit hashes to their info for conflict markers (shared across all files)
@@ -81,7 +85,8 @@ pub struct ConflictMarkerCommitInfo {
   pub hash: String,
   pub message: String,
   pub author: String,
-  pub timestamp: u32,
+  pub author_time: u32,
+  pub committer_time: u32,
 }
 
 /// Branch operation errors.
@@ -208,6 +213,7 @@ mod tests {
       original_hash: "abc123".to_string(),
       hash: "def456".to_string(),
       message: "Test commit".to_string(),
+      author: "Test Author".to_string(),
       author_time: 1_234_567_890,
       committer_time: 1_234_567_890,
       status: CommitSyncStatus::Created,
@@ -218,6 +224,7 @@ mod tests {
     assert_eq!(commit.hash, "def456");
     assert_eq!(commit.status, CommitSyncStatus::Created);
     assert_eq!(commit.message, "Test commit");
+    assert_eq!(commit.author, "Test Author");
     assert_eq!(commit.author_time, 1_234_567_890);
     assert_eq!(commit.committer_time, 1_234_567_890);
   }
