@@ -26,6 +26,10 @@ export default defineNuxtConfig({
     }
   },
 
+  nitro: {
+    preset: "static",
+  },
+
   // Compatibility date for Nitro
   compatibilityDate: "2025-07-09",
 
