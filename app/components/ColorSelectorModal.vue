@@ -103,7 +103,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  currentColor: "blue",
+  currentColor: "green",
   currentRadius: 0.25,
   currentNeutral: "slate",
   onChange: () => {},

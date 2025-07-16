@@ -1,21 +1,30 @@
 pub mod auto_update;
 pub mod commands;
-pub mod git;
 pub mod menu;
+pub mod model;
 pub mod progress;
 
 #[cfg(test)]
 mod test_utils;
 
+// ONNX tests disabled since ONNX is disabled
+// #[cfg(test)]
+// mod onnx_branch_name_generator_test;
+
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
+use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::branch_prefix::get_branch_prefix_from_git_config;
+use commands::clear_model_cache::clear_model_cache;
+use commands::create_branch::create_branch_from_commits;
+use commands::download_model::{check_model_status, download_model};
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
+use commands::suggest_branch_name::{suggest_branch_name, suggest_branch_name_stream};
 use commands::sync_branches::sync_branches;
 use commands::window_management::open_sub_window;
 use tauri_specta::{Builder, collect_commands};
 
-use git::git_command::GitCommandExecutor;
+use git_ops::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event};
 use tauri::Manager;
 
@@ -31,6 +40,13 @@ pub fn run() {
     get_update_status,
     install_update,
     open_sub_window,
+    create_branch_from_commits,
+    add_issue_reference_to_commits,
+    suggest_branch_name,
+    suggest_branch_name_stream,
+    download_model,
+    check_model_status,
+    clear_model_cache,
   ]);
 
   // only export on non-release builds
@@ -39,11 +55,17 @@ pub fn run() {
     .export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), "../app/utils/bindings.ts")
     .expect("Failed to export TypeScript bindings");
 
-  #[cfg(debug_assertions)]
-  let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
-  #[cfg(not(debug_assertions))]
+  // #[cfg(debug_assertions)]
+  // let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
+  // #[cfg(not(debug_assertions))]
   let builder = tauri::Builder::default().plugin(
     tauri_plugin_log::Builder::new()
+      .level(tracing::log::LevelFilter::Debug)
+      .level_for("tokenizers", tracing::log::LevelFilter::Off)
+      .level_for("candle", tracing::log::LevelFilter::Off)
+      .level_for("candle_core", tracing::log::LevelFilter::Off)
+      .level_for("candle_nn", tracing::log::LevelFilter::Off)
+      .level_for("candle_transformers", tracing::log::LevelFilter::Off)
       .filter(|metadata| {
         // Filter out logs containing default_window_icon in the message
         // This is a workaround since we can't access the message content in the filter
@@ -78,6 +100,9 @@ pub fn run() {
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
+      app.manage(model::ModelGeneratorState(tokio::sync::Mutex::new(
+        model::ModelBasedBranchGenerator::with_config(model::ModelConfig::default()).expect("Failed to create model-based generator"),
+      )));
 
       // Initialize update state
       #[cfg(feature = "auto-update")]

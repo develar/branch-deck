@@ -1,0 +1,24 @@
+---
+source: crates/model-ai/src/model_generation_tests.rs
+description: Generated branch names for redis_memory_fix in full_diff mode
+---
+scenario: redis_memory_fix
+mode: full_diff
+commits_count: 2
+files_count: 1
+model_results:
+  - model: Qwen25Coder05B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nfix(cache): resolve memory leak in Redis connection pool\nM\tsrc/cache/redis_pool.rs\n\nperf(cache): optimize connection pooling strategy\n\nBranch name:"
+    generated_branch_name: fix-redis-pool-strategy
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_06B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nfix(cache): resolve memory leak in Redis connection pool\nM\tsrc/cache/redis_pool.rs\n\nperf(cache): optimize connection pooling strategy\n\nBranch name:"
+    generated_branch_name: perf-optimization
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_17B
+    prompt: "<|im_start|>system\nYou are a Git branch name generator. Output only the branch name - no explanations, no thinking, no extra text. Use lowercase letters, numbers, and hyphens only. Maximum 50 characters.<|im_end|>\n<|im_start|>user\nfix(cache): resolve memory leak in Redis connection pool\nM\tsrc/cache/redis_pool.rs\n\nperf(cache): optimize connection pooling strategy<|im_end|>\n<|im_start|>assistant<think></think>"
+    generated_branch_name: fix-cache-redis-pool
+    generation_time_ms: 1000
+    confidence: 0.95000005

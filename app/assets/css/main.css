@@ -1,3 +1,35 @@
 @import "tailwindcss";
 @import "@nuxt/ui-pro";
 @import "@git-diff-view/vue/styles/diff-view-pure.css";
+
+@layer utilities {
+  /* Branch Deck specific padding utilities */
+  
+  /* 
+   * bd-padding-card: General card content padding
+   * Use for: InfoCard interiors, card bodies without lists
+   * Responsive: 16px (mobile) → 24px (desktop)
+   */
+  .bd-padding-card {
+    @apply p-4 sm:p-6;
+  }
+  
+  /* 
+   * bd-padding-list-item: List item padding
+   * Use for: Commit rows, file lists, any repeated list items
+   * Responsive: horizontal 16px → 24px, vertical 12px consistent
+   * Note: CommitList uses this by default - avoid custom item-class
+   */
+  .bd-padding-list-item {
+    @apply px-4 sm:px-6 py-3;
+  }
+  
+  /* 
+   * bd-padding-content: Form and content area padding
+   * Use for: Form containers, dialog content, general content sections
+   * Responsive: horizontal 16px → 24px, vertical 16px consistent
+   */
+  .bd-padding-content {
+    @apply px-4 sm:px-6 py-4;
+  }
+}

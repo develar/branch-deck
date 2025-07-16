@@ -90,6 +90,70 @@ async openSubWindow(windowId: string, url: string, title: string, width: number 
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Assigns commits to a branch by prepending a branch prefix to their messages.
+ * Uses git plumbing commands to efficiently rewrite commit messages without touching the working directory.
+ */
+async createBranchFromCommits(params: CreateBranchFromCommitsParams) : Promise<Result<RewordResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_branch_from_commits", { params }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Adds an issue reference to commits in a branch that don't already have one.
+ * Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
+ */
+async addIssueReferenceToCommits(repositoryPath: string, branchName: string, commitIds: string[], issueReference: string) : Promise<Result<AddIssueReferenceResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_issue_reference_to_commits", { repositoryPath, branchName, commitIds, issueReference }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async suggestBranchName(params: SuggestBranchNameParams) : Promise<Result<BranchSuggestion[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("suggest_branch_name", { params }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async suggestBranchNameStream(params: SuggestBranchNameParams, progress: TAURI_CHANNEL<SuggestionProgress>) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("suggest_branch_name_stream", { params, progress }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async downloadModel(progress: TAURI_CHANNEL<DownloadProgress>) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("download_model", { progress }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async checkModelStatus() : Promise<Result<ModelStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_model_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearModelCache(keepCurrent: boolean) : Promise<Result<CacheClearResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_model_cache", { keepCurrent }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -103,19 +167,23 @@ async openSubWindow(windowId: string, url: string, title: string, width: number 
 
 /** user-defined types **/
 
+export type AddIssueReferenceResult = { success: boolean; updatedCount: number; skippedCount: number }
 /**
  * Branch operation errors.
  */
 export type BranchError = { Generic: string } | { MergeConflict: MergeConflictInfo }
+export type BranchSuggestion = { name: string; confidence: number; reason: string | null }
 /**
  * Status of a branch synchronization operation.
  */
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict"
 export type BrowseResult = { path: string | null; valid: boolean; error: string | null }
+export type CacheClearResult = { cleared_models: string[]; total_size_mb: number; errors: string[] }
 /**
  * Details about a synchronized commit.
  */
-export type CommitDetail = { originalHash: string; hash: string; message: string; author: string; authorTime: number; committerTime: number; status: CommitSyncStatus; error: BranchError | null }
+export type CommitDetail = { originalHash: string; hash: string; subject: string; message: string; author: string; authorTime: number; committerTime: number; status: CommitSyncStatus; error: BranchError | null }
+export type CommitInfo = { hash: string; message: string }
 /**
  * Status of a commit synchronization.
  */
@@ -123,7 +191,7 @@ export type CommitSyncStatus = "Pending" | "Created" | "Unchanged" | "Error" | "
 /**
  * Analysis results for a merge conflict, including missing commits and divergence information.
  */
-export type ConflictAnalysis = { missingCommits: MissingCommit[]; mergeBaseHash: string; mergeBaseMessage: string; mergeBaseTime: number; mergeBaseAuthor: string; divergenceSummary: DivergenceSummary }
+export type ConflictAnalysis = { missingCommits: MissingCommit[]; mergeBaseHash: string; mergeBaseSubject: string; mergeBaseMessage: string; mergeBaseTime: number; mergeBaseAuthor: string; divergenceSummary: DivergenceSummary }
 /**
  * Represents details of a conflict during a cherry-pick operation.
  * 
@@ -134,10 +202,12 @@ export type ConflictDetail = { file: string; status: string; fileDiff: FileDiff;
  * Information about a commit referenced in conflict markers
  */
 export type ConflictMarkerCommitInfo = { hash: string; message: string; author: string; authorTime: number; committerTime: number }
+export type CreateBranchFromCommitsParams = { repositoryPath: string; branchName: string; commitIds: string[] }
 /**
  * Summary of how two branches have diverged from their common ancestor.
  */
 export type DivergenceSummary = { commitsAheadInSource: number; commitsAheadInTarget: number; commonAncestorDistance: number }
+export type DownloadProgress = { type: "Started"; data: { totalFiles: number } } | { type: "FileStarted"; data: { fileName: string; fileSize: number | null } } | { type: "Progress"; data: { fileName: string; downloaded: number; total: number; bytesPerSecond: number | null; secondsRemaining: number | null } } | { type: "FileCompleted"; data: { fileName: string } } | { type: "Completed" } | { type: "Error"; data: { message: string } }
 /**
  * Represents the diff between two versions of a file.
  */
@@ -146,7 +216,7 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
  * Information about a file including its content and metadata.
  */
 export type FileInfo = { fileName: string; fileLang: string; content: string }
-export type GroupedBranchInfo = { name: string; commits: CommitDetail[] }
+export type GroupedBranchInfo = { name: string; commits: CommitDetail[]; latestCommitTime: number }
 /**
  * Details about a merge conflict encountered during a cherry-pick operation.
  * 
@@ -157,40 +227,45 @@ export type MergeConflictInfo = { commitMessage: string; commitHash: string; com
  * Represents a commit that exists in the source branch but is missing from the target branch.
  * These commits might be causing merge conflicts.
  */
-export type MissingCommit = { hash: string; message: string; authorTime: number; committerTime: number; author: string; filesTouched: string[]; fileDiffs: FileDiff[] }
+export type MissingCommit = { hash: string; subject: string; message: string; authorTime: number; committerTime: number; author: string; filesTouched: string[]; fileDiffs: FileDiff[] }
+export type ModelFilesStatus = { config: boolean; model: boolean; tokenizer: boolean }
+export type ModelStatus = { available: boolean; modelName: string; modelSize: string; filesPresent: ModelFilesStatus }
+export type RewordResult = { success: boolean; message: string; reworded_count: number }
+export type SuggestBranchNameParams = { repositoryPath: string; branchPrefix: string; commits: CommitInfo[] }
+export type SuggestionProgress = { type: "Started"; data: { total: number } } | { type: "SuggestionReady"; data: { suggestion: BranchSuggestion; index: number } } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: { message: string } } | { type: "ModelDownloadInProgress"; data: { model_name: string; model_size: string } }
 export type SyncEvent = 
 /**
  * Initial progress message
  */
-{ type: "Progress"; data: { message: string; index: number } } | 
+{ type: "progress"; data: { message: string; index: number } } | 
 /**
  * Sent immediately after grouping commits
  */
-{ type: "BranchesGrouped"; data: { branches: GroupedBranchInfo[] } } | 
+{ type: "branchesGrouped"; data: { branches: GroupedBranchInfo[] } } | 
 /**
  * Sent for commits that don't match any prefix pattern
  */
-{ type: "UnassignedCommits"; data: { commits: CommitDetail[] } } | 
+{ type: "unassignedCommits"; data: { commits: CommitDetail[] } } | 
 /**
  * Sent when a commit is successfully cherry-picked
  */
-{ type: "CommitSynced"; data: { branch_name: string; commit_hash: string; new_hash: string; status: CommitSyncStatus } } | 
+{ type: "commitSynced"; data: { branchName: string; commitHash: string; newHash: string; status: CommitSyncStatus } } | 
 /**
  * Sent when a commit fails to cherry-pick
  */
-{ type: "CommitError"; data: { branch_name: string; commit_hash: string; error: BranchError } } | 
+{ type: "commitError"; data: { branchName: string; commitHash: string; error: BranchError } } | 
 /**
  * Sent to mark commits as blocked due to earlier error
  */
-{ type: "CommitsBlocked"; data: { branch_name: string; blocked_commit_hashes: string[] } } | 
+{ type: "commitsBlocked"; data: { branchName: string; blockedCommitHashes: string[] } } | 
 /**
  * Sent when a branch status changes (including during processing and completion)
  */
-{ type: "BranchStatusUpdate"; data: { branch_name: string; status: BranchSyncStatus; error?: BranchError | null } } | 
+{ type: "branchStatusUpdate"; data: { branchName: string; status: BranchSyncStatus; error?: BranchError | null } } | 
 /**
  * Final completion event
  */
-{ type: "Completed" }
+{ type: "completed" }
 export type TAURI_CHANNEL<TSend> = null
 export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string }

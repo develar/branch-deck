@@ -30,8 +30,9 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.6.2", features = [] }
+tauri = { version = "2.7.0", features = [] }
 serde = { version = "1", features = ["derive"] }
+branch-sync = { path = "../crates/branch-sync", features = ["specta"] }
 #noinspection CargoUnusedDependency
 serde_json = "1"
 specta = "=2.0.0-rc.22"
@@ -52,23 +53,22 @@ opentelemetry = "0.30.0"
 opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"] }
 opentelemetry-otlp = { version = "0.30.0", features = ["http-proto", "reqwest-blocking-client"] }
 tracing-opentelemetry = "0.31.0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tempfile = "3.20.0"
-dashmap = "6.1.0"
+
+# Crate dependencies
+model-ai = { path = "../crates/model-ai" }
+model-core = { path = "../crates/model-core" }
+git-ops = { path = "../crates/git-ops" }
+tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-window-state = "2"
 
-[profile.dev]
-incremental = true
-#rustflags = ["-Zthreads=8"]
+# Platform-conditional CUDA support for optimal GPU acceleration
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+model-core = { path = "../crates/model-core", features = ["cuda"] }
 
-[profile.release]
-codegen-units = 1 # Allows LLVM to perform better optimization.
-lto = true # Enables link-time-optimizations.
-opt-level = "z" # Prioritizes small binary size. Use `3` if you prefer speed.
-panic = "abort" # Higher performance by disabling panic handlers.
-strip = true # Ensures debug symbols are removed.
-#trim-paths = "all" # Removes potentially privileged information from your binaries.
-#rustflags = ["-Cdebuginfo=0", "-Zthreads=8"] # Better compile performance.
+[dev-dependencies]
+test-utils = { path = "../crates/test-utils" }
+

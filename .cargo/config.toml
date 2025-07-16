@@ -1,0 +1,7 @@
+[env]
+# Disable logging for tokenizers and candle crates
+RUST_LOG = { value = "debug,tokenizers=off,candle=off,candle_core=off,candle_nn=off", force = true }
+
+[build]
+# Build with optimizations for ML packages even in dev mode
+rustflags = ["-C", "link-arg=-s"]

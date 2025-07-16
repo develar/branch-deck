@@ -22,9 +22,9 @@ pub fn init_telemetry(app_name: &str) {
   // Set up tracing subscriber with environment filter
   let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     #[cfg(debug_assertions)]
-    return tracing_subscriber::EnvFilter::new("debug,hyper=info,reqwest=info");
+    return tracing_subscriber::EnvFilter::new("debug,hyper=info,reqwest=info,tokenizers=off,candle=off,candle_core=off,candle_nn=off");
     #[cfg(not(debug_assertions))]
-    return tracing_subscriber::EnvFilter::new("info");
+    return tracing_subscriber::EnvFilter::new("info,tokenizers=off,candle=off,candle_core=off,candle_nn=off");
   });
 
   // Initialize OpenTelemetry tracer if OTLP endpoint is configured

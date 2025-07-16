@@ -1,0 +1,24 @@
+---
+source: crates/model-ai/src/model_generation_tests.rs
+description: Generated branch names for jwt_auth_feature in full_diff mode
+---
+scenario: jwt_auth_feature
+mode: full_diff
+commits_count: 3
+files_count: 4
+model_results:
+  - model: Qwen25Coder05B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nfeat(auth): implement JWT token validation middleware\nM\tsrc/middleware/auth.rs\nA\tsrc/middleware/mod.rs\n\ntest(auth): add comprehensive JWT validation tests\nA\ttests/auth_test.rs\n\ndocs(auth): update API documentation for JWT endpoints\nM\tdocs/api/auth.md\n\nBranch name:"
+    generated_branch_name: update-api-docs-jwt-endpoints
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_06B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nfeat(auth): implement JWT token validation middleware\nM\tsrc/middleware/auth.rs\nA\tsrc/middleware/mod.rs\n\ntest(auth): add comprehensive JWT validation tests\nA\ttests/auth_test.rs\n\ndocs(auth): update API documentation for JWT endpoints\nM\tdocs/api/auth.md\n\nBranch name:"
+    generated_branch_name: update-jwt-endpoints-docs
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_17B
+    prompt: "<|im_start|>system\nYou are a Git branch name generator. Output only the branch name - no explanations, no thinking, no extra text. Use lowercase letters, numbers, and hyphens only. Maximum 50 characters.<|im_end|>\n<|im_start|>user\nfeat(auth): implement JWT token validation middleware\nM\tsrc/middleware/auth.rs\nA\tsrc/middleware/mod.rs\n\ntest(auth): add comprehensive JWT validation tests\nA\ttests/auth_test.rs\n\ndocs(auth): update API documentation for JWT endpoints\nM\tdocs/api/auth.md<|im_end|>\n<|im_start|>assistant<think></think>"
+    generated_branch_name: feat-auth-jwt-validation
+    generation_time_ms: 1000
+    confidence: 0.95000005

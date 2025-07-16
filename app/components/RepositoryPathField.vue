@@ -2,25 +2,25 @@
   <UFormField
     label="Repository Path"
     name="repo-path"
-    :error="pathValidation.error"
+    :error="store.pathValidation.error"
   >
     <UButtonGroup class="flex">
       <USelect
-        v-model="repositoryPath"
+        :model-value="store.repositoryPath"
         :disabled="disabled"
-        :items="recentPaths"
-        :loading="isValidatingPath"
+        :items="store.recentPaths"
+        :loading="store.isValidatingPath"
         class="flex-1"
         creatable
         placeholder="Select or enter repository path..."
         searchable
-        @update:model-value="onRepositoryPathChange"
+        @update:model-value="store.setRepositoryPath"
       />
       <UButton
         :disabled="disabled"
         icon="i-lucide-folder-search"
         variant="outline"
-        @click="browseRepository"
+        @click="store.browseRepository"
       >
         Browse
       </UButton>
@@ -29,7 +29,7 @@
 </template>
 
 <script lang="ts" setup>
-import type { PathValidation } from "~/composables/repositoryPath"
+import { useRepositoryStore } from "~/stores/repository"
 
 interface Props {
   disabled?: boolean
@@ -37,26 +37,6 @@ interface Props {
 
 defineProps<Props>()
 
-const emit = defineEmits<{
-  "update:modelValue": [value: string]
-  "update:validation": [validation: PathValidation]
-}>()
-
-const {
-  repositoryPath,
-  recentPaths,
-  pathValidation,
-  isValidatingPath,
-  onRepositoryPathChange,
-  browseRepository,
-} = useRepositoryPath()
-
-// Emit changes to parent
-watch(repositoryPath, (value) => {
-  emit("update:modelValue", value)
-})
-
-watch(pathValidation, (validation) => {
-  emit("update:validation", validation)
-}, { deep: true })
+// Use the repository store
+const store = useRepositoryStore()
 </script>

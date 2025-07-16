@@ -34,3 +34,19 @@ migration-backup/
 
 # Downloaded tools
 .tools/
+
+
+target/
+test-optimized-prompt/
+dist
+
+# Rust workspace - only use root Cargo.lock
+src-tauri/Cargo.lock
+
+# Playwright test results
+test-results/
+playwright-report/
+/test-results.json
+
+# Test repositories
+tests/test-repos/

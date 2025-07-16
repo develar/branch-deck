@@ -1,0 +1,24 @@
+---
+source: crates/model-ai/src/model_generation_tests.rs
+description: Generated branch names for validation_refactor in full_diff mode
+---
+scenario: validation_refactor
+mode: full_diff
+commits_count: 3
+files_count: 3
+model_results:
+  - model: Qwen25Coder05B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nrefactor(api): extract validation logic to separate module\nM\tsrc/api/handlers/user.rs\nA\tsrc/validators/user.rs\nA\tsrc/validators/mod.rs\n\nrefactor(api): consolidate error handling patterns\n\ntest(api): update tests for new validation structure\n\nBranch name:"
+    generated_branch_name: update-api-validation
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_06B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nrefactor(api): extract validation logic to separate module\nM\tsrc/api/handlers/user.rs\nA\tsrc/validators/user.rs\nA\tsrc/validators/mod.rs\n\nrefactor(api): consolidate error handling patterns\n\ntest(api): update tests for new validation structure\n\nBranch name:"
+    generated_branch_name: refactor-api-errhandling-tests
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_17B
+    prompt: "<|im_start|>system\nYou are a Git branch name generator. Output only the branch name - no explanations, no thinking, no extra text. Use lowercase letters, numbers, and hyphens only. Maximum 50 characters.<|im_end|>\n<|im_start|>user\nrefactor(api): extract validation logic to separate module\nM\tsrc/api/handlers/user.rs\nA\tsrc/validators/user.rs\nA\tsrc/validators/mod.rs\n\nrefactor(api): consolidate error handling patterns\n\ntest(api): update tests for new validation structure<|im_end|>\n<|im_start|>assistant<think></think>"
+    generated_branch_name: refactor-api-extract-validation
+    generation_time_ms: 1000
+    confidence: 0.95000005

@@ -1,0 +1,46 @@
+[workspace]
+members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/test-utils", "crates/test-server", "crates/branch-sync"]
+resolver = "2"
+
+[workspace.dependencies]
+# ============================================================================
+# Workspace Dependencies - Shared across multiple crates
+# ============================================================================
+
+# Core utilities (used by both src-tauri and model-core)
+anyhow = { version = "1.0.98", features = ["default", "backtrace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
+tracing = { version = "0.1.41", features = ["max_level_debug", "release_max_level_info"] }
+
+# Development profile with incremental compilation
+[profile.dev]
+incremental = true
+opt-level = 2              # Optimize all dependencies for better ML performance
+
+# Keep main application unoptimized for fast development builds
+[profile.dev.package."branch-deck"]
+opt-level = 0              # No optimization for fast rebuilds
+debug = true               # Keep debug info for development
+
+[profile.dev.package."branch-sync"]
+opt-level = 0              # No optimization for fast rebuilds
+debug = true               # Keep debug info for development
+[profile.dev.package."test-utils"]
+opt-level = 0              # No optimization for fast rebuilds
+debug = true               # Keep debug info for development
+[profile.dev.package."test-server"]
+opt-level = 0              # No optimization for fast rebuilds
+debug = true               # Keep debug info for development
+
+[profile.dev.package."git-ops"]
+opt-level = 0              # No optimization for fast rebuilds
+debug = true               # Keep debug info for development
+
+[profile.release]
+codegen-units = 1          # Allows LLVM to perform better optimization
+lto = true                 # Enables link-time-optimizations
+opt-level = "s"            # Prioritizes small binary size
+panic = "abort"            # Higher performance by disabling panic handlers
+strip = true               # Ensures debug symbols are removed

@@ -27,6 +27,7 @@
             Common ancestor:
             <CommitHashPopover
               :hash="missingCommitsData.mergeBase.hash"
+              :subject="missingCommitsData.mergeBase.subject"
               :message="missingCommitsData.mergeBase.message"
               :author="missingCommitsData.mergeBase.author"
               :author-time="missingCommitsData.mergeBase.time"
@@ -67,7 +68,7 @@
 
 <script lang="ts" setup>
 import type { MissingCommit } from "~/utils/bindings"
-import { useSubWindowData } from "~/composables/useSubWindowData"
+// useSubWindowData is auto-imported from shared-ui layer
 
 // Disable layout for sub-window
 definePageMeta({
@@ -83,6 +84,7 @@ interface MissingCommitsWindowData {
   missingCommits: MissingCommit[]
   mergeBase?: {
     hash: string
+    subject: string
     message: string
     author: string
     time: number

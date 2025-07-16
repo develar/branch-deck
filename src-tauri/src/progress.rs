@@ -1,40 +1,49 @@
-use crate::git::model::{BranchError, CommitDetail};
-use serde::Serialize;
-use specta::Type;
+use anyhow::Result;
+use git_ops::model::{BranchError, BranchSyncStatus};
+use git_ops::progress::ProgressCallback;
+use tauri::ipc::Channel;
 
-#[derive(Clone, Serialize, Type)]
-#[serde(tag = "type", content = "data")]
-pub enum SyncEvent {
-  /// Initial progress message
-  Progress { message: String, index: i16 },
-  /// Sent immediately after grouping commits
-  BranchesGrouped { branches: Vec<GroupedBranchInfo> },
-  /// Sent for commits that don't match any prefix pattern
-  UnassignedCommits { commits: Vec<CommitDetail> },
-  /// Sent when a commit is successfully cherry-picked
-  CommitSynced {
-    branch_name: String,
-    commit_hash: String,
-    new_hash: String,
-    status: crate::git::model::CommitSyncStatus,
-  },
-  /// Sent when a commit fails to cherry-pick
-  CommitError { branch_name: String, commit_hash: String, error: BranchError },
-  /// Sent to mark commits as blocked due to earlier error
-  CommitsBlocked { branch_name: String, blocked_commit_hashes: Vec<String> },
-  /// Sent when a branch status changes (including during processing and completion)
-  BranchStatusUpdate {
-    branch_name: String,
-    status: crate::git::model::BranchSyncStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<BranchError>,
-  },
-  /// Final completion event
-  Completed,
+// Re-export types from branch-sync crate
+pub use branch_sync::progress::{GroupedBranchInfo, ProgressReporter, SyncEvent};
+
+// Implement ProgressReporter for Tauri Channel
+pub struct TauriProgressReporter<'a> {
+  channel: &'a Channel<SyncEvent>,
 }
 
-#[derive(Clone, Serialize, Type)]
-pub struct GroupedBranchInfo {
-  pub name: String,
-  pub commits: Vec<CommitDetail>,
+impl<'a> TauriProgressReporter<'a> {
+  pub fn new(channel: &'a Channel<SyncEvent>) -> Self {
+    Self { channel }
+  }
+}
+
+impl<'a> ProgressReporter for TauriProgressReporter<'a> {
+  fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
+    self.channel.send(event)?;
+    Ok(())
+  }
+}
+
+/// Adapter that implements ProgressCallback for Tauri Channel
+/// This allows git-ops to send progress updates through Tauri IPC
+pub struct TauriChannelProgress<'a> {
+  channel: &'a Channel<SyncEvent>,
+}
+
+impl<'a> TauriChannelProgress<'a> {
+  pub fn new(channel: &'a Channel<SyncEvent>) -> Self {
+    Self { channel }
+  }
+}
+
+impl<'a> ProgressCallback for TauriChannelProgress<'a> {
+  fn send_progress(&self, message: String, index: i16) -> Result<()> {
+    self.channel.send(SyncEvent::Progress { message, index })?;
+    Ok(())
+  }
+
+  fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> Result<()> {
+    self.channel.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })?;
+    Ok(())
+  }
 }

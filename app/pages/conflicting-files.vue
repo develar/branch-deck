@@ -16,7 +16,7 @@
       </UCard>
 
       <!-- Conflicting Files Section (main content) -->
-      <ConflictingFilesCard
+      <ConflictingFileListCard
         :conflicts="conflictData.conflict.conflictingFiles"
         :conflict-info="conflictData.conflict"
         :conflict-marker-commits="conflictMarkerCommits"
@@ -37,8 +37,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
-import type { MergeConflictInfo } from "~/utils/bindings"
-import { useSubWindowData } from "~/composables/useSubWindowData"
+import type { MergeConflictInfo, ConflictMarkerCommitInfo } from "~/utils/bindings"
+// useSubWindowData is auto-imported from shared-ui layer
 
 // Disable layout for sub-window
 definePageMeta({
@@ -62,11 +62,11 @@ const conflictMarkerCommits = computed(() => {
   }
 
   const commits = conflictData.value.conflict.conflictMarkerCommits
-  const result: Record<string, { hash: string, message: string, author: string, authorTime: number, committerTime: number }> = {}
+  const result: Record<string, ConflictMarkerCommitInfo> = {}
 
   for (const [key, value] of Object.entries(commits)) {
     if (value) {
-      result[key] = value
+      result[key] = value as ConflictMarkerCommitInfo
     }
   }
 

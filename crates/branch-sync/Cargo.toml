@@ -1,0 +1,17 @@
+[package]
+name = "branch-sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+git-ops = { path = "../git-ops" }
+anyhow = "1.0"
+indexmap = "2"
+regex = "1"
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+specta = { version = "=2.0.0-rc.22", optional = true }
+
+[features]
+default = []
+specta = ["dep:specta"]

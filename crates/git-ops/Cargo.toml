@@ -1,0 +1,25 @@
+[package]
+name = "git-ops"
+version = "0.1.0"
+edition = "2021"
+description = "Git operations and repository management for Branch Deck"
+
+[dependencies]
+# Core utilities (shared via workspace)
+anyhow.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+# Git and file operations
+dashmap = "6.1.0"
+
+# Tauri dependencies for IPC
+tauri = { version = "2.7.0", features = [] }
+specta = { version = "=2.0.0-rc.22", features = ["derive"] }
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
+
+[features]
+default = []

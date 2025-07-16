@@ -14,6 +14,13 @@ export default withNuxt()
   .append({
     files: ["**/*.{js,mjs,cjs,ts,vue}"],
     rules: {
+      "vue/html-indent": ["error", 2, {
+        attribute: 1,
+        baseIndent: 1,
+        closeBracket: 0,
+        alignAttributesVertically: true,
+        ignores: [],
+      }],
       "vue/max-attributes-per-line": ["error", {
         singleline: { max: 3 },
         multiline: { max: 1 },

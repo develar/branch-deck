@@ -15,6 +15,10 @@ export interface AppSettings {
   radius: number
 }
 
+export interface ModelSettings {
+  aiEnabled?: boolean
+}
+
 // Interface that both main and sub-window stores implement
 export interface IAppStore {
   getRecentPaths(): Promise<string[]>
@@ -27,6 +31,9 @@ export interface IAppStore {
   getAppSettings(): Promise<AppSettings>
   setAppSettings(settings: AppSettings): Promise<void>
   updateAppSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): Promise<void>
+  getModelSettings(): Promise<ModelSettings>
+  setModelSettings(settings: ModelSettings): Promise<void>
+  updateModelSetting<K extends keyof ModelSettings>(key: K, value: ModelSettings[K]): Promise<void>
 }
 
 // Main window implementation - direct store access
@@ -78,7 +85,7 @@ class MainAppStore implements IAppStore {
   async getAppSettings(): Promise<AppSettings> {
     const settings = await this.store.get<AppSettings>("appSettings")
     return settings ?? {
-      primaryColor: "blue",
+      primaryColor: "green",
       neutralColor: "slate",
       radius: 0.25,
     }
@@ -95,6 +102,24 @@ class MainAppStore implements IAppStore {
     const current = await this.getAppSettings()
     current[key] = value
     await this.setAppSettings(current)
+  }
+
+  async getModelSettings(): Promise<ModelSettings> {
+    const settings = await this.store.get<ModelSettings>("modelSettings")
+    return settings ?? {}
+  }
+
+  async setModelSettings(settings: ModelSettings): Promise<void> {
+    await this.store.set("modelSettings", settings)
+  }
+
+  async updateModelSetting<K extends keyof ModelSettings>(
+    key: K,
+    value: ModelSettings[K],
+  ): Promise<void> {
+    const current = await this.getModelSettings()
+    current[key] = value
+    await this.setModelSettings(current)
   }
 }
 
@@ -199,7 +224,7 @@ class SubWindowAppStore implements IAppStore {
   async getAppSettings(): Promise<AppSettings> {
     const settings = await this.getFromMain<AppSettings>("appSettings")
     return settings ?? {
-      primaryColor: "blue",
+      primaryColor: "green",
       neutralColor: "slate",
       radius: 0.25,
     }
@@ -217,10 +242,111 @@ class SubWindowAppStore implements IAppStore {
     current[key] = value
     await this.setAppSettings(current)
   }
+
+  async getModelSettings(): Promise<ModelSettings> {
+    const settings = await this.getFromMain<ModelSettings>("modelSettings")
+    return settings ?? {}
+  }
+
+  async setModelSettings(settings: ModelSettings): Promise<void> {
+    await this.setInMain("modelSettings", settings)
+  }
+
+  async updateModelSetting<K extends keyof ModelSettings>(
+    key: K,
+    value: ModelSettings[K],
+  ): Promise<void> {
+    const current = await this.getModelSettings()
+    current[key] = value
+    await this.setModelSettings(current)
+  }
+}
+
+// Test store implementation for E2E tests
+class TestAppStore implements IAppStore {
+  private testData = (window as unknown as { __TEST_APP_STORE__?: { recentPaths: string[], selectedProject: string } }).__TEST_APP_STORE__ || {
+    recentPaths: [],
+    selectedProject: "",
+  }
+
+  async getRecentPaths(): Promise<string[]> {
+    return this.testData.recentPaths || []
+  }
+
+  async setRecentPaths(paths: string[]): Promise<void> {
+    this.testData.recentPaths = paths
+  }
+
+  async getSelectedProject(): Promise<string> {
+    return this.testData.selectedProject || ""
+  }
+
+  async setSelectedProject(path: string): Promise<void> {
+    this.testData.selectedProject = path
+  }
+
+  async getConflictViewerSettings(): Promise<ConflictViewerSettings> {
+    return {
+      showConflictsOnly: true,
+      viewMode: "diff",
+      conflictDiffViewMode: "unified",
+    }
+  }
+
+  async setConflictViewerSettings(_settings: ConflictViewerSettings): Promise<void> {
+    // No-op for tests
+  }
+
+  async updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(
+    _key: K,
+    _value: ConflictViewerSettings[K],
+  ): Promise<void> {
+    // No-op for tests
+  }
+
+  async getAppSettings(): Promise<AppSettings> {
+    return {
+      primaryColor: "green",
+      neutralColor: "slate",
+      radius: 0.25,
+    }
+  }
+
+  async setAppSettings(_settings: AppSettings): Promise<void> {
+    // No-op for tests
+  }
+
+  async updateAppSetting<K extends keyof AppSettings>(
+    _key: K,
+    _value: AppSettings[K],
+  ): Promise<void> {
+    // No-op for tests
+  }
+
+  async getModelSettings(): Promise<ModelSettings> {
+    return {}
+  }
+
+  async setModelSettings(_settings: ModelSettings): Promise<void> {
+    // No-op for tests
+  }
+
+  async updateModelSetting<K extends keyof ModelSettings>(
+    _key: K,
+    _value: ModelSettings[K],
+  ): Promise<void> {
+    // No-op for tests
+  }
 }
 
 // Factory function to create the appropriate store implementation
 function createAppStore(): IAppStore {
+  // Check if we're in test mode
+  if (typeof window !== "undefined" && (window as unknown as { __TEST_APP_STORE__?: unknown }).__TEST_APP_STORE__) {
+    console.log("[AppStore] Using test store implementation")
+    return new TestAppStore()
+  }
+
   try {
     const currentWindow = WebviewWindow.getCurrent()
     const label = currentWindow.label

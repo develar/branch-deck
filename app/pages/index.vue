@@ -6,7 +6,7 @@
 
 <script lang="ts" setup>
 import { onMounted } from "vue"
-import { useAutoUpdate } from "~/composables/autoUpdate"
+import { useAutoUpdate } from "~/composables/git/autoUpdate"
 
 const { checkForUpdatesOnStartup } = useAutoUpdate()
 

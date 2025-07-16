@@ -1,0 +1,30 @@
+[package]
+name = "model-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core ML inference package for branch name generation"
+
+[dependencies]
+# ML/AI inference stack (package-specific)
+candle-core = { git = "https://github.com/huggingface/candle.git", rev = "1ef13411b5fce996ce5abb7497905bf2e4b64f79", default-features = false }
+candle-nn = { git = "https://github.com/huggingface/candle.git", rev = "1ef13411b5fce996ce5abb7497905bf2e4b64f79", default-features = false }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", rev = "1ef13411b5fce996ce5abb7497905bf2e4b64f79", default-features = false }
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+
+# Core utilities (shared via workspace)
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[features]
+# Platform-conditional defaults for optimal GPU acceleration
+# macOS: Metal + Accelerate (CUDA requires NVIDIA toolkit)
+# Linux/Windows: Accelerate only by default, CUDA available as opt-in feature
+default = ["accelerate", "metal"]
+
+# Individual acceleration features
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+accelerate = ["candle-core/accelerate", "candle-nn/accelerate", "candle-transformers/accelerate"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+

@@ -1,0 +1,24 @@
+---
+source: crates/model-ai/src/model_generation_tests.rs
+description: Generated branch names for non_conventional in full_diff mode
+---
+scenario: non_conventional
+mode: full_diff
+commits_count: 3
+files_count: 5
+model_results:
+  - model: Qwen25Coder05B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nUpdate dependencies to latest versions\nM\tpackage.json\nM\tCargo.lock\n\nFix broken tests in user module\nM\ttests/user_test.rs\n\nAdd error handling for edge cases\nM\tsrc/handlers/error.rs\nA\tsrc/utils/validation.rs\n\nBranch name:"
+    generated_branch_name: update-user-module
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_06B
+    prompt: "Create one branch name for all commits (max 50 characters):\n    \nExample:\nUpdate payment gateway\n\nA       auth.js\nM       payment.js\n\nAdd unit tests for payment flow\n\nA       test-login.js\n\nUpdate API documentation\n\nM       README.md\n\nBranch name: update-payment-gateway-tests-docs\n\nYour turn:\nUpdate dependencies to latest versions\nM\tpackage.json\nM\tCargo.lock\n\nFix broken tests in user module\nM\ttests/user_test.rs\n\nAdd error handling for edge cases\nM\tsrc/handlers/error.rs\nA\tsrc/utils/validation.rs\n\nBranch name:"
+    generated_branch_name: update-user-handlers-tests
+    generation_time_ms: 1000
+    confidence: 0.95000005
+  - model: Qwen3_17B
+    prompt: "<|im_start|>system\nYou are a Git branch name generator. Output only the branch name - no explanations, no thinking, no extra text. Use lowercase letters, numbers, and hyphens only. Maximum 50 characters.<|im_end|>\n<|im_start|>user\nUpdate dependencies to latest versions\nM\tpackage.json\nM\tCargo.lock\n\nFix broken tests in user module\nM\ttests/user_test.rs\n\nAdd error handling for edge cases\nM\tsrc/handlers/error.rs\nA\tsrc/utils/validation.rs<|im_end|>\n<|im_start|>assistant<think></think>"
+    generated_branch_name: latest-dependencies
+    generation_time_ms: 1000
+    confidence: 0.95000005

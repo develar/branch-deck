@@ -1,0 +1,41 @@
+[package]
+name = "test-server"
+version = "0.1.0"
+edition = "2021"
+default-run = "test-server"
+
+[lib]
+name = "test_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "test-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "regenerate-templates"
+path = "src/bin/regenerate-templates.rs"
+
+[dependencies]
+axum = { version = "0.8.4", features = ["ws"] }
+tokio = { version = "1.45", features = ["full"] }
+tower-http = { version = "0.6.6", features = ["cors"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.11", features = ["v4", "serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+futures = "0.3"
+tokio-stream = "0.1"
+
+# Use the git operations crate
+git-ops = { path = "../git-ops" }
+test-utils = { path = "../test-utils" }
+branch-sync = { path = "../branch-sync" }
+tempfile = "3"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

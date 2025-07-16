@@ -1,5 +1,5 @@
-use crate::git::git_command::GitCommandExecutor;
-use crate::git::model::to_final_branch_name;
+use git_ops::git_command::GitCommandExecutor;
+use git_ops::model::to_final_branch_name;
 use tauri::State;
 
 /// Pushes a specific branch to the remote repository

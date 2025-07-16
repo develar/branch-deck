@@ -18,7 +18,6 @@ export default defineNuxtConfig({
         "@vueuse/core",
         "@tauri-apps/plugin-log",
         "@tauri-apps/api/app",
-        "@tauri-apps/plugin-dialog",
         "@tauri-apps/api/core",
         "@git-diff-view/vue",
         "reka-ui",
@@ -36,11 +35,14 @@ export default defineNuxtConfig({
   // Disable SSR for Tauri desktop app
   ssr: false,
 
-  // Enable devtools
-  devtools: { enabled: true },
+  // Disable devtools to avoid EBADF error
+  devtools: { enabled: false },
+
+  // Extend from layers
+  extends: ["./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui"],
 
   // Modules
-  modules: ["@nuxt/ui-pro", "@nuxt/eslint", "@nuxt/icon"],
+  modules: ["@nuxt/ui-pro", "@nuxt/eslint", "@nuxt/icon", "@pinia/nuxt"],
 
   css: ["~/assets/css/main.css"],
 
@@ -66,6 +68,20 @@ export default defineNuxtConfig({
         { charset: "utf-8" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
       ],
+    },
+  },
+
+  // Component configuration
+  components: [
+    { path: "~/components/branchList", pathPrefix: false },
+    { path: "~/components/unassigned", pathPrefix: false },
+    "~/components",
+  ],
+
+  // Runtime config for test mode
+  runtimeConfig: {
+    public: {
+      testMode: false, // Default value, overridden by NUXT_PUBLIC_TEST_MODE env var
     },
   },
 })
