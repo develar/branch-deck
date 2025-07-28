@@ -12,7 +12,7 @@ export function usePush(vcsRequestFactory: VcsRequestFactory) {
     pushingBranches.value.add(branchName)
     try {
       const request = vcsRequestFactory.createRequest()
-      const result = await commands.pushBranch(request.repositoryPath, request.branchPrefix, branchName)
+      const result = await commands.pushBranch({ repositoryPath: request.repositoryPath, branchPrefix: request.branchPrefix, branchName })
       if (result.status === "ok") {
         toast.add({
           title: "Success",

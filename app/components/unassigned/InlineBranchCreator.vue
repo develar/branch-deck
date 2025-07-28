@@ -1,12 +1,14 @@
 <template>
   <BaseInlineInput
-    v-if="isActive"
     ref="baseInputRef"
     v-model="branchName"
     :is-active="isActive"
     :placeholder="`Branch name for ${selectedCommits.length} ${selectedCommits.length === 1 ? 'commit' : 'commits'}`"
     :validation-state="validationState"
     :is-valid="isValid"
+    :dialog-title="dialogTitle"
+    :dialog-description="dialogDescription"
+    :portal-target="portalTarget"
     primary-button-text="Create"
     @submit="handleCreateBranch"
     @cancel="cancel"
@@ -107,10 +109,10 @@
     <template #after-controls>
       <!-- Suggestions (compact) -->
       <BranchNameSuggestions
-        v-if="allSuggestions.length > 0 || (aiPreference !== false && modelStatus?.available)"
+        v-if="aiEnabled || allSuggestions.length > 0 || isGenerating"
         :suggestions="allSuggestions"
-        :is-loading="suggestionStream.state.isGenerating"
-        :loading-progress="suggestionStream.progress.value"
+        :is-loading="isGenerating"
+        :loading-progress="loadingProgress"
         @select="branchName = $event"
       />
     </template>
@@ -118,31 +120,36 @@
 </template>
 
 <script lang="ts" setup>
-import type { CommitDetail, BranchSuggestion } from "~/utils/bindings"
+import type { Commit } from "~/utils/bindings"
 import BranchNameSuggestions from "~/components/BranchNameSuggestions.vue"
 // BaseInlineInput is auto-imported from shared-ui layer
 // notifyError is auto-imported from shared-ui layer
-import { useBranchSuggestionStream } from "~/composables/ai/useBranchSuggestionStream"
-import { useAIToggle } from "~/composables/ai/useAIToggle"
-import { useBranchNameValidation } from "~/composables/branch/useBranchNameValidation"
-import { useBranchCreation } from "~/composables/branch/useBranchCreation"
-import { commands } from "~/utils/bindings"
+// AI composables are auto-imported from ai layer
+// Branch composables are now auto-imported
 
-const props = defineProps<{
-  selectedCommits: CommitDetail[]
-  repositoryPath: string
-  branchPrefix: string
+const props = withDefaults(defineProps<{
+  selectedCommits: Commit[]
   isActive: boolean
-}>()
+  dialogTitle?: string
+  dialogDescription?: string
+  portalTarget?: string
+}>(), {
+  dialogTitle: "Create Branch",
+  dialogDescription: "Create a new branch from selected commits",
+  portalTarget: "inline-branch-creator-portal",
+})
 
 const emit = defineEmits<{
   cancel: []
-  created: [branchName: string]
+  success: []
 }>()
+
+// Use repository injection
+const { selectedProject, effectiveBranchPrefix } = useRepository()
+const { syncBranches } = useBranchSync()
 
 // State
 const branchName = ref("")
-const suggestions = ref<BranchSuggestion[]>([]) // Keep for backward compatibility
 const hasAutoPopulated = ref(false)
 
 // Template refs
@@ -156,142 +163,80 @@ const validationState = computed(() => ({
   message: rawValidationState.value.message,
   textClass: rawValidationState.value.textClass,
 }))
-const { modelStatus, isDownloading, aiPreference, aiEnabled, aiStatus, aiError, toggleAI, setAIError, clearAIError } = useAIToggle()
+const { isDownloading, aiEnabled, aiStatus, aiError, toggleAI } = useAIToggle()
 const { isCreating, createBranch } = useBranchCreation()
 
-// Streaming suggestions
-const suggestionStream = useBranchSuggestionStream()
-
-// Track last commits we generated suggestions for
-const lastSuggestedCommits = ref<string>("")
-
-// Combine streaming and fallback suggestions
-const allSuggestions = computed(() => {
-  const streamSuggestions = suggestionStream.state.suggestions.filter(s => s !== null) as BranchSuggestion[]
-  return streamSuggestions.length > 0 ? streamSuggestions : suggestions.value
+// Branch suggestions with AI
+const { suggestions: allSuggestions, isGenerating, loadingProgress } = useBranchSuggestions({
+  repositoryPath: selectedProject.value?.path || "",
+  branchPrefix: effectiveBranchPrefix.value,
+  commits: computed(() => props.selectedCommits),
+  isActive: computed(() => props.isActive),
 })
 
-// Handle activation and deactivation
+// Handle activation to reset auto-population
 watch(() => props.isActive, (active) => {
   if (active) {
     // Reset auto-population flag when form is activated
     hasAutoPopulated.value = false
-
-    // Check if commits have changed since last generation
-    const currentCommitHashes = props.selectedCommits.map(c => c.originalHash).join(",")
-
-    if (currentCommitHashes !== lastSuggestedCommits.value || suggestionStream.state.suggestions.every(s => s === null)) {
-      // Generate suggestions for new commits or if no suggestions exist
-      generateSuggestions()
-      lastSuggestedCommits.value = currentCommitHashes
-    }
-  }
-  else {
-    // Cancel any ongoing generation when form is closed
-    suggestionStream.cancel()
-    // Don't clear suggestions - keep them for when form reopens
   }
 })
-
-// Watch for selection changes to regenerate suggestions
-watch(() => props.selectedCommits, () => {
-  // Only regenerate if the form is active
-  if (props.isActive && props.selectedCommits.length > 0) {
-    const currentCommitHashes = props.selectedCommits.map(c => c.originalHash).join(",")
-    lastSuggestedCommits.value = currentCommitHashes
-    generateSuggestions()
-  }
-}, { deep: true })
 
 // Auto-populate with first suggestion when available
-watchEffect(() => {
-  // Only proceed if form is active and we haven't auto-populated yet
-  if (!props.isActive || hasAutoPopulated.value || branchName.value !== "") {
-    return
-  }
-
-  // Check if we have suggestions
-  const firstSuggestion = allSuggestions.value[0]
-  if (firstSuggestion) {
-    branchName.value = firstSuggestion.name
-    hasAutoPopulated.value = true
-
-    // Select all text for easy override
-    nextTick(() => {
-      baseInputRef.value?.selectText()
-    })
-  }
-})
-
-// Generate suggestions from backend with streaming
-async function generateSuggestions() {
-  const params = {
-    repositoryPath: props.repositoryPath,
-    branchPrefix: props.branchPrefix,
-    commits: props.selectedCommits.map(c => ({
-      hash: c.originalHash, // Use original hash, not synced hash
-      message: c.message,
-    })),
-  }
-
-  // Try streaming first
-  try {
-    await suggestionStream.generateSuggestionsStream(params)
-    clearAIError() // Clear any previous errors on success
-    return // Success with streaming
-  }
-  catch (error) {
-    // Set error state for UI
-    setAIError(error instanceof Error ? error : new Error("Failed to generate suggestions"))
-    // Fallback to sync mode if streaming fails
-  }
-
-  // Fallback to sync mode if streaming fails
-  try {
-    const result = await commands.suggestBranchName(params)
-
-    if (result.status === "ok") {
-      suggestions.value = result.data
-      clearAIError() // Clear any previous errors on success
+watch(
+  [() => props.isActive, hasAutoPopulated, branchName, () => allSuggestions.value[0]],
+  ([isActive, hasAutoPop, name, firstSuggestion]) => {
+    // Only proceed if form is active and we haven't auto-populated yet
+    if (!isActive || hasAutoPop || name !== "") {
+      return
     }
-    else {
-      // Check if it's a model not downloaded error
-      if (result.error.includes("Model not downloaded")) {
-        // Don't report as error - the model download handler will show the toast
-        suggestions.value = []
-      }
-      else {
-        setAIError(result.error) // Set error state for UI
-        notifyError("Branch Name Suggestions Failed", result.error)
-        suggestions.value = []
-      }
+
+    // Check if we have suggestions
+    if (firstSuggestion) {
+      branchName.value = firstSuggestion.name
+      hasAutoPopulated.value = true
+
+      // Select all text for easy override
+      nextTick(() => {
+        baseInputRef.value?.selectText()
+      })
     }
-  }
-  catch (error) {
-    setAIError(error instanceof Error ? error : new Error(String(error)))
-    notifyError("Branch Name Suggestions Failed", error)
-    suggestions.value = []
-  }
-}
+  },
+)
 
 // Create branch handler
 async function handleCreateBranch() {
-  if (!isValid.value || isCreating.value) return
+  if (!isValid.value || isCreating.value) {
+    return
+  }
 
   const commitIds = props.selectedCommits.map(c => c.originalHash)
+  // save the branch name before clearing
+  const effectiveBranchName = sanitizedBranchName.value
   const success = await createBranch({
-    repositoryPath: props.repositoryPath,
-    branchName: sanitizedBranchName.value,
+    repositoryPath: selectedProject.value?.path || "",
+    branchName: effectiveBranchName,
     commitIds: commitIds,
   })
 
-  if (success) {
-    emit("created", sanitizedBranchName.value)
-    branchName.value = ""
+  if (!success) {
+    return
   }
+
+  branchName.value = ""
+  emit("success")
+  useToast().add({
+    title: "Success",
+    description: `Branch "${effectiveBranchName}" created successfully`,
+    color: "success",
+  })
+  await syncBranches({
+    targetBranchName: effectiveBranchName,
+    autoExpand: true,
+    autoScroll: true,
+  })
 }
 
-// Cancel creation
 function cancel() {
   branchName.value = ""
   emit("cancel")

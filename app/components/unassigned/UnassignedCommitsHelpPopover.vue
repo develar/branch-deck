@@ -1,6 +1,6 @@
 <template>
   <UPopover mode="hover">
-    <UIcon name="i-lucide-info" class="size-3 text-muted hover:text-highlighted transition-colors cursor-help" />
+    <UIcon name="i-lucide-info" class="size-3 text-muted hover:text-highlighted transition-colors cursor-help" data-testid="unassigned-commits-help-icon" />
     <template #content>
       <div class="p-3 space-y-3 text-xs">
         <div class="font-medium text-highlighted">Help</div>

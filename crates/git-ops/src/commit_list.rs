@@ -1,20 +1,34 @@
 use crate::git_command::GitCommandExecutor;
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use tracing::{debug, instrument};
 
 /// Struct to hold commit data returned by git CLI
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct Commit {
+  #[serde(rename = "originalHash")]
   pub id: String,
-  pub subject: String, // First line of the commit message
-  pub message: String, // Full commit message (including subject)
+  pub stripped_subject: String, // Subject with prefix removed (or same as subject if no prefix)
+  pub message: String,          // Full commit message (including subject)
+  #[serde(rename = "author")]
   pub author_name: String,
+  #[serde(skip)]
   pub author_email: String,
+  #[serde(rename = "authorTime")]
   pub author_timestamp: u32,
+  #[serde(rename = "committerTime")]
   pub committer_timestamp: u32,
+  #[serde(skip)]
+  pub subject: String, // Original first line of the commit message
+  #[serde(skip)]
   pub parent_id: Option<String>,
+  #[serde(skip)]
   pub tree_id: String,
+  #[serde(skip)]
   pub note: Option<String>,
+  #[serde(skip)]
   pub mapped_commit_id: Option<String>, // Extracted from note if it has v-commit-v1: prefix
 }
 
@@ -173,7 +187,8 @@ fn parse_single_commit(record: &str) -> Result<Commit> {
 
   Ok(Commit {
     id,
-    subject,
+    subject: subject.clone(),
+    stripped_subject: subject.clone(), // Will be updated by commit grouper if needed
     message,
     author_name: author_name_field.to_string(),
     author_email: author_email_field.to_string(),

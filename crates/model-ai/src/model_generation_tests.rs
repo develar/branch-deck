@@ -1,6 +1,6 @@
 use crate::test_utils::{convert_to_raw_git_format, CommitDiff, FileDiff};
-use crate::types::CommitInfo;
 use anyhow::Result;
+use git_ops::model::CommitInfo;
 use insta::{assert_yaml_snapshot, with_settings};
 use model_core::{prompt::MAX_BRANCH_NAME_LENGTH, ModelConfig};
 use model_core::{QuantizedQwen3BranchGenerator, Qwen25BranchGenerator, Qwen3BranchGenerator};

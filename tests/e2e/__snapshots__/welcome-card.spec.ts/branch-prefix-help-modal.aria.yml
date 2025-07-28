@@ -1,0 +1,30 @@
+- dialog "Configure Branch Prefix":
+  - paragraph: The branch prefix is automatically prepended to your virtual branches. Setting a personal prefix (like your username) helps identify your branches in a shared repository.
+  - heading "Set your global branch prefix" [level=3]
+  - paragraph: "Run this command in your terminal to set a global prefix for all repositories:"
+  - code: git config --global branchdeck.branchPrefix yourUsername
+  - paragraph: Replace "yourUsername" with your preferred prefix (e.g., your name or initials)
+  - heading "How It Works" [level=3]
+  - paragraph: "Branch Deck groups commits based on message patterns:"
+  - list:
+    - listitem:
+      - text: "• Explicit prefix:"
+      - code: (feature-login)
+      - text: →
+      - code: john/virtual/feature-login
+    - listitem:
+      - text: "• Issue numbers:"
+      - code: "/ABC-\\d+: Fix bug/"
+      - text: →
+      - code: /john\/virtual\/ABC-\d+/
+    - listitem:
+      - text: "• With subsystem:"
+      - code: "/\\[threading\\] ABC-\\d+: Fix bug/"
+      - text: →
+      - code: /john\/virtual\/ABC-\d+/
+  - paragraph:
+    - text: Explicit prefixes take precedence over issue numbers. The
+    - code: virtual
+    - text: prefix is always automatically prepended.
+  - paragraph: "You can also set this value per repository using:"
+  - code: git config branchdeck.branchPrefix repoSpecificPrefix

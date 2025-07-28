@@ -17,6 +17,7 @@
           color="primary"
           icon="i-lucide-git-branch"
           class="shadow-sm hover:shadow-md transition-shadow"
+          data-testid="floating-selection-bar"
           @click="handleCreateBranch"
         >
           Group into Branch

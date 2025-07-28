@@ -1,10 +1,10 @@
 use crate::commit_grouper::CommitGrouper;
 use crate::progress::{GroupedBranchInfo, ProgressReporter, SyncEvent};
 use git_ops::cache::TreeIdCache;
-use git_ops::commit_list::get_commit_list_with_handler;
+use git_ops::commit_list::{get_commit_list_with_handler, Commit};
 use git_ops::copy_commit::{create_or_update_commit, CopyCommitError, CreateCommitParams};
 use git_ops::git_command::GitCommandExecutor;
-use git_ops::model::{to_final_branch_name, BranchError, BranchSyncStatus, CommitDetail, CommitInfo, CommitSyncStatus};
+use git_ops::model::{to_final_branch_name, BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_ops::notes::{write_commit_notes, CommitNoteInfo};
 use git_ops::progress::ProgressCallback;
 use std::sync::{Arc, Mutex};
@@ -15,7 +15,7 @@ struct BranchProcessingParams<'a> {
   repository_path: String,
   branch_prefix: String,
   branch_name: String,
-  commit_data: Vec<CommitInfo>,
+  commits: Vec<Commit>,
   parent_commit_hash: String,
   current_branch_idx: usize,
   total_branches: usize,
@@ -37,10 +37,6 @@ impl<'a> ProgressReporterAdapter<'a> {
 }
 
 impl<'a> ProgressCallback for ProgressReporterAdapter<'a> {
-  fn send_progress(&self, message: String, index: i16) -> anyhow::Result<()> {
-    self.reporter.send(SyncEvent::Progress { message, index })
-  }
-
   fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> anyhow::Result<()> {
     self.reporter.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })
   }
@@ -50,18 +46,8 @@ impl<'a> ProgressCallback for ProgressReporterAdapter<'a> {
 pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, progress: &dyn ProgressReporter) -> anyhow::Result<()> {
   info!("Starting branch synchronization for repository: {repository_path}, prefix: {branch_prefix}");
 
-  progress.send(SyncEvent::Progress {
-    message: "detecting baseline branch".to_string(),
-    index: -1,
-  })?;
-
   // Detect the baseline branch (origin/master, origin/main, or local master/main)
   let baseline_branch = git_executor.detect_baseline_branch(repository_path, "master")?;
-
-  progress.send(SyncEvent::Progress {
-    message: format!("getting commits from {baseline_branch}"),
-    index: -1,
-  })?;
 
   // Use streaming commit processing
   let mut grouper = CommitGrouper::new();
@@ -94,28 +80,8 @@ pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_pa
   // group commits by prefix first to get all branch names
   let (grouped_commits, unassigned_commits) = grouper.finish();
 
-  // extract commit IDs and messages for processing
-  let grouped_commit_data: Vec<(String, Vec<CommitInfo>)> = grouped_commits
-    .into_iter()
-    .map(|(branch_name, branch_commits)| {
-      let commit_data = branch_commits
-        .into_iter()
-        .map(|(_, commit)| CommitInfo {
-          subject: commit.subject.clone(),
-          message: commit.message.clone(),
-          id: commit.id.clone(),
-          author_name: commit.author_name.clone(),
-          author_email: commit.author_email.clone(),
-          author_time: commit.author_timestamp,
-          committer_time: commit.committer_timestamp,
-          parent_id: commit.parent_id.clone(),
-          tree_id: commit.tree_id.clone(),
-          mapped_commit_id: commit.mapped_commit_id.clone(),
-        })
-        .collect();
-      (branch_name, commit_data)
-    })
-    .collect();
+  // extract commits for processing - no remapping needed anymore
+  let grouped_commit_data: Vec<(String, Vec<Commit>)> = grouped_commits.into_iter().collect();
 
   let total_branches = grouped_commit_data.len();
 
@@ -123,20 +89,9 @@ pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_pa
 
   // Send unassigned commits first if any
   if !unassigned_commits.is_empty() {
-    let unassigned_commits_for_ui: Vec<CommitDetail> = unassigned_commits
-      .iter()
+    let unassigned_commits_for_ui: Vec<Commit> = unassigned_commits
+      .into_iter()
       .rev() // Reverse to show newest commits first
-      .map(|commit| CommitDetail {
-        original_hash: commit.id.to_string(),
-        hash: String::new(), // No synced hash for unassigned commits
-        subject: commit.subject.clone(),
-        message: commit.message.clone(),
-        author: commit.author_name.clone(),
-        author_time: commit.author_timestamp,
-        committer_time: commit.committer_timestamp,
-        status: CommitSyncStatus::Pending,
-        error: None,
-      })
       .collect();
 
     progress.send(SyncEvent::UnassignedCommits {
@@ -150,7 +105,7 @@ pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_pa
     .iter()
     .map(|(branch_name, commits)| {
       // Find the latest committer time in this branch
-      let latest_commit_time = commits.iter().map(|commit| commit.committer_time).max().unwrap_or(0);
+      let latest_commit_time = commits.iter().map(|commit| commit.committer_timestamp).max().unwrap_or(0);
 
       GroupedBranchInfo {
         name: branch_name.clone(),
@@ -158,17 +113,7 @@ pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_pa
         commits: commits
           .iter()
           .rev() // Reverse to show newest commits first within branch
-          .map(|commit| CommitDetail {
-            original_hash: commit.id.to_string(),
-            hash: String::new(), // Will be filled after sync
-            subject: commit.subject.clone(),
-            message: commit.message.clone(),
-            author: commit.author_name.clone(),
-            author_time: commit.author_time,
-            committer_time: commit.committer_time,
-            status: CommitSyncStatus::Pending,
-            error: None,
-          })
+          .cloned()
           .collect(),
       }
     })
@@ -188,14 +133,14 @@ pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_pa
   let tree_id_cache = TreeIdCache::new();
 
   // Process branches sequentially (we can make this parallel later)
-  for (current_branch_idx, (branch_name, commit_data)) in grouped_commit_data.into_iter().enumerate() {
+  for (current_branch_idx, (branch_name, commits)) in grouped_commit_data.into_iter().enumerate() {
     debug!("Processing branch {} of {total_branches}: {branch_name}", current_branch_idx + 1);
 
     let params = BranchProcessingParams {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
       branch_name,
-      commit_data,
+      commits,
       parent_commit_hash: parent_commit_hash.clone(),
       current_branch_idx,
       total_branches,
@@ -221,7 +166,7 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
     repository_path,
     branch_prefix,
     branch_name,
-    commit_data,
+    commits,
     parent_commit_hash,
     current_branch_idx,
     total_branches,
@@ -239,21 +184,20 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
 
   let mut current_parent_hash = parent_commit_hash;
   let mut last_commit_hash = String::new();
-  let mut commit_details: Vec<CommitDetail> = Vec::new();
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<CommitNoteInfo> = Vec::new();
 
   // recreate each commit on top of the last one
-  let total_commits_in_branch = commit_data.len();
+  let total_commits_in_branch = commits.len();
 
   // Collect all commit hashes for potential blocking notifications
-  let all_commit_hashes: Vec<String> = commit_data.iter().map(|c| c.id.to_string()).collect();
+  let all_commit_hashes: Vec<String> = commits.iter().map(|c| c.id.to_string()).collect();
 
-  for (current_commit_idx, commit_info) in commit_data.into_iter().enumerate() {
+  for (current_commit_idx, commit) in commits.into_iter().enumerate() {
     debug!(
       "Processing commit {}/{total_commits_in_branch} in branch {branch_name}: {}",
       current_commit_idx + 1,
-      commit_info.id
+      commit.id
     );
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
     // even if its own content didn't change — so that its parent reference is updated.
@@ -269,7 +213,7 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
 
     let progress_adapter = ProgressReporterAdapter::new(progress);
     let commit_params = CreateCommitParams {
-      commit_info: &commit_info,
+      commit: &commit,
       new_parent_oid: current_parent_hash,
       reuse_if_possible,
       repo_path: &repository_path,
@@ -280,18 +224,31 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
       tree_id_cache: &tree_id_cache,
     };
 
-    let original_hash = commit_info.id.to_string();
+    let original_hash = commit.id.to_string();
 
-    let (detail, new_id, note_info) = match create_or_update_commit(commit_params) {
-      Ok((detail, commit_hash, note)) => {
+    let result = create_or_update_commit(commit_params);
+
+    match result {
+      Ok((new_commit_hash, sync_status, note_info)) => {
         // Send success event with status
         let _ = progress.send(SyncEvent::CommitSynced {
           branch_name: branch_name.clone(),
           commit_hash: original_hash.clone(),
-          new_hash: commit_hash.clone(),
-          status: detail.status.clone(),
+          new_hash: new_commit_hash.clone(),
+          status: sync_status.clone(),
         });
-        (detail, commit_hash, note)
+
+        if sync_status == CommitSyncStatus::Created {
+          is_any_commit_changed = true;
+        }
+
+        // Collect note info if present
+        if let Some(note) = note_info {
+          pending_notes.push(note);
+        }
+
+        current_parent_hash = new_commit_hash.clone();
+        last_commit_hash = new_commit_hash;
       }
       Err(CopyCommitError::BranchError(branch_error)) => {
         // Send error event for this commit
@@ -320,27 +277,14 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
         let _ = progress.send(SyncEvent::BranchStatusUpdate {
           branch_name: branch_name.clone(),
           status,
-          error: None,
+          error: Some(branch_error),
         });
 
         // Return early - error already sent via events
         return Ok(());
       }
       Err(CopyCommitError::Other(e)) => return Err(e),
-    };
-
-    if detail.status == CommitSyncStatus::Created {
-      is_any_commit_changed = true;
     }
-
-    // Collect note info if present
-    if let Some(note) = note_info {
-      pending_notes.push(note);
-    }
-
-    current_parent_hash = new_id.clone();
-    last_commit_hash = new_id;
-    commit_details.push(detail);
   }
 
   let branch_sync_status: BranchSyncStatus;
@@ -359,11 +303,6 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
 
   // only update the branch if it's new or changed
   if branch_sync_status != BranchSyncStatus::Unchanged {
-    let _ = progress.send(SyncEvent::Progress {
-      message: format!("[{}/{}] {}: Setting branch reference", current_branch_idx + 1, total_branches, branch_name),
-      index: task_index,
-    });
-
     // Use git CLI to update branch reference
     let commit_hash_str = last_commit_hash.to_string();
     let args = vec!["branch", "-f", &full_branch_name, &commit_hash_str];
@@ -382,12 +321,6 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
         error: Some(BranchError::Generic(format!("Failed to write commit notes: {e}"))),
       });
 
-      // send end-of-task progress with empty message
-      progress.send(SyncEvent::Progress {
-        message: String::new(),
-        index: task_index,
-      })?;
-
       return Err(e);
     }
   }
@@ -400,12 +333,6 @@ async fn process_single_branch(params: BranchProcessingParams<'_>) -> anyhow::Re
     error: None,
   });
 
-  // send end-of-task progress with empty message
-  progress.send(SyncEvent::Progress {
-    message: String::new(),
-    index: task_index,
-  })?;
-
   Ok(())
 }
 
@@ -415,3 +342,7 @@ pub fn check_branch_exists(git_executor: &GitCommandExecutor, repo_path: &str, b
   let args = vec!["show-ref", "--verify", "--quiet", &branch_ref];
   git_executor.execute_command(&args, repo_path).is_ok()
 }
+
+#[cfg(test)]
+#[path = "sync_test.rs"]
+mod tests;

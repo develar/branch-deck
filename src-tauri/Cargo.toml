@@ -11,6 +11,8 @@ default-run = "branch-deck"
 [features]
 default = []
 auto-update = ["dep:tauri-plugin-updater"]
+devtools = ["dep:tauri-plugin-devtools"]
+telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:tracing-subscriber"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,36 +32,36 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.7.0", features = [] }
-serde = { version = "1", features = ["derive"] }
+tauri.workspace = true
+serde.workspace = true
 branch-sync = { path = "../crates/branch-sync", features = ["specta"] }
 #noinspection CargoUnusedDependency
-serde_json = "1"
-specta = "=2.0.0-rc.22"
+serde_json.workspace = true
+specta.workspace = true
 specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-regex = "1.11.1"
-indexmap = "2.10.0"
 tauri-plugin-log = "2"
-tauri-plugin-devtools = "2.0.0"
-anyhow = {version = "1.0.98", features = ["default", "backtrace"] }
-tracing = { version = "0.1.41", features = ["max_level_debug", "release_max_level_info"] }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
+anyhow.workspace = true
+tracing.workspace = true
 tracing-log = "0.2"
-opentelemetry = "0.30.0"
-opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"] }
-opentelemetry-otlp = { version = "0.30.0", features = ["http-proto", "reqwest-blocking-client"] }
-tracing-opentelemetry = "0.31.0"
-tempfile = "3.20.0"
+log = "0.4"
+
+# Development and telemetry dependencies (feature-gated)
+tauri-plugin-devtools = { version = "2.0.0", optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+opentelemetry = { version = "0.30.0", optional = true }
+opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"], optional = true }
+opentelemetry-otlp = { version = "0.30.0", features = ["http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "0.31.0", optional = true }
+tempfile.workspace = true
 
 # Crate dependencies
-model-ai = { path = "../crates/model-ai" }
-model-core = { path = "../crates/model-core" }
+model-tauri = { path = "../crates/model-tauri" }
 git-ops = { path = "../crates/git-ops" }
-tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
+tokio.workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = { version = "2", optional = true }
@@ -67,7 +69,7 @@ tauri-plugin-window-state = "2"
 
 # Platform-conditional CUDA support for optimal GPU acceleration
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-model-core = { path = "../crates/model-core", features = ["cuda"] }
+model-tauri = { path = "../crates/model-tauri" }
 
 [dev-dependencies]
 test-utils = { path = "../crates/test-utils" }

@@ -61,6 +61,11 @@ impl TestRepo {
 
   /// Creates a commit with a file
   pub fn create_commit(&self, message: &str, filename: &str, content: &str) -> String {
+    self.create_commit_with_timestamp(message, filename, content, None)
+  }
+
+  /// Creates a commit with a file and fixed timestamp
+  pub fn create_commit_with_timestamp(&self, message: &str, filename: &str, content: &str, timestamp: Option<i64>) -> String {
     // Write a file
     let file_path = self.path().join(filename);
     if let Some(parent) = file_path.parent() {
@@ -74,15 +79,24 @@ impl TestRepo {
       panic!("Git add failed: {}", String::from_utf8_lossy(&output.stderr));
     }
 
-    // Commit
+    // Commit with optional fixed timestamp
+    let mut cmd = Command::new("git");
+
+    // If timestamp is provided, set GIT_AUTHOR_DATE and GIT_COMMITTER_DATE
+    if let Some(ts) = timestamp {
+      let date_str = format!("{ts} +0000");
+      cmd.env("GIT_AUTHOR_DATE", &date_str);
+      cmd.env("GIT_COMMITTER_DATE", &date_str);
+    }
+
     let output = if message.is_empty() {
-      Command::new("git")
+      cmd
         .args(["--no-pager", "commit", "--allow-empty-message", "-m", ""])
         .current_dir(self.path())
         .output()
         .unwrap()
     } else {
-      Command::new("git").args(["--no-pager", "commit", "-m", message]).current_dir(self.path()).output().unwrap()
+      cmd.args(["--no-pager", "commit", "-m", message]).current_dir(self.path()).output().unwrap()
     };
 
     if !output.status.success() {
@@ -220,6 +234,21 @@ impl TestRepo {
       Ok(String::from_utf8_lossy(&output.stdout).lines().map(|s| s.to_string()).collect())
     } else {
       Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+  }
+
+  /// Get the last N commit messages from HEAD
+  pub fn get_commit_messages(&self, count: usize) -> Vec<String> {
+    let output = Command::new("git")
+      .args(["--no-pager", "log", &format!("-{count}"), "--pretty=format:%s"])
+      .current_dir(self.path())
+      .output()
+      .unwrap();
+
+    if output.status.success() {
+      String::from_utf8_lossy(&output.stdout).lines().map(|s| s.to_string()).collect()
+    } else {
+      vec![]
     }
   }
 }

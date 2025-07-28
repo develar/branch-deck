@@ -2,15 +2,16 @@
   <UModal title="Configure Branch Prefix" class="max-w-2xl">
     <UTooltip :disabled="configured" text="Please configure the branch prefix">
       <UButton
-        :color="configured ? undefined : 'warning'"
+        :color="configured || disabled ? undefined : 'warning'"
         :disabled="disabled"
         icon="i-lucide-settings"
         variant="outline"
+        size="sm"
       />
     </UTooltip>
 
     <template #content>
-      <div class="p-6 space-y-6">
+      <div class="p-6 space-y-6 max-h-[90vh] overflow-y-auto">
         <p class="text-sm text-default">
           The branch prefix is automatically prepended to your virtual branches. Setting a personal prefix (like your username) helps identify your branches in a shared repository.
         </p>

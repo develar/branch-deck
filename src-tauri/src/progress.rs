@@ -37,11 +37,6 @@ impl<'a> TauriChannelProgress<'a> {
 }
 
 impl<'a> ProgressCallback for TauriChannelProgress<'a> {
-  fn send_progress(&self, message: String, index: i16) -> Result<()> {
-    self.channel.send(SyncEvent::Progress { message, index })?;
-    Ok(())
-  }
-
   fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> Result<()> {
     self.channel.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })?;
     Ok(())

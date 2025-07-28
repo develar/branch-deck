@@ -38,7 +38,7 @@
 <script lang="ts" setup>
 import { computed } from "vue"
 import type { MergeConflictInfo, ConflictMarkerCommitInfo } from "~/utils/bindings"
-// useSubWindowData is auto-imported from shared-ui layer
+// useSubWindowData and useSubWindowFocusSync are auto-imported from shared-ui layer
 
 // Disable layout for sub-window
 definePageMeta({
@@ -48,9 +48,6 @@ definePageMeta({
 interface ConflictingFilesData {
   conflict: MergeConflictInfo
   branchName: string
-  showConflictsOnly: boolean
-  viewMode: string
-  conflictDiffViewMode: "unified" | "split"
 }
 
 const conflictData = useSubWindowData<ConflictingFilesData>()

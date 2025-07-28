@@ -1,0 +1,89 @@
+- row:
+  - cell:
+    - paragraph: Cherry-pick conflict detected
+    - paragraph: "Cannot apply: (bug-fix) Implement secure password hashing"
+    - paragraph: 2 commits are missing that altered the files in conflict.
+    - paragraph: "Common ancestor: 05239cbe (4 commits behind source, 0 commits behind target)"
+    - heading "Missing Commits Details" [level=2]
+    - button "Unified"
+    - button "Split"
+    - button "Open in Window"
+    - table:
+      - rowgroup:
+        - row /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+          - cell /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+            - paragraph: (feature-auth) Add authentication to UserService
+            - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+              - button "src/main/kotlin/com/example/service/UserService.kt":
+                - button
+        - row /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+          - cell /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+            - paragraph: Add UserService
+            - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+              - button "src/main/kotlin/com/example/service/UserService.kt":
+                - button
+    - heading "Resolution Steps" [level=3]
+    - paragraph: "To resolve this conflict, you can:"
+    - list:
+      - listitem: • Include the missing commits in this branch by changing their prefix to match.
+      - listitem: • Move the conflicting changes to a different commit or branch.
+      - listitem: • Exclude this commit from the branch by changing its prefix.
+    - heading "Conflicting Files" [level=2]
+    - button "Open in Window"
+    - tablist:
+      - tab "Diff View" [selected]
+      - tab "3-way Merge"
+    - tabpanel "Diff View":
+      - switch "Conflicts only" [checked]
+      - text: Conflicts only
+      - button "Unified"
+      - button "Split"
+    - heading "Missing commits cause conflicts" [level=3]
+    - paragraph: This commit cannot be copied to the virtual branch because other commits modified the same files first.
+    - paragraph: Apply the missing commits shown above to resolve conflicts automatically.
+    - table:
+      - rowgroup:
+        - row:
+          - cell:
+            - paragraph: Implement secure password hashing
+            - paragraph: Cherry-pick conflict detected
+            - paragraph: "Cannot apply: (bug-fix) Implement secure password hashing"
+            - paragraph: 2 commits are missing that altered the files in conflict.
+            - paragraph: "Common ancestor: 05239cbe (4 commits behind source, 0 commits behind target)"
+            - heading "Missing Commits Details" [level=2]
+            - button "Unified"
+            - button "Split"
+            - button "Open in Window"
+            - table:
+              - rowgroup:
+                - row /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                  - cell /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                    - paragraph: (feature-auth) Add authentication to UserService
+                    - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+                      - button "src/main/kotlin/com/example/service/UserService.kt":
+                        - button
+                - row /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                  - cell /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                    - paragraph: Add UserService
+                    - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+                      - button "src/main/kotlin/com/example/service/UserService.kt":
+                        - button
+            - heading "Resolution Steps" [level=3]
+            - paragraph: "To resolve this conflict, you can:"
+            - list:
+              - listitem: • Include the missing commits in this branch by changing their prefix to match.
+              - listitem: • Move the conflicting changes to a different commit or branch.
+              - listitem: • Exclude this commit from the branch by changing its prefix.
+            - heading "Conflicting Files" [level=2]
+            - button "Open in Window"
+            - tablist:
+              - tab "Diff View" [selected]
+              - tab "3-way Merge"
+            - tabpanel "Diff View":
+              - switch "Conflicts only" [checked]
+              - text: Conflicts only
+              - button "Unified"
+              - button "Split"
+            - heading "Missing commits cause conflicts" [level=3]
+            - paragraph: This commit cannot be copied to the virtual branch because other commits modified the same files first.
+            - paragraph: Apply the missing commits shown above to resolve conflicts automatically.

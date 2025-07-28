@@ -27,6 +27,12 @@ export default withNuxt()
       }],
       "vue/multi-word-component-names": "off",
       "@stylistic/eol-last": "off",
+      // Enforce braces for all control statements
+      "curly": ["error", "all"],
+      // Enforce newline before and after braces
+      "@stylistic/brace-style": ["error", "stroustrup", { allowSingleLine: false }],
+      // Enforce consistent newlines in control statements
+      "@stylistic/nonblock-statement-body-position": ["error", "below"],
     },
   })
   .append({

@@ -55,13 +55,9 @@ const props = defineProps<{
 }>()
 
 async function openConflictingFilesWindow() {
-  // Get current settings from ConflictingFilesSection if needed
   const data = {
     conflict: props.conflictInfo,
     branchName: props.branchName || "Unknown",
-    showConflictsOnly: false,
-    viewMode: "diff",
-    conflictDiffViewMode: "unified" as const,
   }
 
   await openSubWindow({

@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/test-utils", "crates/test-server", "crates/branch-sync"]
+members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/branch-sync"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -11,32 +11,49 @@ resolver = "2"
 anyhow = { version = "1.0.98", features = ["default", "backtrace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
-tracing = { version = "0.1.41", features = ["max_level_debug", "release_max_level_info"] }
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "macros", "net", "sync", "process"] }
+tracing = { version = "0.1.41", features = ["max_level_debug", "release_max_level_info", "log"] }
+
+# Tauri framework
+tauri = { version = "2.7.0", features = [] }
+
+# Testing utilities
+pretty_assertions = "1.4"
+tempfile = "3.20.0"
+
+# Logging and tracing
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
+
+# Common utilities
+regex = "1.11.1"
+indexmap = "2.10.0"
+dashmap = "6.1.0"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+# Specta for type generation (most comprehensive feature set)
+specta = { version = "=2.0.0-rc.22", features = ["derive", "function"] }
+
+# CLI and additional tokio utilities
+clap = { version = "4.5", features = ["derive"] }
+tokio-stream = "0.1"
+tokio-test = "0.4"
 
 # Development profile with incremental compilation
 [profile.dev]
 incremental = true
-opt-level = 2              # Optimize all dependencies for better ML performance
 
-# Keep main application unoptimized for fast development builds
-[profile.dev.package."branch-deck"]
-opt-level = 0              # No optimization for fast rebuilds
-debug = true               # Keep debug info for development
-
-[profile.dev.package."branch-sync"]
-opt-level = 0              # No optimization for fast rebuilds
-debug = true               # Keep debug info for development
-[profile.dev.package."test-utils"]
-opt-level = 0              # No optimization for fast rebuilds
-debug = true               # Keep debug info for development
-[profile.dev.package."test-server"]
-opt-level = 0              # No optimization for fast rebuilds
-debug = true               # Keep debug info for development
-
-[profile.dev.package."git-ops"]
-opt-level = 0              # No optimization for fast rebuilds
-debug = true               # Keep debug info for development
+# Optimize ML dependencies for better performance
+[profile.dev.package."candle-core"]
+opt-level = 2
+[profile.dev.package."candle-nn"]
+opt-level = 2
+[profile.dev.package."candle-transformers"]
+opt-level = 2
+[profile.dev.package."tokenizers"]
+opt-level = 2
+[profile.dev.package."safetensors"]
+opt-level = 2
 
 [profile.release]
 codegen-units = 1          # Allows LLVM to perform better optimization

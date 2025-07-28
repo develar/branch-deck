@@ -11,15 +11,16 @@ serde.workspace = true
 tracing.workspace = true
 
 # Git and file operations
-dashmap = "6.1.0"
+dashmap.workspace = true
 
 # Tauri dependencies for IPC
-tauri = { version = "2.7.0", features = [] }
-specta = { version = "=2.0.0-rc.22", features = ["derive"] }
+tauri.workspace = true
+specta.workspace = true
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
+tracing-subscriber.workspace = true
+pretty_assertions = { workspace = true }
 
 [features]
 default = []

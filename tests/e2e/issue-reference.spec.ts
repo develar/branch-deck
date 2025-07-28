@@ -1,100 +1,53 @@
-import { test, expect } from "./fixtures/base-test"
-import { TestRepositoryBuilder } from "./helpers/test-repository"
+import { test, expect } from "./fixtures/test-fixtures"
+import { waitForBranchSyncComplete } from "./helpers/sync-helpers"
+import { openContextMenu, clickContextMenuItem } from "./helpers/selection-helpers"
+import { inlineIssueReference, submitInlineForm, testInputAutoFocus, testEscapeKeyBehavior, testEscapeKeyWithButtonFocus, validateFormError } from "./helpers/inline-form-helpers"
+import { waitForApiResponse, waitForProcessingComplete } from "./helpers/wait-helpers"
+import { findBranchRow, isBranchProcessing } from "./helpers/branch-helpers"
 
 test.describe("Issue Reference Feature", () => {
-  let repoBuilder: TestRepositoryBuilder
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    // Setup test repository with simple template
+    await setupRepo("simple")
 
-  test.beforeEach(async ({ page }) => {
-    // Create a test repository using the simple template
-    repoBuilder = new TestRepositoryBuilder()
-      .useTemplate("simple")
-    await repoBuilder.init()
-
-    // Open browser console to see debug logs
-    page.on("console", (msg) => {
-      console.log(`[Browser]`, msg.type(), msg.text())
-    })
-
-    // Navigate to the app with the test repository path and ID in URL
-    await page.goto(`/?testRepo=${encodeURIComponent(repoBuilder.path)}&repoId=${repoBuilder.id}`)
-    await page.waitForLoadState("networkidle")
-
-    // Wait for branch prefix to be loaded from git config
-    const branchPrefixInput = page.locator("input[placeholder=\"Enter branch prefix...\"]")
-    await expect(branchPrefixInput).toHaveValue("user-name")
-
-    // Click sync button to load branches
-    const syncButton = page.locator("button:has-text(\"Sync Virtual Branches\")")
-
-    // Wait for the button to be enabled
-    await expect(syncButton).toBeEnabled()
-
-    await syncButton.click()
-
-    // Wait for branches to load
-    await page.waitForSelector("[data-testid=\"branch-row\"]")
-  })
-
-  test.afterEach(async () => {
-    await repoBuilder.cleanup()
+    // Sync branches and wait for them to load
+    await syncAndWaitForBranches()
   })
 
   test("should add issue reference to branch via context menu", async ({ page }) => {
     // Find the branch row
-    const branchRow = page.locator("[data-testid=\"branch-row\"]", {
-      hasText: "test-branch",
-    })
+    const branchRow = findBranchRow(page, "test-branch")
 
-    // Wait for the branch to finish syncing (status badge appears instead of progress bar)
-    const statusCell = branchRow.locator("td").nth(2) // Third cell is status
-    await expect(statusCell.locator("[role=\"progressbar\"]")).not.toBeVisible()
-
-    // Now wait for the status badge to appear
-    const statusBadge = statusCell.locator(".lowercase")
-    await expect(statusBadge).toBeVisible()
-    const statusText = await statusBadge.textContent()
-    console.log("Branch status text:", statusText)
+    // Wait for the branch to finish syncing
+    await waitForBranchSyncComplete(page, "test-branch")
 
     // Right-click to open context menu
-    await branchRow.click({ button: "right" })
+    await openContextMenu(page, branchRow)
 
-    // Wait for context menu to appear and click the menu item
-    const addIssueMenuItem = page.getByRole("menuitem", { name: "Add Issue Reference" })
-    await addIssueMenuItem.waitFor({ state: "visible" })
+    // Wait for the menu item to appear - it only shows if commits are loaded
+    await page.waitForSelector("text=Add Issue Reference", { timeout: 5000 })
 
-    await addIssueMenuItem.click()
+    // Click the menu item
+    await clickContextMenuItem(page, "Add Issue Reference")
 
     // The inline input should appear
-    const inlineInput = page.locator("[data-testid=\"inline-issue-input\"]")
-    await expect(inlineInput).toBeVisible()
+    await inlineIssueReference.waitForVisible(page)
 
     // The input should be focused
-    const input = inlineInput.locator("input[type=\"text\"]")
-    await expect(input).toBeFocused()
+    const input = inlineIssueReference.getInput(page)
+    await testInputAutoFocus(input)
 
-    // Type an issue reference
-    await input.fill("GH-123")
-
-    // Submit with Enter
-    await input.press("Enter")
+    // Type an issue reference and submit
+    await submitInlineForm(input, "GH-123")
 
     // The inline input should disappear immediately after submission
-    await expect(inlineInput).not.toBeVisible()
+    await inlineIssueReference.waitForHidden(page)
 
     // Now wait for the API call to complete (happens after form is hidden)
-    await page.waitForResponse(response =>
-      response.url().includes("add_issue_reference_to_commits") && response.status() === 200,
-    )
+    await waitForApiResponse(page, "add_issue_reference_to_commits")
 
-    // The branch should either show processing state OR already be done
-    // (processing might be very fast in tests)
-    const branchRowClasses = await branchRow.getAttribute("class")
-    const isProcessing = branchRowClasses?.includes("animate-pulse")
-
-    if (isProcessing) {
-      // Wait for processing to complete - the animate-pulse class should be removed
-      await expect(branchRow).not.toHaveClass(/animate-pulse/)
-    }
+    // Wait for processing to complete if needed
+    await waitForProcessingComplete(page, branchRow)
 
     // Verify the issue reference was added (would need to check commit messages)
     // This would be verified by checking that commits now have the prefix
@@ -102,103 +55,73 @@ test.describe("Issue Reference Feature", () => {
 
   test("should validate issue reference format", async ({ page }) => {
     // Open inline input
-    const branchRow = page.locator("[data-testid=\"branch-row\"]", {
-      hasText: "test-branch",
-    })
-    await branchRow.click({ button: "right" })
-    const addIssueMenuItem = page.getByRole("menuitem", { name: "Add Issue Reference" })
-    await addIssueMenuItem.waitFor({ state: "visible" })
-    await addIssueMenuItem.click()
+    const branchRow = findBranchRow(page, "test-branch")
+    await openContextMenu(page, branchRow)
+    await clickContextMenuItem(page, "Add Issue Reference")
 
-    const inlineInput = page.locator("[data-testid=\"inline-issue-input\"]")
-    const input = inlineInput.locator("input")
-    await expect(input).toBeFocused()
+    await inlineIssueReference.waitForVisible(page)
+    const input = inlineIssueReference.getInput(page)
+    await testInputAutoFocus(input)
 
     // Try to submit empty input - it should not submit
     await input.press("Enter")
     // The input should still be visible since submit was rejected
-    await expect(inlineInput).toBeVisible()
+    await expect(inlineIssueReference.getForm(page)).toBeVisible()
 
     // Try invalid format
-    await input.fill("invalid!@#")
-    await input.press("Enter")
-    // Should show error message for invalid format
-    const errorMessage = page.locator("[data-testid=\"inline-issue-input\"] .text-error")
-    await expect(errorMessage).toContainText("Issue reference must be in format like ABC-123")
+    await validateFormError(
+      page,
+      inlineIssueReference.getForm(page),
+      input,
+      "invalid!@#",
+      "Issue reference must be in format like ABC-123",
+    )
 
     // Valid format should work
-    await input.fill("JIRA-456")
-    await input.press("Enter")
+    await submitInlineForm(input, "JIRA-456")
 
-    await expect(inlineInput).not.toBeVisible()
+    await inlineIssueReference.waitForHidden(page)
   })
 
   test("should cancel with Escape key", async ({ page }) => {
     // Open inline input
-    const branchRow = page.locator("[data-testid=\"branch-row\"]", {
-      hasText: "test-branch",
-    })
-    await branchRow.click({ button: "right" })
-    const addIssueMenuItem = page.getByRole("menuitem", { name: "Add Issue Reference" })
-    await addIssueMenuItem.waitFor({ state: "visible" })
-    await addIssueMenuItem.click()
+    const branchRow = findBranchRow(page, "test-branch")
+    await openContextMenu(page, branchRow)
+    await clickContextMenuItem(page, "Add Issue Reference")
 
-    const inlineInput = page.locator("[data-testid=\"inline-issue-input\"]")
-    await expect(inlineInput).toBeVisible()
+    await inlineIssueReference.waitForVisible(page)
 
-    const input = inlineInput.locator("input")
-    await input.fill("TEST-789")
-
-    // Press Escape to cancel
-    await input.press("Escape")
-
-    // Input should disappear without submitting
-    await expect(inlineInput).not.toBeVisible()
+    const input = inlineIssueReference.getInput(page)
+    await testEscapeKeyBehavior(page, inlineIssueReference.getForm(page), input, "TEST-789")
 
     // Branch row should not show processing state
-    const branchRowClasses = await branchRow.getAttribute("class")
-    expect(branchRowClasses).not.toContain("animate-pulse")
+    const isProcessing = await isBranchProcessing(branchRow)
+    expect(isProcessing).toBe(false)
   })
 
   test("should cancel with Escape key even when button is focused", async ({ page }) => {
     // Open inline input
-    const branchRow = page.locator("[data-testid=\"branch-row\"]", {
-      hasText: "test-branch",
-    })
-    await branchRow.click({ button: "right" })
-    const addIssueMenuItem = page.getByRole("menuitem", { name: "Add Issue Reference" })
-    await addIssueMenuItem.waitFor({ state: "visible" })
-    await addIssueMenuItem.click()
+    const branchRow = findBranchRow(page, "test-branch")
+    await openContextMenu(page, branchRow)
+    await clickContextMenuItem(page, "Add Issue Reference")
 
-    const inlineInput = page.locator("[data-testid=\"inline-issue-input\"]")
-    await expect(inlineInput).toBeVisible()
+    await inlineIssueReference.waitForVisible(page)
 
-    const input = inlineInput.locator("input")
-    await input.fill("TEST-123")
-
-    // Focus on the Cancel button
-    const cancelButton = inlineInput.locator("button:has-text('Cancel')")
-    await cancelButton.focus()
-    await expect(cancelButton).toBeFocused()
-
-    // Press Escape while button is focused
-    await page.keyboard.press("Escape")
-
-    // Input should disappear
-    await expect(inlineInput).not.toBeVisible()
+    const input = inlineIssueReference.getInput(page)
+    const cancelButton = inlineIssueReference.getCancelButton(page)
+    await testEscapeKeyWithButtonFocus(page, inlineIssueReference.getForm(page), input, cancelButton, "TEST-123")
   })
 
   test("should focus input when opened", async ({ page }) => {
     // This tests the auto-focus behavior that was fixed
     const branchRow = page.locator("[data-testid=\"branch-row\"]").first()
-    await branchRow.click({ button: "right" })
-    const addIssueMenuItem = page.getByRole("menuitem", { name: "Add Issue Reference" })
-    await addIssueMenuItem.waitFor({ state: "visible" })
-    await addIssueMenuItem.click()
+    await openContextMenu(page, branchRow)
+    await clickContextMenuItem(page, "Add Issue Reference")
 
     // Input should be focused immediately
-    const input = page.locator("[data-testid=\"inline-issue-input\"] input")
-    await expect(input).toBeFocused()
+    await inlineIssueReference.waitForVisible(page)
+    const input = inlineIssueReference.getInput(page)
+    await testInputAutoFocus(input)
 
     // Should be able to type immediately
     await page.keyboard.type("QUICK-TYPE")

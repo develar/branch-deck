@@ -68,7 +68,7 @@
 
 <script lang="ts" setup>
 import type { MissingCommit } from "~/utils/bindings"
-// useSubWindowData is auto-imported from shared-ui layer
+// useSubWindowData and useSubWindowFocusSync are auto-imported from shared-ui layer
 
 // Disable layout for sub-window
 definePageMeta({
@@ -96,4 +96,5 @@ interface MissingCommitsWindowData {
 }
 
 const missingCommitsData = useSubWindowData<MissingCommitsWindowData>()
+
 </script>

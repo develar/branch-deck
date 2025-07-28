@@ -25,8 +25,9 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
     &submenu.services().separator().hide().hide_others().show_all().separator().quit().build()?
   };
 
-  #[cfg(not(target_os = "macos"))]
-  let file_menu = &SubmenuBuilder::new(app, "File").build()?;
+  let sync_branches = MenuItemBuilder::with_id("sync_branches", "Sync Branches").accelerator("CmdOrCtrl+R").build(app)?;
+
+  let file_menu = &SubmenuBuilder::new(app, "File").item(&sync_branches).build()?;
 
   #[cfg(not(target_os = "linux"))]
   let edit_menu_builder = SubmenuBuilder::new(app, "Edit").items(&[
@@ -69,7 +70,6 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
     &[
       #[cfg(target_os = "macos")]
       mac_menu,
-      #[cfg(not(target_os = "macos"))]
       file_menu,
       #[cfg(not(target_os = "linux"))]
       edit_menu,
@@ -103,6 +103,12 @@ pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
       let result = app.emit("open_color_selector", ());
       if result.is_err() {
         tracing::error!(error = ?result.err(), "error while opening color selector");
+      }
+    }
+    "sync_branches" => {
+      let result = app.emit("sync-branches", ());
+      if result.is_err() {
+        tracing::error!(error = ?result.err(), "error while triggering sync branches");
       }
     }
     _ => {}

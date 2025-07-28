@@ -1,5 +1,6 @@
 use crate::commit_grouper::ISSUE_PATTERN;
 use git_ops::git_command::GitCommandExecutor;
+use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{reword_commits_batch, RewordCommitParams};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use tracing::info;
 pub struct AddIssueReferenceParams {
   pub repository_path: String,
   pub branch_name: String,
-  pub commit_ids: Vec<String>,
+  pub commits: Vec<CommitInfo>,
   pub issue_reference: String,
 }
 
@@ -31,7 +32,7 @@ pub async fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecut
     "Adding issue reference '{}' to branch '{}' ({} commits)",
     params.issue_reference,
     params.branch_name,
-    params.commit_ids.len()
+    params.commits.len()
   );
 
   // Validate issue reference format
@@ -52,38 +53,35 @@ pub async fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecut
   let mut rewrites = Vec::new();
   let mut skipped_count = 0u32;
 
-  for commit_id in params.commit_ids {
-    // Get the full commit message
-    let args = vec!["log", "-1", "--pretty=format:%B", &commit_id];
-    let original_message = git_executor
-      .execute_command(&args, &params.repository_path)
-      .map_err(|e| format!("Failed to get commit message for {}: {}", &commit_id[..7], e))?;
+  for commit in params.commits {
+    let trimmed_message = commit.message.trim();
 
-    let trimmed_message = original_message.trim();
-
-    // Check if message starts with the expected branch prefix
-    if !trimmed_message.starts_with(&branch_prefix) {
-      return Err(format!(
-        "Commit {} doesn't belong to branch '{}': {}",
-        &commit_id[..7],
-        params.branch_name,
-        trimmed_message.lines().next().unwrap_or(trimmed_message)
-      ));
-    }
-
-    // Extract the message after the branch prefix
-    let message_after_prefix = &trimmed_message[branch_prefix.len()..];
+    // Extract the message after the branch prefix if it exists
+    let message_after_prefix = if trimmed_message.starts_with(&branch_prefix) {
+      &trimmed_message[branch_prefix.len()..]
+    } else {
+      trimmed_message
+    };
 
     // Check if an issue reference already exists (matches pattern like ABC-123:)
     if has_issue_reference(message_after_prefix) {
-      info!("Skipping commit {} - already has issue reference", &commit_id[..7]);
+      info!("Skipping commit {} - already has issue reference", commit.hash);
       skipped_count += 1;
       continue;
     }
 
-    // Build new message: (branch-name) ISSUE-123 original message
-    let new_message = format!("{branch_prefix}{issue_prefix}{message_after_prefix}");
-    rewrites.push(RewordCommitParams { commit_id, new_message });
+    // Build new message: either prepend issue reference after branch prefix, or just prepend it
+    let new_message = if trimmed_message.starts_with(&branch_prefix) {
+      // Message has branch prefix: (branch-name) ISSUE-123 original message
+      format!("{branch_prefix}{issue_prefix}{message_after_prefix}")
+    } else {
+      // No branch prefix: ISSUE-123 original message
+      format!("{issue_prefix}{trimmed_message}")
+    };
+    rewrites.push(RewordCommitParams {
+      commit_id: commit.hash,
+      new_message,
+    });
   }
 
   let updated_count = rewrites.len() as u32;
@@ -148,3 +146,7 @@ mod tests {
     assert!(!has_issue_reference("Some text ABC-123 issue in the middle"));
   }
 }
+
+#[cfg(test)]
+#[path = "add_issue_reference_test.rs"]
+mod add_issue_reference_test;

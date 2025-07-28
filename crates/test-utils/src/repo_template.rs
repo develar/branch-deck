@@ -14,6 +14,7 @@ pub struct RepoTemplate {
 struct CommitSpec {
   message: String,
   files: Vec<(String, String)>,
+  timestamp: Option<i64>,
 }
 
 impl RepoTemplate {
@@ -30,10 +31,18 @@ impl RepoTemplate {
     self
   }
 
-  pub fn commit(mut self, message: impl Into<String>, files: &[(&str, &str)]) -> Self {
+  pub fn commit(self, message: impl Into<String>, files: &[(&str, &str)]) -> Self {
+    self.commit_with_timestamp(message, files, None)
+  }
+
+  pub fn commit_with_timestamp(mut self, message: impl Into<String>, files: &[(&str, &str)], timestamp: Option<i64>) -> Self {
     let files = files.iter().map(|(path, content)| (path.to_string(), content.to_string())).collect();
 
-    self.commits.push(CommitSpec { message: message.into(), files });
+    self.commits.push(CommitSpec {
+      message: message.into(),
+      files,
+      timestamp,
+    });
     self
   }
 
@@ -55,10 +64,8 @@ impl RepoTemplate {
       Command::new("git").args(["config", "branchdeck.branchPrefix", prefix]).current_dir(output_path).output()?;
     }
 
-    // Create an initial commit to serve as origin/master
-    fs::write(output_path.join("README.md"), "# Test Repository\n")?;
-    Command::new("git").args(["add", "README.md"]).current_dir(output_path).output()?;
-    Command::new("git").args(["commit", "-m", "Initial commit"]).current_dir(output_path).output()?;
+    // Track if we have any commits
+    let has_commits = !self.commits.is_empty();
 
     // Create commits
     for commit in self.commits {
@@ -74,23 +81,37 @@ impl RepoTemplate {
         Command::new("git").args(["add", file_path]).current_dir(output_path).output()?;
       }
 
-      // Commit
-      Command::new("git").args(["commit", "-m", &commit.message]).current_dir(output_path).output()?;
+      // Commit with optional timestamp
+      let mut cmd = Command::new("git");
+
+      // If timestamp is provided, set GIT_AUTHOR_DATE and GIT_COMMITTER_DATE
+      if let Some(ts) = commit.timestamp {
+        let date_str = format!("{ts} +0000");
+        cmd.env("GIT_AUTHOR_DATE", &date_str);
+        cmd.env("GIT_COMMITTER_DATE", &date_str);
+      }
+
+      cmd.args(["commit", "-m", &commit.message]).current_dir(output_path).output()?;
     }
 
     // Add a fake origin remote pointing to self for testing
     Command::new("git").args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
 
-    // Get the first commit hash (initial commit)
-    let initial_commit_output = Command::new("git").args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?;
+    // For templates that simulate existing repositories with history,
+    // create origin/master at the initial commit. This is needed for
+    // sync_branches to work properly.
+    if has_commits {
+      // Get the initial commit
+      let output = Command::new("git").args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?;
 
-    let initial_commit = String::from_utf8_lossy(&initial_commit_output.stdout).trim().to_string();
+      let initial_commit = String::from_utf8(output.stdout)?.trim().to_string();
 
-    // Create origin/master pointing to the initial commit
-    Command::new("git")
-      .args(["update-ref", "refs/remotes/origin/master", &initial_commit])
-      .current_dir(output_path)
-      .output()?;
+      // Create origin/master at the initial commit
+      Command::new("git")
+        .args(["update-ref", "refs/remotes/origin/master", &initial_commit])
+        .current_dir(output_path)
+        .output()?;
+    }
 
     Ok(())
   }
@@ -99,13 +120,693 @@ impl RepoTemplate {
 /// Pre-defined test repository templates
 pub mod templates {
   use super::RepoTemplate;
+  use anyhow::Result;
+  use std::fs;
+  use std::path::Path;
 
   /// Simple repository with 2 commits using branch prefix
   pub fn simple() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 14:00:00 UTC and 14:30:00 UTC
     RepoTemplate::new("simple")
       .branch_prefix("user-name")
-      .commit("(test-branch) foo 1", &[("file1.txt", "Content 1")])
-      .commit("(test-branch) foo 2", &[("file2.txt", "Content 2")])
+      .commit_with_timestamp("(test-branch) foo 1", &[("file1.txt", "Content 1")], Some(1704117600))
+      .commit_with_timestamp("(test-branch) foo 2", &[("file2.txt", "Content 2")], Some(1704119400))
+  }
+
+  /// Repository with unassigned commits (no branch prefix in commit messages)
+  pub fn unassigned() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("unassigned")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial commit", &[("README.md", "# Test Project\n\nThis is a test project.")], Some(1704117600))
+      .commit_with_timestamp(
+        "Add user authentication",
+        &[("auth.js", "// Authentication logic\nexport function login() {}")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "Fix login validation bug",
+        &[("auth.js", "// Authentication logic\nexport function login() {\n  // Fixed validation\n}")],
+        Some(1704121200),
+      )
+  }
+
+  /// Create a proper conflict scenario with interleaved commits
+  fn create_conflict_scenario(name: &str, scenario_type: &str) -> RepoTemplate {
+    // Use fixed timestamps starting at Jan 1, 2024 14:00:00 UTC, incrementing by 30 minutes
+    let mut template = RepoTemplate::new(name)
+      .branch_prefix("user-name")
+      // Initial commit - this becomes origin/master
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("README.md", "# Test Repository\n\nGenerated test repository for Branch Deck conflict demonstration.\n"),
+          (".gitignore", "*.class\nbuild/\n.gradle/\n.idea/\n*.iml\n"),
+          (
+            "build.gradle.kts",
+            r#"plugins {
+    kotlin("jvm") version "1.9.20"
+    id("org.springframework.boot") version "3.1.5"
+}
+
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+}
+"#,
+          ),
+        ],
+        Some(1704117600),
+      );
+
+    match scenario_type {
+      "unassigned" => {
+        // Create unassigned commits scenario
+        template = template
+          // Unassigned commit that will be pushed
+          .commit_with_timestamp(
+            "Add UserService",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    
+    fun getUser(id: String): User? = users[id]
+    
+    fun createUser(name: String, email: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email
+        )
+        users[user.id] = user
+        return user
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String
+)"#,
+            )],
+            Some(1704119400),
+          )
+          // Auth feature commits
+          .commit_with_timestamp(
+            "(feature-auth) Add authentication to UserService",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    private val tokens = mutableMapOf<String, String>() // token -> userId
+    
+    fun getUser(id: String): User? = users[id]
+    
+    fun createUser(name: String, email: String, password: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email,
+            passwordHash = hashPassword(password)
+        )
+        users[user.id] = user
+        return user
+    }
+    
+    fun authenticate(email: String, password: String): String? {
+        val user = users.values.find { it.email == email }
+        return if (user != null && verifyPassword(password, user.passwordHash)) {
+            val token = generateToken()
+            tokens[token] = user.id
+            token
+        } else null
+    }
+    
+    fun getUserByToken(token: String): User? {
+        val userId = tokens[token] ?: return null
+        return users[userId]
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
+    private fun hashPassword(password: String): String = password.reversed() // Simple fake hash
+    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String,
+    val passwordHash: String = ""
+)"#,
+            )],
+            Some(1704121200),
+          )
+          // Cache feature commits
+          .commit_with_timestamp(
+            "(feature-cache) Add caching to UserService",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    private val tokens = mutableMapOf<String, String>() // token -> userId
+    private val cache = mutableMapOf<String, User>() // Simple cache
+    
+    fun getUser(id: String): User? {
+        // Check cache first
+        cache[id]?.let { return it }
+        
+        // Load from storage and cache
+        val user = users[id]
+        if (user != null) {
+            cache[id] = user
+        }
+        return user
+    }
+    
+    fun createUser(name: String, email: String, password: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email,
+            passwordHash = hashPassword(password),
+            cached = false
+        )
+        users[user.id] = user
+        cache[user.id] = user.copy(cached = true)
+        return user
+    }
+    
+    fun authenticate(email: String, password: String): String? {
+        val user = users.values.find { it.email == email }
+        return if (user != null && verifyPassword(password, user.passwordHash)) {
+            val token = generateToken()
+            tokens[token] = user.id
+            token
+        } else null
+    }
+    
+    fun getUserByToken(token: String): User? {
+        val userId = tokens[token] ?: return null
+        return getUser(userId) // Uses cached version
+    }
+    
+    fun clearCache() {
+        cache.clear()
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
+    private fun hashPassword(password: String): String = password.reversed()
+    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String,
+    val passwordHash: String = "",
+    val cached: Boolean = false
+)"#,
+            )],
+            Some(1704123000),
+          )
+          // Auth depends on cache - will conflict when grouped
+          .commit_with_timestamp(
+            "(feature-auth) Add JWT tokens using cache",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+import java.util.Base64
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    private val tokens = mutableMapOf<String, String>()
+    private val cache = mutableMapOf<String, User>()
+    private val jwtCache = mutableMapOf<String, JwtToken>() // Cache JWT tokens
+    
+    fun getUser(id: String): User? {
+        cache[id]?.let { return it }
+        
+        val user = users[id]
+        if (user != null) {
+            cache[id] = user
+        }
+        return user
+    }
+    
+    fun createUser(name: String, email: String, password: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email,
+            passwordHash = hashPassword(password),
+            cached = false
+        )
+        users[user.id] = user
+        cache[user.id] = user.copy(cached = true)
+        return user
+    }
+    
+    fun authenticate(email: String, password: String): String? {
+        val user = users.values.find { it.email == email }
+        return if (user != null && verifyPassword(password, user.passwordHash)) {
+            // Check JWT cache first
+            val cachedJwt = jwtCache[user.id]
+            if (cachedJwt != null && !cachedJwt.isExpired()) {
+                return cachedJwt.token
+            }
+            
+            // Generate new JWT
+            val jwt = generateJWT(user.id)
+            jwtCache[user.id] = jwt
+            jwt.token
+        } else null
+    }
+    
+    fun getUserByToken(token: String): User? {
+        // Check if it's a JWT token
+        if (token.startsWith("jwt.")) {
+            val userId = decodeJWT(token)
+            return userId?.let { getUser(it) }
+        }
+        
+        // Legacy token support
+        val userId = tokens[token] ?: return null
+        return getUser(userId)
+    }
+    
+    fun clearCache() {
+        cache.clear()
+        jwtCache.clear()
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
+    private fun hashPassword(password: String): String = password.reversed()
+    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
+    
+    private fun generateJWT(userId: String): JwtToken {
+        val token = "jwt.${Base64.getEncoder().encodeToString(userId.toByteArray())}.${System.currentTimeMillis()}"
+        return JwtToken(token, System.currentTimeMillis() + 3600000)
+    }
+    
+    private fun decodeJWT(token: String): String? {
+        return try {
+            val parts = token.split(".")
+            if (parts.size >= 2) {
+                String(Base64.getDecoder().decode(parts[1]))
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String,
+    val passwordHash: String = "",
+    val cached: Boolean = false
+)
+
+data class JwtToken(
+    val token: String,
+    val expiresAt: Long
+) {
+    fun isExpired(): Boolean = System.currentTimeMillis() > expiresAt
+}"#,
+            )],
+            Some(1704124800),
+          )
+          // Add unassigned commits that depend on each other (for conflict testing)
+          .commit_with_timestamp(
+            "Add bcrypt dependency",
+            &[(
+              "build.gradle.kts",
+              r#"plugins {
+    kotlin("jvm") version "1.9.20"
+    id("org.springframework.boot") version "3.1.5"
+}
+
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.mindrot:jbcrypt:0.4")
+}
+"#,
+            )],
+            Some(1704124800),
+          )
+          .commit_with_timestamp(
+            "Implement secure password hashing",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+import org.mindrot.jbcrypt.BCrypt
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    private val tokens = mutableMapOf<String, String>() // token -> userId
+
+    fun getUser(id: String): User? = users[id]
+
+    fun createUser(name: String, email: String, password: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email,
+            passwordHash = BCrypt.hashpw(password, BCrypt.gensalt()) // Using bcrypt
+        )
+        users[user.id] = user
+        return user
+    }
+
+    fun authenticate(email: String, password: String): String? {
+        val user = users.values.find { it.email == email }
+        return if (user != null && BCrypt.checkpw(password, user.passwordHash)) {
+            val token = generateToken()
+            tokens[token] = user.id
+            token
+        } else null
+    }
+
+    fun getUserByToken(token: String): User? {
+        val userId = tokens[token] ?: return null
+        return users[userId]
+    }
+
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String,
+    val passwordHash: String = ""
+)"#,
+            )],
+            Some(1704126600),
+          )
+          // Unassigned refactoring
+          .commit_with_timestamp(
+            "Refactor: Extract configuration constants",
+            &[(
+              "src/main/kotlin/com/example/config/AppConfig.kt",
+              r#"package com.example.config
+
+object AppConfig {
+    const val JWT_EXPIRY_MS = 3600000L // 1 hour
+    const val CACHE_SIZE_LIMIT = 1000
+    const val TOKEN_PREFIX = "jwt."
+}"#,
+            )],
+            Some(1704128400),
+          );
+      }
+      "branches" => {
+        // Create branches with conflicts scenario - matching E2E test expectations
+        template = template
+          // Unassigned base commit
+          .commit_with_timestamp(
+            "Add UserService",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    
+    fun getUser(id: String): User? = users[id]
+    
+    fun createUser(name: String, email: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email
+        )
+        users[user.id] = user
+        return user
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String
+)"#,
+            )],
+            Some(1704119400),
+          )
+          // feature-auth commits that sync cleanly
+          .commit_with_timestamp(
+            "(feature-auth) Add authentication to UserService",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    private val tokens = mutableMapOf<String, String>() // token -> userId
+    
+    fun getUser(id: String): User? = users[id]
+    
+    fun createUser(name: String, email: String, password: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email,
+            passwordHash = hashPassword(password)
+        )
+        users[user.id] = user
+        return user
+    }
+    
+    fun authenticate(email: String, password: String): String? {
+        val user = users.values.find { it.email == email }
+        return if (user != null && verifyPassword(password, user.passwordHash)) {
+            val token = generateToken()
+            tokens[token] = user.id
+            token
+        } else null
+    }
+    
+    fun getUserByToken(token: String): User? {
+        val userId = tokens[token] ?: return null
+        return users[userId]
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
+    private fun hashPassword(password: String): String = password.reversed() // Simple fake hash
+    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String,
+    val passwordHash: String = ""
+)"#,
+            )],
+            Some(1704121200),
+          )
+          .commit_with_timestamp(
+            "(feature-auth) Add user roles and permissions",
+            &[(
+              "src/main/kotlin/com/example/model/Roles.kt",
+              r#"package com.example.model
+
+enum class Role {
+    ADMIN, USER, GUEST
+}
+
+data class Permission(
+    val resource: String,
+    val actions: Set<String>
+)
+
+object RolePermissions {
+    val permissions = mapOf(
+        Role.ADMIN to setOf(
+            Permission("users", setOf("read", "write", "delete")),
+            Permission("settings", setOf("read", "write"))
+        ),
+        Role.USER to setOf(
+            Permission("users", setOf("read")),
+            Permission("settings", setOf("read"))
+        ),
+        Role.GUEST to setOf(
+            Permission("users", setOf("read"))
+        )
+    )
+    
+    fun hasPermission(role: Role, resource: String, action: String): Boolean {
+        return permissions[role]?.any { 
+            it.resource == resource && it.actions.contains(action) 
+        } ?: false
+    }
+}"#,
+            )],
+            Some(1704123000),
+          )
+          // Unassigned commit (bcrypt dependency) - expected by E2E test
+          .commit_with_timestamp(
+            "Add bcrypt dependency",
+            &[(
+              "build.gradle.kts",
+              r#"plugins {
+    kotlin("jvm") version "1.9.20"
+    id("org.springframework.boot") version "3.1.5"
+}
+
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.mindrot:jbcrypt:0.4")
+}
+"#,
+            )],
+            Some(1704124800),
+          )
+          // bug-fix branch that depends on bcrypt (will conflict)
+          .commit_with_timestamp(
+            "(bug-fix) Implement secure password hashing",
+            &[(
+              "src/main/kotlin/com/example/service/UserService.kt",
+              r#"package com.example.service
+
+import org.springframework.stereotype.Service
+import org.mindrot.jbcrypt.BCrypt
+
+@Service
+class UserService {
+    private val users = mutableMapOf<String, User>()
+    private val tokens = mutableMapOf<String, String>() // token -> userId
+    
+    fun getUser(id: String): User? = users[id]
+    
+    fun createUser(name: String, email: String, password: String): User {
+        val user = User(
+            id = generateId(),
+            name = name,
+            email = email,
+            passwordHash = BCrypt.hashpw(password, BCrypt.gensalt()) // Using bcrypt
+        )
+        users[user.id] = user
+        return user
+    }
+    
+    fun authenticate(email: String, password: String): String? {
+        val user = users.values.find { it.email == email }
+        return if (user != null && BCrypt.checkpw(password, user.passwordHash)) {
+            val token = generateToken()
+            tokens[token] = user.id
+            token
+        } else null
+    }
+    
+    fun getUserByToken(token: String): User? {
+        val userId = tokens[token] ?: return null
+        return users[userId]
+    }
+    
+    private fun generateId(): String = "user-${System.currentTimeMillis()}"
+    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
+}
+
+data class User(
+    val id: String,
+    val name: String,
+    val email: String,
+    val passwordHash: String = ""
+)"#,
+            )],
+            Some(1704126600),
+          );
+      }
+      _ => unreachable!(),
+    }
+
+    template
+  }
+
+  /// Repository with unassigned commits that will have missing commits when assigned
+  pub fn conflict_unassigned() -> RepoTemplate {
+    create_conflict_scenario("conflict_unassigned", "unassigned")
+  }
+
+  /// Repository with branches where some commits are missing prefixes
+  pub fn conflict_branches() -> RepoTemplate {
+    create_conflict_scenario("conflict_branches", "branches")
+  }
+
+  /// Repository with exactly one unassigned commit for testing singular form
+  pub fn single_unassigned() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("single_unassigned")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial setup", &[("README.md", "# Project\n\nInitial project setup.")], Some(1704117600))
+      .commit_with_timestamp(
+        "(feature) Add authentication",
+        &[("auth.js", "// Authentication module\nexport function authenticate() {}")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp("Fix critical bug", &[("bugfix.txt", "Critical bug fix for production issue")], Some(1704121200)) // This is the single unassigned commit
+  }
+
+  /// Directory without git initialization - for testing invalid repository paths
+  pub fn empty_non_git() -> EmptyNonGitTemplate {
+    EmptyNonGitTemplate
+  }
+
+  /// Template that creates a directory without git initialization
+  pub struct EmptyNonGitTemplate;
+
+  impl EmptyNonGitTemplate {
+    pub fn build(self, output_path: &Path) -> Result<()> {
+      // Create directory
+      fs::create_dir_all(output_path)?;
+
+      // Add a simple file so the directory is not empty
+      fs::write(output_path.join("README.txt"), "This is not a git repository")?;
+
+      Ok(())
+    }
   }
 }
 

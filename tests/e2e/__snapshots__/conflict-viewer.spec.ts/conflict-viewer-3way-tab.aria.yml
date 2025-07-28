@@ -1,0 +1,425 @@
+- row:
+  - cell:
+    - paragraph: Cherry-pick conflict detected
+    - paragraph: "Cannot apply: (bug-fix) Implement secure password hashing"
+    - paragraph: 2 commits are missing that altered the files in conflict.
+    - paragraph: "Common ancestor: 05239cbe (4 commits behind source, 0 commits behind target)"
+    - heading "Missing Commits Details" [level=2]
+    - button "Unified"
+    - button "Split"
+    - button "Open in Window"
+    - table:
+      - rowgroup:
+        - row /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+          - cell /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+            - paragraph: (feature-auth) Add authentication to UserService
+            - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+              - button "src/main/kotlin/com/example/service/UserService.kt":
+                - button
+        - row /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+          - cell /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+            - paragraph: Add UserService
+            - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+              - button "src/main/kotlin/com/example/service/UserService.kt":
+                - button
+    - heading "Resolution Steps" [level=3]
+    - paragraph: "To resolve this conflict, you can:"
+    - list:
+      - listitem: • Include the missing commits in this branch by changing their prefix to match.
+      - listitem: • Move the conflicting changes to a different commit or branch.
+      - listitem: • Exclude this commit from the branch by changing its prefix.
+    - heading "Conflicting Files" [level=2]
+    - button "Open in Window"
+    - tablist:
+      - tab "Diff View"
+      - tab "3-way Merge" [selected]
+    - tabpanel "3-way Merge":
+      - paragraph: Understanding 3-way merge conflicts
+      - paragraph: "This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:"
+      - list:
+        - listitem:
+          - strong: Base (Common Ancestor)
+          - text: ": The original content before the branches diverged"
+        - listitem:
+          - strong: Target Branch
+          - text: ": How the file changed in your current branch"
+        - listitem:
+          - strong: Cherry-pick
+          - text: ": How the file changed in the commit you're trying to apply"
+      - paragraph: The conflict occurs because both branches modified the same parts of the file differently.
+      - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+        - button "src/main/kotlin/com/example/service/UserService.kt" [expanded]:
+          - button
+      - region "src/main/kotlin/com/example/service/UserService.kt":
+        - heading "Base (Common Ancestor)" [level=4]
+        - paragraph: File state at 05239cbe
+        - table:
+          - rowgroup
+        - separator
+        - heading "Target Branch (Current)" [level=4]
+        - paragraph: Changes from base to current HEAD 05239cbe
+        - table:
+          - rowgroup
+        - separator
+        - heading "Cherry-pick (Incoming)" [level=4]
+        - paragraph: Changes from base to 90f6fd48
+        - table:
+          - rowgroup:
+            - row "1 + package com.example.service":
+              - cell "1"
+              - cell "+ package com.example.service"
+            - row "2 +":
+              - cell "2"
+              - cell "+"
+            - row "3 + import org.springframework.stereotype.Service":
+              - cell "3"
+              - cell "+ import org.springframework.stereotype.Service"
+            - row "4 + import org.mindrot.jbcrypt.BCrypt":
+              - cell "4"
+              - cell "+ import org.mindrot.jbcrypt.BCrypt"
+            - row "5 +":
+              - cell "5"
+              - cell "+"
+            - row "6 + @Service":
+              - cell "6"
+              - cell "+ @Service"
+            - 'row "7 + class UserService {"':
+              - cell "7"
+              - 'cell "+ class UserService {"'
+            - row "8 + private val users = mutableMapOf<String, User>()":
+              - cell "8"
+              - cell "+ private val users = mutableMapOf<String, User>()"
+            - row "9 + private val tokens = mutableMapOf<String, String>() // token -> userId":
+              - cell "9"
+              - cell "+ private val tokens = mutableMapOf<String, String>() // token -> userId"
+            - row /\d+ \+/:
+              - cell /\d+/
+              - cell "+"
+            - 'row /\d+ \+ fun getUser\(id: String\): User\? = users\[id\]/':
+              - cell /\d+/
+              - 'cell "+ fun getUser(id: String): User? = users[id]"'
+            - row /\d+ \+/:
+              - cell /\d+/
+              - cell "+"
+            - 'row /\d+ \+ fun createUser\(name: String, email: String, password: String\): User \{/':
+              - cell /\d+/
+              - 'cell "+ fun createUser(name: String, email: String, password: String): User {"'
+            - row /\d+ \+ val user = User\(/:
+              - cell /\d+/
+              - cell "+ val user = User("
+            - row /\d+ \+ id = generateId\(\),/:
+              - cell /\d+/
+              - cell "+ id = generateId(),"
+            - row /\d+ \+ name = name,/:
+              - cell /\d+/
+              - cell "+ name = name,"
+            - row /\d+ \+ email = email,/:
+              - cell /\d+/
+              - cell "+ email = email,"
+            - row /\d+ \+ passwordHash = BCrypt\.hashpw\(password, BCrypt\.gensalt\(\)\) \/\/ Using bcrypt/:
+              - cell /\d+/
+              - cell "+ passwordHash = BCrypt.hashpw(password, BCrypt.gensalt()) // Using bcrypt"
+            - row /\d+ \+ \)/:
+              - cell /\d+/
+              - cell "+ )"
+            - row /\d+ \+ users\[user\.id\] = user/:
+              - cell /\d+/
+              - cell "+ users[user.id] = user"
+            - row /\d+ \+ return user/:
+              - cell /\d+/
+              - cell "+ return user"
+            - 'row /\d+ \+ \}/':
+              - cell /\d+/
+              - 'cell "+ }"'
+            - row /\d+ \+/:
+              - cell /\d+/
+              - cell "+"
+            - 'row /\d+ \+ fun authenticate\(email: String, password: String\): String\? \{/':
+              - cell /\d+/
+              - 'cell "+ fun authenticate(email: String, password: String): String? {"'
+            - 'row /\d+ \+ val user = users\.values\.find \{ it\.email == email \}/':
+              - cell /\d+/
+              - 'cell "+ val user = users.values.find { it.email == email }"'
+            - 'row /\d+ \+ return if \(user != null && BCrypt\.checkpw\(password, user\.passwordHash\)\) \{/':
+              - cell /\d+/
+              - 'cell "+ return if (user != null && BCrypt.checkpw(password, user.passwordHash)) {"'
+            - row /\d+ \+ val token = generateToken\(\)/:
+              - cell /\d+/
+              - cell "+ val token = generateToken()"
+            - row /\d+ \+ tokens\[token\] = user\.id/:
+              - cell /\d+/
+              - cell "+ tokens[token] = user.id"
+            - row /\d+ \+ token/:
+              - cell /\d+/
+              - cell "+ token"
+            - 'row /\d+ \+ \} else null/':
+              - cell /\d+/
+              - 'cell "+ } else null"'
+            - 'row /\d+ \+ \}/':
+              - cell /\d+/
+              - 'cell "+ }"'
+            - row /\d+ \+/:
+              - cell /\d+/
+              - cell "+"
+            - 'row /\d+ \+ fun getUserByToken\(token: String\): User\? \{/':
+              - cell /\d+/
+              - 'cell "+ fun getUserByToken(token: String): User? {"'
+            - 'row /\d+ \+ val userId = tokens\[token\] \?: return null/':
+              - cell /\d+/
+              - 'cell "+ val userId = tokens[token] ?: return null"'
+            - row /\d+ \+ return users\[userId\]/:
+              - cell /\d+/
+              - cell "+ return users[userId]"
+            - 'row /\d+ \+ \}/':
+              - cell /\d+/
+              - 'cell "+ }"'
+            - row /\d+ \+/:
+              - cell /\d+/
+              - cell "+"
+            - 'row /\d+ \+ private fun generateId\(\): String = "user-\$\{System\.currentTimeMillis\(\)\}"/':
+              - cell /\d+/
+              - 'cell "+ private fun generateId(): String = \"user-${System.currentTimeMillis()}\""'
+            - 'row /\d+ \+ private fun generateToken\(\): String = "token-\$\{System\.currentTimeMillis\(\)\}"/':
+              - cell /\d+/
+              - 'cell "+ private fun generateToken(): String = \"token-${System.currentTimeMillis()}\""'
+            - 'row /\d+ \+ \}/':
+              - cell /\d+/
+              - 'cell "+ }"'
+            - row /\d+ \+/:
+              - cell /\d+/
+              - cell "+"
+            - row /\d+ \+ data class User\(/:
+              - cell /\d+/
+              - cell "+ data class User("
+            - 'row /\d+ \+ val id: String,/':
+              - cell /\d+/
+              - 'cell "+ val id: String,"'
+            - 'row /\d+ \+ val name: String,/':
+              - cell /\d+/
+              - 'cell "+ val name: String,"'
+            - 'row /\d+ \+ val email: String,/':
+              - cell /\d+/
+              - 'cell "+ val email: String,"'
+            - 'row /\d+ \+ val passwordHash: String = ""/':
+              - cell /\d+/
+              - 'cell "+ val passwordHash: String = \"\""'
+            - row /\d+ \+ \)/:
+              - cell /\d+/
+              - cell "+ )"
+    - heading "Missing commits cause conflicts" [level=3]
+    - paragraph: This commit cannot be copied to the virtual branch because other commits modified the same files first.
+    - paragraph: Apply the missing commits shown above to resolve conflicts automatically.
+    - table:
+      - rowgroup:
+        - row:
+          - cell:
+            - paragraph: Implement secure password hashing
+            - paragraph: Cherry-pick conflict detected
+            - paragraph: "Cannot apply: (bug-fix) Implement secure password hashing"
+            - paragraph: 2 commits are missing that altered the files in conflict.
+            - paragraph: "Common ancestor: 05239cbe (4 commits behind source, 0 commits behind target)"
+            - heading "Missing Commits Details" [level=2]
+            - button "Unified"
+            - button "Split"
+            - button "Open in Window"
+            - table:
+              - rowgroup:
+                - row /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                  - cell /\(feature-auth\) Add authentication to UserService abd07ec1 • Yesterday 4:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                    - paragraph: (feature-auth) Add authentication to UserService
+                    - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+                      - button "src/main/kotlin/com/example/service/UserService.kt":
+                        - button
+                - row /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                  - cell /Add UserService 07cdf0cb • Yesterday 3:\d+ PM • 1 file src\/main\/kotlin\/com\/example\/service\/UserService\.kt/:
+                    - paragraph: Add UserService
+                    - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+                      - button "src/main/kotlin/com/example/service/UserService.kt":
+                        - button
+            - heading "Resolution Steps" [level=3]
+            - paragraph: "To resolve this conflict, you can:"
+            - list:
+              - listitem: • Include the missing commits in this branch by changing their prefix to match.
+              - listitem: • Move the conflicting changes to a different commit or branch.
+              - listitem: • Exclude this commit from the branch by changing its prefix.
+            - heading "Conflicting Files" [level=2]
+            - button "Open in Window"
+            - tablist:
+              - tab "Diff View"
+              - tab "3-way Merge" [selected]
+            - tabpanel "3-way Merge":
+              - paragraph: Understanding 3-way merge conflicts
+              - paragraph: "This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:"
+              - list:
+                - listitem:
+                  - strong: Base (Common Ancestor)
+                  - text: ": The original content before the branches diverged"
+                - listitem:
+                  - strong: Target Branch
+                  - text: ": How the file changed in your current branch"
+                - listitem:
+                  - strong: Cherry-pick
+                  - text: ": How the file changed in the commit you're trying to apply"
+              - paragraph: The conflict occurs because both branches modified the same parts of the file differently.
+              - heading "src/main/kotlin/com/example/service/UserService.kt" [level=3]:
+                - button "src/main/kotlin/com/example/service/UserService.kt" [expanded]:
+                  - button
+              - region "src/main/kotlin/com/example/service/UserService.kt":
+                - heading "Base (Common Ancestor)" [level=4]
+                - paragraph: File state at 05239cbe
+                - table:
+                  - rowgroup
+                - separator
+                - heading "Target Branch (Current)" [level=4]
+                - paragraph: Changes from base to current HEAD 05239cbe
+                - table:
+                  - rowgroup
+                - separator
+                - heading "Cherry-pick (Incoming)" [level=4]
+                - paragraph: Changes from base to 90f6fd48
+                - table:
+                  - rowgroup:
+                    - row "1 + package com.example.service":
+                      - cell "1"
+                      - cell "+ package com.example.service"
+                    - row "2 +":
+                      - cell "2"
+                      - cell "+"
+                    - row "3 + import org.springframework.stereotype.Service":
+                      - cell "3"
+                      - cell "+ import org.springframework.stereotype.Service"
+                    - row "4 + import org.mindrot.jbcrypt.BCrypt":
+                      - cell "4"
+                      - cell "+ import org.mindrot.jbcrypt.BCrypt"
+                    - row "5 +":
+                      - cell "5"
+                      - cell "+"
+                    - row "6 + @Service":
+                      - cell "6"
+                      - cell "+ @Service"
+                    - 'row "7 + class UserService {"':
+                      - cell "7"
+                      - 'cell "+ class UserService {"'
+                    - row "8 + private val users = mutableMapOf<String, User>()":
+                      - cell "8"
+                      - cell "+ private val users = mutableMapOf<String, User>()"
+                    - row "9 + private val tokens = mutableMapOf<String, String>() // token -> userId":
+                      - cell "9"
+                      - cell "+ private val tokens = mutableMapOf<String, String>() // token -> userId"
+                    - row /\d+ \+/:
+                      - cell /\d+/
+                      - cell "+"
+                    - 'row /\d+ \+ fun getUser\(id: String\): User\? = users\[id\]/':
+                      - cell /\d+/
+                      - 'cell "+ fun getUser(id: String): User? = users[id]"'
+                    - row /\d+ \+/:
+                      - cell /\d+/
+                      - cell "+"
+                    - 'row /\d+ \+ fun createUser\(name: String, email: String, password: String\): User \{/':
+                      - cell /\d+/
+                      - 'cell "+ fun createUser(name: String, email: String, password: String): User {"'
+                    - row /\d+ \+ val user = User\(/:
+                      - cell /\d+/
+                      - cell "+ val user = User("
+                    - row /\d+ \+ id = generateId\(\),/:
+                      - cell /\d+/
+                      - cell "+ id = generateId(),"
+                    - row /\d+ \+ name = name,/:
+                      - cell /\d+/
+                      - cell "+ name = name,"
+                    - row /\d+ \+ email = email,/:
+                      - cell /\d+/
+                      - cell "+ email = email,"
+                    - row /\d+ \+ passwordHash = BCrypt\.hashpw\(password, BCrypt\.gensalt\(\)\) \/\/ Using bcrypt/:
+                      - cell /\d+/
+                      - cell "+ passwordHash = BCrypt.hashpw(password, BCrypt.gensalt()) // Using bcrypt"
+                    - row /\d+ \+ \)/:
+                      - cell /\d+/
+                      - cell "+ )"
+                    - row /\d+ \+ users\[user\.id\] = user/:
+                      - cell /\d+/
+                      - cell "+ users[user.id] = user"
+                    - row /\d+ \+ return user/:
+                      - cell /\d+/
+                      - cell "+ return user"
+                    - 'row /\d+ \+ \}/':
+                      - cell /\d+/
+                      - 'cell "+ }"'
+                    - row /\d+ \+/:
+                      - cell /\d+/
+                      - cell "+"
+                    - 'row /\d+ \+ fun authenticate\(email: String, password: String\): String\? \{/':
+                      - cell /\d+/
+                      - 'cell "+ fun authenticate(email: String, password: String): String? {"'
+                    - 'row /\d+ \+ val user = users\.values\.find \{ it\.email == email \}/':
+                      - cell /\d+/
+                      - 'cell "+ val user = users.values.find { it.email == email }"'
+                    - 'row /\d+ \+ return if \(user != null && BCrypt\.checkpw\(password, user\.passwordHash\)\) \{/':
+                      - cell /\d+/
+                      - 'cell "+ return if (user != null && BCrypt.checkpw(password, user.passwordHash)) {"'
+                    - row /\d+ \+ val token = generateToken\(\)/:
+                      - cell /\d+/
+                      - cell "+ val token = generateToken()"
+                    - row /\d+ \+ tokens\[token\] = user\.id/:
+                      - cell /\d+/
+                      - cell "+ tokens[token] = user.id"
+                    - row /\d+ \+ token/:
+                      - cell /\d+/
+                      - cell "+ token"
+                    - 'row /\d+ \+ \} else null/':
+                      - cell /\d+/
+                      - 'cell "+ } else null"'
+                    - 'row /\d+ \+ \}/':
+                      - cell /\d+/
+                      - 'cell "+ }"'
+                    - row /\d+ \+/:
+                      - cell /\d+/
+                      - cell "+"
+                    - 'row /\d+ \+ fun getUserByToken\(token: String\): User\? \{/':
+                      - cell /\d+/
+                      - 'cell "+ fun getUserByToken(token: String): User? {"'
+                    - 'row /\d+ \+ val userId = tokens\[token\] \?: return null/':
+                      - cell /\d+/
+                      - 'cell "+ val userId = tokens[token] ?: return null"'
+                    - row /\d+ \+ return users\[userId\]/:
+                      - cell /\d+/
+                      - cell "+ return users[userId]"
+                    - 'row /\d+ \+ \}/':
+                      - cell /\d+/
+                      - 'cell "+ }"'
+                    - row /\d+ \+/:
+                      - cell /\d+/
+                      - cell "+"
+                    - 'row /\d+ \+ private fun generateId\(\): String = "user-\$\{System\.currentTimeMillis\(\)\}"/':
+                      - cell /\d+/
+                      - 'cell "+ private fun generateId(): String = \"user-${System.currentTimeMillis()}\""'
+                    - 'row /\d+ \+ private fun generateToken\(\): String = "token-\$\{System\.currentTimeMillis\(\)\}"/':
+                      - cell /\d+/
+                      - 'cell "+ private fun generateToken(): String = \"token-${System.currentTimeMillis()}\""'
+                    - 'row /\d+ \+ \}/':
+                      - cell /\d+/
+                      - 'cell "+ }"'
+                    - row /\d+ \+/:
+                      - cell /\d+/
+                      - cell "+"
+                    - row /\d+ \+ data class User\(/:
+                      - cell /\d+/
+                      - cell "+ data class User("
+                    - 'row /\d+ \+ val id: String,/':
+                      - cell /\d+/
+                      - 'cell "+ val id: String,"'
+                    - 'row /\d+ \+ val name: String,/':
+                      - cell /\d+/
+                      - 'cell "+ val name: String,"'
+                    - 'row /\d+ \+ val email: String,/':
+                      - cell /\d+/
+                      - 'cell "+ val email: String,"'
+                    - 'row /\d+ \+ val passwordHash: String = ""/':
+                      - cell /\d+/
+                      - 'cell "+ val passwordHash: String = \"\""'
+                    - row /\d+ \+ \)/:
+                      - cell /\d+/
+                      - cell "+ )"
+            - heading "Missing commits cause conflicts" [level=3]
+            - paragraph: This commit cannot be copied to the virtual branch because other commits modified the same files first.
+            - paragraph: Apply the missing commits shown above to resolve conflicts automatically.

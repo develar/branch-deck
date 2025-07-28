@@ -1,16 +1,15 @@
-use git_ops::model::{BranchError, BranchSyncStatus, CommitDetail};
+use git_ops::commit_list::Commit;
+use git_ops::model::{BranchError, BranchSyncStatus};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", content = "data", rename_all = "camelCase")]
 pub enum SyncEvent {
-  /// Initial progress message
-  Progress { message: String, index: i16 },
   /// Sent immediately after grouping commits
   BranchesGrouped { branches: Vec<GroupedBranchInfo> },
   /// Sent for commits that don't match any prefix pattern
-  UnassignedCommits { commits: Vec<CommitDetail> },
+  UnassignedCommits { commits: Vec<Commit> },
   /// Sent when a commit is successfully cherry-picked
   #[serde(rename_all = "camelCase")]
   CommitSynced {
@@ -42,7 +41,7 @@ pub enum SyncEvent {
 #[serde(rename_all = "camelCase")]
 pub struct GroupedBranchInfo {
   pub name: String,
-  pub commits: Vec<CommitDetail>,
+  pub commits: Vec<Commit>,
   pub latest_commit_time: u32,
 }
 

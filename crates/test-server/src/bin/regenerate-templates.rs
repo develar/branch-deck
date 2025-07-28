@@ -15,7 +15,12 @@ fn main() -> anyhow::Result<()> {
   std::fs::create_dir_all(&test_repos_dir)?;
 
   // Create templates
-  let templates_to_create = vec![("simple", templates::simple())];
+  let templates_to_create = vec![
+    ("simple", templates::simple()),
+    ("unassigned", templates::unassigned()),
+    ("conflict_unassigned", templates::conflict_unassigned()),
+    ("conflict_branches", templates::conflict_branches()),
+  ];
 
   for (name, template) in templates_to_create {
     let repo_path = test_repos_dir.join(name);

@@ -22,7 +22,7 @@ async fn main() {
     }
 
     // Recreate templates
-    if let Err(e) = test_server::ensure_test_repos() {
+    if let Err(e) = test_server::ensure_test_repos().await {
       tracing::error!("Failed to create test repositories: {}", e);
       std::process::exit(1);
     }
@@ -34,8 +34,16 @@ async fn main() {
   // Create and run the app
   let app = test_server::create_test_app().await;
 
-  // Run the server
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:3030").await.unwrap();
+  // Try to get listener from systemfd first (for hot reload)
+  let mut listenfd = listenfd::ListenFd::from_env();
+  let listener = if let Some(listener) = listenfd.take_tcp_listener(0).unwrap() {
+    // Convert std listener to tokio listener
+    tokio::net::TcpListener::from_std(listener).unwrap()
+  } else {
+    // No listener from systemfd, bind normally
+    tokio::net::TcpListener::bind("127.0.0.1:3030").await.unwrap()
+  };
+
   tracing::info!("Test server listening on http://127.0.0.1:3030");
   axum::serve(listener, app).await.unwrap();
 }

@@ -1,3 +1,4 @@
+use pretty_assertions::assert_eq;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -110,7 +111,7 @@ async fn test_sync_branches_sse_stream() {
 
   println!("Event types received: {event_types:?}");
 
-  assert!(event_types.contains(&"progress"), "Should have progress events");
+  // Progress events are optional - they might not be sent for very fast syncs
   assert!(event_types.contains(&"branchesGrouped"), "Should have branchesGrouped event");
   assert!(event_types.contains(&"branchStatusUpdate"), "Should have branchStatusUpdate events");
   assert!(event_types.contains(&"completed"), "Should have completed event");
@@ -149,7 +150,7 @@ async fn test_sync_branches_sse_stream() {
 async fn test_sse_format() {
   // Test that we can parse SSE format correctly
   let sse_data = r#"event: sync
-data: {"type":"progress","data":{"message":"test","index":-1}}
+data: {"type":"branchesGrouped","data":{"branches":[]}}
 
 event: sync
 data: {"type":"completed"}
@@ -168,6 +169,6 @@ data: {"type":"completed"}
   }
 
   assert_eq!(events.len(), 2);
-  assert_eq!(events[0]["type"], "progress");
+  assert_eq!(events[0]["type"], "branchesGrouped");
   assert_eq!(events[1]["type"], "completed");
 }

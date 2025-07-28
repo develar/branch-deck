@@ -34,7 +34,9 @@ export function useMultiSelect<T>(
     const fromIndex = findItemIndex(fromKey)
     const toIndex = findItemIndex(toKey)
 
-    if (fromIndex === -1 || toIndex === -1) return
+    if (fromIndex === -1 || toIndex === -1) {
+      return
+    }
 
     const start = Math.min(fromIndex, toIndex)
     const end = Math.max(fromIndex, toIndex)
@@ -134,8 +136,8 @@ export function useMultiSelect<T>(
       event.preventDefault()
       selectAll()
     }
-    // Escape: Clear selection
     else if (event.key === "Escape" && hasSelection.value) {
+      // Escape: Clear selection
       event.preventDefault()
       clearSelection()
     }

@@ -1,34 +1,56 @@
 <template>
-  <UFormField label="Branch Prefix" name="branch-prefix">
+  <UTooltip text="Your personal prefix (e.g., username) prepended to all branch names">
     <UButtonGroup>
       <UInput
-        v-model="store.branchPrefix"
+        v-model="appSettingsStore.globalUserBranchPrefix"
         :disabled="disabled"
-        class="flex-1"
-        placeholder="Enter branch prefix..."
+        :color="getInputColor()"
+        :placeholder="placeholder"
+        size="sm"
+        class="w-28"
       />
       <BranchPrefixHelp
         :configured="configured"
         :disabled="!!disabled"
       />
     </UButtonGroup>
-  </UFormField>
+  </UTooltip>
 </template>
 
 <script lang="ts" setup>
-import { useRepositoryStore } from "~/stores/repository"
 
-interface Props {
+const props = defineProps<{
   disabled?: boolean
-}
+}>()
 
-defineProps<Props>()
+// Use the repository injection and app settings store
+const { gitProvidedBranchPrefix, isLoadingBranchPrefix, effectiveBranchPrefix } = useRepository()
+const { useAppSettingsStore } = await import("~/stores/appSettings")
+const appSettingsStore = useAppSettingsStore()
 
-// Use the repository store
-const store = useRepositoryStore()
+// Compute placeholder - show git prefix when available and user hasn't entered anything
+const placeholder = computed(() => {
+  if (gitProvidedBranchPrefix.value.status === "ok" && gitProvidedBranchPrefix.value.data) {
+    return gitProvidedBranchPrefix.value.data
+  }
+  return "Set prefix..."
+})
 
-// Compute configured state from store
+// Compute configured state from repository
+// Configured if we have any effective branch prefix
 const configured = computed(() =>
-  store.gitProvidedBranchPrefix.status === "ok" && store.gitProvidedBranchPrefix.data !== "",
+  isLoadingBranchPrefix.value // Still loading, don't show warning
+  || effectiveBranchPrefix.value !== "",
 )
+
+const getInputColor = () => {
+  // Don't show warning color when disabled
+  if (props.disabled) {
+    return "primary"
+  }
+  if (!configured.value) {
+    return "warning"
+  }
+  return "primary"
+}
 </script>

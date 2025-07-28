@@ -34,7 +34,9 @@ const hasFullMessage = computed(() => {
 
 // Extract the body (everything after the first line)
 const body = computed(() => {
-  if (!hasFullMessage.value) return ""
+  if (!hasFullMessage.value) {
+    return ""
+  }
   const lines = props.message.split("\n")
   // Skip the subject line and any empty lines immediately after
   let bodyStartIndex = 1

@@ -9,9 +9,9 @@ export const commands = {
 /**
  * Pushes a specific branch to the remote repository
  */
-async pushBranch(repositoryPath: string, branchPrefix: string, branchName: string) : Promise<Result<string, string>> {
+async pushBranch(params: PushBranchParams) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("push_branch", { repositoryPath, branchPrefix, branchName }) };
+    return { status: "ok", data: await TAURI_INVOKE("push_branch", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -20,17 +20,17 @@ async pushBranch(repositoryPath: string, branchPrefix: string, branchName: strin
 /**
  * Synchronizes branches by grouping commits by prefix and creating/updating branches
  */
-async syncBranches(repositoryPath: string, branchPrefix: string, progress: TAURI_CHANNEL<SyncEvent>) : Promise<Result<null, string>> {
+async syncBranches(params: SyncBranchesParams, progress: TAURI_CHANNEL<SyncEvent>) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("sync_branches", { repositoryPath, branchPrefix, progress }) };
+    return { status: "ok", data: await TAURI_INVOKE("sync_branches", { params, progress }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async getBranchPrefixFromGitConfig(repositoryPath: string) : Promise<Result<string, string>> {
+async getBranchPrefixFromGitConfig(params: GetBranchPrefixParams) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_branch_prefix_from_git_config", { repositoryPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_branch_prefix_from_git_config", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -51,9 +51,9 @@ async browseRepository() : Promise<Result<BrowseResult, string>> {
  * Validates that a repository path exists and is a git repository
  * Returns empty string if valid, error message if invalid
  */
-async validateRepositoryPath(path: string) : Promise<Result<string, string>> {
+async validateRepositoryPath(params: ValidateRepositoryPathParams) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("validate_repository_path", { path }) };
+    return { status: "ok", data: await TAURI_INVOKE("validate_repository_path", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -83,9 +83,9 @@ async installUpdate() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async openSubWindow(windowId: string, url: string, title: string, width: number | null, height: number | null, data: string) : Promise<Result<null, WindowError>> {
+async openSubWindow(params: OpenSubWindowParams) : Promise<Result<null, WindowError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("open_sub_window", { windowId, url, title, width, height, data }) };
+    return { status: "ok", data: await TAURI_INVOKE("open_sub_window", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -107,17 +107,9 @@ async createBranchFromCommits(params: CreateBranchFromCommitsParams) : Promise<R
  * Adds an issue reference to commits in a branch that don't already have one.
  * Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
  */
-async addIssueReferenceToCommits(repositoryPath: string, branchName: string, commitIds: string[], issueReference: string) : Promise<Result<AddIssueReferenceResult, string>> {
+async addIssueReferenceToCommits(params: AddIssueReferenceParams) : Promise<Result<AddIssueReferenceResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("add_issue_reference_to_commits", { repositoryPath, branchName, commitIds, issueReference }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async suggestBranchName(params: SuggestBranchNameParams) : Promise<Result<BranchSuggestion[], string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("suggest_branch_name", { params }) };
+    return { status: "ok", data: await TAURI_INVOKE("add_issue_reference_to_commits", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -147,9 +139,9 @@ async checkModelStatus() : Promise<Result<ModelStatus, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async clearModelCache(keepCurrent: boolean) : Promise<Result<CacheClearResult, string>> {
+async clearModelCache(params: ClearModelCacheParams) : Promise<Result<CacheClearResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("clear_model_cache", { keepCurrent }) };
+    return { status: "ok", data: await TAURI_INVOKE("clear_model_cache", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -167,6 +159,7 @@ async clearModelCache(keepCurrent: boolean) : Promise<Result<CacheClearResult, s
 
 /** user-defined types **/
 
+export type AddIssueReferenceParams = { repositoryPath: string; branchName: string; commits: CommitInfo[]; issueReference: string }
 export type AddIssueReferenceResult = { success: boolean; updatedCount: number; skippedCount: number }
 /**
  * Branch operation errors.
@@ -177,12 +170,20 @@ export type BranchSuggestion = { name: string; confidence: number; reason: strin
  * Status of a branch synchronization operation.
  */
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict"
+/**
+ * Result of browsing for a repository
+ */
 export type BrowseResult = { path: string | null; valid: boolean; error: string | null }
 export type CacheClearResult = { cleared_models: string[]; total_size_mb: number; errors: string[] }
+export type ClearModelCacheParams = { keepCurrent: boolean }
 /**
- * Details about a synchronized commit.
+ * Struct to hold commit data returned by git CLI
  */
-export type CommitDetail = { originalHash: string; hash: string; subject: string; message: string; author: string; authorTime: number; committerTime: number; status: CommitSyncStatus; error: BranchError | null }
+export type Commit = { originalHash: string; strippedSubject: string; message: string; author: string; authorTime: number; committerTime: number }
+/**
+ * Simple commit information with hash and message.
+ * Used for passing commit data between frontend and backend.
+ */
 export type CommitInfo = { hash: string; message: string }
 /**
  * Status of a commit synchronization.
@@ -216,7 +217,8 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
  * Information about a file including its content and metadata.
  */
 export type FileInfo = { fileName: string; fileLang: string; content: string }
-export type GroupedBranchInfo = { name: string; commits: CommitDetail[]; latestCommitTime: number }
+export type GetBranchPrefixParams = { repositoryPath: string }
+export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number }
 /**
  * Details about a merge conflict encountered during a cherry-pick operation.
  * 
@@ -230,14 +232,13 @@ export type MergeConflictInfo = { commitMessage: string; commitHash: string; com
 export type MissingCommit = { hash: string; subject: string; message: string; authorTime: number; committerTime: number; author: string; filesTouched: string[]; fileDiffs: FileDiff[] }
 export type ModelFilesStatus = { config: boolean; model: boolean; tokenizer: boolean }
 export type ModelStatus = { available: boolean; modelName: string; modelSize: string; filesPresent: ModelFilesStatus }
+export type OpenSubWindowParams = { windowId: string; url: string; title: string; width: number | null; height: number | null; data: string }
+export type PushBranchParams = { repositoryPath: string; branchPrefix: string; branchName: string }
 export type RewordResult = { success: boolean; message: string; reworded_count: number }
 export type SuggestBranchNameParams = { repositoryPath: string; branchPrefix: string; commits: CommitInfo[] }
 export type SuggestionProgress = { type: "Started"; data: { total: number } } | { type: "SuggestionReady"; data: { suggestion: BranchSuggestion; index: number } } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: { message: string } } | { type: "ModelDownloadInProgress"; data: { model_name: string; model_size: string } }
+export type SyncBranchesParams = { repositoryPath: string; branchPrefix: string }
 export type SyncEvent = 
-/**
- * Initial progress message
- */
-{ type: "progress"; data: { message: string; index: number } } | 
 /**
  * Sent immediately after grouping commits
  */
@@ -245,7 +246,7 @@ export type SyncEvent =
 /**
  * Sent for commits that don't match any prefix pattern
  */
-{ type: "unassignedCommits"; data: { commits: CommitDetail[] } } | 
+{ type: "unassignedCommits"; data: { commits: Commit[] } } | 
 /**
  * Sent when a commit is successfully cherry-picked
  */
@@ -269,6 +270,7 @@ export type SyncEvent =
 export type TAURI_CHANNEL<TSend> = null
 export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string }
+export type ValidateRepositoryPathParams = { path: string }
 export type WindowError = { message: string }
 
 /** tauri-specta globals **/

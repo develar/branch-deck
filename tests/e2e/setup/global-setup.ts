@@ -1,6 +1,30 @@
 import type { FullConfig } from "@playwright/test"
 
 /**
+ * Wait for a URL to be available with retries
+ */
+async function waitForServer(url: string, name: string, maxRetries = 30, delay = 1000) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(url)
+      if (response.ok) {
+        console.log(`[Global Setup] ${name} server is ready`)
+        return
+      }
+    }
+    catch {
+      // Server not ready yet
+    }
+
+    if (i < maxRetries - 1) {
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw new Error(`${name} server failed to start after ${maxRetries * delay / 1000} seconds`)
+}
+
+/**
  * Global setup for Playwright tests
  * This runs once before all tests and sets up Tauri mocks
  */
@@ -9,18 +33,18 @@ async function globalSetup(_config: FullConfig) {
 
   // We'll use browser context's addInitScript in individual tests
   // since global setup doesn't have access to test contexts
-  // Instead, we'll just verify the test server is running
+  // Instead, we'll verify the test servers are running
 
   try {
-    const response = await fetch("http://localhost:3030/health")
-    if (!response.ok) {
-      throw new Error("Test server is not running. Please run: pnpm e2e:server")
-    }
-    console.log("[Global Setup] Test server is running")
+    // Check backend server
+    await waitForServer("http://localhost:3030/health", "Backend")
+
+    // Check frontend server - wait until it's fully ready
+    await waitForServer("http://localhost:1421", "Frontend")
   }
   catch (error) {
-    console.error("[Global Setup] Test server check failed:", error)
-    throw new Error("Test server is not running. Please run: pnpm e2e:server")
+    console.error("[Global Setup] Server check failed:", error)
+    throw error
   }
 
   console.log("[Global Setup] Complete")

@@ -1,0 +1,4 @@
+- dialog "Create Branch":
+  - textbox "Branch name for 2 commits"
+  - button "Cancel"
+  - button "Create" [disabled]

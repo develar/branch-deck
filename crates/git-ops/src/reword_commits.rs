@@ -1,6 +1,6 @@
 use crate::cache::TreeIdCache;
+use crate::commit_list::Commit;
 use crate::git_command::GitCommandExecutor;
-use crate::model::CommitInfo;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use tracing::{debug, info, instrument};
@@ -106,11 +106,19 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
   let oldest_index = oldest_index.ok_or_else(|| anyhow!("No commits to reword found in history"))?;
   let oldest_commit = &all_commits[oldest_index];
 
-  // Get all commits from oldest^..HEAD in reverse order (oldest first)
-  let range = format!("{oldest_commit}^..HEAD");
-  let args = vec!["rev-list", "--reverse", &range];
+  // Check if oldest commit has a parent
+  let parent_check = git_executor.execute_command(&["rev-parse", &format!("{oldest_commit}^")], repo_path);
 
-  let output = git_executor.execute_command(&args, repo_path).map_err(|e| anyhow!("Failed to get commit range: {}", e))?;
+  // Get all commits from oldest (or its parent) to HEAD in reverse order (oldest first)
+  let output = if parent_check.is_ok() {
+    // Has parent, use parent as starting point
+    let range = format!("{oldest_commit}^..HEAD");
+    git_executor.execute_command(&["rev-list", "--reverse", &range], repo_path)
+  } else {
+    // No parent (root commit), include all commits
+    git_executor.execute_command(&["rev-list", "--reverse", "HEAD"], repo_path)
+  }
+  .map_err(|e| anyhow!("Failed to get commit range: {}", e))?;
 
   let commits: Vec<String> = output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
 
@@ -135,7 +143,7 @@ fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_
   }
 }
 
-fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<CommitInfo> {
+fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit> {
   // Use git show with format to get all commit info at once
   let format = "%an%n%ae%n%at%n%ct%n%T%n%P%n%B";
   let format_arg = format!("--format={format}");
@@ -151,32 +159,34 @@ fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id
   // Parse the output
   let author_name = lines[0].to_string();
   let author_email = lines[1].to_string();
-  let author_time: u32 = lines[2].parse().map_err(|_| anyhow!("Invalid author time"))?;
-  let committer_time: u32 = lines[3].parse().map_err(|_| anyhow!("Invalid committer time"))?;
+  let author_timestamp: u32 = lines[2].parse().map_err(|_| anyhow!("Invalid author time"))?;
+  let committer_timestamp: u32 = lines[3].parse().map_err(|_| anyhow!("Invalid committer time"))?;
   let tree_id = lines[4].to_string();
   let parent_id = if lines[5].is_empty() { None } else { Some(lines[5].to_string()) };
   let message = lines[6..].join("\n");
   let subject = message.lines().next().unwrap_or("").to_string();
 
-  Ok(CommitInfo {
+  Ok(Commit {
     id: commit_id.to_string(),
-    subject,
+    subject: subject.clone(),
     message,
     author_name,
     author_email,
-    author_time,
-    committer_time,
+    author_timestamp,
+    committer_timestamp,
     parent_id,
     tree_id,
+    note: None,
     mapped_commit_id: None,
+    stripped_subject: subject, // Same as subject since we're not stripping
   })
 }
 
-/// Create a commit using existing CommitInfo, optionally with a different parent and message
-fn create_commit_with_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_info: &CommitInfo, new_parent_id: Option<&str>, message: &str) -> Result<String> {
-  let mut args = vec!["commit-tree", &commit_info.tree_id];
+/// Create a commit using existing Commit, optionally with a different parent and message
+fn create_commit_with_info(git_executor: &GitCommandExecutor, repo_path: &str, commit: &Commit, new_parent_id: Option<&str>, message: &str) -> Result<String> {
+  let mut args = vec!["commit-tree", &commit.tree_id];
 
-  if let Some(parent) = new_parent_id.or(commit_info.parent_id.as_deref()) {
+  if let Some(parent) = new_parent_id.or(commit.parent_id.as_deref()) {
     args.push("-p");
     args.push(parent);
   }
@@ -185,15 +195,15 @@ fn create_commit_with_info(git_executor: &GitCommandExecutor, repo_path: &str, c
   args.push(message);
 
   // Preserve original author and committer info
-  let author_date = commit_info.author_time.to_string();
-  let committer_date = commit_info.committer_time.to_string();
+  let author_date = commit.author_timestamp.to_string();
+  let committer_date = commit.committer_timestamp.to_string();
 
   let env_vars = vec![
-    ("GIT_AUTHOR_NAME", commit_info.author_name.as_str()),
-    ("GIT_AUTHOR_EMAIL", commit_info.author_email.as_str()),
+    ("GIT_AUTHOR_NAME", commit.author_name.as_str()),
+    ("GIT_AUTHOR_EMAIL", commit.author_email.as_str()),
     ("GIT_AUTHOR_DATE", &author_date),
-    ("GIT_COMMITTER_NAME", commit_info.author_name.as_str()),
-    ("GIT_COMMITTER_EMAIL", commit_info.author_email.as_str()),
+    ("GIT_COMMITTER_NAME", commit.author_name.as_str()),
+    ("GIT_COMMITTER_EMAIL", commit.author_email.as_str()),
     ("GIT_COMMITTER_DATE", &committer_date),
   ];
 

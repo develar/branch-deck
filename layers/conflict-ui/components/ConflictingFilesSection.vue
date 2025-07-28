@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3">
     <UTabs
-      v-model="selectedTab"
+      v-model="store.viewMode"
       :items="tabItems"
       variant="link"
       size="sm"
@@ -12,24 +12,24 @@
           <!-- Controls for diff view -->
           <div class="flex justify-between items-center px-1">
             <USwitch
-              v-model="showConflictsOnly"
+              v-model="store.showConflictsOnly"
               size="sm"
               label="Conflicts only"
             />
             <UButtonGroup size="xs">
               <UButton
                 icon="i-lucide-align-left"
-                :color="conflictDiffViewMode === 'unified' ? 'primary' : 'neutral'"
+                :color="store.conflictDiffViewMode === 'unified' ? 'primary' : 'neutral'"
                 variant="outline"
-                @click="conflictDiffViewMode = 'unified'"
+                @click="store.conflictDiffViewMode = 'unified'"
               >
                 Unified
               </UButton>
               <UButton
                 icon="i-lucide-columns-2"
-                :color="conflictDiffViewMode === 'split' ? 'primary' : 'neutral'"
+                :color="store.conflictDiffViewMode === 'split' ? 'primary' : 'neutral'"
                 variant="outline"
-                @click="conflictDiffViewMode = 'split'"
+                @click="store.conflictDiffViewMode = 'split'"
               >
                 Split
               </UButton>
@@ -38,11 +38,11 @@
 
           <!-- Diff content -->
           <FileDiffList
-            :file-diffs="showConflictsOnly ? conflictingFileDiffsFiltered : conflictingFileDiffs"
+            :file-diffs="store.showConflictsOnly ? conflictingFileDiffsFiltered : conflictingFileDiffs"
             key-prefix="conflict"
             :conflict-marker-commits="conflictMarkerCommits"
             :hide-controls="true"
-            :diff-view-mode="conflictDiffViewMode"
+            :diff-view-mode="store.conflictDiffViewMode"
           />
         </div>
       </template>
@@ -58,6 +58,7 @@
 
 <script lang="ts" setup>
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
+import { useConflictViewerStore } from "~/stores/conflictViewer"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]
@@ -72,13 +73,7 @@ const props = defineProps<{
 }>()
 
 // Get conflict viewer settings from store
-const { showConflictsOnly, viewMode, conflictDiffViewMode } = useConflictViewerSettings()
-
-// Use viewMode as selectedTab for UTabs
-const selectedTab = computed({
-  get: () => viewMode.value,
-  set: (value) => { viewMode.value = value },
-})
+const store = await useConflictViewerStore()
 
 // Tab items for the UTabs component
 const tabItems = [
@@ -95,13 +90,6 @@ const tabItems = [
     icon: "i-lucide-columns-3",
   },
 ]
-
-// Expose current state for parent components
-defineExpose({
-  showConflictsOnly,
-  viewMode,
-  conflictDiffViewMode,
-})
 
 // Convert conflicting files to FileDiff format for FileDiffList component
 const conflictingFileDiffs = computed(() => {

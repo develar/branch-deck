@@ -33,13 +33,9 @@
         :value="String(idx)"
         class="border border-default rounded-lg overflow-hidden"
       >
-        <AccordionHeader>
-          <AccordionTrigger class="w-full text-left group">
-            <CollapsibleFileHeader
-              :file-name="diff.newFile.fileName"
-            />
-          </AccordionTrigger>
-        </AccordionHeader>
+        <CollapsibleFileHeader
+          :file-name="diff.newFile.fileName"
+        />
         <AccordionContent class="border-t border-default">
           <DiffView
             :data="diff"
@@ -72,7 +68,7 @@
 import { ref, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import "@git-diff-view/vue/styles/diff-view-pure.css"
-import { AccordionRoot, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent } from "reka-ui"
+import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
 import type { FileDiff } from "~/utils/bindings"
 // CollapsibleFileHeader is auto-imported by Nuxt
 
@@ -161,7 +157,9 @@ function getConflictExtendData(diff: FileDiff) {
         return
       }
 
-      if (!inHunk) return
+      if (!inHunk) {
+        return
+      }
 
       // Look for addition lines that contain conflict markers
       if (line.startsWith("+") && !line.startsWith("+++")) {

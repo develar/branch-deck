@@ -20,14 +20,14 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>) {
   } = options
 
   // Use the Rust command to create/focus the window
-  const result = await commands.openSubWindow(
+  const result = await commands.openSubWindow({
     windowId,
     url,
     title,
     width,
     height,
-    JSON.stringify(data),
-  )
+    data: JSON.stringify(data),
+  })
 
   if (result.status === "error") {
     throw new Error(result.error.message)

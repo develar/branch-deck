@@ -1,0 +1,7 @@
+- combobox: "/^\\.\\.\\./[a-zA-Z0-9]+$/"
+- button
+- textbox "user-name"
+- button
+- button "Sync"
+- region "Notifications (F8)":
+  - list

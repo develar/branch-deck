@@ -9,11 +9,11 @@ static PREFIX_PATTERN: OnceLock<Regex> = OnceLock::new();
 pub static ISSUE_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 // Type alias for grouped commits result
-pub type GroupedCommitsResult = (IndexMap<String, Vec<(String, Commit)>>, Vec<Commit>);
+pub type GroupedCommitsResult = (IndexMap<String, Vec<Commit>>, Vec<Commit>);
 
 /// Struct to incrementally group commits by prefix
 pub struct CommitGrouper {
-  prefix_to_commits: IndexMap<String, Vec<(String, Commit)>>,
+  prefix_to_commits: IndexMap<String, Vec<Commit>>,
   unassigned_commits: Vec<Commit>,
   prefix_pattern: &'static Regex,
   issue_pattern: &'static Regex,
@@ -43,7 +43,7 @@ impl CommitGrouper {
     }
   }
 
-  pub fn add_commit(&mut self, commit: Commit) {
+  pub fn add_commit(&mut self, mut commit: Commit) {
     // Track the oldest commit (first one we see)
     if self.oldest_commit.is_none() {
       self.oldest_commit = Some(commit.clone());
@@ -58,7 +58,10 @@ impl CommitGrouper {
         let prefix = prefix_match.as_str().trim();
         let message_text = message_match.as_str().trim();
 
-        self.prefix_to_commits.entry(prefix.to_string()).or_default().push((message_text.to_string(), commit));
+        // Set the stripped subject
+        commit.stripped_subject = message_text.to_string();
+
+        self.prefix_to_commits.entry(prefix.to_string()).or_default().push(commit);
         return;
       }
     }
@@ -66,11 +69,11 @@ impl CommitGrouper {
     // If no explicit parentheses prefix, look for issue number pattern in the subject line
     if let Some(issue_match) = self.issue_pattern.find(subject) {
       let issue_number = issue_match.as_str();
-      self
-        .prefix_to_commits
-        .entry(issue_number.to_string())
-        .or_default()
-        .push((subject.trim().to_string(), commit));
+
+      // For issue-based grouping, we don't strip anything
+      // The subject remains as-is
+
+      self.prefix_to_commits.entry(issue_number.to_string()).or_default().push(commit);
       return;
     }
 

@@ -1,352 +1,89 @@
 import { LazyStore } from "@tauri-apps/plugin-store"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { emit, listen } from "@tauri-apps/api/event"
-import type { InjectionKey } from "vue"
+import { SubWindowAppStore } from "./SubWindowAppStore"
 
 export interface ConflictViewerSettings {
-  showConflictsOnly: boolean
-  viewMode: string
-  conflictDiffViewMode: "unified" | "split"
+  showConflictsOnly?: boolean
+  viewMode?: string
+  conflictDiffViewMode?: "unified" | "split"
 }
 
 export interface AppSettings {
   primaryColor: string
   neutralColor: string
   radius: number
+  globalUserBranchPrefix?: string
 }
 
 export interface ModelSettings {
   aiEnabled?: boolean
 }
 
+export interface ProjectMetadata {
+  path: string
+  cachedBranchPrefix?: string
+  lastSyncTime?: number
+  lastBranchCount?: number
+}
+
 // Interface that both main and sub-window stores implement
 export interface IAppStore {
-  getRecentPaths(): Promise<string[]>
-  setRecentPaths(paths: string[]): Promise<void>
-  getSelectedProject(): Promise<string>
-  setSelectedProject(path: string): Promise<void>
-  getConflictViewerSettings(): Promise<ConflictViewerSettings>
-  setConflictViewerSettings(settings: ConflictViewerSettings): Promise<void>
-  updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(key: K, value: ConflictViewerSettings[K]): Promise<void>
-  getAppSettings(): Promise<AppSettings>
-  setAppSettings(settings: AppSettings): Promise<void>
-  updateAppSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): Promise<void>
-  getModelSettings(): Promise<ModelSettings>
-  setModelSettings(settings: ModelSettings): Promise<void>
-  updateModelSetting<K extends keyof ModelSettings>(key: K, value: ModelSettings[K]): Promise<void>
+  // Generic store methods
+  get<T>(key: string): Promise<T | null>
+  set(key: string, value: unknown): Promise<void>
 }
 
 // Main window implementation - direct store access
 class MainAppStore implements IAppStore {
   public store: LazyStore // Public so handlers can access it
+  private migrationChecked = false
 
   constructor() {
     this.store = new LazyStore("settings.json")
+    // Run migration on initialization
+    void this.ensureMigration()
   }
 
-  async getRecentPaths(): Promise<string[]> {
-    return await this.store.get<string[]>("recentsPaths") ?? []
+  // Generic store methods
+  async get<T>(key: string): Promise<T | null> {
+    return await this.store.get<T>(key) ?? null
   }
 
-  async setRecentPaths(paths: string[]): Promise<void> {
-    await this.store.set("recentsPaths", paths)
-  }
-
-  async getSelectedProject(): Promise<string> {
-    return await this.store.get<string>("selectedProject") ?? ""
-  }
-
-  async setSelectedProject(path: string): Promise<void> {
-    await this.store.set("selectedProject", path)
-  }
-
-  async getConflictViewerSettings(): Promise<ConflictViewerSettings> {
-    const settings = await this.store.get<ConflictViewerSettings>("conflictViewerSettings")
-    return settings ?? {
-      showConflictsOnly: true,
-      viewMode: "diff",
-      conflictDiffViewMode: "unified",
+  async set(key: string, value: unknown): Promise<void> {
+    if (value === null || value === undefined) {
+      await this.store.delete(key)
+    }
+    else {
+      await this.store.set(key, value)
     }
   }
 
-  async setConflictViewerSettings(settings: ConflictViewerSettings): Promise<void> {
-    await this.store.set("conflictViewerSettings", settings)
-  }
-
-  async updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(
-    key: K,
-    value: ConflictViewerSettings[K],
-  ): Promise<void> {
-    const current = await this.getConflictViewerSettings()
-    current[key] = value
-    await this.setConflictViewerSettings(current)
-  }
-
-  async getAppSettings(): Promise<AppSettings> {
-    const settings = await this.store.get<AppSettings>("appSettings")
-    return settings ?? {
-      primaryColor: "green",
-      neutralColor: "slate",
-      radius: 0.25,
+  private async ensureMigration(): Promise<void> {
+    if (this.migrationChecked) {
+      return
     }
-  }
+    this.migrationChecked = true
 
-  async setAppSettings(settings: AppSettings): Promise<void> {
-    await this.store.set("appSettings", settings)
-  }
+    // Migrate from old format to new format
+    const oldPaths = await this.store.get<string[]>("recentsPaths")
+    const oldSelectedProject = await this.store.get<string>("selectedProject")
 
-  async updateAppSetting<K extends keyof AppSettings>(
-    key: K,
-    value: AppSettings[K],
-  ): Promise<void> {
-    const current = await this.getAppSettings()
-    current[key] = value
-    await this.setAppSettings(current)
-  }
-
-  async getModelSettings(): Promise<ModelSettings> {
-    const settings = await this.store.get<ModelSettings>("modelSettings")
-    return settings ?? {}
-  }
-
-  async setModelSettings(settings: ModelSettings): Promise<void> {
-    await this.store.set("modelSettings", settings)
-  }
-
-  async updateModelSetting<K extends keyof ModelSettings>(
-    key: K,
-    value: ModelSettings[K],
-  ): Promise<void> {
-    const current = await this.getModelSettings()
-    current[key] = value
-    await this.setModelSettings(current)
-  }
-}
-
-// Sub-window implementation - proxy to main window
-class SubWindowAppStore implements IAppStore {
-  private requestCounter = 0
-
-  // Proxy method to get data from main window
-  private async getFromMain<T>(key: string): Promise<T> {
-    const requestId = `store-get-${++this.requestCounter}`
-
-    // Set up listener for response
-    const responsePromise = new Promise<T>((resolve, reject) => {
-      const unlisten = listen<{ requestId: string, success: boolean, data?: T, error?: string }>(
-        "store-response",
-        (event) => {
-          if (event.payload.requestId === requestId) {
-            unlisten.then(fn => fn())
-            if (event.payload.success) {
-              resolve(event.payload.data as T)
-            }
-            else {
-              reject(new Error(event.payload.error || "Store get failed"))
-            }
-          }
-        },
-      )
-    })
-
-    // Send request to main window
-    await emit("store-get-request", { requestId, key })
-
-    return responsePromise
-  }
-
-  // Proxy method to set data via main window
-  private async setInMain(key: string, value: unknown): Promise<void> {
-    const requestId = `store-set-${++this.requestCounter}`
-
-    // Set up listener for response
-    const responsePromise = new Promise<void>((resolve, reject) => {
-      const unlisten = listen<{ requestId: string, success: boolean, error?: string }>(
-        "store-response",
-        (event) => {
-          if (event.payload.requestId === requestId) {
-            unlisten.then(fn => fn())
-            if (event.payload.success) {
-              resolve()
-            }
-            else {
-              reject(new Error(event.payload.error || "Store set failed"))
-            }
-          }
-        },
-      )
-    })
-
-    // Send request to main window
-    await emit("store-set-request", { requestId, key, value })
-
-    return responsePromise
-  }
-
-  async getRecentPaths(): Promise<string[]> {
-    return await this.getFromMain<string[]>("recentsPaths") ?? []
-  }
-
-  async setRecentPaths(paths: string[]): Promise<void> {
-    await this.setInMain("recentsPaths", paths)
-  }
-
-  async getSelectedProject(): Promise<string> {
-    return await this.getFromMain<string>("selectedProject") ?? ""
-  }
-
-  async setSelectedProject(path: string): Promise<void> {
-    await this.setInMain("selectedProject", path)
-  }
-
-  async getConflictViewerSettings(): Promise<ConflictViewerSettings> {
-    const settings = await this.getFromMain<ConflictViewerSettings>("conflictViewerSettings")
-    return settings ?? {
-      showConflictsOnly: true,
-      viewMode: "diff",
-      conflictDiffViewMode: "unified",
+    if (oldPaths && !await this.store.get<ProjectMetadata[]>("recentProjects")) {
+      // Convert old paths to new project metadata
+      const projects: ProjectMetadata[] = oldPaths.map(path => ({ path }))
+      await this.store.set("recentProjects", projects)
     }
-  }
 
-  async setConflictViewerSettings(settings: ConflictViewerSettings): Promise<void> {
-    await this.setInMain("conflictViewerSettings", settings)
-  }
-
-  async updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(
-    key: K,
-    value: ConflictViewerSettings[K],
-  ): Promise<void> {
-    const current = await this.getConflictViewerSettings()
-    current[key] = value
-    await this.setConflictViewerSettings(current)
-  }
-
-  async getAppSettings(): Promise<AppSettings> {
-    const settings = await this.getFromMain<AppSettings>("appSettings")
-    return settings ?? {
-      primaryColor: "green",
-      neutralColor: "slate",
-      radius: 0.25,
+    if (oldSelectedProject && !await this.store.get<ProjectMetadata>("selectedProjectData")) {
+      // Convert old selected project to new format
+      await this.store.set("selectedProjectData", { path: oldSelectedProject })
     }
-  }
-
-  async setAppSettings(settings: AppSettings): Promise<void> {
-    await this.setInMain("appSettings", settings)
-  }
-
-  async updateAppSetting<K extends keyof AppSettings>(
-    key: K,
-    value: AppSettings[K],
-  ): Promise<void> {
-    const current = await this.getAppSettings()
-    current[key] = value
-    await this.setAppSettings(current)
-  }
-
-  async getModelSettings(): Promise<ModelSettings> {
-    const settings = await this.getFromMain<ModelSettings>("modelSettings")
-    return settings ?? {}
-  }
-
-  async setModelSettings(settings: ModelSettings): Promise<void> {
-    await this.setInMain("modelSettings", settings)
-  }
-
-  async updateModelSetting<K extends keyof ModelSettings>(
-    key: K,
-    value: ModelSettings[K],
-  ): Promise<void> {
-    const current = await this.getModelSettings()
-    current[key] = value
-    await this.setModelSettings(current)
-  }
-}
-
-// Test store implementation for E2E tests
-class TestAppStore implements IAppStore {
-  private testData = (window as unknown as { __TEST_APP_STORE__?: { recentPaths: string[], selectedProject: string } }).__TEST_APP_STORE__ || {
-    recentPaths: [],
-    selectedProject: "",
-  }
-
-  async getRecentPaths(): Promise<string[]> {
-    return this.testData.recentPaths || []
-  }
-
-  async setRecentPaths(paths: string[]): Promise<void> {
-    this.testData.recentPaths = paths
-  }
-
-  async getSelectedProject(): Promise<string> {
-    return this.testData.selectedProject || ""
-  }
-
-  async setSelectedProject(path: string): Promise<void> {
-    this.testData.selectedProject = path
-  }
-
-  async getConflictViewerSettings(): Promise<ConflictViewerSettings> {
-    return {
-      showConflictsOnly: true,
-      viewMode: "diff",
-      conflictDiffViewMode: "unified",
-    }
-  }
-
-  async setConflictViewerSettings(_settings: ConflictViewerSettings): Promise<void> {
-    // No-op for tests
-  }
-
-  async updateConflictViewerSetting<K extends keyof ConflictViewerSettings>(
-    _key: K,
-    _value: ConflictViewerSettings[K],
-  ): Promise<void> {
-    // No-op for tests
-  }
-
-  async getAppSettings(): Promise<AppSettings> {
-    return {
-      primaryColor: "green",
-      neutralColor: "slate",
-      radius: 0.25,
-    }
-  }
-
-  async setAppSettings(_settings: AppSettings): Promise<void> {
-    // No-op for tests
-  }
-
-  async updateAppSetting<K extends keyof AppSettings>(
-    _key: K,
-    _value: AppSettings[K],
-  ): Promise<void> {
-    // No-op for tests
-  }
-
-  async getModelSettings(): Promise<ModelSettings> {
-    return {}
-  }
-
-  async setModelSettings(_settings: ModelSettings): Promise<void> {
-    // No-op for tests
-  }
-
-  async updateModelSetting<K extends keyof ModelSettings>(
-    _key: K,
-    _value: ModelSettings[K],
-  ): Promise<void> {
-    // No-op for tests
   }
 }
 
 // Factory function to create the appropriate store implementation
 function createAppStore(): IAppStore {
-  // Check if we're in test mode
-  if (typeof window !== "undefined" && (window as unknown as { __TEST_APP_STORE__?: unknown }).__TEST_APP_STORE__) {
-    console.log("[AppStore] Using test store implementation")
-    return new TestAppStore()
-  }
-
   try {
     const currentWindow = WebviewWindow.getCurrent()
     const label = currentWindow.label
@@ -367,7 +104,8 @@ function createAppStore(): IAppStore {
 export function initializeStoreHandlers() {
   // Only initialize handlers if appStore is MainAppStore
   if (!(appStore instanceof MainAppStore)) {
-    return // Don't set up handlers in sub-windows
+    // Don't set up handlers in sub-windows
+    return
   }
 
   // Use the existing appStore instance
@@ -398,7 +136,12 @@ export function initializeStoreHandlers() {
   void listen<{ requestId: string, key: string, value: unknown }>("store-set-request", async (event) => {
     try {
       const { requestId, key, value } = event.payload
-      await mainStore.store.set(key, value)
+      if (value === null || value === undefined) {
+        await mainStore.store.delete(key)
+      }
+      else {
+        await mainStore.store.set(key, value)
+      }
 
       await emit("store-response", {
         requestId,
@@ -417,6 +160,3 @@ export function initializeStoreHandlers() {
 
 // Create a singleton instance using factory
 export const appStore = createAppStore()
-
-// Injection key for Vue
-export const appStoreKey: InjectionKey<IAppStore> = Symbol("appStore")

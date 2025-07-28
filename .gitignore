@@ -1,13 +1,14 @@
 # Logs
 logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-.idea/
+.idea/misc.xml
+.idea/workspace.xml
+.idea/inspectionProfiles/
+.idea/shelf/
+.idea/httpRequests/
+
 node_modules
 *.local
 
@@ -18,13 +19,9 @@ node_modules
 .output
 .nuxt-*
 
-# Migration backups
-migration-backup/
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
 .DS_Store
 *.suo
 *.ntvs*
@@ -35,7 +32,6 @@ migration-backup/
 # Downloaded tools
 .tools/
 
-
 target/
 test-optimized-prompt/
 dist
@@ -43,10 +39,8 @@ dist
 # Rust workspace - only use root Cargo.lock
 src-tauri/Cargo.lock
 
-# Playwright test results
-test-results/
+tests/results/
 playwright-report/
-/test-results.json
 
 # Test repositories
 tests/test-repos/

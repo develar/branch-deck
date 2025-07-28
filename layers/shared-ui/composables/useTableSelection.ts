@@ -25,8 +25,8 @@ export function useTableSelection<TData>(table: ComputedRef<Table<TData>>) {
       event.preventDefault()
       table.value.toggleAllRowsSelected()
     }
-    // Escape: Clear selection
     else if (event.key === "Escape" && selectedCount.value > 0) {
+      // Escape: Clear selection
       event.preventDefault()
       clearSelection()
     }
@@ -38,7 +38,9 @@ export function useTableSelection<TData>(table: ComputedRef<Table<TData>>) {
   // Handle row click with modifiers - desktop app behavior
   function handleRowClick(event: MouseEvent, rowId: string) {
     const row = table.value.getRow(rowId)
-    if (!row) return
+    if (!row) {
+      return
+    }
 
     if (event.shiftKey && lastSelectedRowId) {
       // Shift+Click: Select range

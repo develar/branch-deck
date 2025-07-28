@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from "vue"
+import { ref, onMounted, onScopeDispose } from "vue"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 
 // Handle ESC key to close sub-window - set up immediately
@@ -39,7 +39,7 @@ export function useSubWindowData<T>() {
     window.addEventListener("init-data-updated", handleDataUpdate)
 
     // Clean up on unmount
-    onUnmounted(() => {
+    onScopeDispose(() => {
       window.removeEventListener("init-data-updated", handleDataUpdate)
       // Note: We don't remove the ESC handler here since it should persist
       // for the lifetime of the window, not just the component

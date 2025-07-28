@@ -10,6 +10,7 @@
     "core:event:default",
     "window-state:default",
     "core:window:allow-close",
+    "store:default",
     "log:default"
   ]
 }

@@ -1,5 +1,6 @@
 use crate::commit_list::*;
 use crate::git_command::GitCommandExecutor;
+use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 
 #[test]

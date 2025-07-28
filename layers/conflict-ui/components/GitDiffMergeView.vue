@@ -28,13 +28,9 @@
         :value="String(index)"
         class="border border-default rounded-lg overflow-hidden"
       >
-        <AccordionHeader>
-          <AccordionTrigger class="w-full text-left group">
-            <CollapsibleFileHeader
-              :file-name="conflict.file"
-            />
-          </AccordionTrigger>
-        </AccordionHeader>
+        <CollapsibleFileHeader
+          :file-name="conflict.file"
+        />
 
         <AccordionContent class="border-t border-default p-4">
           <SplitterGroup
@@ -183,7 +179,7 @@
 
 <script lang="ts" setup>
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
-import { SplitterGroup, SplitterPanel, SplitterResizeHandle, AccordionRoot, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent } from "reka-ui"
+import { SplitterGroup, SplitterPanel, SplitterResizeHandle, AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
 
 const props = defineProps<{

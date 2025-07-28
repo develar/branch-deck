@@ -1,8 +1,9 @@
 use crate::cache::TreeIdCache;
+use crate::commit_list::Commit;
 use crate::copy_commit::CopyCommitError;
 use crate::git_command::GitCommandExecutor;
 use crate::merge_conflict::{extract_conflict_details, ConflictDetailsParams, ConflictFileInfo};
-use crate::model::{BranchError, BranchSyncStatus, CommitInfo, MergeConflictInfo};
+use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use crate::progress::CherryPickProgress;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -159,16 +160,16 @@ pub fn perform_fast_cherry_pick_with_context(
       return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo {
         commit_message: cherry_commit_info.message,
         commit_hash: cherry_commit_id.to_string(),
-        commit_author_time: cherry_commit_info.author_time,
-        commit_committer_time: cherry_commit_info.committer_time,
+        commit_author_time: cherry_commit_info.author_timestamp,
+        commit_committer_time: cherry_commit_info.committer_timestamp,
         original_parent_message: cherry_parent_info.message,
         original_parent_hash: cherry_parent_id,
-        original_parent_author_time: cherry_parent_info.author_time,
-        original_parent_committer_time: cherry_parent_info.committer_time,
+        original_parent_author_time: cherry_parent_info.author_timestamp,
+        original_parent_committer_time: cherry_parent_info.committer_timestamp,
         target_branch_message: target_commit_info.message,
         target_branch_hash: target_commit_id.to_string(),
-        target_branch_author_time: target_commit_info.author_time,
-        target_branch_committer_time: target_commit_info.committer_time,
+        target_branch_author_time: target_commit_info.author_timestamp,
+        target_branch_committer_time: target_commit_info.committer_timestamp,
         conflicting_files: detailed_conflicts,
         conflict_analysis,
         conflict_marker_commits,
@@ -193,7 +194,7 @@ fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_
 
 /// Get basic commit information using git CLI
 #[instrument(skip(git_executor), fields(commit_id = %commit_id))]
-fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<CommitInfo, CopyCommitError> {
+fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit, CopyCommitError> {
   // Get commit message
   let message_args = vec!["log", "-1", "--format=%s", commit_id];
   let message_output = git_executor
@@ -211,16 +212,18 @@ fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id
     .parse()
     .map_err(|e| CopyCommitError::Other(anyhow!("Invalid timestamp for commit {}: {}", commit_id, e)))?;
 
-  Ok(CommitInfo {
-    subject: message.clone(), // We only have the subject line from %s
-    message,                  // For error reporting, subject is sufficient
+  Ok(Commit {
     id: commit_id.to_string(),
+    subject: message.clone(),    // We only have the subject line from %s
+    message: message.clone(),    // For error reporting, subject is sufficient
     author_name: String::new(),  // Not available from this query
     author_email: String::new(), // Not available from this query
-    author_time: timestamp,
-    committer_time: timestamp,
-    parent_id: None,        // Not relevant for error reporting
-    tree_id: String::new(), // Not relevant for error reporting
-    mapped_commit_id: None, // Not relevant for error reporting
+    author_timestamp: timestamp,
+    committer_timestamp: timestamp,
+    parent_id: None,           // Not relevant for error reporting
+    tree_id: String::new(),    // Not relevant for error reporting
+    note: None,                // Not relevant for error reporting
+    mapped_commit_id: None,    // Not relevant for error reporting
+    stripped_subject: message, // Same as subject for error reporting
   })
 }

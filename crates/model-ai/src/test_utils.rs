@@ -1,4 +1,4 @@
-use crate::types::CommitInfo;
+use git_ops::model::CommitInfo;
 
 // Legacy types for backward compatibility with existing tests
 #[derive(Debug, Clone)]

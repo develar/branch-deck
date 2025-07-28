@@ -1,0 +1,11 @@
+# Documentation: https://nexte.st/docs/configuration/
+
+[profile.default]
+failure-output = "immediate"
+success-output = "never"
+
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"

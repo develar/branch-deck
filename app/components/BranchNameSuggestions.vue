@@ -60,7 +60,9 @@ defineEmits<{
 
 // Calculate how many loading slots to show
 const pendingSlots = computed(() => {
-  if (!props.isLoading) return 0
+  if (!props.isLoading) {
+    return 0
+  }
 
   // Show loading slots for suggestions that haven't arrived yet
   // Assume we're expecting 2 suggestions total

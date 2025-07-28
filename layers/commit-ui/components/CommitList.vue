@@ -1,54 +1,54 @@
 <template>
   <div>
-    <div
+    <!-- Portal slot for inline forms -->
+    <slot name="portal-target" />
+
+    <table
       ref="containerRef"
-      :class="[
-        showDividers ? 'divide-y divide-default' : 'space-y-2',
-        'rounded-lg',
-        highlightSelection && hasSelection && 'ring-2 ring-primary/20'
-      ]"
-      tabindex="0"
+      class="w-full rounded-lg"
+      :tabindex="selectable ? 0 : -1"
       @keydown="handleKeydown"
     >
-      <div
-        v-for="row in table.getRowModel().rows"
-        :key="row.id"
-        :data-row-id="row.id"
-        :data-selected="selectable && row.getIsSelected()"
-        :class="[
-          'bd-padding-list-item',
-          showHover && !selectable && 'hover:bg-muted transition-colors',
-          selectable && 'cursor-pointer relative select-none',
-          !showDividers && 'rounded-md',
-          selectable && row.getIsSelected()
-            ? highlightSelection
-              ? 'bg-primary/10 hover:bg-primary/15 before:absolute before:left-0 before:top-1 before:bottom-1 before:w-1 before:bg-primary before:rounded-r-sm'
-              : 'bg-primary/10 hover:bg-primary/15'
-            : selectable && hoveredRowId === row.id
-              ? 'bg-muted'
-              : '',
-        ]"
-        @click="handleRowClick($event, row)"
-        @mouseenter="hoveredRowId = row.id"
-        @mouseleave="hoveredRowId = null"
-      >
-        <!-- Row content -->
-        <div v-for="cell in row.getVisibleCells()" :key="cell.id">
-          <component
-            :is="cell.column.columnDef.cell"
-            v-bind="cell.getContext()"
-          />
-        </div>
+      <tbody class="divide-y divide-default">
+        <tr
+          v-for="row in table.getRowModel().rows"
+          :key="row.id"
+          :data-row-id="row.id"
+          :data-selected="selectable && row.getIsSelected()"
+          :class="[
+            !selectable && 'hover:bg-muted transition-colors',
+            selectable && 'cursor-pointer relative select-none hover:bg-muted',
+            selectable && row.getIsSelected() && 'bg-primary/10 hover:bg-primary/15',
+          ]"
+          @click="handleRowClick($event, row)"
+        >
+          <td class="bd-padding-list-item">
+            <!-- Selection indicator bar -->
+            <div
+              v-if="selectable && row.getIsSelected() && highlightSelection"
+              class="absolute left-0 top-1 bottom-1 w-1 bg-primary rounded-r-sm"
+            />
 
-        <!-- Slot for additional content after commit -->
-        <slot name="after-commit" :commit="row.original" :index="row.index" />
-      </div>
-    </div>
+            <!-- Row content -->
+            <div v-for="cell in row.getVisibleCells()" :key="cell.id">
+              <component
+                :is="cell.column.columnDef.cell"
+                v-bind="cell.getContext()"
+              />
+            </div>
+
+            <!-- Slot for additional content after commit -->
+            <slot name="after-commit" :commit="row.original" :index="row.index" />
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </template>
 
 <script lang="ts" setup>
-import type { CommitDetail, CommitSyncStatus, BranchError, FileDiff, MissingCommit } from "~/utils/bindings"
+import type { Commit, CommitSyncStatus, BranchError, MissingCommit } from "~/utils/bindings"
+import type { SyncedCommit } from "~/composables/branchSyncProvider"
 import {
   createColumnHelper,
   getCoreRowModel,
@@ -57,36 +57,15 @@ import {
 } from "@tanstack/vue-table"
 // useTableSelection is auto-imported from shared-ui layer
 
-// Base interface for all commit types
-interface BaseCommit {
-  hash?: string
-  subject?: string
-  message: string
-  author?: string
-  authorTime?: number
-  committerTime?: number
-}
-
-// Extended interface for generic commits
-interface GenericCommit extends BaseCommit {
-  originalHash?: string
-  fileCount?: number
-  fileDiffs?: FileDiff[]
-  status?: CommitSyncStatus
-  error?: BranchError | null
-}
-
 // Union type for all supported commit types
-type CommitUnion = CommitDetail | GenericCommit | MissingCommit
+type CommitUnion = Commit | SyncedCommit | MissingCommit
 
 interface Props {
-  // Commits can be array, Map, or single type
-  commits: CommitDetail[] | Map<string, CommitDetail> | GenericCommit[] | MissingCommit[]
+  // Commits are always arrays now
+  commits: Commit[] | SyncedCommit[] | MissingCommit[]
 
   // Display variants
   variant?: "compact" | "detailed" | "status"
-  showDividers?: boolean
-  showHover?: boolean
 
   // Status-specific
   branchName?: string
@@ -102,8 +81,6 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   variant: "compact",
-  showDividers: true,
-  showHover: true,
   showFileCount: false,
   showAuthor: false,
   branchName: undefined,
@@ -116,29 +93,21 @@ const emit = defineEmits<{
   "keydown": [event: KeyboardEvent]
 }>()
 
-// Normalize commits to array format
-const normalizedCommits = computed(() => {
-  if (props.commits instanceof Map) {
-    return Array.from(props.commits.values())
-  }
-  return props.commits
-})
-
 // Helper to get commit hash
 function getCommitHash(commit: CommitUnion): string {
-  return ("originalHash" in commit ? commit.originalHash : undefined) || commit.hash || ""
+  // For Commit type, use originalHash
+  if ("originalHash" in commit && commit.originalHash) {
+    return commit.originalHash
+  }
+  // For SyncedCommit and MissingCommit types, use hash
+  if ("hash" in commit && commit.hash) {
+    return commit.hash
+  }
+  return ""
 }
 
 // Component refs
-const containerRef = ref<HTMLElement>()
-
-// Hover state
-const hoveredRowId = ref<string | null>(null)
-
-// Selection state
-const hasSelection = computed(() => {
-  return Object.keys(table.getState().rowSelection).length > 0
-})
+const containerRef = useTemplateRef<HTMLTableElement>("containerRef")
 
 // Column definitions
 const columnHelper = createColumnHelper<CommitUnion>()
@@ -151,9 +120,13 @@ const columns = computed(() => [
       return h("div", [
         // Commit message with optional badge
         h("div", { class: "flex items-center gap-2" }, [
-          // Use subject if available, otherwise fallback to message
+          // Use strippedSubject if available, otherwise subject, otherwise fallback to message
           h(resolveComponent("CommitMessageWithPopover"), {
-            subject: commit.subject || commit.message,
+            subject: ("strippedSubject" in commit && commit.strippedSubject)
+              ? commit.strippedSubject
+              : ("subject" in commit && commit.subject)
+                  ? commit.subject
+                  : commit.message,
             message: commit.message,
             messageClass: props.variant === "compact" ? "text-sm text-highlighted break-words" : "text-sm text-highlighted truncate",
           }),
@@ -186,9 +159,9 @@ const columns = computed(() => [
         // Metadata line
         h("div", { class: "mt-1 flex items-center gap-2 text-xs text-muted" }, [
           // Hash(es)
-          h("span", { class: "font-mono" }, formatShortHash(("originalHash" in commit ? commit.originalHash : undefined) || commit.hash!)),
+          h("span", { class: "font-mono" }, formatShortHash(getCommitHash(commit))),
 
-          props.variant === "status" && commit.hash && [
+          props.variant === "status" && "hash" in commit && commit.hash && [
             h("span", "→"),
             h("span", { class: "font-mono" }, formatShortHash(commit.hash)),
           ],
@@ -246,10 +219,8 @@ const columns = computed(() => [
 ])
 
 // Create table instance
-const table = useVueTable({
-  get data() {
-    return normalizedCommits.value
-  },
+const table = useVueTable<CommitUnion>({
+  data: toRef(props, "commits"),
   get columns() {
     return columns.value
   },
@@ -275,7 +246,9 @@ watch(selectedItems, (items) => {
 
 // Handle row clicks
 function handleRowClick(event: MouseEvent, row: { index: number, id: string }) {
-  if (!props.selectable) return
+  if (!props.selectable) {
+    return
+  }
   handleSelectionClick(event, row.id)
 }
 
@@ -295,7 +268,7 @@ function getFileCount(commit: CommitUnion): number | undefined {
   if ("fileDiffs" in commit && commit.fileDiffs?.length) {
     return commit.fileDiffs.length
   }
-  if ("fileCount" in commit) {
+  if ("fileCount" in commit && typeof commit.fileCount === "number") {
     return commit.fileCount
   }
   return undefined

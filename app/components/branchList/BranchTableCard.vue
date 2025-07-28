@@ -24,8 +24,10 @@
               <tr
                 data-testid="branch-row"
                 :data-branch-name="row.original.name"
+                :data-state="row.getIsExpanded() ? 'open' : 'closed'"
                 :class="[
-                  'hover:bg-muted/50 transition-all cursor-pointer',
+                  'branch-row hover:bg-muted transition-all cursor-pointer group',
+                  'data-[state=open]:bg-elevated',
                   processingBranch === row.original.name && 'animate-pulse ring-2 ring-primary/50'
                 ]"
                 @click="row.toggleExpanded()"
@@ -52,42 +54,35 @@
             </tr>
 
             <!-- Expanded row content -->
-            <tr v-if="row.getIsExpanded()" :key="`${row.id}-expanded`">
-              <td colspan="4" class="py-2 border-t border-dotted border-default">
-                <div class="relative">
-                  <!-- Visual connector line -->
-                  <div class="absolute left-6 top-0 bottom-0 w-0.5 bg-primary/20" />
-
-                  <!-- Content with subtle indentation -->
-                  <div class="ml-8">
-                    <!-- Error alert if there are error details -->
+            <tr v-if="row.getIsExpanded()" :key="`${row.id}-expanded`" class="!border-t-0">
+              <td colspan="4" class="px-0 py-4">
+                <div class="ml-4 border-l-2 border-primary/50 pl-2 pr-6">
+                  <!-- Error display -->
+                  <div v-if="row.original.errorDetails" class="mb-3">
+                    <template v-if="row.original.errorDetails && 'MergeConflict' in row.original.errorDetails">
+                      <MergeConflictViewer
+                        :conflict="row.original.errorDetails.MergeConflict"
+                        :branch-name="row.original.name"
+                      />
+                    </template>
                     <UAlert
-                      v-if="row.original.errorDetails"
+                      v-else-if="row.original.errorDetails && 'Generic' in row.original.errorDetails"
                       color="error"
                       variant="subtle"
-                      class="mb-4 mr-6"
+                      size="sm"
                     >
-                      <template #title>Error Details</template>
-                      <template v-if="row.original.errorDetails && 'MergeConflict' in row.original.errorDetails" #description>
-                        <MergeConflictViewer
-                          :conflict="row.original.errorDetails.MergeConflict"
-                          :branch-name="row.original.name"
-                        />
-                      </template>
-                      <template v-else-if="row.original.errorDetails && 'Generic' in row.original.errorDetails" #description>
+                      <template #description>
                         {{ (row.original.errorDetails as any).Generic }}
                       </template>
                     </UAlert>
-
-                    <!-- Commit list -->
-                    <CommitList
-                      :commits="getCommitsAsArray(row.original.commits)"
-                      :variant="'status'"
-                      :show-file-count="false"
-                      :container-class="''"
-                      :item-class="''"
-                    />
                   </div>
+
+                  <!-- Commit list -->
+                  <CommitList
+                    :commits="row.original.commits"
+                    :variant="'status'"
+                    :show-file-count="false"
+                  />
                 </div>
               </td>
             </tr>
@@ -112,8 +107,6 @@
 </template>
 
 <script lang="ts" setup>
-import type { ReactiveBranch, SyncOptions } from "~/composables/branch/syncBranches"
-import type { CommitDetail } from "~/utils/bindings"
 import {
   createColumnHelper,
   getCoreRowModel,
@@ -123,27 +116,14 @@ import {
   type ExpandedState,
   type ColumnDef,
 } from "@tanstack/vue-table"
-import { useRepositoryStore } from "~/stores/repository"
-// useCopyToClipboard is auto-imported from shared-ui layer
 import { usePush } from "~/composables/git/push"
-import { useBranchContextActions } from "~/composables/branch/useBranchContextActions"
 
-interface Props {
-  branches: ReactiveBranch[]
-  isSyncing: boolean
-}
-
-const props = defineProps<Props>()
-
-const emit = defineEmits<{
-  "push-branch": [branchName: string]
-  "refresh": [options?: SyncOptions]
-}>()
-const repositoryStore = useRepositoryStore()
-const { isPushing } = usePush(repositoryStore.vcsRequestFactory)
+const { vcsRequestFactory, effectiveBranchPrefix } = useRepository()
+const { isPushing, pushBranch } = usePush(vcsRequestFactory)
+const { syncBranches, isSyncing, branches } = useBranchSync()
 
 // Template ref for scrolling
-const tableRef = ref<HTMLDivElement>()
+const tableRef = useTemplateRef<HTMLDivElement>("tableRef")
 
 // Context actions composable
 const {
@@ -152,9 +132,7 @@ const {
   getContextMenuItems,
   hideInlineInput,
   handleInlineSubmit,
-} = useBranchContextActions({
-  onRefresh: options => emit("refresh", options),
-})
+} = useBranchContextActions()
 
 // TanStack Table setup
 const expanded = ref<ExpandedState>({})
@@ -169,7 +147,7 @@ const columns: ColumnDef<ReactiveBranch>[] = [
     header: "Branch Name",
     cell: ({ row }) => {
       const branch = row.original
-      return h("div", { class: "flex items-center gap-2 group" }, [
+      return h("div", { class: "flex items-center gap-2" }, [
         row.getCanExpand() && h(resolveComponent("UButton"), {
           icon: row.getIsExpanded() ? "i-lucide-folder-open" : "i-lucide-folder-closed",
           variant: "ghost",
@@ -180,10 +158,6 @@ const columns: ColumnDef<ReactiveBranch>[] = [
           },
         }),
         h("span", { class: "text-sm font-medium" }, branch.name),
-        h(resolveComponent("CopyButton"), {
-          text: getFullBranchName(branch.name),
-          tooltip: "Copy full branch name to clipboard",
-        }),
       ])
     },
   }),
@@ -200,24 +174,17 @@ const columns: ColumnDef<ReactiveBranch>[] = [
     header: "Status",
     cell: ({ row }) => {
       const branch = row.original
-      if (branch.status === "Syncing") {
-        return h("div", { class: "flex items-center gap-2" }, [
-          h(resolveComponent("UProgress"), {
-            modelValue: branch.processedCount,
-            max: branch.commitCount,
-            status: true,
-            size: "sm",
-            class: "w-20",
-          }),
-        ])
-      }
-      else {
-        return h(resolveComponent("UBadge"), {
+      const statusText = branch.status === "Syncing"
+        ? `syncing ${branch.processedCount}/${branch.commitCount}…`
+        : branch.statusText
+
+      return h("div", { class: "w-40" }, [
+        h(resolveComponent("UBadge"), {
           color: getIncrementalStatusColor(branch.status),
           variant: "soft",
           class: "lowercase",
-        }, () => branch.statusText)
-      }
+        }, () => statusText),
+      ])
     },
   }),
   columnHelper.display({
@@ -225,31 +192,39 @@ const columns: ColumnDef<ReactiveBranch>[] = [
     header: "Actions",
     cell: ({ row }) => {
       const branch = row.original
+      const buttons = []
+
+      // Always show copy button
+      buttons.push(h(resolveComponent("CopyButton"), {
+        text: getFullBranchName(branch.name),
+        tooltip: "Copy full branch name",
+        size: "xs",
+        alwaysVisible: true,
+      }))
+
+      // Show push button when applicable
       if (!branch.hasError && branch.commitCount > 0) {
-        return h(resolveComponent("UButton"), {
-          disabled: isPushing(branch.name) || props.isSyncing || branch.status === "Syncing",
+        buttons.push(h(resolveComponent("UButton"), {
+          disabled: isPushing(branch.name) || isSyncing.value || branch.status === "Syncing",
           loading: isPushing(branch.name),
           icon: "i-lucide-upload",
           size: "xs",
           variant: "outline",
           onClick: (e: MouseEvent) => {
             e.stopPropagation()
-            emit("push-branch", branch.name)
+            pushBranch(branch.name)
           },
-        }, () => branch.status === "Updated" ? "Force Push" : "Push")
+        }, () => branch.status === "Updated" ? "Force Push" : "Push"))
       }
-      return null
+
+      return h("div", { class: "flex items-center gap-2" }, buttons)
     },
   }),
 ]
 
 const table = useVueTable({
-  get data() {
-    return props.branches
-  },
-  get columns() {
-    return columns
-  },
+  data: branches,
+  columns: columns,
   getCoreRowModel: getCoreRowModel(),
   getExpandedRowModel: getExpandedRowModel(),
   getRowId: row => row.name,
@@ -264,36 +239,67 @@ const table = useVueTable({
   },
 })
 
-// Expose table ref and methods for parent component
-defineExpose({
-  tableRef,
-  table,
-  expandBranch: (branchName: string, scroll: boolean) => {
-    const row = table.getRow(branchName)
-    if (row && !row.getIsExpanded()) {
-      row.toggleExpanded(true)
-    }
-
-    // Handle scrolling if requested
-    if (scroll && tableRef.value) {
-      nextTick(() => {
-        const rowElement = tableRef.value?.querySelector(`[data-branch-name="${branchName}"]`) as HTMLElement
-        if (rowElement) {
-          rowElement.scrollIntoView({ behavior: "smooth", block: "center" })
-        }
-      })
-    }
-  },
-})
-
-// Helper to get commits as array
-const getCommitsAsArray = (commits: Map<string, CommitDetail>): CommitDetail[] => {
-  return Array.from(commits.values())
-}
+// Watch for branches that need auto-expansion with debouncing
+// watchDebounced(
+//   branches,
+//   () => {
+//     // Collect all branches that need expansion
+//     const branchesToExpand = branches.value.filter(branch => branch.autoExpandRequested)
+//     if (branchesToExpand.length === 0) {
+//       return
+//     }
+//
+//     // Find the branch with the most recent activity that needs scrolling
+//     let branchToScroll: ReactiveBranch | null = null
+//     let latestCommitTime = 0
+//
+//     // First, expand all branches that need it
+//     branchesToExpand.forEach((branch) => {
+//       const row = table.getRowModel().rowsById[branch.name]
+//       if (row && !row.getIsExpanded()) {
+//         row.toggleExpanded(true)
+//
+//         // Track the branch with the most recent commit time that needs scrolling
+//         if (branch.autoScrollRequested && branch.latestCommitTime > latestCommitTime) {
+//           branchToScroll = branch
+//           latestCommitTime = branch.latestCommitTime
+//         }
+//       }
+//
+//       // Clear the expansion flag
+//       branch.autoExpandRequested = false
+//     })
+//
+//     // Then, scroll to the most recently active branch that requested it (only once)
+//     if (ENABLE_AUTO_SCROLL && branchToScroll && tableRef.value) {
+//       nextTick(() => {
+//         const rowElement = tableRef.value?.querySelector(`[data-branch-name="${branchToScroll!.name}"]`) as HTMLElement
+//         if (rowElement) {
+//           rowElement.scrollIntoView({ behavior: "smooth", block: "center" })
+//         }
+//
+//         // Clear the scroll flag for all branches
+//         branchesToExpand.forEach((branch) => {
+//           branch.autoScrollRequested = false
+//         })
+//       })
+//     }
+//     else {
+//       // Still clear the scroll flags even if scrolling is disabled
+//       branchesToExpand.forEach((branch) => {
+//         branch.autoScrollRequested = false
+//       })
+//     }
+//   },
+//   {
+//     debounce: 100,
+//     deep: true,
+//   },
+// )
 
 // Get full branch name with prefix
 const getFullBranchName = (branchName: string) => {
-  return `${repositoryStore.branchPrefix}/${branchName}`
+  return `${effectiveBranchPrefix.value}/${branchName}`
 }
 
 // Get incremental status color
@@ -320,11 +326,29 @@ const getActiveBranch = () => {
   if (!inlineInputActiveBranch.value) {
     return null
   }
-  return props.branches.find(b => b.name === inlineInputActiveBranch.value)
+  return branches.value.find(b => b.name === inlineInputActiveBranch.value)
 }
 
 const getActiveBranchCommitCount = () => {
   const branch = getActiveBranch()
   return branch?.commitCount || 0
 }
+
+// Listen for sync-branches event from menu
+scopedListen("sync-branches", () => {
+  syncBranches()
+})
 </script>
+
+<style scoped>
+/* Commented out - keeping CopyButton always visible in table
+.branch-row :deep(.copy-button) {
+  transition: opacity 200ms ease-out;
+}
+
+.branch-row:hover :deep(.copy-button) {
+  opacity: 1;
+  transition: opacity 200ms ease-out 300ms;
+}
+*/
+</style>

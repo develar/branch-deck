@@ -1,5 +1,5 @@
 <template>
-  <UCard class="overflow-hidden" :ui="{ body: 'p-0 sm:p-0' }">
+  <UCard class="overflow-hidden" :ui="{ body: 'p-0 sm:p-0' }" data-testid="unassigned-commits-section">
     <template #header>
       <CardHeader
         title="Unassigned Commits"
@@ -23,14 +23,13 @@
       @create-branch="activateInlineCreation"
     />
 
-    <!-- Inline Branch Creator -->
-    <InlineBranchCreator
+    <!-- Inline Branch Creator (renders via portal) -->
+    <LazyInlineBranchCreator
+      v-if="isInlineCreationActive"
       :selected-commits="selectedItems"
-      :repository-path="repositoryPath"
-      :branch-prefix="branchPrefix"
       :is-active="isInlineCreationActive"
       @cancel="cancelInlineCreation"
-      @created="handleBranchCreated"
+      @success="handleBranchSuccess"
     />
 
     <CommitList
@@ -42,30 +41,29 @@
       :highlight-selection="isInlineCreationActive"
       @selection-change="handleSelectionChange"
       @keydown="handleKeydown"
-    />
+    >
+      <template #portal-target>
+        <!-- Portal target for inline branch creator -->
+        <div v-if="isInlineCreationActive" id="inline-branch-creator-portal" class="mb-4" />
+      </template>
+    </CommitList>
   </UCard>
 </template>
 
 <script lang="ts" setup>
-import type { CommitDetail } from "~/utils/bindings"
-import type { SyncOptions } from "~/composables/branch/syncBranches"
-// SelectionHelpPopover, InlineBranchCreator, and FloatingSelectionBar are auto-imported by Nuxt
+
+import type { CommitList } from "#components"
+
+import type { Commit } from "~/utils/bindings"
 
 defineProps<{
-  commits: CommitDetail[]
-  repositoryPath: string
-  branchPrefix: string
+  commits: Commit[]
 }>()
 
-const emit = defineEmits<{
-  refresh: [options?: SyncOptions]
-}>()
+// No longer need to emit refresh events - using store directly now
 
 // Ref to the CommitList component
-const commitListRef = ref()
-
-// Toast for notifications
-const toast = useToast()
+const commitListRef = useTemplateRef<InstanceType<typeof CommitList>>("commitListRef")
 
 // Inline creation state
 const isInlineCreationActive = ref(false)
@@ -75,25 +73,29 @@ const firstSelectedRowElement = ref<HTMLElement | null>(null)
 
 // Computed properties to access table data
 const selectedCount = computed(() => {
-  if (!commitListRef.value?.table) return 0
+  if (!commitListRef.value?.table) {
+    return 0
+  }
   return commitListRef.value.table.getSelectedRowModel().rows.length
 })
 
-const selectedItems = computed((): CommitDetail[] => {
-  if (!commitListRef.value?.table) return []
-  return commitListRef.value.table.getSelectedRowModel().rows.map((row: { original: CommitDetail }) => row.original)
+const selectedItems = computed((): Commit[] => {
+  if (!commitListRef.value?.table) {
+    return []
+  }
+  return commitListRef.value.table.getSelectedRowModel().rows.map(row => row.original as Commit)
 })
 
 // Update first selected row element when selection changes
-watchEffect(() => {
-  if (selectedCount.value > 0 && commitListRef.value?.table) {
+watch([selectedCount, () => commitListRef.value?.table], ([count, table]) => {
+  if (count > 0 && table) {
     // Get first selected row from TanStack Table
-    const selectedRows = commitListRef.value.table.getSelectedRowModel().rows
+    const selectedRows = table.getSelectedRowModel().rows
     if (selectedRows.length > 0) {
       // Get the row ID (commit hash) of the first selected row
-      const firstRowId = selectedRows[0].id
+      const firstRowId = selectedRows[0]!.id
       // Find the DOM element using the data-row-id attribute
-      const rowElement = commitListRef.value.$el?.querySelector(`[data-row-id="${firstRowId}"]`)
+      const rowElement = commitListRef.value?.$el?.querySelector(`[data-row-id="${firstRowId}"]`)
       firstSelectedRowElement.value = rowElement as HTMLElement || null
     }
     else {
@@ -122,8 +124,14 @@ function handleSelectionChange(_selectedItems: unknown[]) {
 
 // Handle keyboard events from CommitList
 function handleKeydown(event: KeyboardEvent) {
+  // Only block ESC key when form is active to prevent selection clearing
+  if (isInlineCreationActive.value && event.key === "Escape") {
+    event.preventDefault()
+    return
+  }
+
   // Handle Enter key to open branch creation form
-  if (event.key === "Enter" && selectedCount.value > 0 && !isInlineCreationActive.value) {
+  if (event.key === "Enter" && selectedCount.value > 0) {
     event.preventDefault()
     activateInlineCreation()
   }
@@ -138,71 +146,41 @@ function activateInlineCreation() {
 function cancelInlineCreation() {
   isInlineCreationActive.value = false
 
-  // Restore focus to commit list so keyboard shortcuts work
+  // Focus the commit list after dialog closes
   nextTick(() => {
-    const listElement = commitListRef.value?.$el?.querySelector("[tabindex=\"0\"]")
-    if (listElement) {
-      listElement.focus()
+    if (commitListRef.value?.$el) {
+      const tableElement = commitListRef.value.$el.querySelector("table")
+      if (tableElement) {
+        tableElement.focus()
+      }
     }
   })
 }
 
-// Handle successful branch creation
-function handleBranchCreated(branchName: string) {
+// Handle successful branch creation - just UI cleanup
+function handleBranchSuccess() {
   isInlineCreationActive.value = false
   clearSelection()
-  emit("refresh", {
-    targetBranchName: branchName,
-    autoExpand: true,
-    autoScroll: true,
-  })
-
-  toast.add({
-    title: "Success",
-    description: `Branch "${branchName}" created successfully`,
-    color: "success",
-  })
-
-  // Restore focus to commit list
-  nextTick(() => {
-    const listElement = commitListRef.value?.$el?.querySelector("[tabindex=\"0\"]")
-    if (listElement) {
-      listElement.focus()
-    }
-  })
 }
 
-// Watch for inline creator activation to ensure selected commits remain visible
+// Watch for inline creator activation
 watch(isInlineCreationActive, (active) => {
-  if (active) {
-    // Wait for next tick to ensure the inline creator has rendered
-    nextTick(() => {
-      // Get the first selected row element
-      const selectedRows = commitListRef.value?.$el?.querySelectorAll("[data-selected=\"true\"]")
-      if (!selectedRows || selectedRows.length === 0) return
-
-      const firstSelectedRow = selectedRows[0]
-      const cardElement = firstSelectedRow.closest(".overflow-hidden")
-
-      if (cardElement && firstSelectedRow) {
-        // Get positions
-        const cardRect = cardElement.getBoundingClientRect()
-        const rowRect = firstSelectedRow.getBoundingClientRect()
-
-        // Check if the selected row is below the viewport
-        if (rowRect.top > window.innerHeight - 100) {
-          // Scroll to bring the card header into view with some padding
-          cardElement.scrollIntoView({ behavior: "smooth", block: "start" })
-          // Add a small offset to show some context above
-          window.scrollBy({ top: -20, behavior: "smooth" })
-        }
-        // Check if the row would be hidden by the inline creator
-        else if (rowRect.top < cardRect.top + 200) {
-          // Estimate inline creator height (approximately 200-250px)
-          window.scrollBy({ top: -250, behavior: "smooth" })
-        }
-      }
-    })
+  if (!active) {
+    // Dialog is closing
+    return
   }
+
+  // When activating, ensure the inline form portal is visible
+  nextTick(() => {
+    const portal = document.getElementById("inline-branch-creator-portal")
+    if (portal) {
+      const rect = portal.getBoundingClientRect()
+      // Check if portal is outside viewport
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        // Scroll the portal into view
+        portal.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+    }
+  })
 })
 </script>

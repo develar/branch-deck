@@ -1,6 +1,7 @@
 use crate::cache::TreeIdCache;
+use crate::commit_list::Commit;
 use crate::git_command::GitCommandExecutor;
-use crate::model::{BranchError, CommitDetail, CommitInfo, CommitSyncStatus};
+use crate::model::{BranchError, CommitSyncStatus};
 use crate::notes::CommitNoteInfo;
 use crate::progress::ProgressCallback;
 use anyhow::anyhow;
@@ -48,7 +49,7 @@ pub struct ProgressInfo<'a> {
 
 // Parameters for creating or updating a commit
 pub struct CreateCommitParams<'a> {
-  pub commit_info: &'a CommitInfo,
+  pub commit: &'a Commit,
   pub new_parent_oid: String,
   pub reuse_if_possible: bool,
   pub repo_path: &'a str,
@@ -60,11 +61,11 @@ pub struct CreateCommitParams<'a> {
 }
 
 // Create or update a commit based on an original commit
-// Returns commit detail, new commit hash, and note info for later writing
-#[instrument(skip(params), fields(commit_id = %params.commit_info.id, branch = %params.progress_info.branch_name))]
-pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(CommitDetail, String, Option<CommitNoteInfo>), CopyCommitError> {
+// Returns new commit hash, sync status, and note info for later writing
+#[instrument(skip(params), fields(commit_id = %params.commit.id, branch = %params.progress_info.branch_name))]
+pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(String, CommitSyncStatus, Option<CommitNoteInfo>), CopyCommitError> {
   let CreateCommitParams {
-    commit_info,
+    commit,
     new_parent_oid,
     reuse_if_possible,
     repo_path,
@@ -76,28 +77,18 @@ pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(CommitDeta
   } = params;
 
   if reuse_if_possible {
-    if let Some(mapped_id) = &commit_info.mapped_commit_id {
-      debug!(original_id = %commit_info.id, mapped_id = %mapped_id, "reusing existing commit");
+    if let Some(mapped_id) = &commit.mapped_commit_id {
+      debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit");
       return Ok((
-        CommitDetail {
-          original_hash: commit_info.id.to_string(),
-          hash: mapped_id.clone(),
-          subject: commit_info.subject.clone(),
-          message: commit_info.message.clone(),
-          author: commit_info.author_name.clone(),
-          author_time: commit_info.author_time,
-          committer_time: commit_info.committer_time,
-          status: CommitSyncStatus::Unchanged,
-          error: None,
-        },
         mapped_id.clone(),
+        CommitSyncStatus::Unchanged,
         None, // No need to write note for unchanged commits
       ));
     }
   }
 
   // Get tree IDs for comparison using cache
-  let original_parent_tree_id = if let Some(parent_id) = &commit_info.parent_id {
+  let original_parent_tree_id = if let Some(parent_id) = &commit.parent_id {
     tree_id_cache.get_tree_id(git_executor, repo_path, parent_id)?
   } else {
     // No parent means this is the initial commit, use empty tree
@@ -107,55 +98,40 @@ pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(CommitDeta
 
   // Check if trees match for fast path
   let tree_id = if original_parent_tree_id == new_parent_tree_id {
-    debug!(commit_id = %commit_info.id, "parent tree matches, reusing original commit tree");
-    let _ = progress.send_progress(
-      format!(
-        "[{}/{}] {}: Creating commit {}/{} ({:.7}) with existing tree",
-        progress_info.current_branch_idx + 1,
-        progress_info.total_branches,
-        progress_info.branch_name,
-        progress_info.current_commit_idx + 1,
-        progress_info.total_commits_in_branch,
-        commit_info.id
-      ),
-      task_index,
-    );
+    debug!(commit_id = %commit.id, "parent tree matches, reusing original commit tree");
     // Trees are identical, reuse original tree
-    commit_info.tree_id.clone()
+    commit.tree_id.clone()
   } else {
-    debug!(commit_id = %commit_info.id, "parent tree differs, performing merge");
-    let _ = progress.send_progress(
-      format!(
-        "[{}/{}] {}: Creating commit {}/{} ({:.7}) using merge",
-        progress_info.current_branch_idx + 1,
-        progress_info.total_branches,
-        progress_info.branch_name,
-        progress_info.current_commit_idx + 1,
-        progress_info.total_commits_in_branch,
-        commit_info.id
-      ),
-      task_index,
-    );
-
+    debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     // Use cherry-pick for efficient 3-way merge with conflict handling
     use crate::cherry_pick::perform_fast_cherry_pick_with_context;
     use crate::progress::CherryPickProgress;
     let cherry_progress = CherryPickProgress::new(progress, progress_info.branch_name, task_index);
-    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit_info.id, &new_parent_oid, Some(&cherry_progress), tree_id_cache)?
+    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, &new_parent_oid, Some(&cherry_progress), tree_id_cache)?
+  };
+
+  // Reconstruct message with stripped subject for the actual git commit
+  let commit_message = if commit.message.contains('\n') {
+    // Multi-line message: replace first line with stripped subject
+    let body_start = commit.message.find('\n').unwrap_or(commit.message.len());
+    format!("{}{}", commit.stripped_subject, &commit.message[body_start..])
+  } else {
+    // Single line message: use the stripped subject
+    commit.stripped_subject.clone()
   };
 
   // Create new commit using git commit-tree
-  let commit_args = vec!["commit-tree", &tree_id, "-p", &new_parent_oid, "-m", &commit_info.message];
+  let commit_args = vec!["commit-tree", &tree_id, "-p", &new_parent_oid, "-m", &commit_message];
 
   // Use Unix timestamp directly (Git accepts this format)
-  let author_date = commit_info.author_time.to_string();
+  let author_date = commit.author_timestamp.to_string();
 
   let env_vars = vec![
-    ("GIT_AUTHOR_NAME", commit_info.author_name.as_str()),
-    ("GIT_AUTHOR_EMAIL", commit_info.author_email.as_str()),
+    ("GIT_AUTHOR_NAME", commit.author_name.as_str()),
+    ("GIT_AUTHOR_EMAIL", commit.author_email.as_str()),
     ("GIT_AUTHOR_DATE", &author_date),
     ("GIT_COMMITTER_NAME", "branch-deck"),
-    ("GIT_COMMITTER_EMAIL", commit_info.author_email.as_str()),
+    ("GIT_COMMITTER_EMAIL", commit.author_email.as_str()),
   ];
 
   let output = git_executor
@@ -166,25 +142,11 @@ pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(CommitDeta
 
   // Prepare note info for later batch writing
   let note_info = CommitNoteInfo {
-    original_oid: commit_info.id.clone(),
+    original_oid: commit.id.clone(),
     new_oid: new_commit_hash.clone(),
-    author: commit_info.author_name.clone(),
-    author_email: commit_info.author_email.clone(),
+    author: commit.author_name.clone(),
+    author_email: commit.author_email.clone(),
   };
 
-  Ok((
-    CommitDetail {
-      original_hash: commit_info.id.to_string(),
-      hash: new_commit_hash.clone(),
-      subject: commit_info.subject.clone(),
-      message: commit_info.message.clone(),
-      author: commit_info.author_name.clone(),
-      author_time: commit_info.author_time,
-      committer_time: commit_info.committer_time,
-      status: CommitSyncStatus::Created,
-      error: None,
-    },
-    new_commit_hash,
-    Some(note_info),
-  ))
+  Ok((new_commit_hash, CommitSyncStatus::Created, Some(note_info)))
 }

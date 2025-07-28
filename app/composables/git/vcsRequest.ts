@@ -1,14 +1,16 @@
 import type { Ref } from "vue"
+import type { ProjectMetadata } from "~/utils/app-store"
 
 export class VcsRequestFactory {
   constructor(
-    private readonly repositoryPath: Ref<string>,
+    private readonly selectedProject: Ref<ProjectMetadata | null>,
     private readonly branchPrefix: Ref<string>,
   ) {
   }
 
   createRequest(): VcsRequest {
-    return createVcsRequest(this.repositoryPath.value, this.branchPrefix.value)
+    const path = this.selectedProject.value?.path || ""
+    return createVcsRequest(path, this.branchPrefix.value)
   }
 }
 

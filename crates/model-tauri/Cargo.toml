@@ -1,0 +1,25 @@
+[package]
+name = "model-tauri"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri integration layer for AI model functionality"
+
+[dependencies]
+# Core utilities (shared via workspace)
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# Tauri integration
+tauri = { workspace = true }
+specta.workspace = true
+
+# Our crates
+model-core = { path = "../model-core" }
+model-ai = { path = "../model-ai" }
+git-ops = { path = "../git-ops" }
+
+[dev-dependencies]
+tempfile.workspace = true

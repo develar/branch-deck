@@ -14,13 +14,17 @@ export default defineNuxtConfig({
         "@tauri-apps/plugin-store",
         "@tauri-apps/api/webviewWindow",
         "@tauri-apps/api/event",
+        "@tauri-apps/api/window",
+        "@tauri-apps/api/path",
         "tailwindcss/colors",
         "@vueuse/core",
         "@tauri-apps/plugin-log",
         "@tauri-apps/api/app",
         "@tauri-apps/api/core",
         "@git-diff-view/vue",
+        "@tanstack/vue-table",
         "reka-ui",
+        "zod",
       ],
     },
   },
@@ -39,10 +43,10 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
 
   // Extend from layers
-  extends: ["./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui"],
+  extends: ["./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui", "./layers/ai"],
 
   // Modules
-  modules: ["@nuxt/ui-pro", "@nuxt/eslint", "@nuxt/icon", "@pinia/nuxt"],
+  modules: ["@nuxt/ui-pro", "@nuxt/eslint"],
 
   css: ["~/assets/css/main.css"],
 

@@ -1,7 +1,10 @@
 <template>
   <DialogRoot :open="isActive">
     <DialogPortal :to="portalTarget ? `#${portalTarget}` : undefined">
-      <DialogContent @open-auto-focus="handleOpenAutoFocus" @escape-key-down="handleEscapeKey">
+      <DialogContent
+        @open-auto-focus="handleOpenAutoFocus"
+        @escape-key-down="handleEscapeKey"
+      >
         <VisuallyHidden>
           <DialogTitle>{{ dialogTitle }}</DialogTitle>
           <DialogDescription>{{ dialogDescription }}</DialogDescription>
@@ -17,6 +20,7 @@
                   :model-value="modelValue"
                   :placeholder="placeholder"
                   size="md"
+                  autofocus
                   :color="validationState?.color || 'primary'"
                   autocapitalize="off"
                   autocorrect="off"
@@ -121,7 +125,8 @@ function handleOpenAutoFocus(event: Event) {
 
 function handleEscapeKey(event: Event) {
   event.preventDefault()
-  emit('cancel')
+  event.stopPropagation() // Prevent ESC from bubbling up to clear selection
+  emit("cancel")
 }
 
 // Select all text in the input

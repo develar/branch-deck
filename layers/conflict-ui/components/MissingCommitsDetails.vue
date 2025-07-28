@@ -12,17 +12,17 @@
           <UButtonGroup v-if="hasAnyFileDiffs" size="xs">
             <UButton
               icon="i-lucide-align-left"
-              :color="diffViewMode === 'unified' ? 'primary' : 'neutral'"
+              :color="store.conflictDiffViewMode === 'unified' ? 'primary' : 'neutral'"
               variant="outline"
-              @click="diffViewMode = 'unified'"
+              @click="store.conflictDiffViewMode = 'unified'"
             >
               Unified
             </UButton>
             <UButton
               icon="i-lucide-columns-2"
-              :color="diffViewMode === 'split' ? 'primary' : 'neutral'"
+              :color="store.conflictDiffViewMode === 'split' ? 'primary' : 'neutral'"
               variant="outline"
-              @click="diffViewMode = 'split'"
+              @click="store.conflictDiffViewMode = 'split'"
             >
               Split
             </UButton>
@@ -52,7 +52,7 @@
             :file-diffs="commit.fileDiffs"
             :key-prefix="'hash' in commit && commit.hash ? commit.hash : ''"
             :hide-controls="true"
-            :diff-view-mode="diffViewMode"
+            :diff-view-mode="store.conflictDiffViewMode"
           />
         </div>
       </template>
@@ -86,6 +86,7 @@
 
 <script lang="ts" setup>
 import type { MissingCommit, MergeConflictInfo } from "~/utils/bindings"
+import { useConflictViewerStore } from "~/stores/conflictViewer"
 
 const props = defineProps<{
   missingCommits: MissingCommit[]
@@ -94,8 +95,8 @@ const props = defineProps<{
   isInWindow?: boolean
 }>()
 
-// Global diff view mode
-const diffViewMode = ref<"unified" | "split">("unified")
+// Get conflict viewer store for diff view mode
+const store = await useConflictViewerStore()
 
 // Check if any commits have file diffs
 const hasAnyFileDiffs = computed(() => {
@@ -104,7 +105,9 @@ const hasAnyFileDiffs = computed(() => {
 
 // Open missing commits window directly
 async function openMissingCommitsWindow() {
-  if (!props.conflict) return
+  if (!props.conflict) {
+    return
+  }
 
   // Prepare the data
   const data = {

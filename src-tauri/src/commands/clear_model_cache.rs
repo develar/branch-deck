@@ -1,7 +1,14 @@
-use crate::model::{ModelConfig, ModelGeneratorState, ModelPathProvider, TauriModelPathProvider};
+use model_tauri::{ModelConfig, ModelGeneratorState, ModelPathProvider, TauriModelPathProvider};
+use serde::Deserialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, State};
 use tracing::{info, instrument, warn};
+
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearModelCacheParams {
+  pub keep_current: bool,
+}
 
 #[derive(Debug, serde::Serialize, specta::Type)]
 pub struct CacheClearResult {
@@ -13,7 +20,8 @@ pub struct CacheClearResult {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state, app))]
-pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app: AppHandle, keep_current: bool) -> Result<CacheClearResult, String> {
+pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app: AppHandle, params: ClearModelCacheParams) -> Result<CacheClearResult, String> {
+  let keep_current = params.keep_current;
   let model_gen = model_state.0.lock().await;
   let current_config = model_gen.get_model_config();
   drop(model_gen);

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -25,19 +25,22 @@ impl From<serde_json::Error> for WindowError {
   }
 }
 
+#[derive(Debug, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenSubWindowParams {
+  pub window_id: String,
+  pub url: String,
+  pub title: String,
+  pub width: Option<f64>,
+  pub height: Option<f64>,
+  pub data: String, // JSON string
+}
+
 #[tauri::command]
 #[specta::specta]
-pub async fn open_sub_window(
-  app_handle: tauri::AppHandle,
-  window_id: String,
-  url: String,
-  title: String,
-  width: Option<f64>,
-  height: Option<f64>,
-  data: String, // JSON string
-) -> Result<(), WindowError> {
+pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindowParams) -> Result<(), WindowError> {
   // Check if window already exists
-  if let Some(existing_window) = app_handle.get_webview_window(&window_id) {
+  if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
     // Window exists, bring it to front
     existing_window.show()?;
     existing_window.unminimize()?;
@@ -46,10 +49,11 @@ pub async fn open_sub_window(
     // Update __INIT_DATA__ directly by evaluating JavaScript
     let update_script = format!(
       r#"
-      window.__INIT_DATA__ = {data};
+      window.__INIT_DATA__ = {};
       // Trigger a custom event to notify the app that data has been updated
       window.dispatchEvent(new CustomEvent('init-data-updated'));
-      "#
+      "#,
+      params.data
     );
 
     existing_window.eval(&update_script)?;
@@ -61,14 +65,15 @@ pub async fn open_sub_window(
   // Create initialization script that sets the data on window object
   let init_script = format!(
     r#"
-      window.__INIT_DATA__ = {data};
-      "#
+      window.__INIT_DATA__ = {};
+      "#,
+    params.data
   );
 
   // Create new window
-  WebviewWindowBuilder::new(&app_handle, &window_id, WebviewUrl::App(url.into()))
-    .title(title)
-    .inner_size(width.unwrap_or(1400.0), height.unwrap_or(900.0))
+  WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
+    .title(params.title)
+    .inner_size(params.width.unwrap_or(1400.0), params.height.unwrap_or(900.0))
     .center()
     .resizable(true)
     .skip_taskbar(true)

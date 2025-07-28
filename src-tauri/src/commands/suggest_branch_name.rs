@@ -1,68 +1,16 @@
-use crate::model::TauriModelPathProvider;
 use git_ops::git_command::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
+use model_tauri::{
+  TauriModelPathProvider,
+  types::{SuggestBranchNameParams, SuggestionProgress},
+};
 use tauri::{AppHandle, State};
 use tracing::instrument;
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct BranchSuggestion {
-  pub name: String,
-  pub confidence: f32,
-  pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(tag = "type", content = "data")]
-pub enum SuggestionProgress {
-  Started { total: u32 },
-  SuggestionReady { suggestion: BranchSuggestion, index: u32 },
-  Completed,
-  Cancelled,
-  Error { message: String },
-  ModelDownloadInProgress { model_name: String, model_size: String },
-}
-
-#[derive(Debug, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SuggestBranchNameParams {
-  pub repository_path: String,
-  pub branch_prefix: String,
-  pub commits: Vec<CommitInfo>,
-}
-
-// Re-export CommitInfo from model-ai for external API compatibility
-pub use model_ai::types::CommitInfo;
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(model_state, git_executor, app, params))]
-pub async fn suggest_branch_name(
-  model_state: State<'_, crate::model::ModelGeneratorState>,
-  git_executor: State<'_, GitCommandExecutor>,
-  app: AppHandle,
-  params: SuggestBranchNameParams,
-) -> Result<Vec<BranchSuggestion>, String> {
-  // Use model-based generator
-  let mut model_gen = model_state.0.lock().await;
-
-  // Create provider for model path
-  let provider = TauriModelPathProvider::new(app);
-
-  // Ensure model is loaded - fail if it can't be loaded
-  model_gen.ensure_model_loaded(&provider).await.map_err(|e| format!("Failed to load model: {e}"))?;
-
-  // Generate branch names - fail if generation fails
-  model_gen
-    .generate_branch_names(&git_executor, &params.commits, &params.repository_path)
-    .await
-    .map_err(|e| format!("Failed to generate branch names: {e}"))
-}
 
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state, git_executor, app, params, progress))]
 pub async fn suggest_branch_name_stream(
-  model_state: State<'_, crate::model::ModelGeneratorState>,
+  model_state: State<'_, model_tauri::ModelGeneratorState>,
   git_executor: State<'_, GitCommandExecutor>,
   app: AppHandle,
   params: SuggestBranchNameParams,
