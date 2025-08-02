@@ -19,9 +19,9 @@ tracing.workspace = true
 
 [features]
 # Platform-conditional defaults for optimal GPU acceleration
-# macOS: Metal + Accelerate (enabled via workspace Cargo.toml)
-# Linux/Windows: Accelerate only by default, CUDA available as opt-in feature
-default = ["accelerate"]
+# macOS: Accelerate is available and will be enabled by src-tauri
+# Linux/Windows: No acceleration by default, CUDA available as opt-in feature
+default = []
 
 # Individual acceleration features
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]

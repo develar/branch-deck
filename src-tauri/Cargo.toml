@@ -68,7 +68,7 @@ tauri-plugin-window-state = "2"
 
 # Platform-specific ML acceleration
 [target.'cfg(target_os = "macos")'.dependencies]
-model-tauri = { path = "../crates/model-tauri", features = ["metal"] }
+model-tauri = { path = "../crates/model-tauri", features = ["metal", "accelerate"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 model-tauri = { path = "../crates/model-tauri" }

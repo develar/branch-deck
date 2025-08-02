@@ -7,6 +7,7 @@ description = "Tauri integration layer for AI model functionality"
 [features]
 default = []
 metal = ["model-core/metal", "model-ai/metal"]
+accelerate = ["model-core/accelerate", "model-ai/accelerate"]
 
 [dependencies]
 # Core utilities (shared via workspace)
