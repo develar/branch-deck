@@ -32,3 +32,4 @@ insta = { version = "1.43", features = ["yaml", "redactions"] }
 
 [features]
 default = []
+metal = ["model-core/metal"]

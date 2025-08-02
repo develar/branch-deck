@@ -59,7 +59,6 @@ tracing-opentelemetry = { version = "0.31.0", optional = true }
 tempfile.workspace = true
 
 # Crate dependencies
-model-tauri = { path = "../crates/model-tauri" }
 git-ops = { path = "../crates/git-ops" }
 tokio.workspace = true
 
@@ -67,8 +66,11 @@ tokio.workspace = true
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-window-state = "2"
 
-# Platform-conditional CUDA support for optimal GPU acceleration
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+# Platform-specific ML acceleration
+[target.'cfg(target_os = "macos")'.dependencies]
+model-tauri = { path = "../crates/model-tauri", features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
 model-tauri = { path = "../crates/model-tauri" }
 
 [dev-dependencies]
