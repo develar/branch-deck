@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/develar/branch-deck/compare/v0.6.0...v0.7.0) (2025-08-02)
+
+
+### Features
+
+* unassigned commits - AI branch name generation ([a6324ff](https://github.com/develar/branch-deck/commit/a6324ff9db665e285781b0a83b196de618ab5c06))
+
 ## [0.6.0](https://github.com/develar/branch-deck/compare/v0.5.0...v0.6.0) (2025-07-16)
 
 
