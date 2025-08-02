@@ -1,14 +1,14 @@
 use anyhow::Result;
 use git_ops::git_command::GitCommandExecutor;
 use git_ops::model::CommitInfo;
-use model_ai::generator::{ModelBasedBranchGenerator as CoreGenerator, ALTERNATIVE_CONFIDENCE, PRIMARY_CONFIDENCE};
+use model_ai::generator::ModelBasedBranchGenerator as CoreGenerator;
 use model_ai::path_provider::ModelPathProvider;
 use model_core::utils::clean_branch_name;
 use model_core::ModelConfig;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::info;
 
 #[derive(Debug)]
 pub struct ModelBasedBranchGenerator {
@@ -47,11 +47,7 @@ impl ModelBasedBranchGenerator {
     self.core.set_model_config(config).await
   }
 
-  async fn create_enhanced_prompt(&self, git_output: &str) -> Result<String> {
-    self.core.create_enhanced_prompt(git_output).await
-  }
-
-  fn get_git_output_for_commits(&self, git_executor: &GitCommandExecutor, commits: &[CommitInfo], repo_path: &str) -> Result<String> {
+  pub(crate) fn get_git_output_for_commits(&self, git_executor: &GitCommandExecutor, commits: &[CommitInfo], repo_path: &str) -> Result<String> {
     if commits.is_empty() {
       return Ok(String::new());
     }
@@ -65,7 +61,6 @@ impl ModelBasedBranchGenerator {
       "show",
       "--format=%s%n%b", // Subject and body (similar to git log format)
       "--name-status",   // Show file status changes (A/M/D + filename)
-      "--no-patch",      // Don't show patch content, just metadata
     ];
 
     // Add all commit hashes to the single command
@@ -115,8 +110,6 @@ impl ModelBasedBranchGenerator {
 
     // Get git output once and reuse it
     let git_output = self.get_git_output_for_commits(git_executor, commits, repository_path)?;
-    let prompt = self.create_enhanced_prompt(&git_output).await?;
-    debug!("Generated prompt with {} chars", prompt.len());
 
     // Check if we should continue with this generation
     if my_generation_id != self.current_generation_id.load(std::sync::atomic::Ordering::SeqCst) {
@@ -126,7 +119,7 @@ impl ModelBasedBranchGenerator {
     }
 
     // Generate primary suggestion
-    let result = self.core.generate_branch_name(&prompt).await?;
+    let result = self.core.generate_branch_name(&git_output, None).await?;
 
     let cleaned_name = clean_branch_name(&result.name)?;
 
@@ -135,8 +128,7 @@ impl ModelBasedBranchGenerator {
       .send(SuggestionProgress::SuggestionReady {
         suggestion: BranchSuggestion {
           name: cleaned_name.clone(),
-          confidence: result.confidence.max(PRIMARY_CONFIDENCE),
-          reason: Some(format!("AI-generated in {}ms (confidence: {:.1}%)", result.generation_time_ms, result.confidence * 100.0)),
+          reason: Some(format!("AI-generated in {}ms", result.generation_time_ms)),
         },
         index: 0,
       })
@@ -150,7 +142,8 @@ impl ModelBasedBranchGenerator {
         return Ok(());
       }
 
-      let fallback_result = self.core.generate_alternative_branch_name(&prompt).await;
+      // Generate alternative using the same git output but with context of the first suggestion
+      let fallback_result = self.core.generate_branch_name(&git_output, Some(&cleaned_name)).await;
 
       if let Ok(fallback_result) = fallback_result {
         if let Ok(fallback_name) = clean_branch_name(&fallback_result.name) {
@@ -160,7 +153,6 @@ impl ModelBasedBranchGenerator {
               .send(SuggestionProgress::SuggestionReady {
                 suggestion: BranchSuggestion {
                   name: fallback_name,
-                  confidence: ALTERNATIVE_CONFIDENCE,
                   reason: Some("Alternative suggestion".to_string()),
                 },
                 index: 1,
@@ -176,4 +168,16 @@ impl ModelBasedBranchGenerator {
 }
 
 // State wrapper for Tauri
-pub struct ModelGeneratorState(pub Mutex<ModelBasedBranchGenerator>);
+pub struct ModelGeneratorState {
+  pub generator: Mutex<ModelBasedBranchGenerator>,
+  pub download_cancelled: Arc<AtomicBool>,
+}
+
+impl ModelGeneratorState {
+  pub fn new(generator: ModelBasedBranchGenerator) -> Self {
+    Self {
+      generator: Mutex::new(generator),
+      download_cancelled: Arc::new(AtomicBool::new(false)),
+    }
+  }
+}

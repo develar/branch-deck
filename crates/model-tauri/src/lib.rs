@@ -12,3 +12,6 @@ pub use path_provider::TauriModelPathProvider;
 
 #[cfg(test)]
 mod commands_test;
+
+#[cfg(test)]
+mod generator_test;

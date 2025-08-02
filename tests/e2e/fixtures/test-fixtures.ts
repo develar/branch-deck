@@ -1,16 +1,77 @@
 import { test as base } from "./base-test"
+import type { Page } from "@playwright/test"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { setupTestRepository, cleanupTestRepository } from "../helpers/common-setup"
 import { setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { syncBranches, waitForBranchesLoaded } from "../helpers/sync-helpers"
 
 /**
+ * Test store API for interacting with the test server's store
+ */
+class TestStore {
+  private baseUrl = "http://localhost:3030"
+
+  constructor(private page: Page) {}
+
+  private async getRepoId(): Promise<string> {
+    const url = new URL(this.page.url())
+    const repoId = url.searchParams.get("repoId")
+    if (!repoId) {
+      throw new Error("No repoId found in URL - make sure to call setupRepo first")
+    }
+    return repoId
+  }
+
+  async get(key: string): Promise<unknown> {
+    const repoId = await this.getRepoId()
+    const response = await fetch(`${this.baseUrl}/store/${repoId}/${key}`)
+    if (!response.ok) {
+      throw new Error(`Failed to get store value: ${response.statusText}`)
+    }
+    const value = await response.json()
+    return value
+  }
+
+  async set(key: string, value: unknown): Promise<void> {
+    const repoId = await this.getRepoId()
+    const response = await fetch(`${this.baseUrl}/store/${repoId}/${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to set store value: ${response.statusText}`)
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    const repoId = await this.getRepoId()
+    const response = await fetch(`${this.baseUrl}/store/${repoId}/${key}`, {
+      method: "DELETE",
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to delete store value: ${response.statusText}`)
+    }
+  }
+}
+
+/**
+ * Extended setup options
+ */
+export interface SetupRepoOptions {
+  prepopulateStore?: boolean
+  initialStoreValues?: Record<string, unknown>
+  modelState?: "not_downloaded" | "downloaded" | "downloading"
+}
+
+/**
  * Extended test fixture with common repository setup
  */
 export const test = base.extend<{
   repoBuilder: TestRepositoryBuilder
-  setupRepo: (templateName: string) => Promise<TestRepositoryBuilder>
+  setupRepo: (templateName: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
   syncAndWaitForBranches: () => Promise<void>
+  testStore: TestStore
 }>({
       // Auto-setup clipboard permissions
       page: async ({ page, context }, use) => {
@@ -49,7 +110,7 @@ export const test = base.extend<{
       setupRepo: async ({ page }, use) => {
         let currentBuilder: TestRepositoryBuilder | null = null
 
-        const setupFn = async (templateName: string, options?: { prepopulateStore?: boolean }) => {
+        const setupFn = async (templateName: string, options?: SetupRepoOptions) => {
           currentBuilder = await setupTestRepository(page, templateName, options)
           return currentBuilder
         }
@@ -71,6 +132,12 @@ export const test = base.extend<{
 
         await use(syncFn)
       },
+
+      // Test store API
+      testStore: async ({ page }, use) => {
+        const store = new TestStore(page)
+        await use(store)
+      },
     })
 
 export { expect } from "@playwright/test"
@@ -79,11 +146,11 @@ export { expect } from "@playwright/test"
  * Test fixture for tests that need unassigned commits
  */
 export const testWithUnassigned = test.extend<{
-  setupUnassignedRepo: () => Promise<void>
+  setupUnassignedRepo: (options?: SetupRepoOptions) => Promise<void>
 }>({
       setupUnassignedRepo: async ({ page, setupRepo }, use) => {
-        const setupFn = async () => {
-          await setupRepo("unassigned")
+        const setupFn = async (options?: SetupRepoOptions) => {
+          await setupRepo("unassigned", options)
           await syncBranches(page)
 
           // Wait for unassigned commits section

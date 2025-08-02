@@ -118,7 +118,7 @@ import {
 } from "@tanstack/vue-table"
 import { usePush } from "~/composables/git/push"
 
-const { vcsRequestFactory, effectiveBranchPrefix } = useRepository()
+const { vcsRequestFactory, getFullBranchName } = useRepository()
 const { isPushing, pushBranch } = usePush(vcsRequestFactory)
 const { syncBranches, isSyncing, branches } = useBranchSync()
 
@@ -157,7 +157,10 @@ const columns: ColumnDef<ReactiveBranch>[] = [
             row.toggleExpanded()
           },
         }),
-        h("span", { class: "text-sm font-medium" }, branch.name),
+        h(resolveComponent("LinkedText"), {
+          text: branch.name,
+          textClass: "text-sm font-medium",
+        }),
       ])
     },
   }),
@@ -196,7 +199,7 @@ const columns: ColumnDef<ReactiveBranch>[] = [
 
       // Always show copy button
       buttons.push(h(resolveComponent("CopyButton"), {
-        text: getFullBranchName(branch.name),
+        text: () => getFullBranchName(branch.name),
         tooltip: "Copy full branch name",
         size: "xs",
         alwaysVisible: true,
@@ -296,11 +299,6 @@ const table = useVueTable({
 //     deep: true,
 //   },
 // )
-
-// Get full branch name with prefix
-const getFullBranchName = (branchName: string) => {
-  return `${effectiveBranchPrefix.value}/${branchName}`
-}
 
 // Get incremental status color
 const getIncrementalStatusColor = (status: string) => {

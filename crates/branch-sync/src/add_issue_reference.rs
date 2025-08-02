@@ -1,8 +1,7 @@
-use crate::commit_grouper::ISSUE_PATTERN;
+use crate::issue_pattern::find_issue_number;
 use git_ops::git_command::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{reword_commits_batch, RewordCommitParams};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -116,14 +115,9 @@ pub async fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecut
 
 /// Check if a message already contains an issue reference pattern (like ABC-123)
 fn has_issue_reference(message: &str) -> bool {
-  let issue_pattern = ISSUE_PATTERN.get_or_init(|| Regex::new(r"\b([A-Z]+-\d+)\b").unwrap());
-
-  // Check if the message starts with an issue reference
-  if let Some(first_word) = message.split_whitespace().next() {
-    issue_pattern.is_match(first_word)
-  } else {
-    false
-  }
+  // find_issue_number now only finds issues at the start or after recognized prefixes
+  // This ensures consistent behavior between commit grouping and issue reference detection
+  find_issue_number(message).is_some()
 }
 
 #[cfg(test)]
@@ -144,6 +138,18 @@ mod tests {
     assert!(!has_issue_reference("-123 missing prefix"));
     assert!(!has_issue_reference(""));
     assert!(!has_issue_reference("Some text ABC-123 issue in the middle"));
+
+    // Test that issue reference in body (not subject) is ignored
+    assert!(!has_issue_reference("Fix the bug\n\nThis fixes ABC-123"));
+    assert!(!has_issue_reference("Update feature\n\nRelated to ISSUE-456"));
+
+    // Test [category] prefix handling
+    assert!(has_issue_reference("[threading] IJPL-163558: Fix observability"));
+    assert!(has_issue_reference("[subsystem] ABC-456: Update"));
+
+    // Test semantic commit prefix handling
+    assert!(has_issue_reference("fix: ABC-123 resolve bug"));
+    assert!(has_issue_reference("feat(auth): DEF-456 add login"));
   }
 }
 

@@ -1,7 +1,13 @@
-use crate::commands::DownloadProgress;
 use anyhow::Result;
 use model_ai::download::ProgressReporter;
+use model_ai::types::DownloadProgress;
 use tauri::ipc::Channel;
+
+macro_rules! send_progress {
+  ($channel:expr, $progress:expr) => {
+    $channel.send($progress).map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+  };
+}
 
 /// Tauri progress reporter using channel
 pub struct TauriProgressReporter {
@@ -16,56 +22,41 @@ impl TauriProgressReporter {
 
 impl ProgressReporter for TauriProgressReporter {
   fn report_started(&self, total_files: u32) -> Result<()> {
-    self
-      .channel
-      .send(DownloadProgress::Started { total_files })
-      .map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+    send_progress!(self.channel, DownloadProgress::Started { total_files })
   }
 
   fn report_file_started(&self, file_name: &str, file_size: Option<u32>) -> Result<()> {
-    self
-      .channel
-      .send(DownloadProgress::FileStarted {
+    send_progress!(
+      self.channel,
+      DownloadProgress::FileStarted {
         file_name: file_name.to_string(),
         file_size,
-      })
-      .map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+      }
+    )
   }
 
   fn report_progress(&self, file_name: &str, downloaded: u32, total: u32, bytes_per_second: Option<u32>, seconds_remaining: Option<u32>) -> Result<()> {
-    self
-      .channel
-      .send(DownloadProgress::Progress {
+    send_progress!(
+      self.channel,
+      DownloadProgress::Progress {
         file_name: file_name.to_string(),
         downloaded,
         total,
         bytes_per_second,
         seconds_remaining,
-      })
-      .map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+      }
+    )
   }
 
   fn report_file_completed(&self, file_name: &str) -> Result<()> {
-    self
-      .channel
-      .send(DownloadProgress::FileCompleted { file_name: file_name.to_string() })
-      .map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+    send_progress!(self.channel, DownloadProgress::FileCompleted { file_name: file_name.to_string() })
   }
 
   fn report_completed(&self) -> Result<()> {
-    self
-      .channel
-      .send(DownloadProgress::Completed)
-      .map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+    send_progress!(self.channel, DownloadProgress::Completed)
   }
 
   fn report_error(&self, message: &str) -> Result<()> {
-    self
-      .channel
-      .send(DownloadProgress::Error { message: message.to_string() })
-      .map_err(|e| anyhow::anyhow!("Failed to send progress: {}", e))
+    send_progress!(self.channel, DownloadProgress::Error { message: message.to_string() })
   }
 }
-
-// Re-export download_model_files from model-ai
-pub use model_ai::download::download_model_files;

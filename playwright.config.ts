@@ -19,16 +19,14 @@ export default defineConfig({
     timezoneId: "Europe/Berlin",
     locale: "en-US",
   },
-  expect: {
-    toMatchAriaSnapshot: {
-      pathTemplate: "tests/e2e/__snapshots__/{testFilePath}/{arg}{ext}",
-    },
-  },
 
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+      },
+      snapshotPathTemplate: "{testDir}/{testFileDir}/snapshots/{arg}{ext}",
     },
   ],
 
@@ -40,7 +38,8 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       env: {
-        RUST_BACKTRACE: "test_server=debug",
+        RUST_LOG: "test_server=debug,tower_http=debug",
+        RUST_BACKTRACE: "1",
       },
     },
     {

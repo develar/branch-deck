@@ -1,4 +1,5 @@
 use crate::commit_grouper::CommitGrouper;
+use crate::issue_navigation::load_issue_navigation_config;
 use crate::progress::{GroupedBranchInfo, ProgressReporter, SyncEvent};
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{get_commit_list_with_handler, Commit};
@@ -8,7 +9,7 @@ use git_ops::model::{to_final_branch_name, BranchError, BranchSyncStatus, Commit
 use git_ops::notes::{write_commit_notes, CommitNoteInfo};
 use git_ops::progress::ProgressCallback;
 use std::sync::{Arc, Mutex};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 /// Parameters for processing a single branch
 struct BranchProcessingParams<'a> {
@@ -43,8 +44,11 @@ impl<'a> ProgressCallback for ProgressReporterAdapter<'a> {
 }
 
 /// Core sync branches logic without Tauri dependencies
+#[instrument(skip(git_executor, progress), fields(repository_path = %repository_path, branch_prefix = %branch_prefix))]
 pub async fn sync_branches_core(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, progress: &dyn ProgressReporter) -> anyhow::Result<()> {
-  info!("Starting branch synchronization for repository: {repository_path}, prefix: {branch_prefix}");
+  // Load and send issue navigation config at the beginning
+  let issue_config = load_issue_navigation_config(repository_path);
+  progress.send(SyncEvent::IssueNavigationConfig { config: issue_config })?;
 
   // Detect the baseline branch (origin/master, origin/main, or local master/main)
   let baseline_branch = git_executor.detect_baseline_branch(repository_path, "master")?;

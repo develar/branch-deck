@@ -4,7 +4,7 @@ use git_ops::git_command::GitCommandExecutor;
 use serde::Deserialize;
 use tauri::State;
 use tauri::ipc::Channel;
-use tracing::{error, info, instrument};
+use tracing::{error, instrument};
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -16,11 +16,10 @@ pub struct SyncBranchesParams {
 /// Synchronizes branches by grouping commits by prefix and creating/updating branches
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor, params, progress))]
+#[instrument(skip(git_executor, progress), fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix))]
 pub async fn sync_branches(git_executor: State<'_, GitCommandExecutor>, params: SyncBranchesParams, progress: Channel<SyncEvent>) -> Result<(), String> {
   let repository_path = &params.repository_path;
   let branch_prefix = &params.branch_prefix;
-  info!("Starting branch synchronization for repository: {repository_path}, prefix: {branch_prefix}");
 
   // Use the branch-sync implementation with TauriProgressReporter adapter
   let progress_adapter = TauriProgressReporter::new(&progress);

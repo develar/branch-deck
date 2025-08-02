@@ -63,8 +63,8 @@ fn test_model_status_detection_for_safetensors_model() {
   let temp_dir = TempDir::new().unwrap();
   let model_path = temp_dir.path();
 
-  // Test with Qwen25Coder05B which uses SafeTensors format
-  let model_config = ModelConfig::Qwen25Coder05B;
+  // Test with Qwen25Coder15B which uses SafeTensors format
+  let model_config = ModelConfig::Qwen25Coder15B;
 
   // Initially, no files exist
   let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);

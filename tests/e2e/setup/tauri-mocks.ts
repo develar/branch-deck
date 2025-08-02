@@ -95,6 +95,58 @@ export const tauriMockScript = () => {
   // === Command Handlers ===
 
   /**
+   * Generic handler for streaming commands
+   */
+  async function handleStreamingCommand(cmd: string, payload: any): Promise<any> {
+    const progress = payload.progress
+    
+    debug(`[Test Mock] ${cmd} called with params:`, payload.params)
+    debug(`[Test Mock] progress.onmessage type:`, typeof progress.onmessage)
+    
+    try {
+      // Extract params, excluding the progress channel which can't be serialized
+      const requestPayload = payload.params || {}  // Empty object if no params
+      
+      const url = `http://localhost:3030/invoke/${cmd}`
+      debug(`[Test Mock] Fetching SSE stream from: ${url}`)
+      
+      // Call the test server's endpoint with SSE
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream"
+        },
+        body: JSON.stringify(requestPayload),
+      })
+
+      debug(`[Test Mock] SSE response status: ${response.status}`)
+      
+      if (!response.ok) {
+        throw new Error(`${cmd} failed: ${response.statusText}`)
+      }
+
+      // Read the SSE stream
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error("No response body")
+      }
+
+      await parseSSEStream(reader, (event) => {
+        if (progress.onmessage) {
+          progress.onmessage(event)
+        }
+      })
+
+      return null
+    }
+    catch (error) {
+      console.error(`[Test Mock] Error in ${cmd}:`, error)
+      throw error
+    }
+  }
+
+  /**
    * Handle sync_branches command with SSE progress
    */
   async function handleSyncBranches(payload: any): Promise<any> {
@@ -275,35 +327,42 @@ export const tauriMockScript = () => {
   /**
    * Handle app-specific commands
    */
-  function handleAppCommand(cmd: string): any {
+  /**
+   * Helper to proxy simple commands to test server with repoId in URL
+   */
+  async function proxyCommandWithRepoId(command: string, expectJson: boolean = true): Promise<any> {
+    const response = await fetch(`http://localhost:3030/invoke/${command}/${repoId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})  // Empty body since repo_id is in URL
+    })
+    
+    if (!response.ok) {
+      throw new Error(`${command} failed: ${response.status} ${response.statusText}`)
+    }
+    
+    return expectJson ? await response.json() : null
+  }
+
+  function handleAppCommand(cmd: string, payload: any): any {
     switch (cmd) {
       case "validate_repository_path":
         // Always return empty string for valid path in tests
         return ""
         
-      case "check_model_status":
-        // Return model not available for tests
-        return {
-          available: false,
-          progress: null,
-          error: null
-        }
-        
       case "browse_repository":
-        // Proxy to test server
-        return (async () => {
-          const response = await fetch(`http://localhost:3030/invoke/browse_repository`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ repoId })
-          })
-          
-          if (!response.ok) {
-            throw new Error(`Browse repository failed: ${response.status} ${response.statusText}`)
-          }
-          
-          return await response.json()
-        })()
+        return proxyCommandWithRepoId("browse_repository")
+        
+      case "download_model":
+        // Handle streaming command with repoId in URL
+        if (payload && payload.progress) {
+          return handleStreamingCommand(`download_model/${repoId}`, payload)
+        }
+        // Fallback shouldn't happen for download_model
+        throw new Error("download_model requires progress channel")
+        
+      case "cancel_model_download":
+        return proxyCommandWithRepoId("cancel_model_download", false)  // Returns null, not JSON
         
       default:
         return null // Not handled here
@@ -327,6 +386,14 @@ export const tauriMockScript = () => {
       // Fallback to proxy if no progress channel
       return proxyToTestServer("sync_branches", payload)
     },
+    
+    // AI streaming commands
+    "suggest_branch_name_stream": async (_cmd: string, payload: any) => {
+      if (payload && payload.progress) {
+        return handleStreamingCommand("suggest_branch_name_stream", payload)
+      }
+      return proxyToTestServer("suggest_branch_name_stream", payload)
+    },
   }
 
   // Commands that should be proxied to test server
@@ -335,6 +402,7 @@ export const tauriMockScript = () => {
     "create_branch_from_commits",
     "add_issue_reference_to_commits",
     "push_branches",
+    "suggest_branch_name_stream",
   ]
 
   /**
@@ -344,7 +412,7 @@ export const tauriMockScript = () => {
     debug(`[Test Mock] Handling command: ${cmd}`, payload)
 
     // Check app-specific commands first
-    const appResult = handleAppCommand(cmd)
+    const appResult = handleAppCommand(cmd, payload)
     if (appResult !== null) {
       return appResult
     }
@@ -385,7 +453,7 @@ export const tauriMockScript = () => {
     
     tauriInternals.mockIPC(async (cmd: string, payload: any) => {
       // Special handling for commands with Channel objects
-      if (cmd === "sync_branches" && payload && payload.progress) {
+      if ((cmd === "sync_branches" || cmd === "suggest_branch_name_stream" || cmd === "download_model") && payload && payload.progress) {
         // Store the onmessage handler before it gets lost
         const onmessageHandler = payload.progress.onmessage
         debug("[Test Mock] Captured onmessage handler:", typeof onmessageHandler)
@@ -474,6 +542,101 @@ export const tauriMockScript = () => {
         }
       }
     }
+  }
+
+  // Setup HTML formatter for snapshot testing
+  ;(window as any).__htmlFormatter = {
+    normalizeAndFormat: (element: Element) => {
+      // Efficient formatter that normalizes and formats without cloning
+      return formatElementWithNormalization(element)
+    },
+  }
+
+  // Format and normalize HTML element in a single pass
+  function formatElementWithNormalization(element: Element, indent = 0): string {
+    const spaces = "  ".repeat(indent)
+    const tagName = element.tagName.toLowerCase()
+    let result = `${spaces}<${tagName}`
+
+    // Collect and normalize attributes in one pass
+    const normalizedAttrs: Array<[string, string]> = []
+    
+    for (const attr of element.attributes) {
+      let value = attr.value
+      const name = attr.name
+      
+      // Apply normalization rules
+      if (name === 'id' && value.match(/v-\d+-\d+/)) {
+        value = value.replace(/v-\d+-\d+/g, '[DYNAMIC_ID]')
+      }
+      else if (name === 'id' && value.match(/diff-root--\d+/)) {
+        value = value.replace(/diff-root--\d+/g, 'diff-root--[DYNAMIC]')
+      }
+      else if ((name === 'aria-describedby' || name === 'aria-labelledby') && value.match(/v-\d+-\d+/)) {
+        value = value.replace(/v-\d+-\d+/g, '[ARIA_ID]')
+      }
+      else if (name === 'style') {
+        const filteredStyle = value
+          .split(';')
+          .filter(rule => {
+            const trimmed = rule.trim()
+            return trimmed && 
+              !trimmed.includes('pointer-events') &&
+              !trimmed.includes('animation-duration') &&
+              !trimmed.includes('animation-name')
+          })
+          .join('; ')
+          .trim()
+        if (!filteredStyle) continue // Skip empty style
+        value = filteredStyle
+      }
+      
+      normalizedAttrs.push([name, value])
+    }
+
+    // Sort attributes for consistent output
+    normalizedAttrs.sort((a, b) => a[0].localeCompare(b[0]))
+
+    // Add sorted attributes to tag
+    for (const [name, value] of normalizedAttrs) {
+      result += ` ${name}="${value}"`
+    }
+
+    // Handle empty elements
+    const hasChildren = element.childNodes.length > 0
+    const hasTextContent = element.textContent?.trim()
+    
+    if (!hasChildren || !hasTextContent) {
+      result += " />"
+      return result
+    }
+
+    result += ">\n"
+
+    // Process children
+    for (const child of element.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        let text = child.textContent?.trim()
+        if (text) {
+          // Normalize dynamic repository IDs in text content (KSUIDs are 27 chars)
+          text = text.replace(/[0-9][A-Za-z0-9]{26}/g, '[REPO_ID]')
+          // Normalize temporary paths
+          text = text.replace(/\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, '[TEMP_PATH]')
+          // Normalize commit SHAs (8 character short SHAs)
+          text = text.replace(/\b[a-f0-9]{8}\b/g, '[SHA]')
+          result += `${"  ".repeat(indent + 1)}${text}\n`
+        }
+      }
+      else if (child.nodeType === Node.COMMENT_NODE) {
+        result += `${"  ".repeat(indent + 1)}<!--${child.textContent}-->\n`
+      }
+      else if (child.nodeType === Node.ELEMENT_NODE) {
+        result += formatElementWithNormalization(child as Element, indent + 1) + "\n"
+      }
+    }
+
+    result += `${spaces}</${tagName}>`
+    return result
   }
 
   debug("[Test Mock] Tauri mock setup complete")

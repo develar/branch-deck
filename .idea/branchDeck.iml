@@ -17,6 +17,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/branch-sync/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/test-server/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/model-tauri/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/branch-sync/benches" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/.output" />
       <excludeFolder url="file://$MODULE_DIR$/.tools" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />

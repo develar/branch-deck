@@ -56,17 +56,6 @@ export async function waitForBranchesLoaded(page: Page, timeout = 10000): Promis
 }
 
 /**
- * Wait for unassigned commits section to appear
- */
-export async function waitForUnassignedCommits(page: Page, timeout = 10000): Promise<void> {
-  // Wait for unassigned commits section
-  await page.waitForSelector("[data-testid=\"unassigned-commits-section\"]", { timeout })
-
-  // Wait for commit rows to load - they have data-row-id attribute
-  await page.waitForSelector("[data-row-id]", { timeout })
-}
-
-/**
  * Wait for a specific branch to finish syncing (no progress bar)
  */
 export async function waitForBranchSyncComplete(page: Page, branchName: string): Promise<void> {
@@ -106,7 +95,7 @@ export async function waitForSyncComplete(page: Page, timeout = 10000): Promise<
   const syncButton = page.locator("[data-testid=\"sync-button\"]")
 
   // Wait for sync to start (button becomes disabled)
-  await expect(syncButton).toBeDisabled({ timeout: 5000 })
+  await expect(syncButton).toBeDisabled()
 
   // Wait for sync to complete (button becomes enabled again)
   await expect(syncButton).toBeEnabled({ timeout })

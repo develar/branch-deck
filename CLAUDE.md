@@ -55,7 +55,7 @@ pnpm e2e             # Run E2E tests
 
 ## AI Model Integration
 
-**Default Model**: Qwen2.5-Coder-0.5B (500MB) - Fast (2-3s) branch name generation
+**Default Model**: Qwen3-1.7B (1.83GB) - Fast (2-3s) branch name generation
 
 **Important**: Always build with `--release` for ML inference (8-10x faster)
 

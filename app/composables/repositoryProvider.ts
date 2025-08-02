@@ -34,9 +34,11 @@ export interface RepositoryState {
   // Computed
   effectiveBranchPrefix: ComputedRef<string>
   vcsRequestFactory: VcsRequestFactory
+  issueNavigationConfig: Readonly<ComputedRef<IssueNavigationConfig | undefined>>
 
   // Actions
   browseRepository: () => Promise<void>
+  getFullBranchName: (branchName: string) => string
 }
 
 // Create repository state
@@ -74,6 +76,11 @@ export function createRepositoryState(): RepositoryState {
     || "",
   )
   const vcsRequestFactory = new VcsRequestFactory(selectedProject, effectiveBranchPrefix)
+
+  // Computed property for issue navigation config
+  const issueNavigationConfig = computed(() =>
+    selectedProject.value?.issueNavigationConfig,
+  )
 
   // async function validatePath(path: string) {
   //   if (!path) {
@@ -224,6 +231,11 @@ export function createRepositoryState(): RepositoryState {
   // noinspection JSIgnoredPromiseFromCall
   initialize()
 
+  // Utility function to get full branch name with prefix
+  const getFullBranchName = (branchName: string) => {
+    return `${effectiveBranchPrefix.value}/virtual/${branchName}`
+  }
+
   return {
     // State
     selectedProject,
@@ -237,9 +249,11 @@ export function createRepositoryState(): RepositoryState {
     // Computed
     effectiveBranchPrefix,
     vcsRequestFactory,
+    issueNavigationConfig: issueNavigationConfig,
 
     // Actions
     browseRepository,
+    getFullBranchName,
   }
 }
 

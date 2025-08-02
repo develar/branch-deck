@@ -99,6 +99,9 @@ export function createBranchSyncState(repository: RepositoryState) {
   // Handle sync events
   function handleSyncEvent(event: SyncEvent, options?: SyncOptions) {
     switch (event.type) {
+      case "issueNavigationConfig":
+        handleIssueNavigationConfigEvent(event.data)
+        break
       case "branchesGrouped":
         handleBranchesGroupedEvent(event.data, branchMap, branches.value)
         // Trigger reactivity by reassigning the array
@@ -285,6 +288,15 @@ export function createBranchSyncState(repository: RepositoryState) {
           }
         }
       }
+    }
+  }
+
+  // Event handler for IssueNavigationConfig events
+  function handleIssueNavigationConfigEvent(
+    data: Extract<SyncEvent, { type: "issueNavigationConfig" }>["data"],
+  ) {
+    if (selectedProject.value && data.config) {
+      selectedProject.value.issueNavigationConfig = data.config
     }
   }
 

@@ -1,4 +1,5 @@
-use crate::utils::{calculate_confidence, clean_branch_name, detect_device};
+use crate::constants::LOGITS_PROCESSOR_SEED;
+use crate::utils::{clean_branch_name, detect_device, truncate_tokens_if_needed};
 use crate::BranchNameResult;
 use anyhow::{Error as E, Result};
 use candle_core::quantized::gguf_file;
@@ -19,6 +20,10 @@ pub struct QuantizedQwen3BranchGenerator {
   repeat_last_n: usize,
 }
 
+// Default temperature for Quantized Qwen3 models
+const DEFAULT_TEMPERATURE: f64 = 0.7;
+const ALTERNATIVE_TEMPERATURE: f64 = 0.9;
+
 impl QuantizedQwen3BranchGenerator {
   /// Create a new generator instance
   pub fn new() -> Self {
@@ -35,8 +40,6 @@ impl QuantizedQwen3BranchGenerator {
   /// Load model from specified directory (expects GGUF format)
   #[instrument(skip(self), fields(model_path = %model_path.display()))]
   pub async fn load_model(&mut self, model_path: PathBuf) -> Result<()> {
-    info!("Loading Quantized Qwen3 model from: {:?}", model_path);
-
     let tokenizer_path = model_path.join("tokenizer.json");
     let model_file = model_path.join("Qwen3-1.7B-Q8_0.gguf");
 
@@ -68,13 +71,12 @@ impl QuantizedQwen3BranchGenerator {
     self.model = Some(model);
     self.tokenizer = Some(tokenizer);
 
-    info!("Quantized Qwen3 model loaded successfully!");
     Ok(())
   }
 
   /// Generate branch name from commit message and optional diff
   #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
-  pub async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<BranchNameResult> {
+  pub async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, is_alternative: bool) -> Result<BranchNameResult> {
     let start_time = std::time::Instant::now();
 
     let model = self.model.as_mut().ok_or_else(|| anyhow::anyhow!("Model not loaded. Call load_model() first."))?;
@@ -87,26 +89,21 @@ impl QuantizedQwen3BranchGenerator {
     let mut tokens = tokenizer.encode(prompt, true).map_err(E::msg)?.get_ids().to_vec();
 
     // Check if prompt exceeds context limit and truncate if necessary
-    const MAX_CONTEXT_TOKENS: usize = 32_000;
-    const GENERATION_BUFFER: usize = 200;
-
-    if tokens.len() > MAX_CONTEXT_TOKENS - GENERATION_BUFFER {
-      let max_tokens = MAX_CONTEXT_TOKENS - GENERATION_BUFFER;
-      tokens.truncate(max_tokens);
-      debug!("Truncated prompt from {} to {} tokens", tokens.len() + (tokens.len() - max_tokens), max_tokens);
-    }
+    const MAX_CONTEXT_TOKENS: usize = 32_768; // 32K context window for Qwen3
+    truncate_tokens_if_needed(&mut tokens, MAX_CONTEXT_TOKENS);
 
     // Setup generation parameters
     let eos_token = *tokenizer.get_vocab(true).get("<|im_end|>").unwrap_or(&0);
 
     // Use standard sampling parameters: Temperature=0.7, TopP=0.8, TopK=20, MinP=0 (MinP not supported in candle)
+    let temperature = if is_alternative { ALTERNATIVE_TEMPERATURE } else { DEFAULT_TEMPERATURE };
     let sampling = if temperature <= 0.0 {
       Sampling::ArgMax
     } else {
       Sampling::TopKThenTopP { k: 20, p: 0.8, temperature }
     };
 
-    let mut logits_processor = LogitsProcessor::from_sampling(299792458, sampling); // Fixed seed for consistency
+    let mut logits_processor = LogitsProcessor::from_sampling(LOGITS_PROCESSOR_SEED, sampling);
 
     // Process prompt tokens
     let input = Tensor::new(tokens.as_slice(), &self.device)?.unsqueeze(0)?;
@@ -115,7 +112,8 @@ impl QuantizedQwen3BranchGenerator {
 
     // Sample first token
     let mut next_token = logits_processor.sample(&logits)?;
-    let mut all_tokens = vec![next_token]; // Track all tokens like candle example
+    let mut all_tokens = vec![next_token]; // Track all tokens for repeat penalty
+    let mut generated_tokens = vec![next_token]; // Track generated tokens for decoding
 
     // Generation loop - follow candle example pattern
     let timeout_ms = 10_000; // 10 second timeout
@@ -129,7 +127,7 @@ impl QuantizedQwen3BranchGenerator {
       }
 
       let input = Tensor::new(&[next_token], &self.device)?.unsqueeze(0)?;
-      let logits = model.forward(&input, tokens.len() + index)?; // Fixed: use tokens.len() like candle
+      let logits = model.forward(&input, tokens.len() + index)?;
       let logits = logits.squeeze(0)?;
 
       // Apply repeat penalty like candle example
@@ -143,26 +141,19 @@ impl QuantizedQwen3BranchGenerator {
       // Sample next token
       next_token = logits_processor.sample(&logits)?;
       all_tokens.push(next_token);
+      generated_tokens.push(next_token);
 
       // Check for EOS token
       if next_token == eos_token {
         debug!("EOS token encountered, stopping generation");
         break;
       }
-
-      // Early stopping for newlines or common separators in branch names
-      if let Ok(token_text) = tokenizer.decode(&[next_token], false) {
-        if token_text.contains('\n') || token_text.contains("```") {
-          debug!("Found separator, stopping generation");
-          break;
-        }
-      }
     }
 
-    // Decode generated text using all_tokens (not the old generated_tokens)
-    let generated_text = tokenizer.decode(&all_tokens, true).map_err(E::msg)?;
-    debug!("Raw generated text: '{}' from {} tokens: {:?}", generated_text, all_tokens.len(), all_tokens);
-    println!("Raw generated text: '{}' from {} tokens: {:?}", generated_text, all_tokens.len(), all_tokens);
+    // Decode the generated tokens
+    let generated_text = tokenizer.decode(&generated_tokens, true).map_err(E::msg)?;
+
+    debug!("Generated text: '{}' from {} tokens", generated_text, generated_tokens.len());
 
     let generation_time = start_time.elapsed();
 
@@ -171,7 +162,6 @@ impl QuantizedQwen3BranchGenerator {
 
     let result = BranchNameResult {
       name: cleaned_name,
-      confidence: calculate_confidence(&generated_text, all_tokens.len()),
       generation_time_ms: generation_time.as_millis() as u64,
     };
 
@@ -185,19 +175,16 @@ impl QuantizedQwen3BranchGenerator {
     self.model.is_some() && self.tokenizer.is_some()
   }
 
-  /// Count tokens in text using the loaded tokenizer
-  /// Returns None if tokenizer is not loaded
-  pub fn count_tokens(&self, text: &str) -> Option<usize> {
-    self
-      .tokenizer
-      .as_ref()
-      .and_then(|tokenizer| tokenizer.encode(text, false).ok().map(|encoding| encoding.get_ids().len()))
-  }
-
   /// Create model-specific prompt for quantized Qwen3 models
   /// Uses ChatML format which works better with quantized models
   pub fn create_prompt(&self, git_output: &str) -> anyhow::Result<String> {
-    crate::prompt::create_chatml_prompt(git_output)
+    crate::prompt::create_chatml_prompt(git_output, None)
+  }
+
+  /// Create alternative prompt when a previous suggestion exists
+  /// Uses ChatML format with modified system prompt
+  pub fn create_alternative_prompt(&self, git_output: &str, previous_suggestion: &str) -> anyhow::Result<String> {
+    crate::prompt::create_chatml_prompt(git_output, Some(previous_suggestion))
   }
 }
 

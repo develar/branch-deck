@@ -7,12 +7,9 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 // Generation constants - standard parameters: Temperature=0.7, TopP=0.8, TopK=20, MinP=0
-pub const MAX_NEW_TOKENS: usize = 50;
-pub const GENERATION_TEMPERATURE: f64 = 0.7;
+pub const MAX_NEW_TOKENS: usize = 1000; // Increased to allow for thinking tags and complete generation
 
 // Confidence scores for suggestions
-pub const PRIMARY_CONFIDENCE: f32 = 0.95;
-pub const ALTERNATIVE_CONFIDENCE: f32 = 0.85;
 
 /// Model loading state to prevent race conditions
 #[derive(Debug, Clone)]
@@ -178,8 +175,7 @@ impl ModelBasedBranchGenerator {
 
     for file in &required_files {
       if !model_path.join(file).exists() {
-        info!("Model files not found, emitting model-download-required event");
-        provider.emit_model_download_required(self.model_config.model_name(), self.model_config.model_size())?;
+        info!("Model files not found: missing {}", file);
         return Err(anyhow::anyhow!("Model not downloaded: missing {}", file));
       }
     }
@@ -217,14 +213,18 @@ impl ModelBasedBranchGenerator {
   }
 
   /// Create an enhanced prompt from raw git output using model-specific formatting
-  pub async fn create_enhanced_prompt(&self, git_output: &str) -> Result<String> {
-    // Use generator-specific prompt generation for optimal results
+  /// This is now internal - external callers should use generate_branch_name directly
+  async fn create_enhanced_prompt(&self, git_output: &str, previous_suggestion: Option<&str>) -> Result<String> {
     let generator = self.generator.as_ref().ok_or_else(|| anyhow::anyhow!("Model not loaded"))?;
-    let prompt = generator.create_prompt(git_output.trim())?;
 
-    // Log prompt length for monitoring
+    let prompt = match previous_suggestion {
+      None => generator.create_prompt(git_output.trim())?,
+      Some(prev) => generator.create_alternative_prompt(git_output.trim(), prev)?,
+    };
+
     info!(
-      "Generated model-specific prompt with {} characters from git output (model: {})",
+      "Generated {} prompt with {} characters (model: {})",
+      if previous_suggestion.is_some() { "alternative" } else { "primary" },
       prompt.len(),
       self.model_config.model_name()
     );
@@ -232,16 +232,18 @@ impl ModelBasedBranchGenerator {
     Ok(prompt)
   }
 
-  /// Generate a branch name from a prompt
-  pub async fn generate_branch_name(&mut self, prompt: &str) -> Result<BranchNameResult> {
-    let generator = self.generator.as_mut().ok_or_else(|| anyhow::anyhow!("Model not loaded"))?;
-    generator.generate_branch_name(prompt, MAX_NEW_TOKENS, GENERATION_TEMPERATURE).await
-  }
+  /// Generate a branch name from git output
+  ///
+  /// # Arguments
+  /// * `git_output` - The raw git changes output
+  /// * `previous_suggestion` - Optional previous suggestion to generate an alternative
+  pub async fn generate_branch_name(&mut self, git_output: &str, previous_suggestion: Option<&str>) -> Result<BranchNameResult> {
+    // Create appropriate prompt based on whether this is an alternative
+    let prompt = self.create_enhanced_prompt(git_output, previous_suggestion).await?;
 
-  /// Generate an alternative branch name suggestion using the same prompt but different temperature
-  pub async fn generate_alternative_branch_name(&mut self, original_prompt: &str) -> Result<BranchNameResult> {
+    // Get mutable reference to generator after creating prompt
     let generator = self.generator.as_mut().ok_or_else(|| anyhow::anyhow!("Model not loaded"))?;
-    // Use higher temperature for more variation while keeping same context
-    generator.generate_branch_name(original_prompt, MAX_NEW_TOKENS, GENERATION_TEMPERATURE + 0.2).await
+
+    generator.generate_branch_name(&prompt, MAX_NEW_TOKENS, previous_suggestion.is_some()).await
   }
 }

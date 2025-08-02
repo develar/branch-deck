@@ -11,6 +11,8 @@
   "permissions": [
     "window-state:default",
     "log:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "opener:allow-open-url",
+    "opener:allow-default-urls"
   ]
 }

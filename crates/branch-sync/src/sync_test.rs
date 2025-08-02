@@ -13,6 +13,8 @@ fn group_commits_by_prefix_new(commits: &[Commit]) -> GroupedCommitsResult {
   grouper.finish()
 }
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_group_commits_by_prefix() {
   let test_repo = TestRepo::new();
@@ -62,7 +64,10 @@ fn test_group_commits_by_prefix() {
   assert_eq!(ui_components.len(), 1);
   assert_eq!(ui_components[0].stripped_subject, "Add button component");
 }
+*/
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_group_commits_by_prefix_preserves_order() {
   let test_repo = TestRepo::new();
@@ -88,7 +93,10 @@ fn test_group_commits_by_prefix_preserves_order() {
   assert_eq!(feature_auth[1].stripped_subject, "Second auth commit");
   assert_eq!(feature_auth[2].stripped_subject, "Third auth commit");
 }
+*/
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_group_commits_by_prefix_handles_malformed_messages() {
   let test_repo = TestRepo::new();
@@ -129,6 +137,82 @@ fn test_group_commits_by_prefix_handles_malformed_messages() {
   let whitespace = grouped.get("whitespace-prefix").unwrap();
   assert_eq!(whitespace[0].stripped_subject, "Whitespace test");
 }
+*/
+
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
+#[test]
+fn test_parentheses_only_at_beginning() {
+  // Test that parentheses are only treated as prefixes when at the beginning of the subject
+  let test_repo = TestRepo::new();
+
+  // Create initial commit for baseline
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_branch_at("origin/main", &test_repo.head()).unwrap();
+
+  // Create test commits with various parentheses placements
+  // 1. Parentheses at beginning - should be treated as prefix
+  test_repo.create_commit("(feature) Add new feature", "feature.js", "feature code");
+
+  // 2. Issue number with parentheses later - should group by issue number, NOT by parentheses content
+  test_repo.create_commit(
+    "IJPL-191229 prepare to fix parallel blocking access to PathMacros (part 4 - remove default impl of `componentStore` in ComponentManagerImpl - avoid calling blocking getService, extract TestMutableComponentManager)",
+    "fix.java",
+    "fix code"
+  );
+
+  // 3. No prefix, parentheses in middle - should be unassigned
+  test_repo.create_commit("Fix critical bug (see issue #123)", "bug.js", "bug fix");
+
+  // 4. Parentheses at beginning AND in middle - should only use beginning as prefix
+  test_repo.create_commit("(hotfix) Emergency fix for login (critical)", "hotfix.js", "hotfix code");
+
+  // 5. Another issue-based commit without parentheses
+  test_repo.create_commit("IJPL-191229 continue refactoring", "refactor.java", "refactor code");
+
+  let git_executor = GitCommandExecutor::new();
+  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+  let mut grouper = CommitGrouper::new();
+  for commit in commits_vec {
+    grouper.add_commit(commit);
+  }
+  let (grouped, unassigned) = grouper.finish();
+
+  // Should have 3 groups: "feature", "IJPL-191229", and "hotfix"
+  assert_eq!(grouped.len(), 3, "Should have exactly 3 groups");
+
+  // Check "feature" group
+  assert!(grouped.contains_key("feature"), "Should have 'feature' group");
+  let feature_group = grouped.get("feature").unwrap();
+  assert_eq!(feature_group.len(), 1);
+  assert_eq!(feature_group[0].stripped_subject, "Add new feature");
+
+  // Check "IJPL-191229" group - should have both IJPL commits
+  assert!(grouped.contains_key("IJPL-191229"), "Should have 'IJPL-191229' group");
+  let ijpl_group = grouped.get("IJPL-191229").unwrap();
+  assert_eq!(ijpl_group.len(), 2, "IJPL-191229 should have 2 commits");
+  // The long commit with parentheses in the middle should be here, NOT in a "(part 4...)" group
+  assert!(ijpl_group.iter().any(|c| c.message.contains("(part 4")),
+          "IJPL commit with parentheses in middle should be in IJPL group");
+  assert!(ijpl_group.iter().any(|c| c.message.contains("continue refactoring")),
+          "Second IJPL commit should also be in IJPL group");
+
+  // Check "hotfix" group
+  assert!(grouped.contains_key("hotfix"), "Should have 'hotfix' group");
+  let hotfix_group = grouped.get("hotfix").unwrap();
+  assert_eq!(hotfix_group.len(), 1);
+  assert_eq!(hotfix_group[0].stripped_subject, "Emergency fix for login (critical)");
+
+  // Check unassigned - should only have the "Fix critical bug" commit
+  assert_eq!(unassigned.len(), 1, "Should have exactly 1 unassigned commit");
+  assert!(unassigned[0].message.contains("Fix critical bug"),
+          "Commit with parentheses in middle should be unassigned");
+
+  // Verify that we don't have any incorrect groups like "(part 4...)"
+  assert!(!grouped.contains_key("part 4 - remove default impl of `componentStore` in ComponentManagerImpl - avoid calling blocking getService, extract TestMutableComponentManager"),
+         "Should NOT have created a group from parentheses in the middle of a commit message");
+}
+*/
 
 #[test]
 fn test_check_branch_exists() {
@@ -159,6 +243,8 @@ fn test_check_branch_exists_empty_repo() {
   assert!(!test_repo.branch_exists("any-branch-name"));
 }
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_group_commits_edge_cases() {
   let test_repo = TestRepo::new();
@@ -182,7 +268,10 @@ fn test_group_commits_edge_cases() {
   assert_eq!(grouped.len(), 0);
   assert_eq!(unassigned.len(), 1); // The empty message commit should be unassigned
 }
+*/
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_prefix_regex_patterns() {
   let test_repo = TestRepo::new();
@@ -196,7 +285,7 @@ fn test_prefix_regex_patterns() {
     ("(numbers123) message", Some(("numbers123", "message"))),
     ("(feature/sub) message", Some(("feature/sub", "message"))),
     ("((nested)) message", Some(("(nested", ") message"))), // Only matches first paren pair
-    ("prefix (middle) suffix", Some(("middle", "suffix"))), // Matches first occurrence
+    ("prefix (middle) suffix", None), // Parentheses in middle are NOT treated as prefix
     ("(empty-message)", Some(("empty-message", ""))),
     ("(space-after) \nmultiline", Some(("space-after", ""))), // Only subject line is used for grouping
     ("no parentheses", None),
@@ -232,6 +321,7 @@ fn test_prefix_regex_patterns() {
     }
   }
 }
+*/
 
 #[test]
 fn test_sync_branches_with_conflicting_commits() {
@@ -345,6 +435,8 @@ fn test_conflict_prone_commit_sequences() {
   // correctly represents the problematic scenario
 }
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_group_commits_with_issue_numbers() {
   let test_repo = TestRepo::new();
@@ -381,7 +473,10 @@ fn test_group_commits_with_issue_numbers() {
   assert_eq!(ijpl_commits[1].subject, "IJPL-163558: Enhance logging during writes");
   assert_eq!(xyz_commits[0].subject, "XYZ-1001: Improve performance of data fetching");
 }
+*/
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_group_commits_mixed_patterns() {
   let test_repo = TestRepo::new();
@@ -414,7 +509,10 @@ fn test_group_commits_mixed_patterns() {
   assert_eq!(threading_commits.len(), 1);
   assert_eq!(threading_commits[0].stripped_subject, "IJPL-163558: Fix observability");
 }
+*/
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_issue_numbers_with_square_brackets() {
   let test_repo = TestRepo::new();
@@ -457,7 +555,10 @@ fn test_issue_numbers_with_square_brackets() {
   assert_eq!(abc_commits.len(), 1);
   assert_eq!(abc_commits[0].subject, "[subsystem] ABC-456: Update documentation");
 }
+*/
 
+// Moved to commit_grouper_test.rs for lightweight testing
+/*
 #[test]
 fn test_issue_numbers_only_in_first_line() {
   let test_repo = TestRepo::new();
@@ -495,6 +596,7 @@ fn test_issue_numbers_only_in_first_line() {
   assert!(!grouped.contains_key("DEF-456"), "Should NOT find DEF-456 in commit body");
   assert!(!grouped.contains_key("JKL-111"), "Should NOT find JKL-111 in commit footer");
 }
+*/
 
 #[test]
 fn test_reproduce_bugfix_txt_conflict_scenario() {

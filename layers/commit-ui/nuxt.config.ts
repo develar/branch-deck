@@ -1,5 +1,5 @@
 export default defineNuxtConfig({
   imports: {
-    dirs: ["components", "utils"],
+    dirs: ["components", "utils", "composables"],
   },
 })

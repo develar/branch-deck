@@ -31,13 +31,13 @@ fn test_create_chatml_prompt_basic() {
   let diffs = vec![];
 
   let git_output = convert_to_raw_git_format(&commits, &diffs);
-  let result = create_chatml_prompt(&git_output);
+  let result = create_chatml_prompt(&git_output, None);
   assert!(result.is_ok());
 
   let prompt = result.unwrap();
   assert!(prompt.contains("<|im_start|>system"));
   assert!(prompt.contains("feat: Add OAuth2 integration"));
-  assert!(prompt.contains("<|im_start|>assistant<think></think>"));
+  assert!(prompt.ends_with("<|im_start|>assistant"));
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn test_chatml_format_structure() {
 
   let diffs = vec![];
   let git_output = convert_to_raw_git_format(&commits, &diffs);
-  let prompt = create_chatml_prompt(&git_output).unwrap();
+  let prompt = create_chatml_prompt(&git_output, None).unwrap();
 
   // Verify ChatML structure
   assert!(prompt.starts_with("<|im_start|>system"));
@@ -206,5 +206,37 @@ fn test_chatml_format_structure() {
   assert!(prompt.contains("<|im_end|>"));
   assert!(prompt.contains("<|im_start|>user"));
   assert!(prompt.contains("fix: resolve null pointer exception"));
-  assert!(prompt.ends_with("<|im_start|>assistant<think></think>"));
+  assert!(prompt.ends_with("<|im_start|>assistant"));
+}
+
+#[test]
+fn test_create_chatml_prompt_alternative() {
+  let commits = vec![CommitInfo {
+    message: "fix: Update password hashing algorithm".to_string(),
+    hash: "abc123".to_string(),
+  }];
+
+  let diffs = vec![CommitDiff {
+    commit_hash: "abc123".to_string(),
+    files: vec![FileDiff {
+      path: "auth.js".to_string(),
+      additions: 45,
+      deletions: 12,
+      patch: None,
+    }],
+  }];
+
+  let git_output = convert_to_raw_git_format(&commits, &diffs);
+  let result = create_chatml_prompt(&git_output, Some("password-hash"));
+  assert!(result.is_ok());
+
+  let prompt = result.unwrap();
+  // Check it mentions the previous suggestion
+  assert!(prompt.contains("Previous suggestion was 'password-hash'."));
+  // Check for alternative instructions
+  assert!(prompt.contains("DIFFERENT name"));
+  assert!(prompt.contains("Maximum 50 characters"));
+  // Still has ChatML structure
+  assert!(prompt.contains("<|im_start|>system"));
+  assert!(prompt.ends_with("<|im_start|>assistant"));
 }

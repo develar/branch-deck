@@ -1,7 +1,0 @@
-- heading "Unassigned Commits" [level=2]
-- text: 1 commit
-- table:
-  - rowgroup:
-    - row /Fix critical bug \w+ • Test User • (Today|Yesterday) \d+:\d+ (AM|PM)/:
-      - cell /Fix critical bug \w+ • Test User • (Today|Yesterday) \d+:\d+ (AM|PM)/:
-        - paragraph: Fix critical bug

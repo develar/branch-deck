@@ -25,6 +25,7 @@ export interface ProjectMetadata {
   cachedBranchPrefix?: string
   lastSyncTime?: number
   lastBranchCount?: number
+  issueNavigationConfig?: IssueNavigationConfig
 }
 
 // Interface that both main and sub-window stores implement

@@ -5,12 +5,12 @@
       :text="tooltipText"
     >
       <UButton
-        :icon="copiedItems.has(text) ? 'i-lucide-copy-check' : 'i-lucide-copy'"
+        :icon="isCopied ? 'i-lucide-copy-check' : 'i-lucide-copy'"
         :size="size"
         :variant="variant"
         color="neutral"
         :class="{'text-muted': alwaysVisible }"
-        @click.stop="copyToClipboard(text)"
+        @click.stop="handleCopy"
       />
     </UTooltip>
   </div>
@@ -20,7 +20,7 @@
 // useCopyToClipboard is auto-imported
 
 interface Props {
-  text: string
+  text: () => string
   tooltip?: string
   size?: "xs" | "sm" | "md" | "lg" | "xl"
   variant?: "solid" | "outline" | "soft" | "ghost" | "link"
@@ -35,10 +35,16 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 // Use the copy to clipboard composable
-const { copiedItems, tooltipOpen, copyToClipboard } = useCopyToClipboard()
+const { isCopied, tooltipOpen, copyToClipboard } = useCopyToClipboard()
 
 // Computed property for dynamic tooltip text
 const tooltipText = computed(() => {
-  return copiedItems.value.has(props.text) ? "Copied!" : props.tooltip
+  return isCopied.value ? "Copied!" : props.tooltip
 })
+
+// Handle click - only evaluate text when needed
+const handleCopy = () => {
+  const text = props.text()
+  copyToClipboard(text)
+}
 </script>

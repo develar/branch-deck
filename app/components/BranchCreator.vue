@@ -36,11 +36,11 @@
 
 <script lang="ts" setup>
 
+// Provide model state for AI features
+provideModelState()
+
 // Provide repository state
 const repository = provideRepository()
-
-// Initialize model download handler
-useModelDownload()
 
 const branchSync = createBranchSyncState(repository)
 provide(BranchSyncKey, branchSync)

@@ -22,7 +22,7 @@ pub struct CacheClearResult {
 #[instrument(skip(model_state, app))]
 pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app: AppHandle, params: ClearModelCacheParams) -> Result<CacheClearResult, String> {
   let keep_current = params.keep_current;
-  let model_gen = model_state.0.lock().await;
+  let model_gen = model_state.generator.lock().await;
   let current_config = model_gen.get_model_config();
   drop(model_gen);
 
@@ -35,7 +35,7 @@ pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app:
   let mut errors = Vec::new();
 
   // List all model directories
-  let all_models = vec![ModelConfig::Qwen25Coder05B, ModelConfig::Qwen25Coder15B, ModelConfig::Qwen25Coder3B];
+  let all_models = vec![ModelConfig::Qwen25Coder15B, ModelConfig::Qwen25Coder3B, ModelConfig::Qwen3_17B];
 
   for model_config in all_models {
     // Skip current model if requested

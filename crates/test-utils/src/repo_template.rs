@@ -789,6 +789,78 @@ data class User(
       .commit_with_timestamp("Fix critical bug", &[("bugfix.txt", "Critical bug fix for production issue")], Some(1704121200)) // This is the single unassigned commit
   }
 
+  /// Repository with issue navigation configuration for testing issue links
+  pub fn issue_links() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("issue_links")
+      .branch_prefix("user-name")
+      // Initial commit with IntelliJ IDEA issue navigation config
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("README.md", "# Test Repository\n\nRepository for testing issue link navigation.\n"),
+          (
+            ".idea/vcs.xml",
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="IssueNavigationConfiguration">
+    <option name="links">
+      <list>
+        <IssueNavigationLink>
+          <option name="issueRegexp" value="\b[A-Z]+-\d+\b" />
+          <option name="linkRegexp" value="https://jira.example.com/browse/$0" />
+        </IssueNavigationLink>
+        <IssueNavigationLink>
+          <option name="issueRegexp" value="GH-(\d+)" />
+          <option name="linkRegexp" value="https://github.com/example/repo/issues/$1" />
+        </IssueNavigationLink>
+        <IssueNavigationLink>
+          <option name="issueRegexp" value="#(\d+)" />
+          <option name="linkRegexp" value="https://github.com/example/repo/issues/$1" />
+        </IssueNavigationLink>
+      </list>
+    </option>
+  </component>
+</project>"##,
+          ),
+        ],
+        Some(1704117600),
+      )
+      // Commits with various issue references
+      .commit_with_timestamp(
+        "(feature-auth) JIRA-123: Add authentication service",
+        &[("auth.js", "// Auth service for JIRA-123\nexport function authenticate() {}")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(feature-api) Fix API endpoint for GH-456",
+        &[("api.js", "// Fix for issue GH-456\nexport function fixedApi() {}")],
+        Some(1704121200),
+      )
+      .commit_with_timestamp(
+        "(feature-ui) Update UI components (#789)",
+        &[("ui.js", "// UI update for issue #789\nexport function updateUI() {}")],
+        Some(1704123000),
+      )
+      .commit_with_timestamp(
+        "(feature-db) TEST-001 and PROD-999: Database optimization",
+        &[("db.js", "// Optimizations for TEST-001 and PROD-999\nexport function optimizeDB() {}")],
+        Some(1704124800),
+      )
+      // Commit without any issue references
+      .commit_with_timestamp(
+        "(feature-docs) Update documentation",
+        &[("docs.md", "# Documentation\n\nUpdated project documentation.")],
+        Some(1704126600),
+      )
+      // Unassigned commit with issue reference
+      .commit_with_timestamp(
+        "Emergency fix for CRITICAL-111",
+        &[("fix.js", "// Emergency fix for CRITICAL-111\nexport function emergencyFix() {}")],
+        Some(1704128400),
+      )
+  }
+
   /// Directory without git initialization - for testing invalid repository paths
   pub fn empty_non_git() -> EmptyNonGitTemplate {
     EmptyNonGitTemplate

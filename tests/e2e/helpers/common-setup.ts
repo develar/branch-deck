@@ -8,13 +8,47 @@ import { TestRepositoryBuilder } from "./test-repository"
 export async function setupTestRepository(
   page: Page,
   templateName: string,
-  options?: { prepopulateStore?: boolean },
+  options?: { prepopulateStore?: boolean, initialStoreValues?: Record<string, unknown>, modelState?: "not_downloaded" | "downloaded" | "downloading" },
 ): Promise<TestRepositoryBuilder> {
+  // Determine model state based on aiMode in initialStoreValues if not explicitly set
+  let modelState = options?.modelState
+  if (!modelState && options?.initialStoreValues?.modelSettings) {
+    const modelSettings = options.initialStoreValues.modelSettings as { aiMode?: string }
+    const aiMode = modelSettings.aiMode
+    modelState = aiMode === "enabled" ? "downloaded" : "not_downloaded"
+  }
+
   // Create a test repository using the specified template
   const repoBuilder = new TestRepositoryBuilder()
     .useTemplate(templateName)
     .withPrepopulateStore(options?.prepopulateStore ?? true)
+
+  if (modelState) {
+    repoBuilder.withModelState(modelState)
+  }
+
   await repoBuilder.init()
+
+  // Set initial store values if provided BEFORE navigating
+  if (options?.initialStoreValues && repoBuilder.id) {
+    const baseUrl = "http://localhost:3030"
+    for (const [key, value] of Object.entries(options.initialStoreValues)) {
+      console.log(`[Test Setup] Setting initial store value: ${key} =`, value)
+      const response = await fetch(`${baseUrl}/store/${repoBuilder.id}/${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to set initial store value for ${key}: ${response.statusText}`)
+      }
+
+      // Verify the value was set
+      const verifyResponse = await fetch(`${baseUrl}/store/${repoBuilder.id}/${key}`)
+      const storedValue = await verifyResponse.json()
+      console.log(`[Test Setup] Verified store value for ${key}:`, storedValue)
+    }
+  }
 
   // Open browser console to see debug logs
   setupBrowserLogging(page)
@@ -65,16 +99,4 @@ export async function cleanupTestRepository(repoBuilder: TestRepositoryBuilder):
   if (repoBuilder) {
     await repoBuilder.cleanup()
   }
-}
-
-/**
- * Navigate to a specific page with test repository parameters
- */
-export async function navigateToPageWithRepo(
-  page: Page,
-  path: string,
-  repoBuilder: TestRepositoryBuilder,
-): Promise<void> {
-  await page.goto(`${path}?repoId=${repoBuilder.id}`)
-  await page.waitForLoadState("networkidle")
 }

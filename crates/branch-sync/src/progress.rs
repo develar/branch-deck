@@ -1,3 +1,4 @@
+use crate::issue_navigation::IssueNavigationConfig;
 use git_ops::commit_list::Commit;
 use git_ops::model::{BranchError, BranchSyncStatus};
 use serde::Serialize;
@@ -6,6 +7,8 @@ use serde::Serialize;
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", content = "data", rename_all = "camelCase")]
 pub enum SyncEvent {
+  /// Sent at the beginning with issue navigation configuration if found
+  IssueNavigationConfig { config: Option<IssueNavigationConfig> },
   /// Sent immediately after grouping commits
   BranchesGrouped { branches: Vec<GroupedBranchInfo> },
   /// Sent for commits that don't match any prefix pattern

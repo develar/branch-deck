@@ -1,0 +1,877 @@
+<tr class="!border-t-0" data-v-7aee2057="">
+  <td class="px-0 py-4" colspan="4" data-v-7aee2057="">
+    <div class="ml-4 border-l-2 border-primary/50 pl-2 pr-6" data-v-7aee2057="">
+      <!-- Error display -->
+      <div class="mb-3" data-v-7aee2057="">
+        <div class="space-y-4" data-v-7aee2057="">
+          <!-- Conflict Overview and Missing Commits Card -->
+          <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
+            <div class="p-4 sm:px-6">
+              <div class="flex items-start gap-3">
+                <span aria-hidden="true" class="iconify i-lucide:git-merge size-5 text-error mt-0.5 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-highlighted mb-1">
+                    Cherry-pick conflict detected
+                  </p>
+                  <p class="text-sm text-toned">
+                    Cannot apply: (bug-fix) Implement secure password hashing
+                  </p>
+                  <div class="flex items-center gap-2 text-xs text-muted mt-1">
+                    <span class="font-mono">
+                      [SHA]
+                    </span>
+                    <!--v-if-->
+                    <span>
+                      Yesterday 5:30 PM
+                    </span>
+                    <!--v-if-->
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="p-0 sm:p-0">
+              <div class="bd-padding-card">
+                <div class="bg-elevated rounded-lg bd-padding-card border border-warning">
+                  <div class="flex items-center gap-2">
+                    <span aria-hidden="true" class="iconify i-lucide:file-diff size-4 text-warning" />
+                    <span class="text-sm font-medium text-highlighted">
+                      Insight: Missing commits modified the conflicting files
+                    </span>
+                  </div>
+                  <p class="text-sm text-toned mt-2">
+                    2 commits are missing that altered the files in conflict.
+                  </p>
+                  <p class="text-sm text-toned mt-1">
+                    Common ancestor:
+                    <span class="font-mono" data-grace-area-trigger="" data-state="closed">
+                      [SHA]
+                    </span>
+                    <!--v-if-->
+                    <!--teleport start-->
+                    <!--teleport end-->
+                    <span class="text-muted">
+                      (4 commits behind source, 0 commits behind target)
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+            <!--v-if-->
+          </div>
+          <!-- Detailed Missing Commits Section -->
+          <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
+            <div class="p-4 sm:px-6">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <h2 class="text-sm font-semibold text-highlighted">
+                    Missing Commits Details
+                  </h2>
+                  <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25">
+                    <!--v-if-->
+                    2 commits
+                    <!--v-if-->
+                  </span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <!-- Global diff view toggle -->
+                  <div class="relative inline-flex -space-x-px">
+                    <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" type="button">
+                      <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
+                      Unified
+                      <!--v-if-->
+                    </button>
+                    <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-accented text-default bg-default hover:bg-elevated active:bg-elevated disabled:bg-default aria-disabled:bg-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inverted" type="button">
+                      <span aria-hidden="true" class="iconify i-lucide:columns-2 shrink-0 size-4" />
+                      Split
+                      <!--v-if-->
+                    </button>
+                  </div>
+                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" type="button">
+                    <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" />
+                    Open in Window
+                    <!--v-if-->
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="p-0 sm:p-0">
+              <div>
+                <!-- Portal slot for inline forms -->
+                <table class="w-full rounded-lg focus:outline-none" tabindex="-1">
+                  <tbody class="divide-y divide-default">
+                    <tr class="hover:bg-muted transition-colors" data-row-id="abd07ec1f4dc751971989589e490ca68ade698bd" data-selected="false">
+                      <td class="bd-padding-list-item">
+                        <!-- Selection indicator bar -->
+                        <!--v-if-->
+                        <!-- Row content -->
+                        <div>
+                          <div>
+                            <div class="flex items-center gap-2">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm text-highlighted line-clamp-2">
+                                  (feature-auth) Add authentication to UserService
+                                </span>
+                                <!-- Show popover icon only if message has multiple lines -->
+                                <!--v-if-->
+                              </div>
+                              <!---->
+                            </div>
+                            <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                              <span class="font-mono">
+                                [SHA]
+                              </span>
+                              <!---->
+                              <!---->
+                              <span>
+                                •
+                              </span>
+                              <span>
+                                Yesterday 4:00 PM
+                              </span>
+                              <span>
+                                •
+                              </span>
+                              <span>
+                                1 file
+                              </span>
+                              <!---->
+                            </div>
+                            <!---->
+                          </div>
+                        </div>
+                        <!-- Slot for additional content after commit -->
+                        <!-- File diffs -->
+                        <div class="mt-3 bg-default rounded-lg">
+                          <div class="space-y-2">
+                            <!-- View mode toggle -->
+                            <!--v-if-->
+                            <div class="space-y-2">
+                              <div class="border border-default rounded-lg overflow-hidden" data-orientation="vertical" data-state="closed">
+                                <h3 data-orientation="vertical" data-state="closed" data-v-05886c18="">
+                                  <button aria-controls="" aria-expanded="false" class="file-header w-full text-left group px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer" data-orientation="vertical" data-reka-collection-item="" data-state="closed" data-v-05886c18="" id="reka-accordion-trigger-[DYNAMIC_ID]" type="button">
+                                    <div class="flex items-center gap-1 flex-1" data-v-05886c18="">
+                                      <span class="font-mono text-xs text-toned select-text" data-v-05886c18="">
+                                        src/main/kotlin/com/example/service/UserService.kt
+                                      </span>
+                                      <div class="copy-button transition-opacity opacity-0" data-v-05886c18="" />
+                                    </div>
+                                    <div class="flex items-center gap-1" data-v-05886c18="" />
+                                  </button>
+                                </h3>
+                                <div aria-labelledby="reka-accordion-trigger-[ARIA_ID]" class="border-t border-default" data-orientation="vertical" data-state="closed" hidden="" id="reka-collapsible-content-[DYNAMIC_ID]" role="region" style="--reka-accordion-content-width: var(--reka-collapsible-content-width);  --reka-accordion-content-height: var(--reka-collapsible-content-height);  --reka-collapsible-content-height: 0px;  --reka-collapsible-content-width: 0px" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr class="hover:bg-muted transition-colors" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false">
+                      <td class="bd-padding-list-item">
+                        <!-- Selection indicator bar -->
+                        <!--v-if-->
+                        <!-- Row content -->
+                        <div>
+                          <div>
+                            <div class="flex items-center gap-2">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm text-highlighted line-clamp-2">
+                                  Add UserService
+                                </span>
+                                <!-- Show popover icon only if message has multiple lines -->
+                                <!--v-if-->
+                              </div>
+                              <!---->
+                            </div>
+                            <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                              <span class="font-mono">
+                                [SHA]
+                              </span>
+                              <!---->
+                              <!---->
+                              <span>
+                                •
+                              </span>
+                              <span>
+                                Yesterday 3:30 PM
+                              </span>
+                              <span>
+                                •
+                              </span>
+                              <span>
+                                1 file
+                              </span>
+                              <!---->
+                            </div>
+                            <!---->
+                          </div>
+                        </div>
+                        <!-- Slot for additional content after commit -->
+                        <!-- File diffs -->
+                        <div class="mt-3 bg-default rounded-lg">
+                          <div class="space-y-2">
+                            <!-- View mode toggle -->
+                            <!--v-if-->
+                            <div class="space-y-2">
+                              <div class="border border-default rounded-lg overflow-hidden" data-orientation="vertical" data-state="closed">
+                                <h3 data-orientation="vertical" data-state="closed" data-v-05886c18="">
+                                  <button aria-controls="" aria-expanded="false" class="file-header w-full text-left group px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer" data-orientation="vertical" data-reka-collection-item="" data-state="closed" data-v-05886c18="" id="reka-accordion-trigger-[DYNAMIC_ID]" type="button">
+                                    <div class="flex items-center gap-1 flex-1" data-v-05886c18="">
+                                      <span class="font-mono text-xs text-toned select-text" data-v-05886c18="">
+                                        src/main/kotlin/com/example/service/UserService.kt
+                                      </span>
+                                      <div class="copy-button transition-opacity opacity-0" data-v-05886c18="" />
+                                    </div>
+                                    <div class="flex items-center gap-1" data-v-05886c18="" />
+                                  </button>
+                                </h3>
+                                <div aria-labelledby="reka-accordion-trigger-[ARIA_ID]" class="border-t border-default" data-orientation="vertical" data-state="closed" hidden="" id="reka-collapsible-content-[DYNAMIC_ID]" role="region" style="--reka-accordion-content-width: var(--reka-collapsible-content-width);  --reka-accordion-content-height: var(--reka-collapsible-content-height);  --reka-collapsible-content-height: 0px;  --reka-collapsible-content-width: 0px" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="p-4 sm:px-6">
+              <div class="bg-elevated rounded-lg bd-padding-card">
+                <div class="flex items-center gap-2 mb-3">
+                  <span aria-hidden="true" class="iconify i-lucide:lightbulb size-4 flex-shrink-0 text-warning" />
+                  <h3 class="text-sm font-medium text-highlighted break-normal">
+                    Resolution Steps
+                  </h3>
+                </div>
+                <div class="break-normal text-sm text-toned">
+                  <p class="mb-2">
+                    To resolve this conflict, you can:
+                  </p>
+                  <ul class="space-y-2 text-default">
+                    <li class="flex items-start gap-2">
+                      <span class="text-muted mt-0.5">
+                        •
+                      </span>
+                      <span>
+                        Include the missing commits in this branch by changing their prefix to match.
+                      </span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <span class="text-muted mt-0.5">
+                        •
+                      </span>
+                      <span>
+                        Move the conflicting changes to a different commit or branch.
+                      </span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <span class="text-muted mt-0.5">
+                        •
+                      </span>
+                      <span>
+                        Exclude this commit from the branch by changing its prefix.
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Conflicting Files List -->
+          <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
+            <div class="p-4 sm:px-6">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <h2 class="text-sm font-semibold text-highlighted">
+                    Conflicting Files
+                  </h2>
+                  <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25">
+                    <!--v-if-->
+                    1 file
+                    <!--v-if-->
+                  </span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" type="button">
+                    <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" />
+                    Open in Window
+                    <!--v-if-->
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="p-4 sm:p-6">
+              <div class="space-y-3">
+                <div class="flex items-center gap-2 flex-col" data-orientation="horizontal" dir="ltr">
+                  <div aria-orientation="horizontal" class="relative flex p-1 group border-default w-full border-b -mb-px" data-orientation="horizontal" dir="ltr" role="tablist" style="outline: none" tabindex="0">
+                    <div class="absolute transition-[translate,width] duration-200 rounded-full left-0 w-(--reka-tabs-indicator-size) translate-x-(--reka-tabs-indicator-position) -bottom-px h-px bg-inverted" style="--reka-tabs-indicator-size: 118px;  --reka-tabs-indicator-position: 98px" />
+                    <button aria-controls="reka-tabs-v-15-0-content-diff" aria-selected="false" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors focus:outline-none justify-center px-2.5 py-1.5 text-xs gap-1.5 data-[state=active]:text-highlighted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-inverted" data-orientation="horizontal" data-reka-collection-item="" data-state="inactive" id="reka-tabs-[DYNAMIC_ID]-trigger-diff" role="tab" tabindex="-1" type="button">
+                      <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
+                      <span class="truncate">
+                        Diff View
+                      </span>
+                      <!--v-if-->
+                    </button>
+                    <button aria-controls="reka-tabs-v-15-0-content-3way" aria-selected="true" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors focus:outline-none justify-center px-2.5 py-1.5 text-xs gap-1.5 data-[state=active]:text-highlighted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-inverted" data-active="" data-orientation="horizontal" data-reka-collection-item="" data-state="active" id="reka-tabs-[DYNAMIC_ID]-trigger-3way" role="tab" tabindex="-1" type="button">
+                      <span aria-hidden="true" class="iconify i-lucide:columns-3 shrink-0 size-4" />
+                      <span class="truncate">
+                        3-way Merge
+                      </span>
+                      <!--v-if-->
+                    </button>
+                  </div>
+                  <div aria-labelledby="reka-tabs-[ARIA_ID]-trigger-diff" class="focus:outline-none w-full" data-orientation="horizontal" data-state="inactive" hidden="" id="reka-tabs-[DYNAMIC_ID]-content-diff" role="tabpanel" tabindex="0" />
+                  <div aria-labelledby="reka-tabs-[ARIA_ID]-trigger-3way" class="focus:outline-none w-full" data-orientation="horizontal" data-state="active" id="reka-tabs-[DYNAMIC_ID]-content-3way" role="tabpanel" tabindex="0">
+                    <div class="mt-4">
+                      <div class="space-y-4">
+                        <!-- Help section for 3-way merge view -->
+                        <div class="relative overflow-hidden w-full rounded-lg p-4 flex gap-2.5 items-start text-highlighted bg-elevated/50 ring ring-inset ring-accented" data-orientation="vertical">
+                          <span aria-hidden="true" class="iconify i-lucide:info shrink-0 size-5" />
+                          <div class="min-w-0 flex-1 flex flex-col">
+                            <!--v-if-->
+                            <div class="text-sm opacity-90">
+                              <div class="space-y-2 text-sm">
+                                <p class="font-medium">
+                                  Understanding 3-way merge conflicts
+                                </p>
+                                <p>
+                                  This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:
+                                </p>
+                                <ul class="list-disc list-inside space-y-1 text-muted">
+                                  <li>
+                                    <strong>
+                                      Base (Common Ancestor)
+                                    </strong>
+                                    : The original content before the branches diverged
+                                  </li>
+                                  <li>
+                                    <strong>
+                                      Target Branch
+                                    </strong>
+                                    : How the file changed in your current branch
+                                  </li>
+                                  <li>
+                                    <strong>
+                                      Cherry-pick
+                                    </strong>
+                                    : How the file changed in the commit you're trying to apply
+                                  </li>
+                                </ul>
+                                <p class="text-xs text-muted mt-2">
+                                  The conflict occurs because both branches modified the same parts of the file differently.
+                                </p>
+                              </div>
+                            </div>
+                            <!--v-if-->
+                          </div>
+                          <!--v-if-->
+                        </div>
+                        <div class="space-y-3">
+                          <div class="border border-default rounded-lg overflow-hidden" data-orientation="vertical" data-state="closed">
+                            <h3 data-orientation="vertical" data-state="closed" data-v-05886c18="">
+                              <button aria-controls="" aria-expanded="false" class="file-header w-full text-left group px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer" data-orientation="vertical" data-reka-collection-item="" data-state="closed" data-v-05886c18="" id="reka-accordion-trigger-[DYNAMIC_ID]" type="button">
+                                <div class="flex items-center gap-1 flex-1" data-v-05886c18="">
+                                  <span class="font-mono text-xs text-toned select-text" data-v-05886c18="">
+                                    src/main/kotlin/com/example/service/UserService.kt
+                                  </span>
+                                  <div class="copy-button transition-opacity opacity-0" data-v-05886c18="" />
+                                </div>
+                                <div class="flex items-center gap-1" data-v-05886c18="" />
+                              </button>
+                            </h3>
+                            <div aria-labelledby="reka-accordion-trigger-[ARIA_ID]" class="border-t border-default p-4" data-orientation="vertical" data-state="closed" hidden="" id="reka-collapsible-content-[DYNAMIC_ID]" role="region" style="--reka-accordion-content-width: var(--reka-collapsible-content-width);  --reka-accordion-content-height: var(--reka-collapsible-content-height);  --reka-collapsible-content-height: 0px;  --reka-collapsible-content-width: 0px" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="p-4 sm:px-6">
+              <div class="bg-elevated rounded-lg bd-padding-card">
+                <div class="flex items-center gap-2 mb-3">
+                  <span aria-hidden="true" class="iconify i-lucide:info size-4 flex-shrink-0 text-info" />
+                  <h3 class="text-sm font-medium text-highlighted break-normal">
+                    Missing commits cause conflicts
+                  </h3>
+                </div>
+                <div class="break-normal text-sm text-toned">
+                  <p>
+                    This commit cannot be copied to the virtual branch because other commits modified the same files first.
+                  </p>
+                  <p>
+                    Apply the missing commits shown above to resolve conflicts automatically.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Commit list -->
+      <div data-v-7aee2057="">
+        <!-- Portal slot for inline forms -->
+        <table class="w-full rounded-lg focus:outline-none" tabindex="-1">
+          <tbody class="divide-y divide-default">
+            <tr class="hover:bg-muted transition-colors" data-row-id="90f6fd48d5c4aa46991b10d5624490a6b3585f4c" data-selected="false">
+              <td class="bd-padding-list-item">
+                <!-- Selection indicator bar -->
+                <!--v-if-->
+                <!-- Row content -->
+                <div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm text-highlighted line-clamp-2">
+                          Implement secure password hashing
+                        </span>
+                        <!-- Show popover icon only if message has multiple lines -->
+                        <!--v-if-->
+                      </div>
+                      <!---->
+                      <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-error/10 text-error ring ring-inset ring-error/25">
+                        <!--v-if-->
+                        Error
+                        <!--v-if-->
+                      </span>
+                      <!---->
+                    </div>
+                    <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                      <span class="font-mono">
+                        [SHA]
+                      </span>
+                      <!---->
+                      <!---->
+                      <span>
+                        •
+                      </span>
+                      <span>
+                        Yesterday 5:30 PM
+                      </span>
+                      <!---->
+                      <span>
+                        •
+                      </span>
+                      <span class="text-error">
+                        Merge Conflict
+                      </span>
+                    </div>
+                    <div class="mt-2">
+                      <div class="space-y-4">
+                        <!-- Conflict Overview and Missing Commits Card -->
+                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
+                          <div class="p-4 sm:px-6">
+                            <div class="flex items-start gap-3">
+                              <span aria-hidden="true" class="iconify i-lucide:git-merge size-5 text-error mt-0.5 flex-shrink-0" />
+                              <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-highlighted mb-1">
+                                  Cherry-pick conflict detected
+                                </p>
+                                <p class="text-sm text-toned">
+                                  Cannot apply: (bug-fix) Implement secure password hashing
+                                </p>
+                                <div class="flex items-center gap-2 text-xs text-muted mt-1">
+                                  <span class="font-mono">
+                                    [SHA]
+                                  </span>
+                                  <!--v-if-->
+                                  <span>
+                                    Yesterday 5:30 PM
+                                  </span>
+                                  <!--v-if-->
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="p-0 sm:p-0">
+                            <div class="bd-padding-card">
+                              <div class="bg-elevated rounded-lg bd-padding-card border border-warning">
+                                <div class="flex items-center gap-2">
+                                  <span aria-hidden="true" class="iconify i-lucide:file-diff size-4 text-warning" />
+                                  <span class="text-sm font-medium text-highlighted">
+                                    Insight: Missing commits modified the conflicting files
+                                  </span>
+                                </div>
+                                <p class="text-sm text-toned mt-2">
+                                  2 commits are missing that altered the files in conflict.
+                                </p>
+                                <p class="text-sm text-toned mt-1">
+                                  Common ancestor:
+                                  <span class="font-mono" data-grace-area-trigger="" data-state="closed">
+                                    [SHA]
+                                  </span>
+                                  <!--v-if-->
+                                  <!--teleport start-->
+                                  <!--teleport end-->
+                                  <span class="text-muted">
+                                    (4 commits behind source, 0 commits behind target)
+                                  </span>
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <!--v-if-->
+                        </div>
+                        <!-- Detailed Missing Commits Section -->
+                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
+                          <div class="p-4 sm:px-6">
+                            <div class="flex items-center justify-between">
+                              <div class="flex items-center gap-3">
+                                <h2 class="text-sm font-semibold text-highlighted">
+                                  Missing Commits Details
+                                </h2>
+                                <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25">
+                                  <!--v-if-->
+                                  2 commits
+                                  <!--v-if-->
+                                </span>
+                              </div>
+                              <div class="flex items-center gap-3">
+                                <!-- Global diff view toggle -->
+                                <div class="relative inline-flex -space-x-px">
+                                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
+                                    Unified
+                                    <!--v-if-->
+                                  </button>
+                                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-accented text-default bg-default hover:bg-elevated active:bg-elevated disabled:bg-default aria-disabled:bg-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inverted" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:columns-2 shrink-0 size-4" />
+                                    Split
+                                    <!--v-if-->
+                                  </button>
+                                </div>
+                                <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" type="button">
+                                  <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" />
+                                  Open in Window
+                                  <!--v-if-->
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="p-0 sm:p-0">
+                            <div>
+                              <!-- Portal slot for inline forms -->
+                              <table class="w-full rounded-lg focus:outline-none" tabindex="-1">
+                                <tbody class="divide-y divide-default">
+                                  <tr class="hover:bg-muted transition-colors" data-row-id="abd07ec1f4dc751971989589e490ca68ade698bd" data-selected="false">
+                                    <td class="bd-padding-list-item">
+                                      <!-- Selection indicator bar -->
+                                      <!--v-if-->
+                                      <!-- Row content -->
+                                      <div>
+                                        <div>
+                                          <div class="flex items-center gap-2">
+                                            <div class="flex items-center gap-2">
+                                              <span class="text-sm text-highlighted line-clamp-2">
+                                                (feature-auth) Add authentication to UserService
+                                              </span>
+                                              <!-- Show popover icon only if message has multiple lines -->
+                                              <!--v-if-->
+                                            </div>
+                                            <!---->
+                                          </div>
+                                          <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                                            <span class="font-mono">
+                                              [SHA]
+                                            </span>
+                                            <!---->
+                                            <!---->
+                                            <span>
+                                              •
+                                            </span>
+                                            <span>
+                                              Yesterday 4:00 PM
+                                            </span>
+                                            <span>
+                                              •
+                                            </span>
+                                            <span>
+                                              1 file
+                                            </span>
+                                            <!---->
+                                          </div>
+                                          <!---->
+                                        </div>
+                                      </div>
+                                      <!-- Slot for additional content after commit -->
+                                      <!-- File diffs -->
+                                      <div class="mt-3 bg-default rounded-lg">
+                                        <div class="space-y-2">
+                                          <!-- View mode toggle -->
+                                          <!--v-if-->
+                                          <div class="space-y-2">
+                                            <div class="border border-default rounded-lg overflow-hidden" data-orientation="vertical" data-state="closed">
+                                              <h3 data-orientation="vertical" data-state="closed" data-v-05886c18="">
+                                                <button aria-controls="" aria-expanded="false" class="file-header w-full text-left group px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer" data-orientation="vertical" data-reka-collection-item="" data-state="closed" data-v-05886c18="" id="reka-accordion-trigger-[DYNAMIC_ID]" type="button">
+                                                  <div class="flex items-center gap-1 flex-1" data-v-05886c18="">
+                                                    <span class="font-mono text-xs text-toned select-text" data-v-05886c18="">
+                                                      src/main/kotlin/com/example/service/UserService.kt
+                                                    </span>
+                                                    <div class="copy-button transition-opacity opacity-0" data-v-05886c18="" />
+                                                  </div>
+                                                  <div class="flex items-center gap-1" data-v-05886c18="" />
+                                                </button>
+                                              </h3>
+                                              <div aria-labelledby="reka-accordion-trigger-[ARIA_ID]" class="border-t border-default" data-orientation="vertical" data-state="closed" hidden="" id="reka-collapsible-content-[DYNAMIC_ID]" role="region" style="--reka-accordion-content-width: var(--reka-collapsible-content-width);  --reka-accordion-content-height: var(--reka-collapsible-content-height);  --reka-collapsible-content-height: 0px;  --reka-collapsible-content-width: 0px" />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr class="hover:bg-muted transition-colors" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false">
+                                    <td class="bd-padding-list-item">
+                                      <!-- Selection indicator bar -->
+                                      <!--v-if-->
+                                      <!-- Row content -->
+                                      <div>
+                                        <div>
+                                          <div class="flex items-center gap-2">
+                                            <div class="flex items-center gap-2">
+                                              <span class="text-sm text-highlighted line-clamp-2">
+                                                Add UserService
+                                              </span>
+                                              <!-- Show popover icon only if message has multiple lines -->
+                                              <!--v-if-->
+                                            </div>
+                                            <!---->
+                                          </div>
+                                          <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                                            <span class="font-mono">
+                                              [SHA]
+                                            </span>
+                                            <!---->
+                                            <!---->
+                                            <span>
+                                              •
+                                            </span>
+                                            <span>
+                                              Yesterday 3:30 PM
+                                            </span>
+                                            <span>
+                                              •
+                                            </span>
+                                            <span>
+                                              1 file
+                                            </span>
+                                            <!---->
+                                          </div>
+                                          <!---->
+                                        </div>
+                                      </div>
+                                      <!-- Slot for additional content after commit -->
+                                      <!-- File diffs -->
+                                      <div class="mt-3 bg-default rounded-lg">
+                                        <div class="space-y-2">
+                                          <!-- View mode toggle -->
+                                          <!--v-if-->
+                                          <div class="space-y-2">
+                                            <div class="border border-default rounded-lg overflow-hidden" data-orientation="vertical" data-state="closed">
+                                              <h3 data-orientation="vertical" data-state="closed" data-v-05886c18="">
+                                                <button aria-controls="" aria-expanded="false" class="file-header w-full text-left group px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer" data-orientation="vertical" data-reka-collection-item="" data-state="closed" data-v-05886c18="" id="reka-accordion-trigger-[DYNAMIC_ID]" type="button">
+                                                  <div class="flex items-center gap-1 flex-1" data-v-05886c18="">
+                                                    <span class="font-mono text-xs text-toned select-text" data-v-05886c18="">
+                                                      src/main/kotlin/com/example/service/UserService.kt
+                                                    </span>
+                                                    <div class="copy-button transition-opacity opacity-0" data-v-05886c18="" />
+                                                  </div>
+                                                  <div class="flex items-center gap-1" data-v-05886c18="" />
+                                                </button>
+                                              </h3>
+                                              <div aria-labelledby="reka-accordion-trigger-[ARIA_ID]" class="border-t border-default" data-orientation="vertical" data-state="closed" hidden="" id="reka-collapsible-content-[DYNAMIC_ID]" role="region" style="--reka-accordion-content-width: var(--reka-collapsible-content-width);  --reka-accordion-content-height: var(--reka-collapsible-content-height);  --reka-collapsible-content-height: 0px;  --reka-collapsible-content-width: 0px" />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                          <div class="p-4 sm:px-6">
+                            <div class="bg-elevated rounded-lg bd-padding-card">
+                              <div class="flex items-center gap-2 mb-3">
+                                <span aria-hidden="true" class="iconify i-lucide:lightbulb size-4 flex-shrink-0 text-warning" />
+                                <h3 class="text-sm font-medium text-highlighted break-normal">
+                                  Resolution Steps
+                                </h3>
+                              </div>
+                              <div class="break-normal text-sm text-toned">
+                                <p class="mb-2">
+                                  To resolve this conflict, you can:
+                                </p>
+                                <ul class="space-y-2 text-default">
+                                  <li class="flex items-start gap-2">
+                                    <span class="text-muted mt-0.5">
+                                      •
+                                    </span>
+                                    <span>
+                                      Include the missing commits in this branch by changing their prefix to match.
+                                    </span>
+                                  </li>
+                                  <li class="flex items-start gap-2">
+                                    <span class="text-muted mt-0.5">
+                                      •
+                                    </span>
+                                    <span>
+                                      Move the conflicting changes to a different commit or branch.
+                                    </span>
+                                  </li>
+                                  <li class="flex items-start gap-2">
+                                    <span class="text-muted mt-0.5">
+                                      •
+                                    </span>
+                                    <span>
+                                      Exclude this commit from the branch by changing its prefix.
+                                    </span>
+                                  </li>
+                                </ul>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <!-- Conflicting Files List -->
+                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
+                          <div class="p-4 sm:px-6">
+                            <div class="flex items-center justify-between">
+                              <div class="flex items-center gap-3">
+                                <h2 class="text-sm font-semibold text-highlighted">
+                                  Conflicting Files
+                                </h2>
+                                <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25">
+                                  <!--v-if-->
+                                  1 file
+                                  <!--v-if-->
+                                </span>
+                              </div>
+                              <div class="flex items-center gap-3">
+                                <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" type="button">
+                                  <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" />
+                                  Open in Window
+                                  <!--v-if-->
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="p-4 sm:p-6">
+                            <div class="space-y-3">
+                              <div class="flex items-center gap-2 flex-col" data-orientation="horizontal" dir="ltr">
+                                <div aria-orientation="horizontal" class="relative flex p-1 group border-default w-full border-b -mb-px" data-orientation="horizontal" dir="ltr" role="tablist" style="outline: none" tabindex="0">
+                                  <div class="absolute transition-[translate,width] duration-200 rounded-full left-0 w-(--reka-tabs-indicator-size) translate-x-(--reka-tabs-indicator-position) -bottom-px h-px bg-inverted" style="--reka-tabs-indicator-size: 118px;  --reka-tabs-indicator-position: 98px" />
+                                  <button aria-controls="reka-tabs-v-21-0-content-diff" aria-selected="false" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors focus:outline-none justify-center px-2.5 py-1.5 text-xs gap-1.5 data-[state=active]:text-highlighted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-inverted" data-orientation="horizontal" data-reka-collection-item="" data-state="inactive" id="reka-tabs-[DYNAMIC_ID]-trigger-diff" role="tab" tabindex="-1" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
+                                    <span class="truncate">
+                                      Diff View
+                                    </span>
+                                    <!--v-if-->
+                                  </button>
+                                  <button aria-controls="reka-tabs-v-21-0-content-3way" aria-selected="true" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors focus:outline-none justify-center px-2.5 py-1.5 text-xs gap-1.5 data-[state=active]:text-highlighted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-inverted" data-active="" data-orientation="horizontal" data-reka-collection-item="" data-state="active" id="reka-tabs-[DYNAMIC_ID]-trigger-3way" role="tab" tabindex="-1" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:columns-3 shrink-0 size-4" />
+                                    <span class="truncate">
+                                      3-way Merge
+                                    </span>
+                                    <!--v-if-->
+                                  </button>
+                                </div>
+                                <div aria-labelledby="reka-tabs-[ARIA_ID]-trigger-diff" class="focus:outline-none w-full" data-orientation="horizontal" data-state="inactive" hidden="" id="reka-tabs-[DYNAMIC_ID]-content-diff" role="tabpanel" tabindex="0" />
+                                <div aria-labelledby="reka-tabs-[ARIA_ID]-trigger-3way" class="focus:outline-none w-full" data-orientation="horizontal" data-state="active" id="reka-tabs-[DYNAMIC_ID]-content-3way" role="tabpanel" tabindex="0">
+                                  <div class="mt-4">
+                                    <div class="space-y-4">
+                                      <!-- Help section for 3-way merge view -->
+                                      <div class="relative overflow-hidden w-full rounded-lg p-4 flex gap-2.5 items-start text-highlighted bg-elevated/50 ring ring-inset ring-accented" data-orientation="vertical">
+                                        <span aria-hidden="true" class="iconify i-lucide:info shrink-0 size-5" />
+                                        <div class="min-w-0 flex-1 flex flex-col">
+                                          <!--v-if-->
+                                          <div class="text-sm opacity-90">
+                                            <div class="space-y-2 text-sm">
+                                              <p class="font-medium">
+                                                Understanding 3-way merge conflicts
+                                              </p>
+                                              <p>
+                                                This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:
+                                              </p>
+                                              <ul class="list-disc list-inside space-y-1 text-muted">
+                                                <li>
+                                                  <strong>
+                                                    Base (Common Ancestor)
+                                                  </strong>
+                                                  : The original content before the branches diverged
+                                                </li>
+                                                <li>
+                                                  <strong>
+                                                    Target Branch
+                                                  </strong>
+                                                  : How the file changed in your current branch
+                                                </li>
+                                                <li>
+                                                  <strong>
+                                                    Cherry-pick
+                                                  </strong>
+                                                  : How the file changed in the commit you're trying to apply
+                                                </li>
+                                              </ul>
+                                              <p class="text-xs text-muted mt-2">
+                                                The conflict occurs because both branches modified the same parts of the file differently.
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <!--v-if-->
+                                        </div>
+                                        <!--v-if-->
+                                      </div>
+                                      <div class="space-y-3">
+                                        <div class="border border-default rounded-lg overflow-hidden" data-orientation="vertical" data-state="closed">
+                                          <h3 data-orientation="vertical" data-state="closed" data-v-05886c18="">
+                                            <button aria-controls="" aria-expanded="false" class="file-header w-full text-left group px-3 py-2 hover:bg-muted/50 transition-colors flex items-center justify-between cursor-pointer" data-orientation="vertical" data-reka-collection-item="" data-state="closed" data-v-05886c18="" id="reka-accordion-trigger-[DYNAMIC_ID]" type="button">
+                                              <div class="flex items-center gap-1 flex-1" data-v-05886c18="">
+                                                <span class="font-mono text-xs text-toned select-text" data-v-05886c18="">
+                                                  src/main/kotlin/com/example/service/UserService.kt
+                                                </span>
+                                                <div class="copy-button transition-opacity opacity-0" data-v-05886c18="" />
+                                              </div>
+                                              <div class="flex items-center gap-1" data-v-05886c18="" />
+                                            </button>
+                                          </h3>
+                                          <div aria-labelledby="reka-accordion-trigger-[ARIA_ID]" class="border-t border-default p-4" data-orientation="vertical" data-state="closed" hidden="" id="reka-collapsible-content-[DYNAMIC_ID]" role="region" style="--reka-accordion-content-width: var(--reka-collapsible-content-width);  --reka-accordion-content-height: var(--reka-collapsible-content-height);  --reka-collapsible-content-height: 0px;  --reka-collapsible-content-width: 0px" />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="p-4 sm:px-6">
+                            <div class="bg-elevated rounded-lg bd-padding-card">
+                              <div class="flex items-center gap-2 mb-3">
+                                <span aria-hidden="true" class="iconify i-lucide:info size-4 flex-shrink-0 text-info" />
+                                <h3 class="text-sm font-medium text-highlighted break-normal">
+                                  Missing commits cause conflicts
+                                </h3>
+                              </div>
+                              <div class="break-normal text-sm text-toned">
+                                <p>
+                                  This commit cannot be copied to the virtual branch because other commits modified the same files first.
+                                </p>
+                                <p>
+                                  Apply the missing commits shown above to resolve conflicts automatically.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Slot for additional content after commit -->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </td>
+</tr>

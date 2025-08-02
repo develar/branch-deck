@@ -12,7 +12,6 @@ use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
 use commands::create_branch::create_branch_from_commits;
-use commands::model::{check_model_status, download_model};
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::suggest_branch_name::suggest_branch_name_stream;
@@ -39,8 +38,9 @@ pub fn run() {
     create_branch_from_commits,
     add_issue_reference_to_commits,
     suggest_branch_name_stream,
-    download_model,
-    check_model_status,
+    model_tauri::commands::download_model,
+    model_tauri::commands::check_model_status,
+    model_tauri::commands::cancel_model_download,
     clear_model_cache,
   ]);
 
@@ -93,9 +93,9 @@ pub fn run() {
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
-      app.manage(model_tauri::ModelGeneratorState(tokio::sync::Mutex::new(
+      app.manage(model_tauri::ModelGeneratorState::new(
         model_tauri::ModelBasedBranchGenerator::with_config(model_tauri::ModelConfig::default()).expect("Failed to create model-based generator"),
-      )));
+      ));
 
       let current_version = app.package_info().version.to_string();
       // Initialize update state

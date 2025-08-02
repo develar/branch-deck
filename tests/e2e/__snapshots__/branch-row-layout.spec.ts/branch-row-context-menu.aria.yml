@@ -1,6 +1,0 @@
-- menu:
-  - group:
-    - menuitem "Add Issue Reference"
-  - group:
-    - menuitem "Copy Branch Name"
-    - menuitem "Copy Full Branch Name"

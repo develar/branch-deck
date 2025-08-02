@@ -25,7 +25,7 @@ test.describe("Issue Reference Feature", () => {
     await openContextMenu(page, branchRow)
 
     // Wait for the menu item to appear - it only shows if commits are loaded
-    await page.waitForSelector("text=Add Issue Reference", { timeout: 5000 })
+    await page.waitForSelector("text=Add Issue Reference")
 
     // Click the menu item
     await clickContextMenuItem(page, "Add Issue Reference")

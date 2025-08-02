@@ -14,7 +14,7 @@ export interface BranchContextActionsReturn {
 export function useBranchContextActions(): BranchContextActionsReturn {
   const toast = useToast()
   const { copyToClipboard } = useCopyToClipboard()
-  const { effectiveBranchPrefix, selectedProject } = useRepository()
+  const { getFullBranchName, selectedProject } = useRepository()
   const { syncBranches } = useBranchSync()
 
   // State for inline input
@@ -22,11 +22,6 @@ export function useBranchContextActions(): BranchContextActionsReturn {
 
   // Processing state
   const processingBranch = ref<string | null>(null)
-
-  // Get full branch name with prefix
-  const getFullBranchName = (branchName: string) => {
-    return `${effectiveBranchPrefix.value}/${branchName}`
-  }
 
   // Context menu items
   const getContextMenuItems = (branch: ReactiveBranch) => {

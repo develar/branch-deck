@@ -1,42 +1,97 @@
-// useAIStatus is auto-imported
+import { useModelState } from "./modelProvider"
+import type { AIMode } from "../stores/aiSettings"
 
+/** Stable toast IDs to prevent duplicate notifications */
+const TOAST_IDS = {
+  ERROR: "ai-mode-error",
+} as const
+
+/**
+ * UI display properties for AI status indicator
+ */
 interface AIStatusDisplay {
+  /** Tooltip text to display on hover */
   tooltip: string
+  /** CSS classes for the status icon */
   iconClass: string
+  /** Whether the AI is in an error state */
   hasError?: boolean
 }
 
+/**
+ * AI error information
+ */
 interface AIError {
+  /** User-friendly error message */
   message: string
+  /** Detailed error information (e.g., stack trace) */
   details: string
+  /** When the error occurred */
   timestamp: Date
 }
 
-// Stable toast IDs to prevent duplicates
-const TOAST_IDS = {
-  DOWNLOAD_CANCEL: "ai-download-cancel",
-  ERROR: "ai-toggle-error",
-}
-
-export function useAIToggle() {
-  const { modelStatus, isDownloading, triggerDownload } = useAIStatus()
+/**
+ * Composable for managing AI toggle state and UI interactions.
+ * Handles enabling/disabling AI, error states, and status display.
+ *
+ * Key features:
+ * - Reactive AI enabled/disabled state
+ * - Computed status display properties for UI
+ * - Error state management with user notifications
+ * - Automatic download triggering when enabling AI
+ *
+ * @returns {Promise<Object>} Object containing:
+ *   - aiMode: Computed ref for AI mode ("initial" | "enabled" | "disabled")
+ *   - aiStatus: Readonly computed status display properties
+ *   - aiError: Readonly ref of current error state
+ *   - isInitial: Readonly computed whether AI is in initial state
+ *   - setAIError: Function to set error state
+ *   - clearAIError: Function to clear error state
+ *
+ * @example
+ * const { aiMode } = await useAIToggle()
+ * // Set AI mode directly
+ * aiMode.value = "enabled"
+ */
+export async function useAIToggle() {
+  const modelState = useModelState()
   const toast = useToast()
-  const aiSettingsStore = useAISettingsStore()
+  const aiSettingsStore = await useAISettingsStore()
 
-  // Track AI error state
+  /** Current AI error state */
   const aiError = ref<AIError | null>(null)
 
-  // Computed property for switch v-model
-  const aiEnabled = computed({
+  /** AI mode getter and setter */
+  const aiMode = computed({
     get() {
-      return modelStatus.value?.available && aiSettingsStore.aiEnabled
+      return aiSettingsStore.aiMode
     },
-    set(_value: boolean) {
-      toggleAI()
+    async set(value: AIMode) {
+      try {
+        // Only cancel download when switching to disabled
+        if (value === "disabled" && modelState.isDownloading.value) {
+          await modelState.cancelDownload()
+          // State will be updated by the Cancelled event from backend
+          return
+        }
+
+        // Set the new mode
+        aiSettingsStore.aiMode = value
+        clearAIError() // Clear any previous errors
+      }
+      catch (error) {
+        toast.remove(TOAST_IDS.ERROR)
+        toast.add({
+          id: TOAST_IDS.ERROR,
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to change AI settings",
+          color: "error",
+        })
+      }
     },
   })
 
-  // AI status display
+  /** Computed AI status for UI display */
   const aiStatus = computed<AIStatusDisplay>(() => {
     // Error state - takes priority
     if (aiError.value) {
@@ -48,81 +103,43 @@ export function useAIToggle() {
     }
 
     // Downloading state
-    if (isDownloading.value) {
+    if (modelState.isDownloading.value) {
       return {
         tooltip: "Downloading AI model...",
         iconClass: "text-primary animate-spin",
       }
     }
 
-    // Available and enabled
-    if (modelStatus.value?.available && aiSettingsStore.aiEnabled) {
-      return {
-        tooltip: "AI suggestions enabled",
-        iconClass: "text-primary",
-      }
-    }
-
-    // Disabled by user preference
-    if (!aiSettingsStore.aiEnabled) {
-      return {
-        tooltip: "AI suggestions disabled",
-        iconClass: "text-muted",
-      }
-    }
-
-    // Default: not available
-    return {
-      tooltip: "Enable AI suggestions - model will be downloaded",
-      iconClass: "text-muted",
+    // User preference states
+    switch (aiSettingsStore.aiMode) {
+      case "enabled":
+        return {
+          tooltip: "AI suggestions enabled",
+          iconClass: "text-primary",
+        }
+      case "disabled":
+        return {
+          tooltip: "AI suggestions disabled",
+          iconClass: "text-muted",
+        }
+      case "initial":
+        return {
+          tooltip: "Enable AI suggestions - click to get started",
+          iconClass: "text-muted hover:text-primary",
+        }
+      default:
+        return {
+          tooltip: "AI suggestions",
+          iconClass: "text-muted",
+        }
     }
   })
 
-  // Toggle AI enable/disable
-  async function toggleAI() {
-    try {
-      // Handle different states
-      if (isDownloading.value) {
-        // TODO: Implement download cancellation if needed
-        toast.add({
-          id: TOAST_IDS.DOWNLOAD_CANCEL,
-          title: "Download Cancellation",
-          description: "Download cancellation is not yet implemented",
-          color: "neutral",
-          duration: 3000,
-        })
-        return
-      }
-
-      if (modelStatus.value?.available && aiSettingsStore.aiEnabled) {
-        // Disable AI
-        aiSettingsStore.aiEnabled = false
-        clearAIError() // Clear any previous errors
-      }
-      else {
-        // Enable AI
-        aiSettingsStore.aiEnabled = true
-        clearAIError() // Clear any previous errors
-
-        // Trigger download if model not available
-        if (!modelStatus.value?.available) {
-          await triggerDownload()
-        }
-      }
-    }
-    catch (error) {
-      toast.remove(TOAST_IDS.ERROR)
-      toast.add({
-        id: TOAST_IDS.ERROR,
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to toggle AI settings",
-        color: "error",
-        duration: 5000,
-      })
-    }
-  }
-
-  // Set AI error
+  /**
+   * Sets an AI error state with message and details.
+   *
+   * @param error - Error object or message string
+   */
   function setAIError(error: string | Error) {
     const errorMessage = error instanceof Error ? error.message : error
     const errorDetails = error instanceof Error && error.stack ? error.stack : errorMessage
@@ -134,18 +151,21 @@ export function useAIToggle() {
     }
   }
 
-  // Clear AI error
+  /**
+   * Clears the current AI error state.
+   */
   function clearAIError() {
     aiError.value = null
   }
 
+  /** Whether AI is in initial state (user hasn't made a choice yet) */
+  const isInitial = computed(() => aiSettingsStore.aiMode === "initial")
+
   return {
-    modelStatus: readonly(modelStatus),
-    isDownloading: readonly(isDownloading),
-    aiEnabled,
+    aiMode,
     aiStatus: readonly(aiStatus),
     aiError: readonly(aiError),
-    toggleAI,
+    isInitial,
     setAIError,
     clearAIError,
   }

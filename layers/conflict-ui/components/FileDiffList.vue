@@ -25,12 +25,11 @@
     <AccordionRoot
       type="multiple"
       class="space-y-2"
-      :default-value="defaultExpandedItems"
     >
       <AccordionItem
         v-for="(diff, idx) in fileDiffs"
         :key="`${keyPrefix}-${idx}`"
-        :value="String(idx)"
+        :value="`item-${idx}`"
         class="border border-default rounded-lg overflow-hidden"
       >
         <CollapsibleFileHeader
@@ -45,7 +44,6 @@
             :diff-view-font-size="12"
             :diff-view-theme="colorMode.preference === 'dark' ? 'dark' : 'light'"
             :extend-data="getConflictExtendData(diff)"
-            @line-click="handleConflictLineClick"
           >
             <template #extend="{ lineNumber, side, data, diffFile, onUpdate }">
               <ConflictMarkerExtension
@@ -54,7 +52,6 @@
                 :data="data"
                 :diff-file="diffFile"
                 @update="onUpdate"
-                @conflict-action="handleConflictAction"
               />
             </template>
           </DiffView>
@@ -70,7 +67,6 @@ import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import "@git-diff-view/vue/styles/diff-view-pure.css"
 import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
 import type { FileDiff } from "~/utils/bindings"
-// CollapsibleFileHeader is auto-imported by Nuxt
 
 // Props
 const props = defineProps<{
@@ -86,9 +82,6 @@ const props = defineProps<{
   hideControls?: boolean
   diffViewMode?: "unified" | "split"
 }>()
-
-// Default expanded items - empty array means all collapsed by default
-const defaultExpandedItems = ref<string[]>([])
 
 // Diff view mode (unified or split) - use prop value if provided, otherwise use internal state
 const internalDiffMode = ref<"unified" | "split">("unified")
@@ -188,36 +181,5 @@ function getConflictExtendData(diff: FileDiff) {
   })
 
   return extendData
-}
-
-// Handle line clicks on conflict markers
-function handleConflictLineClick(event: { lineNumber: number, lineContent: string }) {
-  const { lineContent } = event
-  const conflictInfo = extractConflictInfo(lineContent)
-
-  if (conflictInfo) {
-    // You could emit an event here to show a resolution dialog
-    // emit('conflict-action', { action: 'show-resolution', conflictInfo })
-  }
-}
-
-// Handle conflict actions from the extension component
-function handleConflictAction(payload: { action: string, lineNumber: number, side: string | number }) {
-  // Implementation would depend on your conflict resolution workflow
-  // This could emit events to parent components or call APIs
-  switch (payload.action) {
-    case "accept-current":
-      // Accept current version at line
-      break
-    case "accept-incoming":
-      // Accept incoming version at line
-      break
-    case "accept-both":
-      // Accept both versions at line
-      break
-    case "edit-manually":
-      // Open manual editor at line
-      break
-  }
 }
 </script>

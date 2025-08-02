@@ -12,11 +12,11 @@ pub enum GeneratorType {
 
 impl GeneratorType {
   /// Generate a branch name from a prompt
-  pub async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<BranchNameResult> {
+  pub async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, is_alternative: bool) -> Result<BranchNameResult> {
     match self {
-      GeneratorType::Qwen25(gen) => gen.generate_branch_name(prompt, max_tokens, temperature).await,
-      GeneratorType::Qwen3(gen) => gen.generate_branch_name(prompt, max_tokens, temperature).await,
-      GeneratorType::QuantizedQwen3(gen) => gen.generate_branch_name(prompt, max_tokens, temperature).await,
+      GeneratorType::Qwen25(gen) => gen.generate_branch_name(prompt, max_tokens, is_alternative).await,
+      GeneratorType::Qwen3(gen) => gen.generate_branch_name(prompt, max_tokens, is_alternative).await,
+      GeneratorType::QuantizedQwen3(gen) => gen.generate_branch_name(prompt, max_tokens, is_alternative).await,
     }
   }
 
@@ -47,12 +47,12 @@ impl GeneratorType {
     }
   }
 
-  /// Count tokens in text (if tokenizer is available)
-  pub fn count_tokens(&self, text: &str) -> Option<usize> {
+  /// Create an alternative prompt when a previous suggestion exists
+  pub fn create_alternative_prompt(&self, git_output: &str, previous_suggestion: &str) -> Result<String> {
     match self {
-      GeneratorType::Qwen25(gen) => gen.count_tokens(text),
-      GeneratorType::Qwen3(gen) => gen.count_tokens(text),
-      GeneratorType::QuantizedQwen3(gen) => gen.count_tokens(text),
+      GeneratorType::Qwen25(gen) => gen.create_alternative_prompt(git_output, previous_suggestion),
+      GeneratorType::Qwen3(gen) => gen.create_alternative_prompt(git_output, previous_suggestion),
+      GeneratorType::QuantizedQwen3(gen) => gen.create_alternative_prompt(git_output, previous_suggestion),
     }
   }
 }

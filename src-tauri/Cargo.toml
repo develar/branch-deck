@@ -50,7 +50,7 @@ tracing-log = "0.2"
 log = "0.4"
 
 # Development and telemetry dependencies (feature-gated)
-tauri-plugin-devtools = { version = "2.0.0", optional = true }
+tauri-plugin-devtools = { version = "2.0.1", optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 opentelemetry = { version = "0.30.0", optional = true }
 opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"], optional = true }

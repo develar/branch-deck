@@ -11,6 +11,7 @@ regex.workspace = true
 tracing.workspace = true
 serde.workspace = true
 specta = { workspace = true, optional = true }
+quick-xml = "0.38"
 
 [features]
 default = []

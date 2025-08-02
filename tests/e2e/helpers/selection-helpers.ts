@@ -10,7 +10,7 @@ export async function selectCommit(page: Page, commitLocator: Locator): Promise<
   await commitLocator.click()
 
   // Wait for the selection to register in the UI
-  await expect(commitLocator).toHaveAttribute("data-selected", "true", { timeout: 5000 })
+  await expect(commitLocator).toHaveAttribute("data-selected", "true")
 
   // Additional small wait to ensure all watchers have executed
   await page.waitForTimeout(100)
@@ -25,7 +25,7 @@ export async function multiSelectCommit(page: Page, commitLocator: Locator): Pro
   await commitLocator.click({ modifiers: ["ControlOrMeta"] })
 
   // Wait for the selection to register in the UI
-  await expect(commitLocator).toHaveAttribute("data-selected", "true", { timeout: 5000 })
+  await expect(commitLocator).toHaveAttribute("data-selected", "true")
 
   // Additional small wait to ensure all watchers have executed
   await page.waitForTimeout(100)
@@ -70,7 +70,7 @@ export async function clickGroupIntoBranchButton(page: Page): Promise<void> {
     // Ignore errors from navigation
   }
 
-  await expect(createBranchButton).toBeVisible({ timeout: 10000 })
+  await expect(createBranchButton).toBeVisible()
   await createBranchButton.click()
 }
 

@@ -4,6 +4,7 @@
       <DialogContent
         @open-auto-focus="handleOpenAutoFocus"
         @escape-key-down="handleEscapeKey"
+        @close-auto-focus.prevent
       >
         <VisuallyHidden>
           <DialogTitle>{{ dialogTitle }}</DialogTitle>
@@ -26,7 +27,7 @@
                   autocorrect="off"
                   spellcheck="false"
                   @update:model-value="$emit('update:modelValue', $event)"
-                  @keydown.enter.prevent="() => emit('submit')"
+                  @keydown.enter.prevent="$emit('submit')"
                 >
                   <template #leading>
                     <slot name="leading-icon" />
@@ -134,8 +135,14 @@ function selectText() {
   inputRef.value?.inputRef?.select()
 }
 
-// Expose method for parent components
+// Focus the input
+function focusInput() {
+  inputRef.value?.inputRef?.focus()
+}
+
+// Expose methods for parent components
 defineExpose({
   selectText,
+  focusInput,
 })
 </script>

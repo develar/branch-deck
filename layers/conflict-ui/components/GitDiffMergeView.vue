@@ -20,12 +20,11 @@
       v-if="conflicts.length > 0"
       type="multiple"
       class="space-y-3"
-      :default-value="defaultExpandedItems"
     >
       <AccordionItem
         v-for="(conflict, index) in conflicts"
         :key="index"
-        :value="String(index)"
+        :value="`item-${index}`"
         class="border border-default rounded-lg overflow-hidden"
       >
         <CollapsibleFileHeader
@@ -189,9 +188,6 @@ const props = defineProps<{
 
 // Collapsed state for each diff view
 const collapsedViews = ref<Record<string, boolean>>({})
-
-// Default expanded items - expand first item by default
-const defaultExpandedItems = ref<string[]>(["0"])
 
 // Initialize base views as collapsed
 onMounted(() => {

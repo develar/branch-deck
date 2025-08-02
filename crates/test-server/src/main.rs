@@ -1,4 +1,39 @@
+use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+async fn shutdown_signal(state: Arc<test_server::state::AppState>) {
+  // Wait for ctrl-c signal
+  let ctrl_c = async {
+    tokio::signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+  };
+
+  // Also handle SIGTERM on Unix
+  #[cfg(unix)]
+  let terminate = async {
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+      .expect("failed to install signal handler")
+      .recv()
+      .await;
+  };
+
+  #[cfg(not(unix))]
+  let terminate = std::future::pending::<()>();
+
+  // Wait for either signal
+  tokio::select! {
+    _ = ctrl_c => {},
+    _ = terminate => {},
+  }
+
+  tracing::info!("Shutdown signal received, cleaning up...");
+
+  // The temp directory will be cleaned up when state is dropped
+  // But we can log the path for debugging
+  tracing::info!("Cleaning up test directory: {:?}", state.test_root_dir.path());
+
+  // Drop the state explicitly to ensure cleanup happens
+  drop(state);
+}
 
 #[tokio::main]
 async fn main() {
@@ -31,8 +66,8 @@ async fn main() {
     std::process::exit(0);
   }
 
-  // Create and run the app
-  let app = test_server::create_test_app().await;
+  // Create and run the app (this returns both the app and the state)
+  let (app, state) = test_server::create_test_app_with_state().await;
 
   // Try to get listener from systemfd first (for hot reload)
   let mut listenfd = listenfd::ListenFd::from_env();
@@ -45,5 +80,7 @@ async fn main() {
   };
 
   tracing::info!("Test server listening on http://127.0.0.1:3030");
-  axum::serve(listener, app).await.unwrap();
+
+  // Run server with graceful shutdown
+  axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(state)).await.unwrap();
 }

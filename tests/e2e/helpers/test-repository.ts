@@ -4,6 +4,7 @@ export class TestRepositoryBuilder {
   public path: string = ""
   private template: string | null = null
   private prepopulateStore: boolean = true
+  private modelState: "not_downloaded" | "downloaded" | "downloading" | null = null
 
   useTemplate(templateName: string): this {
     this.template = templateName
@@ -12,6 +13,11 @@ export class TestRepositoryBuilder {
 
   withPrepopulateStore(prepopulate: boolean): this {
     this.prepopulateStore = prepopulate
+    return this
+  }
+
+  withModelState(state: "not_downloaded" | "downloaded" | "downloading"): this {
+    this.modelState = state
     return this
   }
 
@@ -29,6 +35,7 @@ export class TestRepositoryBuilder {
       body: JSON.stringify({
         template: this.template,
         prepopulate_store: this.prepopulateStore,
+        ...(this.modelState && { model_state: this.modelState }),
       }),
     })
 
@@ -46,13 +53,19 @@ export class TestRepositoryBuilder {
       return
     }
 
-    // Delete the repository from the test server
-    const response = await fetch(`${this.baseUrl}/repositories/${this.id}`, {
-      method: "DELETE",
-    })
+    try {
+      // Delete the repository from the test server
+      const response = await fetch(`${this.baseUrl}/repositories/${this.id}`, {
+        method: "DELETE",
+      })
 
-    if (!response.ok) {
-      console.warn(`Failed to cleanup repository ${this.id}: ${response.statusText}`)
+      if (!response.ok) {
+        console.warn(`Failed to cleanup repository ${this.id}: ${response.statusText}`)
+      }
+    }
+    catch (error) {
+      // Log but don't throw - cleanup errors shouldn't fail tests
+      console.warn(`Failed to cleanup repository ${this.id}:`, error)
     }
   }
 }

@@ -18,7 +18,7 @@ pub async fn suggest_branch_name_stream(
 ) -> Result<(), String> {
   // Get the generation ID counter and increment it
   let generation_id_counter = {
-    let guard = model_state.0.lock().await;
+    let guard = model_state.generator.lock().await;
     guard.get_current_generation_id()
   };
 
@@ -30,7 +30,7 @@ pub async fn suggest_branch_name_stream(
     .map_err(|e| format!("Failed to send progress: {e}"))?;
 
   // Acquire lock - will wait if another request is running
-  let mut model_gen = model_state.0.lock().await;
+  let mut model_gen = model_state.generator.lock().await;
 
   // Check if we're still the current generation
   if my_generation_id != generation_id_counter.load(std::sync::atomic::Ordering::SeqCst) {

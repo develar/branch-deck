@@ -1,40 +1,8 @@
 use crate::{ModelGeneratorState, TauriModelPathProvider};
+use model_ai::types::DownloadProgress;
 use serde::Serialize;
 use tauri::{AppHandle, State};
-use tracing::{info, instrument};
-
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(tag = "type", content = "data")]
-pub enum DownloadProgress {
-  Started {
-    #[serde(rename = "totalFiles")]
-    total_files: u32,
-  },
-  FileStarted {
-    #[serde(rename = "fileName")]
-    file_name: String,
-    #[serde(rename = "fileSize")]
-    file_size: Option<u32>,
-  },
-  Progress {
-    #[serde(rename = "fileName")]
-    file_name: String,
-    downloaded: u32,
-    total: u32,
-    #[serde(rename = "bytesPerSecond")]
-    bytes_per_second: Option<u32>,
-    #[serde(rename = "secondsRemaining")]
-    seconds_remaining: Option<u32>,
-  },
-  FileCompleted {
-    #[serde(rename = "fileName")]
-    file_name: String,
-  },
-  Completed,
-  Error {
-    message: String,
-  },
-}
+use tracing::instrument;
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ModelStatus {
@@ -58,28 +26,43 @@ pub struct ModelFilesStatus {
 #[specta::specta]
 #[instrument(skip(model_state, app, progress))]
 pub async fn download_model(model_state: State<'_, ModelGeneratorState>, app: AppHandle, progress: tauri::ipc::Channel<DownloadProgress>) -> Result<(), String> {
-  use crate::download::{download_model_files, TauriProgressReporter};
+  use crate::download::TauriProgressReporter;
+  use std::sync::atomic::Ordering;
 
-  info!("Starting model download");
+  // Reset cancellation flag
+  model_state.download_cancelled.store(false, Ordering::SeqCst);
 
   // Get model config
-  let model_gen = model_state.0.lock().await;
+  let model_gen = model_state.generator.lock().await;
   let model_config = model_gen.get_model_config();
   drop(model_gen); // Release lock early
 
   // Create provider and progress reporter
   let provider = TauriModelPathProvider::new(app);
-  let progress_reporter = TauriProgressReporter::new(progress);
+  let progress_reporter = TauriProgressReporter::new(progress.clone());
 
-  // Download model files using the shared implementation
-  download_model_files(&model_config, &provider, &progress_reporter).await.map_err(|e| e.to_string())
+  // Download model files with cancellation support
+  let result = model_ai::download::download_model_files(&model_config, &provider, &progress_reporter, Some(model_state.download_cancelled.clone())).await;
+
+  match result {
+    Ok(()) => Ok(()),
+    Err(e) => {
+      // Check if this was a cancellation
+      if model_state.download_cancelled.load(Ordering::SeqCst) {
+        let _ = progress.send(DownloadProgress::Cancelled);
+        Err("Download cancelled".to_string())
+      } else {
+        Err(e.to_string())
+      }
+    }
+  }
 }
 
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state, app))]
 pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app: AppHandle) -> Result<ModelStatus, String> {
-  let mut model_gen = model_state.0.lock().await;
+  let mut model_gen = model_state.generator.lock().await;
   let provider = TauriModelPathProvider::new(app);
   let model_path = model_gen.get_model_path(&provider).map_err(|e| format!("Failed to get model path: {e}"))?;
   let model_config = model_gen.get_model_config();
@@ -123,4 +106,16 @@ pub(crate) fn check_model_files_exist(model_config: &model_core::ModelConfig, mo
   }
 
   (config_exists, model_exists, tokenizer_exists)
+}
+
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(model_state))]
+pub async fn cancel_model_download(model_state: State<'_, ModelGeneratorState>) -> Result<(), String> {
+  use std::sync::atomic::Ordering;
+
+  // Set the cancellation flag
+  model_state.download_cancelled.store(true, Ordering::SeqCst);
+
+  Ok(())
 }

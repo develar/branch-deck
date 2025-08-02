@@ -7,7 +7,7 @@ import { expect } from "@playwright/test"
 export async function captureAriaSnapshot(
   element: Locator,
   snapshotName: string,
-  options?: Parameters<typeof expect>[1],
+  options?: Record<string, unknown>,
 ): Promise<void> {
   await expect(element).toMatchAriaSnapshot({
     name: snapshotName.endsWith(".yml") ? snapshotName : `${snapshotName}.aria.yml`,
@@ -16,7 +16,28 @@ export async function captureAriaSnapshot(
 }
 
 /**
- * Capture table ARIA snapshot
+ * Capture HTML snapshot with normalization and pretty formatting
+ */
+export async function captureHtmlSnapshot(
+  element: Locator,
+  snapshotName: string,
+): Promise<void> {
+  // Use the global HTML formatter function
+  const formattedHtml = await element.evaluate((el) => {
+    // Check if the formatter is available
+    const win = window as Window & { __htmlFormatter?: { normalizeAndFormat: (el: Element) => string } }
+    if (typeof win.__htmlFormatter === "undefined") {
+      throw new Error("HTML formatter not loaded. Make sure html-formatter.ts is imported.")
+    }
+    return win.__htmlFormatter.normalizeAndFormat(el)
+  })
+
+  const finalName = snapshotName.endsWith(".html") ? snapshotName : `${snapshotName}.html`
+  await expect(formattedHtml).toMatchSnapshot(finalName)
+}
+
+/**
+ * Capture table HTML snapshot
  */
 export async function captureTableSnapshot(
   page: Page,
@@ -27,11 +48,11 @@ export async function captureTableSnapshot(
     ? page.locator(tableSelector)
     : tableSelector
 
-  await captureAriaSnapshot(table, snapshotName)
+  await captureHtmlSnapshot(table, snapshotName)
 }
 
 /**
- * Capture modal/dialog ARIA snapshot
+ * Capture modal/dialog HTML snapshot
  */
 export async function captureModalSnapshot(
   page: Page,
@@ -39,11 +60,11 @@ export async function captureModalSnapshot(
 ): Promise<void> {
   const modal = page.getByRole("dialog")
   await expect(modal).toBeVisible()
-  await captureAriaSnapshot(modal, snapshotName)
+  await captureHtmlSnapshot(modal, snapshotName)
 }
 
 /**
- * Capture context menu ARIA snapshot
+ * Capture context menu HTML snapshot
  */
 export async function captureContextMenuSnapshot(
   page: Page,
@@ -51,18 +72,18 @@ export async function captureContextMenuSnapshot(
 ): Promise<void> {
   const menu = page.getByRole("menu")
   await expect(menu).toBeVisible()
-  await captureAriaSnapshot(menu, snapshotName)
+  await captureHtmlSnapshot(menu, snapshotName)
 }
 
 /**
- * Capture floating element ARIA snapshot (tooltips, popovers)
+ * Capture floating element HTML snapshot (tooltips, popovers)
  */
 export async function captureFloatingElementSnapshot(
   element: Locator,
   snapshotName: string,
 ): Promise<void> {
   await expect(element).toBeVisible()
-  await captureAriaSnapshot(element, snapshotName)
+  await captureHtmlSnapshot(element, snapshotName)
 }
 
 /**
@@ -86,6 +107,6 @@ export async function captureElementStates(
 ): Promise<void> {
   for (const { action, snapshotName } of states) {
     await action()
-    await captureAriaSnapshot(element, snapshotName)
+    await captureHtmlSnapshot(element, snapshotName)
   }
 }

@@ -51,7 +51,7 @@ export async function waitForBranchDetailsExpanded(
 ): Promise<Locator> {
   // Wait for the branch details row to be visible
   const detailsRow = page.locator(`[data-branch-name="${branchName}"] ~ tr`)
-  await detailsRow.waitFor({ state: "visible", timeout: 5000 })
+  await detailsRow.waitFor({ state: "visible" })
   return detailsRow
 }
 
@@ -136,19 +136,11 @@ export async function waitForPopover(
 }
 
 /**
- * Wait for navigation to complete after an action
- */
-export async function waitForNavigationComplete(page: Page): Promise<void> {
-  await page.waitForLoadState("networkidle")
-}
-
-/**
  * Wait for store persistence to complete (debounced operations)
  */
 export async function waitForStorePersistence(page: Page, debounceMs = 600): Promise<void> {
   // Wait for debounce time plus a buffer
   await page.waitForTimeout(debounceMs)
-  await page.waitForLoadState("networkidle")
 }
 
 /**

@@ -6,7 +6,7 @@
       <div class="flex items-center gap-1 flex-1">
         <span class="font-mono text-xs text-toned select-text">{{ fileName }}</span>
         <CopyButton
-          :text="fileName"
+          :text="() => fileName"
           tooltip="Copy file name to clipboard"
         />
       </div>

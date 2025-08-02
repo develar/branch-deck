@@ -16,11 +16,19 @@ use tower_http::trace::TraceLayer;
 pub mod state;
 pub mod tauri_command_bridge;
 
+#[cfg(test)]
+mod sse_test;
+
 use state::{AppState, TestRepository};
 use svix_ksuid::{Ksuid, KsuidLike};
 use test_utils::templates;
 
 pub async fn create_test_app() -> Router {
+  let (app, _state) = create_test_app_with_state().await;
+  app
+}
+
+pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
   // Ensure test repositories exist
   if let Err(e) = ensure_test_repos().await {
     tracing::error!("Failed to create test repositories: {}", e);
@@ -38,7 +46,8 @@ pub async fn create_test_app() -> Router {
     test_root_dir,
   });
 
-  create_app(state)
+  let app = create_app(state.clone());
+  (app, state)
 }
 
 pub fn create_app(state: Arc<AppState>) -> Router {
@@ -57,7 +66,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/create_branch_from_commits", post(tauri_command_bridge::create_branch_from_commits))
-    .route("/invoke/browse_repository", post(tauri_command_bridge::browse_repository))
+    .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
+    // AI command endpoints
+    .route("/invoke/suggest_branch_name_stream", post(tauri_command_bridge::suggest_branch_name_stream))
+    .route("/invoke/download_model/{repo_id}", post(tauri_command_bridge::download_model))
+    .route("/invoke/cancel_model_download/{repo_id}", post(tauri_command_bridge::cancel_model_download))
     // Health check
     .route("/health", get(health_check))
     .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
@@ -83,6 +96,7 @@ pub async fn ensure_test_repos() -> anyhow::Result<()> {
     ("conflict_unassigned", templates::conflict_unassigned()),
     ("conflict_branches", templates::conflict_branches()),
     ("single_unassigned", templates::single_unassigned()),
+    ("issue_links", templates::issue_links()),
   ];
 
   // Build all templates in parallel
@@ -145,6 +159,8 @@ pub enum RepositoryTemplate {
   ConflictBranches,
   #[serde(rename = "single_unassigned")]
   SingleUnassigned,
+  #[serde(rename = "issue_links")]
+  IssueLinks,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "NO_REPO")]
@@ -159,6 +175,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::ConflictUnassigned => "conflict_unassigned",
       RepositoryTemplate::ConflictBranches => "conflict_branches",
       RepositoryTemplate::SingleUnassigned => "single_unassigned",
+      RepositoryTemplate::IssueLinks => "issue_links",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",
       RepositoryTemplate::NoRepo => "NO_REPO",
     }
@@ -170,6 +187,8 @@ pub struct CreateRepositoryRequest {
   pub template: RepositoryTemplate,
   #[serde(default = "default_prepopulate_store")]
   pub prepopulate_store: bool,
+  #[serde(default)]
+  pub model_state: Option<state::ModelState>,
 }
 
 fn default_prepopulate_store() -> bool {
@@ -178,6 +197,9 @@ fn default_prepopulate_store() -> bool {
 
 pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request): Json<CreateRepositoryRequest>) -> Result<Json<CreateRepositoryResponse>, StatusCode> {
   let id = Ksuid::new(None, None).to_string();
+
+  // Determine model state - default to NotDownloaded
+  let model_state = std::sync::Arc::new(std::sync::RwLock::new(request.model_state.unwrap_or(state::ModelState::NotDownloaded)));
 
   // Handle special NO_REPO template
   if matches!(request.template, RepositoryTemplate::NoRepo) {
@@ -191,6 +213,8 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       id: id.clone(),
       path: path.clone(),
       store,
+      model_state,
+      download_cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     state.repositories.insert(id.clone(), repo);
@@ -244,6 +268,8 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     id: id.clone(),
     path: path.clone(),
     store,
+    model_state,
+    download_cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
   };
 
   state.repositories.insert(id.clone(), repo);
@@ -268,6 +294,10 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   // Remove the repository from the map
   match state.repositories.remove(&id) {
     Some((_, repo)) => {
+      // Cancel any ongoing download before deleting
+      repo.download_cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+      eprintln!("Repository {id} being deleted, cancelling any ongoing downloads");
+
       // Also remove from path_to_id map
       state.path_to_id.remove(&repo.path);
 

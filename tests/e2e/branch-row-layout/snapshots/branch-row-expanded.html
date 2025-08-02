@@ -1,0 +1,125 @@
+<table class="w-full" data-v-7aee2057="">
+  <thead class="bg-muted/50 border-b border-default" data-v-7aee2057="">
+    <tr data-v-7aee2057="">
+      <th class="text-left px-6 py-3 text-sm font-medium text-highlighted" data-v-7aee2057="">
+        Branch Name
+      </th>
+      <th class="text-left px-6 py-3 text-sm font-medium text-highlighted" data-v-7aee2057="">
+        Commits
+      </th>
+      <th class="text-left px-6 py-3 text-sm font-medium text-highlighted" data-v-7aee2057="">
+        Status
+      </th>
+      <th class="text-left px-6 py-3 text-sm font-medium text-highlighted" data-v-7aee2057="">
+        Actions
+      </th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-default" data-v-7aee2057="">
+    <!-- Branch row -->
+    <tr class="branch-row hover:bg-muted transition-all cursor-pointer group data-[state=open]:bg-elevated" data-branch-name="test-branch" data-state="open" data-testid="branch-row" data-v-7aee2057="">
+      <td class="px-6 py-4" data-v-7aee2057="">
+        <div class="flex items-center gap-2" data-v-7aee2057="">
+          <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent p-1" type="button" />
+          <span class="text-sm font-medium">
+            test-branch
+          </span>
+        </div>
+      </td>
+      <td class="px-6 py-4" data-v-7aee2057="">
+        <span class="text-sm text-muted" data-v-7aee2057="">
+          1 commit
+        </span>
+      </td>
+      <td class="px-6 py-4" data-v-7aee2057="">
+        <div class="w-40" data-v-7aee2057="">
+          <span class="font-medium inline-flex items-center text-xs px-2 py-1 gap-1 rounded-md bg-success/10 text-success lowercase">
+            <!--v-if-->
+            created
+            <!--v-if-->
+          </span>
+        </div>
+      </td>
+      <td class="px-6 py-4" data-v-7aee2057="">
+        <div class="flex items-center gap-2" data-v-7aee2057="">
+          <div class="copy-button transition-opacity" />
+          <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" type="button">
+            <span aria-hidden="true" class="iconify i-lucide:upload shrink-0 size-4" />
+            Push
+            <!--v-if-->
+          </button>
+        </div>
+      </td>
+    </tr>
+    <!---->
+    <!--teleport start-->
+    <!--teleport end-->
+    <!-- Inline issue reference input row -->
+    <!--v-if-->
+    <!-- Expanded row content -->
+    <tr class="!border-t-0" data-v-7aee2057="">
+      <td class="px-0 py-4" colspan="4" data-v-7aee2057="">
+        <div class="ml-4 border-l-2 border-primary/50 pl-2 pr-6" data-v-7aee2057="">
+          <!-- Error display -->
+          <!--v-if-->
+          <!-- Commit list -->
+          <div data-v-7aee2057="">
+            <!-- Portal slot for inline forms -->
+            <table class="w-full rounded-lg focus:outline-none" tabindex="-1">
+              <tbody class="divide-y divide-default">
+                <tr class="hover:bg-muted transition-colors" data-row-id="ddf3648ed6af7efe3f03d950c12b2b3e5139abae" data-selected="false">
+                  <td class="bd-padding-list-item">
+                    <!-- Selection indicator bar -->
+                    <!--v-if-->
+                    <!-- Row content -->
+                    <div>
+                      <div>
+                        <div class="flex items-center gap-2">
+                          <div class="flex items-center gap-2">
+                            <span class="text-sm text-highlighted line-clamp-2">
+                              foo 2
+                            </span>
+                            <!-- Show popover icon only if message has multiple lines -->
+                            <!--v-if-->
+                          </div>
+                          <!---->
+                        </div>
+                        <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+                          <span class="font-mono">
+                            [SHA]
+                          </span>
+                          <span>
+                            →
+                          </span>
+                          <span class="font-mono">
+                            [SHA]
+                          </span>
+                          <!---->
+                          <span>
+                            •
+                          </span>
+                          <span>
+                            Yesterday 3:30 PM
+                          </span>
+                          <!---->
+                          <span>
+                            •
+                          </span>
+                          <span class="text-success">
+                            Created
+                          </span>
+                        </div>
+                        <!---->
+                      </div>
+                    </div>
+                    <!-- Slot for additional content after commit -->
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </td>
+    </tr>
+  </tbody>
+</table>

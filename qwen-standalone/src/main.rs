@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use model_core::{GeneratorType, Qwen25BranchGenerator, Qwen3BranchGenerator, QuantizedQwen3BranchGenerator};
+use model_core::{GeneratorType, Qwen25BranchGenerator, QuantizedQwen3BranchGenerator};
 use model_core::test_utils::{convert_to_raw_git_format, CommitInfo, CommitDiff, FileDiff};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -9,7 +9,6 @@ use tokio::runtime::Runtime;
 
 // Compile-time switch to choose between models
 const USE_QWEN3: bool = true;
-const USE_QWEN3_17B: bool = true; // Use quantized 1.7B model instead of 0.6B
 
 // GeneratorType is now imported from model_core
 
@@ -44,7 +43,7 @@ fn main() -> Result<()> {
   let args = Args::parse();
 
   let model_name = if USE_QWEN3 {
-    if USE_QWEN3_17B { "Qwen3-1.7B-GGUF" } else { "Qwen3-0.6B" }
+    "Qwen3-1.7B-GGUF"
   } else { 
     "Qwen2.5-Coder-0.5B" 
   };
@@ -156,17 +155,10 @@ async fn run_tests(test_prompts: &[String], args: &Args) -> Result<()> {
     // Load model for each test to avoid state issues
     let model_path = download_or_load_model_path().await?;
     let mut generator = if USE_QWEN3 {
-        if USE_QWEN3_17B {
-            let generator = QuantizedQwen3BranchGenerator::new();
-            let mut generator = GeneratorType::QuantizedQwen3(generator);
-            generator.load_model(model_path).await?;
-            generator
-        } else {
-            let generator = Qwen3BranchGenerator::new();
-            let mut generator = GeneratorType::Qwen3(generator);
-            generator.load_model(model_path).await?;
-            generator
-        }
+        let generator = QuantizedQwen3BranchGenerator::new();
+        let mut generator = GeneratorType::QuantizedQwen3(generator);
+        generator.load_model(model_path).await?;
+        generator
     } else {
         let generator = Qwen25BranchGenerator::new();
         let mut generator = GeneratorType::Qwen25(generator);
@@ -175,15 +167,13 @@ async fn run_tests(test_prompts: &[String], args: &Args) -> Result<()> {
     };
 
     match generate_with_core(&mut generator, prompt, args).await {
-      Ok((branch_name, duration, token_count)) => {
+      Ok((branch_name, duration)) => {
         total_time += duration;
         
         println!("\n📌 Result:");
         println!("   Branch name: '{}'", branch_name);
         println!("   Length: {} chars", branch_name.len());
         println!("   Time: {:.2}s", duration.as_secs_f64());
-        println!("   Tokens: ~{}", token_count);
-        println!("   Speed: ~{:.1} tokens/sec", token_count as f64 / duration.as_secs_f64());
 
         // Validation
         let is_valid = validate_branch_name(&branch_name);
@@ -233,17 +223,10 @@ async fn run_benchmark(test_prompts: &[String], args: &Args) -> Result<()> {
 
       let model_path = download_or_load_model_path().await?;
       let mut generator = if USE_QWEN3 {
-          if USE_QWEN3_17B {
-              let generator = QuantizedQwen3BranchGenerator::new();
-              let mut generator = GeneratorType::QuantizedQwen3(generator);
-              generator.load_model(model_path).await?;
-              generator
-          } else {
-              let generator = Qwen3BranchGenerator::new();
-              let mut generator = GeneratorType::Qwen3(generator);
-              generator.load_model(model_path).await?;
-              generator
-          }
+          let generator = QuantizedQwen3BranchGenerator::new();
+          let mut generator = GeneratorType::QuantizedQwen3(generator);
+          generator.load_model(model_path).await?;
+          generator
       } else {
           let generator = Qwen25BranchGenerator::new();
           let mut generator = GeneratorType::Qwen25(generator);
@@ -254,10 +237,10 @@ async fn run_benchmark(test_prompts: &[String], args: &Args) -> Result<()> {
       let start = Instant::now();
       
       match generate_with_core(&mut generator, prompt, args).await {
-        Ok((name, _dur, tokens)) => {
+        Ok((name, _dur)) => {
           let elapsed = start.elapsed();
           times.push(elapsed);
-          println!("{:.2}s ({} tokens, result: '{}')", elapsed.as_secs_f64(), tokens, name);
+          println!("{:.2}s (result: '{}')", elapsed.as_secs_f64(), name);
         }
         Err(e) => {
           println!("ERROR: {}", e);
@@ -292,7 +275,7 @@ async fn download_or_load_model_path() -> Result<PathBuf> {
   // Try to use local files first (from our main project)
   let home_dir = std::env::var("HOME").expect("HOME not set");
   let model_dir = if USE_QWEN3 {
-    if USE_QWEN3_17B { "qwen3-17b" } else { "qwen3-06b" }
+    "qwen3-17b"
   } else { 
     "qwen25-coder-05b" 
   };
@@ -304,7 +287,7 @@ async fn download_or_load_model_path() -> Result<PathBuf> {
     let tokenizer_path = local_model_path.join("tokenizer.json");
     
     // Check for different model file types
-    let model_file_exists = if USE_QWEN3 && USE_QWEN3_17B {
+    let model_file_exists = if USE_QWEN3 {
       local_model_path.join("Qwen3-1.7B-Q8_0.gguf").exists()
     } else {
       let config_path = local_model_path.join("config.json");
@@ -319,11 +302,7 @@ async fn download_or_load_model_path() -> Result<PathBuf> {
 
   // Fall back to downloading from HuggingFace
   let (model_id, gguf_file) = if USE_QWEN3 {
-    if USE_QWEN3_17B {
-("Qwen/Qwen3-1.7B-GGUF", Some("Qwen3-1.7B-Q8_0.gguf"))
-    } else {
-      ("Qwen/Qwen3-0.6B", None)
-    }
+    ("Qwen/Qwen3-1.7B-GGUF", Some("Qwen3-1.7B-Q8_0.gguf"))
   } else {
     ("Qwen/Qwen2.5-Coder-0.5B", None)
   };
@@ -336,7 +315,7 @@ async fn download_or_load_model_path() -> Result<PathBuf> {
   std::fs::create_dir_all(&local_model_path)?;
 
   // Download tokenizer (always needed)
-  let tokenizer_file = if USE_QWEN3 && USE_QWEN3_17B {
+  let tokenizer_file = if USE_QWEN3 {
     // For GGUF model, get tokenizer from main Qwen3-1.7B repo
     let tokenizer_repo = api.repo(Repo::new("Qwen/Qwen3-1.7B".to_string(), RepoType::Model));
     tokenizer_repo.get("tokenizer.json")?
@@ -374,7 +353,7 @@ async fn generate_with_core(
   generator: &mut GeneratorType,
   git_output: &str,
   args: &Args
-) -> Result<(String, Duration, usize)> {
+) -> Result<(String, Duration)> {
   let start = Instant::now();
   
   // Use the generator's create_prompt method to format the prompt correctly
@@ -383,19 +362,12 @@ async fn generate_with_core(
   let result = generator.generate_branch_name(
     &prompt,
     args.sample_len,
-    args.temperature
+    false  // not an alternative suggestion
   ).await?;
   
   let duration = start.elapsed();
   
-  // Estimate token count (model-core doesn't expose this directly)
-  let token_count = if let Some(count) = generator.count_tokens(&result.name) {
-    count
-  } else {
-    result.name.len() / 4 // Rough estimate
-  };
-  
-  Ok((result.name, duration, token_count))
+  Ok((result.name, duration))
 }
 
 /// Validate that a branch name follows Git conventions

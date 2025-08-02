@@ -12,23 +12,23 @@ declare global {
 }
 
 export function useCopyToClipboard() {
-  // Track copied items
-  const copiedItems = ref<Set<string>>(new Set())
+  // Track copied state as a simple boolean
+  const isCopied = ref(false)
   // Track tooltip open state
   const tooltipOpen = ref(false)
 
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      copiedItems.value.add(text)
+      isCopied.value = true
       tooltipOpen.value = true
 
       // Get timeout from test config or use default 2 seconds
       const timeout = window.__BRANCH_DECK_TEST_CONFIG__?.copyTimeout ?? 2000
 
-      // Remove the item from copied set and close tooltip after timeout
+      // Reset after timeout
       setTimeout(() => {
-        copiedItems.value.delete(text)
+        isCopied.value = false
         tooltipOpen.value = false
       }, timeout)
     }
@@ -38,7 +38,7 @@ export function useCopyToClipboard() {
   }
 
   return {
-    copiedItems,
+    isCopied,
     tooltipOpen,
     copyToClipboard,
   }

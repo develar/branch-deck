@@ -1,0 +1,124 @@
+<div aria-describedby="reka-dialog-description-v-5" aria-labelledby="reka-dialog-title-v-4" class="fixed bg-default divide-y divide-default flex flex-col focus:outline-none data-[state=open]:animate-[scale-in_200ms_ease-out] data-[state=closed]:animate-[scale-out_200ms_ease-in] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)] rounded-lg shadow-lg ring ring-default overflow-hidden" data-dismissable-layer="" data-state="open" id="reka-dialog-content-v-2" role="dialog" tabindex="-1">
+  <span aria-hidden="true" style="position: absolute;  border: 0px;  width: 1px;  height: 1px;  padding: 0px;  margin: -1px;  overflow: hidden;  clip: rect(0px, 0px, 0px, 0px);  clip-path: inset(50%);  white-space: nowrap;  overflow-wrap: normal">
+    <h2 id="reka-dialog-title-v-4">
+      Configure Branch Prefix
+    </h2>
+    <!--v-if-->
+  </span>
+  <div class="p-6 space-y-6 max-h-[90vh] overflow-y-auto">
+    <p class="text-sm text-default">
+      The branch prefix is automatically prepended to your virtual branches. Setting a personal prefix (like your username) helps identify your branches in a shared repository.
+    </p>
+    <div class="space-y-4">
+      <!-- Global Configuration -->
+      <div class="rounded-lg border border-default bg-subtle p-4">
+        <h3 class="text-sm font-semibold text-default mb-3">
+          Set your global branch prefix
+        </h3>
+        <p class="text-sm text-muted mb-3">
+          Run this command in your terminal to set a global prefix for all repositories:
+        </p>
+        <div class="bg-default rounded p-3 overflow-x-auto">
+          <code class="text-xs text-mono">
+            git config --global branchdeck.branchPrefix yourUsername
+          </code>
+        </div>
+        <p class="text-xs text-muted mt-2">
+          Replace "yourUsername" with your preferred prefix (e.g., your name or initials)
+        </p>
+      </div>
+      <!-- How It Works -->
+      <div class="rounded-lg border border-info/20 bg-info/5 p-4">
+        <h3 class="text-sm font-semibold text-default mb-3">
+          How It Works
+        </h3>
+        <p class="text-sm text-muted mb-3">
+          Branch Deck groups commits based on message patterns:
+        </p>
+        <ul class="space-y-2 text-sm">
+          <li class="flex items-start gap-2">
+            <span class="text-muted">
+              •
+            </span>
+            <div class="flex-1">
+              <span class="font-medium">
+                Explicit prefix:
+              </span>
+              <div class="mt-1 text-muted">
+                <code class="text-xs bg-default px-1 py-0.5 rounded">
+                  (feature-login)
+                </code>
+                <span class="mx-2">
+                  →
+                </span>
+                <code class="text-xs bg-default px-1 py-0.5 rounded">
+                  john/virtual/feature-login
+                </code>
+              </div>
+            </div>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-muted">
+              •
+            </span>
+            <div class="flex-1">
+              <span class="font-medium">
+                Issue numbers:
+              </span>
+              <div class="mt-1 text-muted">
+                <code class="text-xs bg-default px-1 py-0.5 rounded">
+                  ABC-123: Fix bug
+                </code>
+                <span class="mx-2">
+                  →
+                </span>
+                <code class="text-xs bg-default px-1 py-0.5 rounded">
+                  john/virtual/ABC-123
+                </code>
+              </div>
+            </div>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-muted">
+              •
+            </span>
+            <div class="flex-1">
+              <span class="font-medium">
+                With subsystem:
+              </span>
+              <div class="mt-1 text-muted">
+                <code class="text-xs bg-default px-1 py-0.5 rounded">
+                  [threading] ABC-123: Fix bug
+                </code>
+                <span class="mx-2">
+                  →
+                </span>
+                <code class="text-xs bg-default px-1 py-0.5 rounded">
+                  john/virtual/ABC-123
+                </code>
+              </div>
+            </div>
+          </li>
+        </ul>
+        <p class="text-xs text-muted mt-3">
+          Explicit prefixes take precedence over issue numbers. The
+          <code class="bg-default px-1 py-0.5 rounded">
+            virtual
+          </code>
+          prefix is always automatically prepended.
+        </p>
+      </div>
+      <!-- Repository-specific -->
+      <div class="border-t border-default pt-4">
+        <p class="text-sm text-muted mb-2">
+          You can also set this value per repository using:
+        </p>
+        <div class="bg-default rounded p-3 overflow-x-auto">
+          <code class="text-xs text-mono">
+            git config branchdeck.branchPrefix repoSpecificPrefix
+          </code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

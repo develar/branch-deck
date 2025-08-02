@@ -1,4 +1,5 @@
-use crate::utils::{calculate_confidence, clean_branch_name, detect_device};
+use crate::constants::LOGITS_PROCESSOR_SEED;
+use crate::utils::{clean_branch_name, detect_device, truncate_tokens_if_needed};
 use crate::BranchNameResult;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
@@ -7,7 +8,7 @@ use candle_transformers::generation::{LogitsProcessor, Sampling};
 use candle_transformers::models::qwen2::{Config as QwenConfig, ModelForCausalLM as QwenModel};
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
-use tracing::{debug, info, instrument};
+use tracing::{debug, instrument};
 
 /// Qwen2.5-Coder model generator for branch names
 pub struct Qwen25BranchGenerator {
@@ -16,6 +17,10 @@ pub struct Qwen25BranchGenerator {
   device: Device,
   dtype: DType,
 }
+
+// Default temperature for Qwen2.5 models
+const DEFAULT_TEMPERATURE: f64 = 0.7;
+const ALTERNATIVE_TEMPERATURE: f64 = 0.9;
 
 impl Qwen25BranchGenerator {
   /// Create a new generator instance
@@ -32,8 +37,6 @@ impl Qwen25BranchGenerator {
   /// Load model from specified directory (expects Qwen2.5-Coder format)
   #[instrument(skip(self), fields(model_path = %model_path.display()))]
   pub async fn load_model(&mut self, model_path: PathBuf) -> Result<()> {
-    info!("Loading Qwen2.5-Coder model from: {:?}", model_path);
-
     let tokenizer_path = model_path.join("tokenizer.json");
     let config_path = model_path.join("config.json");
     let model_file = model_path.join("model.safetensors");
@@ -60,13 +63,12 @@ impl Qwen25BranchGenerator {
     self.model = Some(model);
     self.tokenizer = Some(tokenizer);
 
-    info!("Qwen2.5-Coder model loaded successfully!");
     Ok(())
   }
 
   /// Generate branch name from commit message and optional diff
   #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
-  pub async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<BranchNameResult> {
+  pub async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, is_alternative: bool) -> Result<BranchNameResult> {
     let start_time = std::time::Instant::now();
 
     let model = self.model.as_mut().ok_or_else(|| anyhow::anyhow!("Model not loaded. Call load_model() first."))?;
@@ -82,14 +84,8 @@ impl Qwen25BranchGenerator {
     let mut tokens = tokenizer.encode(prompt, true).map_err(E::msg)?.get_ids().to_vec();
 
     // Check if prompt exceeds context limit and truncate if necessary
-    const MAX_CONTEXT_TOKENS: usize = 32_000;
-    const GENERATION_BUFFER: usize = 200;
-
-    if tokens.len() > MAX_CONTEXT_TOKENS - GENERATION_BUFFER {
-      let max_tokens = MAX_CONTEXT_TOKENS - GENERATION_BUFFER;
-      tokens.truncate(max_tokens);
-      debug!("Truncated prompt from {} to {} tokens", tokens.len() + (tokens.len() - max_tokens), max_tokens);
-    }
+    const MAX_CONTEXT_TOKENS: usize = 32_768; // 32K context window for Qwen2.5
+    truncate_tokens_if_needed(&mut tokens, MAX_CONTEXT_TOKENS);
 
     let prompt_len = tokens.len();
     debug!("Prompt tokens: {}", prompt_len);
@@ -97,9 +93,10 @@ impl Qwen25BranchGenerator {
     // Setup generation parameters
     let eos_token_ids = [tokenizer.token_to_id("<|endoftext|>"), tokenizer.token_to_id("<|im_end|>")];
 
+    let temperature = if is_alternative { ALTERNATIVE_TEMPERATURE } else { DEFAULT_TEMPERATURE };
     let sampling = if temperature <= 0.0 { Sampling::ArgMax } else { Sampling::All { temperature } };
 
-    let mut logits_processor = LogitsProcessor::from_sampling(299792458, sampling); // Fixed seed for consistency
+    let mut logits_processor = LogitsProcessor::from_sampling(LOGITS_PROCESSOR_SEED, sampling);
 
     // Generation loop with timeout protection
     let mut generated_tokens = 0;
@@ -155,7 +152,6 @@ impl Qwen25BranchGenerator {
 
     let result = BranchNameResult {
       name: cleaned_name,
-      confidence: calculate_confidence(&generated_text, generated_tokens),
       generation_time_ms: generation_time.as_millis() as u64,
     };
 
@@ -169,19 +165,15 @@ impl Qwen25BranchGenerator {
     self.model.is_some() && self.tokenizer.is_some()
   }
 
-  /// Count tokens in text using the loaded tokenizer
-  /// Returns None if tokenizer is not loaded
-  pub fn count_tokens(&self, text: &str) -> Option<usize> {
-    self
-      .tokenizer
-      .as_ref()
-      .and_then(|tokenizer| tokenizer.encode(text, false).ok().map(|encoding| encoding.get_ids().len()))
-  }
-
   /// Create model-specific prompt for Qwen2.5 models
   /// Uses generic format which has proven to work well with Qwen2.5 architecture
   pub fn create_prompt(&self, git_output: &str) -> anyhow::Result<String> {
     crate::prompt::create_generic_prompt(git_output)
+  }
+
+  /// Create alternative prompt when a previous suggestion exists
+  pub fn create_alternative_prompt(&self, git_output: &str, previous_suggestion: &str) -> anyhow::Result<String> {
+    crate::prompt::create_generic_alternative_prompt(git_output, previous_suggestion)
   }
 }
 

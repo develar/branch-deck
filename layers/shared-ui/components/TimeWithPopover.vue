@@ -3,18 +3,12 @@
     <span>{{ formatTimestamp(authorTime) }}</span>
     <template #content>
       <div class="p-3">
-        <table class="text-xs">
-          <tbody>
-            <tr>
-              <td class="text-muted pr-3">Authored</td>
-              <td class="text-highlighted">{{ formatTimestamp(authorTime) }}</td>
-            </tr>
-            <tr>
-              <td class="text-muted pr-3">Committed</td>
-              <td class="text-highlighted">{{ formatTimestamp(committerTime) }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="text-xs" style="display: grid; grid-template-columns: auto 1fr; column-gap: 0.5rem; row-gap: 0.25rem;">
+          <div class="text-muted">Authored</div>
+          <div class="text-highlighted">{{ formatTimestamp(authorTime) }}</div>
+          <div class="text-muted">Committed</div>
+          <div class="text-highlighted">{{ formatTimestamp(committerTime) }}</div>
+        </div>
       </div>
     </template>
   </UPopover>

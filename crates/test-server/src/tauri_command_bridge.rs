@@ -1,8 +1,8 @@
 use axum::{
   extract::State,
-  http::StatusCode,
+  http::{HeaderMap, StatusCode},
   response::{
-    sse::{Event, Sse},
+    sse::{Event, KeepAlive, Sse},
     Json,
   },
 };
@@ -10,6 +10,7 @@ use branch_sync::progress::{ProgressReporter, SyncEvent};
 use branch_sync::sync::sync_branches_core;
 use futures::stream::{Stream, StreamExt};
 use git_ops::model::{BranchError, BranchSyncStatus};
+use model_ai::types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -155,7 +156,7 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   // Convert the receiver into a stream of SSE events
   let stream = UnboundedReceiverStream::new(rx).map(|event| Ok(Event::default().event("sync").data(serde_json::to_string(&event).unwrap())));
 
-  Ok(Sse::new(stream))
+  Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
 }
 
 pub async fn create_branch_from_commits(
@@ -175,19 +176,13 @@ pub async fn create_branch_from_commits(
   }
 }
 
-#[derive(Deserialize)]
-pub struct BrowseRepositoryRequest {
-  #[serde(rename = "repoId")]
-  repo_id: String,
-}
-
 pub async fn browse_repository(
   State(state): State<Arc<AppState>>,
-  Json(request): Json<BrowseRepositoryRequest>,
+  axum::extract::Path(repo_id): axum::extract::Path<String>,
 ) -> Result<Json<branch_sync::repository_validation::BrowseResult>, StatusCode> {
   // Get the repository from state
-  let repo = state.repositories.get(&request.repo_id).ok_or_else(|| {
-    tracing::error!("Repository not found: {}", request.repo_id);
+  let repo = state.repositories.get(&repo_id).ok_or_else(|| {
+    tracing::error!("Repository not found: {}", repo_id);
     StatusCode::NOT_FOUND
   })?;
 
@@ -195,4 +190,237 @@ pub async fn browse_repository(
 
   // Use shared validation logic from branch-sync
   Ok(Json(branch_sync::repository_validation::validate_and_create_result(path)))
+}
+
+// AI Command Handlers
+
+// check_model_status removed - frontend doesn't call it directly
+// Types are now imported from model_ai::types
+
+pub async fn suggest_branch_name_stream(
+  State(state): State<Arc<AppState>>,
+  _headers: HeaderMap,
+  Json(params): Json<SuggestBranchNameParams>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+  // Single repository lookup
+  let repo_id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::NOT_FOUND)?;
+
+  let repo = state.repositories.get(&repo_id).ok_or(StatusCode::NOT_FOUND)?;
+
+  // Get model state from repository
+  let model_state_lock = repo.model_state.clone();
+  let model_state = model_state_lock.read().unwrap().clone();
+
+  // Create channel for streaming
+  let (tx, rx) = mpsc::unbounded_channel();
+
+  // Spawn task to generate suggestions
+  tokio::spawn(async move {
+    match model_state {
+      crate::state::ModelState::NotDownloaded => {
+        // Send download required event
+        let _ = tx.send(SuggestionProgress::ModelDownloadInProgress {
+          model_name: "Qwen3-1.7B".to_string(),
+          model_size: "1.2 GB".to_string(),
+        });
+      }
+      crate::state::ModelState::Downloaded => {
+        // Send suggestions
+        let _ = tx.send(SuggestionProgress::Started { total: 2 });
+
+        // Simulate some processing time
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Generate mock suggestions based on commit messages
+        let commit_keywords: Vec<&str> = params.commits.iter().flat_map(|c| c.message.split_whitespace()).filter(|w| w.len() > 3).collect();
+
+        let suggestions = vec![
+          BranchSuggestion {
+            name: format!("{}fix-{}", params.branch_prefix, commit_keywords.first().unwrap_or(&"issue").to_lowercase()),
+            reason: Some("Based on commit message keywords".to_string()),
+          },
+          BranchSuggestion {
+            name: format!("{}update-{}", params.branch_prefix, commit_keywords.get(1).unwrap_or(&"feature").to_lowercase()),
+            reason: Some("Alternative suggestion".to_string()),
+          },
+        ];
+
+        // Send suggestions
+        for (index, suggestion) in suggestions.into_iter().enumerate() {
+          tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+          let _ = tx.send(SuggestionProgress::SuggestionReady { suggestion, index: index as u32 });
+        }
+
+        // Complete
+        let _ = tx.send(SuggestionProgress::Completed);
+      }
+      crate::state::ModelState::Downloading => {
+        // Model is currently downloading - return error
+        let _ = tx.send(SuggestionProgress::Error {
+          message: "Model is currently downloading".to_string(),
+        });
+      }
+    }
+  });
+
+  // Convert to SSE stream
+  let stream = UnboundedReceiverStream::new(rx).map(|event| Ok(Event::default().event("suggestion").data(serde_json::to_string(&event).unwrap())));
+
+  Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
+}
+
+pub async fn download_model(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(repo_id): axum::extract::Path<String>,
+  _headers: HeaderMap,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+  // Get repository and update model state to Downloading
+  let (simulate_slow_download, model_state_lock, download_cancelled) = if let Some(repo_entry) = state.repositories.get(&repo_id) {
+    // Reset cancellation flag for new download
+    repo_entry.download_cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // Update model state to Downloading
+    if let Ok(mut model_state) = repo_entry.model_state.write() {
+      *model_state = crate::state::ModelState::Downloading;
+    }
+
+    let slow = if let Some(settings_value) = repo_entry.store.get("modelSettings") {
+      if let Some(settings_obj) = settings_value.as_object() {
+        let slow = settings_obj.get("simulateSlowDownload").and_then(|v| v.as_bool()).unwrap_or(false);
+        eprintln!("simulateSlowDownload setting found: {slow}");
+        slow
+      } else {
+        eprintln!("modelSettings is not an object");
+        false
+      }
+    } else {
+      eprintln!("modelSettings not found in store");
+      false
+    };
+
+    (slow, repo_entry.model_state.clone(), repo_entry.download_cancelled.clone())
+  } else {
+    eprintln!("Repository not found: {repo_id}");
+    return Err(StatusCode::NOT_FOUND);
+  };
+
+  // Create channel for streaming
+  let (tx, rx) = mpsc::unbounded_channel();
+
+  // Send the Started event immediately to establish the SSE connection
+  // This prevents ERR_EMPTY_RESPONSE if the spawned task doesn't run immediately
+  let _ = tx.send(DownloadProgress::Started { total_files: 3 });
+  eprintln!("Sent Started event immediately");
+
+  // Clone repo_id for the spawned task
+  let repo_id_clone = repo_id.clone();
+
+  // Spawn download simulation for the rest of the events
+  tokio::spawn(async move {
+    eprintln!("Starting download simulation for repo: {repo_id_clone}");
+
+    // Small delay after Started event
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Simulate downloading 3 files
+    let files = vec![
+      ("config.json", 1024),
+      ("model.gguf", 1200 * 1024 * 1024), // 1.2 GB
+      ("tokenizer.json", 512 * 1024),
+    ];
+
+    for (file_name, file_size) in files {
+      // Check if cancelled
+      if download_cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+        // Update model state back to NotDownloaded
+        if let Ok(mut model_state) = model_state_lock.write() {
+          *model_state = crate::state::ModelState::NotDownloaded;
+        }
+        let _ = tx.send(DownloadProgress::Cancelled);
+        return;
+      }
+
+      // File started
+      let _ = tx.send(DownloadProgress::FileStarted {
+        file_name: file_name.to_string(),
+        file_size: Some(file_size),
+      });
+
+      // Simulate download progress
+      let chunks = if simulate_slow_download { 300 } else { 10 }; // 300 chunks for slow mode
+      let chunk_size = file_size / chunks;
+      let delay_ms: u64 = if simulate_slow_download { 1000 } else { 100 }; // 1 second vs 100ms per chunk
+
+      eprintln!(
+        "Download simulation for {}: chunks={}, delay_ms={}, total_time={}s",
+        file_name,
+        chunks,
+        delay_ms,
+        (chunks as u64 * delay_ms) / 1000
+      );
+
+      for i in 1..=chunks {
+        // Check if cancelled
+        if download_cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+          // Update model state back to NotDownloaded
+          if let Ok(mut model_state) = model_state_lock.write() {
+            *model_state = crate::state::ModelState::NotDownloaded;
+          }
+          let _ = tx.send(DownloadProgress::Cancelled);
+          return;
+        }
+
+        let downloaded = chunk_size * i;
+        let _progress = (i as f32 / chunks as f32 * 100.0) as u32;
+
+        let _ = tx.send(DownloadProgress::Progress {
+          file_name: file_name.to_string(),
+          downloaded,
+          total: file_size,
+          bytes_per_second: Some(if simulate_slow_download { 400 * 1024 } else { 10 * 1024 * 1024 }), // 400 KB/s vs 10 MB/s
+          seconds_remaining: Some((file_size - downloaded) / if simulate_slow_download { 400 * 1024 } else { 10 * 1024 * 1024 }),
+        });
+
+        if i % 50 == 0 {
+          eprintln!("Progress for {file_name}: chunk {i}/{chunks}");
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+      }
+
+      // File completed
+      let _ = tx.send(DownloadProgress::FileCompleted { file_name: file_name.to_string() });
+    }
+
+    // All completed - update model state to Downloaded
+    if let Ok(mut model_state) = model_state_lock.write() {
+      *model_state = crate::state::ModelState::Downloaded;
+    }
+    let _ = tx.send(DownloadProgress::Completed);
+  });
+
+  // Convert to SSE stream
+  eprintln!("Creating SSE stream for download_model");
+  let stream = UnboundedReceiverStream::new(rx).map(|event| {
+    eprintln!("Sending SSE event: {event:?}");
+    Ok(Event::default().event("download").data(serde_json::to_string(&event).unwrap()))
+  });
+
+  eprintln!("Returning SSE response for download_model");
+  // Add keep-alive to prevent connection from closing
+  Ok(Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
+}
+
+pub async fn cancel_model_download(
+  State(state): State<Arc<AppState>>,
+  axum::extract::Path(repo_id): axum::extract::Path<String>,
+  _headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+  if let Some(repo) = state.repositories.get(&repo_id) {
+    repo.download_cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    eprintln!("Download cancelled for repository: {repo_id}");
+    Ok(StatusCode::OK)
+  } else {
+    eprintln!("Repository not found for cancel: {repo_id}");
+    Err(StatusCode::NOT_FOUND)
+  }
 }

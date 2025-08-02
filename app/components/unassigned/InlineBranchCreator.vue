@@ -19,85 +19,7 @@
 
     <template #extra-actions>
       <div class="flex items-center gap-3">
-        <!-- AI indicator icon with integrated help -->
-        <UPopover v-if="!isDownloading" mode="hover">
-          <UIcon
-            name="i-lucide-sparkles"
-            :class="[
-              'size-3.5 cursor-pointer transition-all',
-              aiStatus.iconClass
-            ]"
-            @click="toggleAI"
-          />
-          <template #content>
-            <div class="p-3 space-y-2 text-xs max-w-xs">
-              <!-- Error state -->
-              <template v-if="aiError">
-                <div class="flex items-center gap-2">
-                  <UIcon name="i-lucide-alert-triangle" class="size-4 text-error" />
-                  <p class="font-semibold text-error">AI Malfunction</p>
-                </div>
-                <div class="space-y-2 mt-2">
-                  <div class="p-2 bg-error/10 border border-error/20 rounded-md">
-                    <p class="font-medium text-error mb-1">Error:</p>
-                    <p class="text-toned break-words">{{ aiError.message }}</p>
-                  </div>
-                  <details class="cursor-pointer">
-                    <summary class="text-muted hover:text-highlighted">View full details</summary>
-                    <pre class="mt-2 p-2 bg-subtle rounded text-[10px] overflow-x-auto whitespace-pre-wrap break-words">{{ aiError.details }}</pre>
-                  </details>
-                  <div class="flex items-center justify-between text-[10px] text-muted">
-                    <span>{{ new Date(aiError.timestamp).toLocaleTimeString() }}</span>
-                    <a
-                      href="https://github.com/develar/branch-deck/issues"
-                      target="_blank"
-                      class="text-primary hover:underline flex items-center gap-1"
-                    >
-                      <UIcon name="i-lucide-external-link" class="size-2.5" />
-                      Report issue
-                    </a>
-                  </div>
-                </div>
-                <div class="pt-2 border-t border-default">
-                  <p class="text-muted mb-2">Click the icon to retry or disable AI</p>
-                </div>
-              </template>
-              <!-- Normal state -->
-              <template v-else>
-                <p class="font-semibold text-highlighted">
-                  AI {{ aiEnabled ? 'Enabled' : 'Disabled' }}
-                  <span class="text-xs text-muted font-normal ml-1">(click to {{ aiEnabled ? 'disable' : 'enable' }})</span>
-                </p>
-                <p class="text-toned">
-                  AI analyzes only commit metadata to suggest branch names:
-                </p>
-                <ul class="list-disc list-inside space-y-1 text-muted ml-2">
-                  <li>Commit messages (title and body)</li>
-                  <li>Modified file names and their status</li>
-                </ul>
-                <p class="text-toned">
-                  This is equivalent to: <code class="text-[10px] bg-subtle px-1 py-0.5 rounded">git log --name-status</code>
-                </p>
-                <div class="pt-2 border-t border-default">
-                  <p class="text-success flex items-center gap-1">
-                    <UIcon name="i-lucide-shield-check" class="size-3" />
-                    <span class="font-medium">100% Local & Private</span>
-                  </p>
-                  <p class="text-toned mt-1">
-                    Uses the <a href="https://huggingface.co/Qwen/Qwen3-1.7B-GGUF" target="_blank" class="text-primary hover:underline">Qwen3-1.7B</a> model running entirely on your machine. No data is sent to any external service.
-                  </p>
-                </div>
-              </template>
-            </div>
-          </template>
-        </UPopover>
-        <UTooltip v-else text="Downloading AI model...">
-          <UIcon
-            name="i-lucide-sparkles"
-            class="size-3.5 text-primary animate-spin"
-          />
-        </UTooltip>
-
+        <AIStatusIndicator />
         <div class="w-px h-4 bg-border-default" />
       </div>
     </template>
@@ -107,13 +29,13 @@
     </template>
 
     <template #after-controls>
-      <!-- Suggestions (compact) -->
+      <!-- Suggestions (compact) - handles both initial prompt and suggestions -->
       <BranchNameSuggestions
-        v-if="aiEnabled || allSuggestions.length > 0 || isGenerating"
-        :suggestions="allSuggestions"
-        :is-loading="isGenerating"
-        :loading-progress="loadingProgress"
-        @select="branchName = $event"
+        :repository-path="selectedProject?.path || ''"
+        :branch-prefix="effectiveBranchPrefix"
+        :commits="selectedCommits"
+        :is-active="isActive"
+        @select="handleSuggestionSelect"
       />
     </template>
   </BaseInlineInput>
@@ -121,11 +43,6 @@
 
 <script lang="ts" setup>
 import type { Commit } from "~/utils/bindings"
-import BranchNameSuggestions from "~/components/BranchNameSuggestions.vue"
-// BaseInlineInput is auto-imported from shared-ui layer
-// notifyError is auto-imported from shared-ui layer
-// AI composables are auto-imported from ai layer
-// Branch composables are now auto-imported
 
 const props = withDefaults(defineProps<{
   selectedCommits: Commit[]
@@ -163,16 +80,7 @@ const validationState = computed(() => ({
   message: rawValidationState.value.message,
   textClass: rawValidationState.value.textClass,
 }))
-const { isDownloading, aiEnabled, aiStatus, aiError, toggleAI } = useAIToggle()
 const { isCreating, createBranch } = useBranchCreation()
-
-// Branch suggestions with AI
-const { suggestions: allSuggestions, isGenerating, loadingProgress } = useBranchSuggestions({
-  repositoryPath: selectedProject.value?.path || "",
-  branchPrefix: effectiveBranchPrefix.value,
-  commits: computed(() => props.selectedCommits),
-  isActive: computed(() => props.isActive),
-})
 
 // Handle activation to reset auto-population
 watch(() => props.isActive, (active) => {
@@ -182,27 +90,25 @@ watch(() => props.isActive, (active) => {
   }
 })
 
-// Auto-populate with first suggestion when available
-watch(
-  [() => props.isActive, hasAutoPopulated, branchName, () => allSuggestions.value[0]],
-  ([isActive, hasAutoPop, name, firstSuggestion]) => {
+// Handle suggestion selection (both manual clicks and auto-population)
+function handleSuggestionSelect(name: string, isAuto = false) {
+  // For auto-population, check guards
+  if (isAuto) {
     // Only proceed if form is active and we haven't auto-populated yet
-    if (!isActive || hasAutoPop || name !== "") {
+    if (!props.isActive || hasAutoPopulated.value || branchName.value !== "") {
       return
     }
+    hasAutoPopulated.value = true
+  }
 
-    // Check if we have suggestions
-    if (firstSuggestion) {
-      branchName.value = firstSuggestion.name
-      hasAutoPopulated.value = true
+  branchName.value = name
 
-      // Select all text for easy override
-      nextTick(() => {
-        baseInputRef.value?.selectText()
-      })
-    }
-  },
-)
+  // Select all text for easy override and ensure focus
+  nextTick(() => {
+    baseInputRef.value?.selectText()
+    baseInputRef.value?.focusInput()
+  })
+}
 
 // Create branch handler
 async function handleCreateBranch() {
@@ -241,4 +147,5 @@ function cancel() {
   branchName.value = ""
   emit("cancel")
 }
+
 </script>

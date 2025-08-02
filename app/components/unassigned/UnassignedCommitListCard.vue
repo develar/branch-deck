@@ -145,19 +145,9 @@ function activateInlineCreation() {
 // Cancel inline creation
 function cancelInlineCreation() {
   isInlineCreationActive.value = false
-
-  // Focus the commit list after dialog closes
-  nextTick(() => {
-    if (commitListRef.value?.$el) {
-      const tableElement = commitListRef.value.$el.querySelector("table")
-      if (tableElement) {
-        tableElement.focus()
-      }
-    }
-  })
 }
 
-// Handle successful branch creation - just UI cleanup
+// Handle successful branch creation
 function handleBranchSuccess() {
   isInlineCreationActive.value = false
   clearSelection()

@@ -139,6 +139,14 @@ async checkModelStatus() : Promise<Result<ModelStatus, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async cancelModelDownload() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_model_download") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async clearModelCache(params: ClearModelCacheParams) : Promise<Result<CacheClearResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("clear_model_cache", { params }) };
@@ -165,7 +173,10 @@ export type AddIssueReferenceResult = { success: boolean; updatedCount: number; 
  * Branch operation errors.
  */
 export type BranchError = { Generic: string } | { MergeConflict: MergeConflictInfo }
-export type BranchSuggestion = { name: string; confidence: number; reason: string | null }
+/**
+ * Branch name suggestion
+ */
+export type BranchSuggestion = { name: string; reason: string | null }
 /**
  * Status of a branch synchronization operation.
  */
@@ -208,7 +219,10 @@ export type CreateBranchFromCommitsParams = { repositoryPath: string; branchName
  * Summary of how two branches have diverged from their common ancestor.
  */
 export type DivergenceSummary = { commitsAheadInSource: number; commitsAheadInTarget: number; commonAncestorDistance: number }
-export type DownloadProgress = { type: "Started"; data: { totalFiles: number } } | { type: "FileStarted"; data: { fileName: string; fileSize: number | null } } | { type: "Progress"; data: { fileName: string; downloaded: number; total: number; bytesPerSecond: number | null; secondsRemaining: number | null } } | { type: "FileCompleted"; data: { fileName: string } } | { type: "Completed" } | { type: "Error"; data: { message: string } }
+/**
+ * Progress events for model download operations
+ */
+export type DownloadProgress = { type: "Started"; data: { totalFiles: number } } | { type: "FileStarted"; data: { fileName: string; fileSize: number | null } } | { type: "Progress"; data: { fileName: string; downloaded: number; total: number; bytesPerSecond: number | null; secondsRemaining: number | null } } | { type: "FileCompleted"; data: { fileName: string } } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: { message: string } }
 /**
  * Represents the diff between two versions of a file.
  */
@@ -219,6 +233,8 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
 export type FileInfo = { fileName: string; fileLang: string; content: string }
 export type GetBranchPrefixParams = { repositoryPath: string }
 export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number }
+export type IssueNavigationConfig = { links: IssueNavigationLink[] }
+export type IssueNavigationLink = { issueRegexp: string; linkRegexp: string }
 /**
  * Details about a merge conflict encountered during a cherry-pick operation.
  * 
@@ -235,10 +251,20 @@ export type ModelStatus = { available: boolean; modelName: string; modelSize: st
 export type OpenSubWindowParams = { windowId: string; url: string; title: string; width: number | null; height: number | null; data: string }
 export type PushBranchParams = { repositoryPath: string; branchPrefix: string; branchName: string }
 export type RewordResult = { success: boolean; message: string; reworded_count: number }
+/**
+ * Parameters for requesting branch name suggestions
+ */
 export type SuggestBranchNameParams = { repositoryPath: string; branchPrefix: string; commits: CommitInfo[] }
+/**
+ * Progress events for branch name suggestion generation
+ */
 export type SuggestionProgress = { type: "Started"; data: { total: number } } | { type: "SuggestionReady"; data: { suggestion: BranchSuggestion; index: number } } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: { message: string } } | { type: "ModelDownloadInProgress"; data: { model_name: string; model_size: string } }
 export type SyncBranchesParams = { repositoryPath: string; branchPrefix: string }
 export type SyncEvent = 
+/**
+ * Sent at the beginning with issue navigation configuration if found
+ */
+{ type: "issueNavigationConfig"; data: { config: IssueNavigationConfig | null } } | 
 /**
  * Sent immediately after grouping commits
  */

@@ -1,5 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "@playwright/test"
+import { selectCommit, clickGroupIntoBranchButton } from "./selection-helpers"
 
 /**
  * Test escape key behavior for inline forms
@@ -102,6 +103,16 @@ export async function validateBranchNameError(
 
   // Input should still be visible
   await expect(inlineBranchCreator.getPortal(page)).toBeVisible()
+}
+
+/**
+ * Opens the inline branch creator for the first commit in the list
+ */
+export async function openBranchCreatorForFirstCommit(page: Page): Promise<void> {
+  const firstCommit = page.locator("[data-row-id]").first()
+  await selectCommit(page, firstCommit)
+  await clickGroupIntoBranchButton(page)
+  await inlineBranchCreator.waitForVisible(page)
 }
 
 /**

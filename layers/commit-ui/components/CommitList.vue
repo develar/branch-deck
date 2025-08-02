@@ -5,7 +5,7 @@
 
     <table
       ref="containerRef"
-      class="w-full rounded-lg"
+      class="w-full rounded-lg focus:outline-none"
       :tabindex="selectable ? 0 : -1"
       @keydown="handleKeydown"
     >
@@ -128,7 +128,7 @@ const columns = computed(() => [
                   ? commit.subject
                   : commit.message,
             message: commit.message,
-            messageClass: props.variant === "compact" ? "text-sm text-highlighted break-words" : "text-sm text-highlighted truncate",
+            messageClass: "text-sm text-highlighted line-clamp-2",
           }),
 
           // Status badge for exceptional states (only in status variant)

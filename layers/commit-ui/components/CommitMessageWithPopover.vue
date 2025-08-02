@@ -1,15 +1,15 @@
 <template>
   <div class="flex items-center gap-2">
-    <p :class="messageClass">
-      {{ subject }}
-    </p>
+    <LinkedText :text="subject" :text-class="messageClass" />
     <!-- Show popover icon only if message has multiple lines -->
     <UPopover v-if="hasFullMessage" mode="hover">
       <UIcon name="i-lucide-rectangle-ellipsis" class="size-3 text-muted hover:text-highlighted" />
       <template #content>
         <div class="p-3 max-w-[500px] space-y-2">
-          <p class="text-sm font-medium text-highlighted">{{ subject }}</p>
-          <div v-if="body" class="text-xs text-toned whitespace-pre-wrap">{{ body }}</div>
+          <LinkedText :text="subject" text-class="text-sm font-medium text-highlighted" />
+          <div v-if="body" class="text-xs text-toned whitespace-pre-wrap">
+            <LinkedText :text="body" />
+          </div>
         </div>
       </template>
     </UPopover>

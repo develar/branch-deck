@@ -1,81 +1,70 @@
+use crate::constants::GENERATION_BUFFER;
+use crate::prompt::MAX_BRANCH_NAME_LENGTH;
 use anyhow::Result;
 use candle_core::Device;
-use tracing::{debug, info};
+use tracing::{info, instrument};
 
 /// Clean up generated branch name to follow Git conventions
 /// Provides fallbacks and handles edge cases to always return a valid branch name
+#[instrument(level = "debug")]
 pub fn clean_branch_name(raw_name: &str) -> Result<String> {
-  tracing::debug!("Cleaning branch name from raw: '{}'", raw_name);
+  // Remove thinking tags if present
+  let without_tags = if let Some(end_pos) = raw_name.rfind("</think>") {
+    // Take everything after the closing tag
+    &raw_name[end_pos + 8..]
+  } else if let Some(think_start) = raw_name.find("<think>") {
+    // If we have opening but no closing, take everything before it
+    &raw_name[..think_start]
+  } else {
+    raw_name
+  };
 
-  let cleaned = raw_name
-    .trim()
-    .lines()
-    .next() // Take only first line
-    .unwrap_or("")
-    .trim();
+  // Take first non-empty line and trim
+  let first_line = without_tags.lines().find(|line| !line.trim().is_empty()).map(|line| line.trim()).unwrap_or("");
 
-  // Remove common prefixes/suffixes and code artifacts
-  let cleaned = if cleaned.starts_with("```") || cleaned.contains("git ") {
-    cleaned
+  // Early return for empty input
+  if first_line.is_empty() {
+    return Err(anyhow::anyhow!("Could not generate a valid branch name"));
+  }
+
+  // Process the name: handle special cases and filter characters in one pass
+  let processed = if first_line.starts_with("```") || first_line.contains("git ") {
+    // Special handling for code blocks and git commands
+    first_line
       .split_whitespace()
       .filter(|word| !word.contains("git") && !word.contains("```"))
       .collect::<Vec<_>>()
       .join("-")
   } else {
-    cleaned.to_string()
+    first_line.to_string()
   };
 
-  // Basic character filtering
-  let cleaned = cleaned
-    .chars()
-    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '/' || *c == '.')
-    .collect::<String>();
+  // Filter valid characters and build final string
+  let mut result = String::with_capacity(processed.len());
+  for c in processed.chars() {
+    if c.is_alphanumeric() || matches!(c, '-' | '_' | '/' | '.') {
+      result.push(c);
+    }
+  }
 
-  // Remove leading/trailing special chars
-  let cleaned = cleaned.trim_matches(&['-', '_', '.', '/'][..]);
+  // Trim special characters from both ends
+  let trimmed = result.trim_matches(&['-', '_', '.', '/'][..]);
 
-  // Check if name is empty and return error
-  if cleaned.is_empty() {
-    tracing::debug!("Cleaned name is empty after processing");
+  // Check if result is empty after filtering
+  if trimmed.is_empty() {
     return Err(anyhow::anyhow!("Could not generate a valid branch name"));
   }
 
-  // Limit length if needed
-  let cleaned = if cleaned.len() > 50 {
-    cleaned[..50].trim_end_matches(&['-', '_'][..]).to_string()
+  // Handle length limit
+  let final_name = if trimmed.len() > MAX_BRANCH_NAME_LENGTH {
+    let truncated = &trimmed[..MAX_BRANCH_NAME_LENGTH];
+    // Trim any trailing special chars from truncation
+    truncated.trim_end_matches(&['-', '_'][..])
   } else {
-    cleaned.to_string()
+    trimmed
   };
 
-  Ok(cleaned)
-}
-
-/// Calculate confidence score based on generation quality
-pub fn calculate_confidence(generated_text: &str, token_count: usize) -> f32 {
-  let mut confidence: f32 = 0.8; // Base confidence
-
-  // Higher confidence for reasonable length
-  if (3..=10).contains(&token_count) {
-    confidence += 0.1;
-  }
-
-  // Lower confidence for very short or very long outputs
-  if !(2..=20).contains(&token_count) {
-    confidence -= 0.2;
-  }
-
-  // Higher confidence for branch-like patterns
-  if generated_text.contains('-') || generated_text.contains('_') {
-    confidence += 0.05;
-  }
-
-  // Lower confidence for code-like patterns
-  if generated_text.contains("```") || generated_text.contains("git ") {
-    confidence -= 0.3;
-  }
-
-  // Ensure confidence is in valid range
-  confidence.clamp(0.1, 1.0)
+  Ok(final_name.to_string())
 }
 
 /// Detect the best available device for ML inference
@@ -84,9 +73,8 @@ pub fn calculate_confidence(generated_text: &str, token_count: usize) -> f32 {
 /// Metal support now works correctly with all candle crates having Metal features enabled
 /// To enable CUDA support, compile with: cargo build --features cuda
 /// Requires NVIDIA CUDA toolkit to be installed
+#[instrument(level = "debug")]
 pub fn detect_device() -> Device {
-  debug!("Detecting best available device for ML inference");
-
   // Try CUDA first (best performance on NVIDIA GPUs)
   #[cfg(feature = "cuda")]
   {
@@ -96,7 +84,7 @@ pub fn detect_device() -> Device {
         return device;
       }
       Err(e) => {
-        debug!("CUDA GPU not available: {}", e);
+        tracing::debug!("CUDA GPU not available: {}", e);
       }
     }
   }
@@ -110,7 +98,7 @@ pub fn detect_device() -> Device {
         return device;
       }
       Err(e) => {
-        debug!("Metal GPU not available: {}", e);
+        tracing::debug!("Metal GPU not available: {}", e);
       }
     }
   }
@@ -118,6 +106,20 @@ pub fn detect_device() -> Device {
   // Fall back to CPU (with Accelerate framework optimization on macOS)
   info!("Using CPU for ML inference (with Accelerate framework if available)");
   Device::Cpu
+}
+
+/// Truncate tokens if they exceed the context limit
+/// Returns the truncated token count for logging purposes
+#[instrument(level = "debug", skip(tokens), fields(token_count = tokens.len()), ret)]
+pub fn truncate_tokens_if_needed(tokens: &mut Vec<u32>, max_context_tokens: usize) -> Option<usize> {
+  if tokens.len() > max_context_tokens - GENERATION_BUFFER {
+    let original_len = tokens.len();
+    let max_tokens = max_context_tokens - GENERATION_BUFFER;
+    tokens.truncate(max_tokens);
+    Some(original_len)
+  } else {
+    None
+  }
 }
 
 #[cfg(test)]
@@ -135,15 +137,12 @@ mod tests {
     assert_eq!(
       clean_branch_name("very-long-branch-name-that-should-be-truncated-because-it-exceeds-fifty-characters").unwrap(),
       "very-long-branch-name-that-should-be-truncated-bec"
-    ); // Truncated at 50 chars, trailing hyphen trimmed
+    ); // Truncated at MAX_BRANCH_NAME_LENGTH chars, trailing hyphen trimmed
     assert_eq!(clean_branch_name("main").unwrap(), "main"); // main is a valid branch name
-  }
 
-  #[test]
-  fn test_calculate_confidence() {
-    assert!(calculate_confidence("fix-bug", 2) > 0.8);
-    assert!(calculate_confidence("", 0) < 0.7);
-    assert_eq!(calculate_confidence("```code```", 3), 0.6); // Base 0.8 + reasonable length 0.1 - code pattern 0.3 = 0.6
-    assert!(calculate_confidence("feature-oauth2-support", 3) > 0.85);
+    // Test thinking tag removal
+    assert_eq!(clean_branch_name("\n\n</think>\n\nuser-service-secure-hash").unwrap(), "user-service-secure-hash");
+    assert_eq!(clean_branch_name("<think>some thinking</think>feature-branch").unwrap(), "feature-branch");
+    assert_eq!(clean_branch_name("</think>config-refactor").unwrap(), "config-refactor");
   }
 }

@@ -1,4 +1,5 @@
 mod config;
+mod constants;
 mod generator_type;
 pub mod prompt;
 mod quantized_qwen3;
@@ -25,7 +26,6 @@ pub use utils::detect_device;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchNameResult {
   pub name: String,
-  pub confidence: f32,
   pub generation_time_ms: u64,
 }
 
