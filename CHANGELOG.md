@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/develar/branch-deck/compare/v0.7.0...v0.7.1) (2025-08-07)
+
+
+### Bug Fixes
+
+* make AI feature more visible ([ec22728](https://github.com/develar/branch-deck/commit/ec22728dff6bfa28ecf9bc17d58ded8c46278011))
+
 ## [0.7.0](https://github.com/develar/branch-deck/compare/v0.6.0...v0.7.0) (2025-08-02)
 
 
