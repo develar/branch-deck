@@ -10,12 +10,15 @@ pub struct DeleteArchivedBranchParams {
   pub branch_prefix: String,
 }
 
-
 /// Core function to delete an archived branch
 /// This function contains all the safety checks and deletion logic
 #[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
 pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams) -> Result<()> {
-  let DeleteArchivedBranchParams { repository_path, branch_name, branch_prefix } = params;
+  let DeleteArchivedBranchParams {
+    repository_path,
+    branch_name,
+    branch_prefix,
+  } = params;
 
   // Safety checks: only allow deleting refs under <prefix>/archived/
   let required_prefix = format!("{}/archived/", branch_prefix);

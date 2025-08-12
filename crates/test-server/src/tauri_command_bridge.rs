@@ -447,10 +447,7 @@ pub async fn cancel_model_download(
   }
 }
 
-pub async fn delete_archived_branch(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<DeleteArchivedBranchParams>,
-) -> Result<StatusCode, StatusCode> {
+pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> Result<StatusCode, StatusCode> {
   // Validate that the repository path belongs to a test repository
   ensure_repository_exists(&state, &params.repository_path)?;
 
