@@ -1,11 +1,13 @@
-use crate::git_command::GitCommandExecutor;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "specta")]
 use specta::Type;
 use tracing::{debug, instrument};
 
 /// Struct to hold commit data returned by git CLI
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Commit {
   #[serde(rename = "originalHash")]
@@ -92,16 +94,16 @@ where
       let record_bytes = buffer.drain(..=separator_pos).collect::<Vec<u8>>();
 
       // Convert to string for parsing (skip the separator byte)
-      if let Ok(record) = std::str::from_utf8(&record_bytes[..record_bytes.len() - 1]) {
-        if !record.is_empty() {
-          match parse_single_commit(record) {
-            Ok(commit) => {
-              commit_count += 1;
-              commit_handler(commit)?;
-            }
-            Err(e) => {
-              tracing::warn!("Failed to parse commit record: {}", e);
-            }
+      if let Ok(record) = std::str::from_utf8(&record_bytes[..record_bytes.len() - 1])
+        && !record.is_empty()
+      {
+        match parse_single_commit(record) {
+          Ok(commit) => {
+            commit_count += 1;
+            commit_handler(commit)?;
+          }
+          Err(e) => {
+            tracing::warn!(error = %e, "Failed to parse commit record");
           }
         }
       }
@@ -111,18 +113,18 @@ where
   })?;
 
   // Process any remaining data in buffer
-  if !buffer.is_empty() {
-    if let Ok(record) = std::str::from_utf8(&buffer) {
-      if !record.is_empty() && !record.chars().all(|c| c.is_whitespace()) {
-        match parse_single_commit(record) {
-          Ok(commit) => {
-            commit_count += 1;
-            commit_handler(commit)?;
-          }
-          Err(e) => {
-            tracing::warn!("Failed to parse final commit record: {}", e);
-          }
-        }
+  if !buffer.is_empty()
+    && let Ok(record) = std::str::from_utf8(&buffer)
+    && !record.is_empty()
+    && !record.chars().all(|c| c.is_whitespace())
+  {
+    match parse_single_commit(record) {
+      Ok(commit) => {
+        commit_count += 1;
+        commit_handler(commit)?;
+      }
+      Err(e) => {
+        tracing::warn!(error = %e, "Failed to parse final commit record");
       }
     }
   }
@@ -137,7 +139,7 @@ fn find_record_separator(buffer: &[u8]) -> Option<usize> {
 }
 
 /// Parse a single commit record
-fn parse_single_commit(record: &str) -> Result<Commit> {
+pub fn parse_single_commit(record: &str) -> Result<Commit> {
   // Use iterator instead of collecting into Vec
   let mut fields = record.split('\x1f');
 
@@ -172,7 +174,7 @@ fn parse_single_commit(record: &str) -> Result<Commit> {
     None
   };
 
-  // Parse note and mapped commit ID
+  // Parse note and extract mapped commit ID
   let (note, mapped_commit_id) = if let Some(note_content) = note_field {
     if !note_content.is_empty() {
       let trimmed = note_content.trim();
@@ -204,10 +206,10 @@ fn parse_single_commit(record: &str) -> Result<Commit> {
 /// Check if a commit subject has a branch prefix pattern
 #[instrument]
 pub fn has_branch_prefix(subject: &str) -> bool {
-  if subject.starts_with('(') {
-    if let Some(close_paren) = subject.find(')') {
-      return close_paren > 1; // Ensure content between parentheses
-    }
+  if subject.starts_with('(')
+    && let Some(close_paren) = subject.find(')')
+  {
+    return close_paren > 1; // Ensure content between parentheses
   }
   false
 }

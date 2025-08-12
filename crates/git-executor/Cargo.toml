@@ -1,0 +1,10 @@
+[package]
+name = "git-executor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Core git command execution utilities for Branch Deck"
+
+[dependencies]
+anyhow.workspace = true
+tracing.workspace = true

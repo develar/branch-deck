@@ -1,6 +1,6 @@
 <template>
   <UTooltip :text="pathValidation.error || 'Select a Git repository to manage branches'">
-    <UButtonGroup>
+    <UFieldGroup>
       <USelect
         v-model="selectedProjectModel"
         :disabled="disabled"
@@ -13,7 +13,9 @@
       >
         <template #item-label="{ item }">
           <div class="truncate-none">
-            <div class="whitespace-nowrap">{{ formatPathWithTruncation(item.project.path) }}</div>
+            <div class="whitespace-nowrap">
+              {{ formatPathWithTruncation(item.project.path) }}
+            </div>
             <div v-if="item.error" class="text-error text-xs truncate">
               {{ item.error }}
             </div>
@@ -33,11 +35,13 @@
         data-testid="browse-repository-button"
         @click="handleBrowse"
       />
-    </UButtonGroup>
+    </UFieldGroup>
   </UTooltip>
 </template>
 
 <script lang="ts" setup>
+import type { ProjectMetadata } from "~/stores/repositorySettings"
+
 defineProps<{
   disabled?: boolean
 }>()
@@ -63,7 +67,7 @@ const projectItems: ComputedRef<Array<ProjectItem>> = computed(() => {
   // If there's a validation error with a path, show that path
   const invalid = pathValidation.value
   if (!invalid.valid && invalid.path) {
-    const invalidItem: ProjectItem = { label: formatPathWithTruncation(invalid.path), value: invalid.path, project: { path: invalid.path }, error: invalid.errorDetails }
+    const invalidItem: ProjectItem = { label: formatPathWithTruncation(invalid.path), value: invalid.path, project: { path: invalid.path, cachedBranchPrefix: undefined }, error: invalid.errorDetails }
     return [invalidItem].concat(result)
   }
   else {
@@ -96,7 +100,7 @@ const selectedProjectModel = computed({
       }
       else {
         // It's a new path typed by the user (creatable)
-        selectedProject.value = { path: value }
+        selectedProject.value = { path: value, cachedBranchPrefix: undefined }
       }
     }
     else {

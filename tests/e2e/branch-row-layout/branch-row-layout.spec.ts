@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
-import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, getCopyButton, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
 import { testCopyButton, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 
@@ -164,7 +164,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await copyButton.hover()
 
     // Wait for tooltip with proper text
-    const revertedTooltip = page.locator(`[role="tooltip"]:has-text("Copy full branch name")`)
+    const revertedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copy full branch name\")")
     await expect(revertedTooltip).toBeVisible()
   })
 
@@ -180,13 +180,8 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     // Should have 2 buttons: copy and push
     await expect(buttons).toHaveCount(2)
 
-    // Verify copy button
-    const copyButton = getCopyButton(branchRow)
-    await expect(copyButton).toHaveClass(/text-muted/)
-
-    // Verify push button
-    const pushButton = getPushButton(branchRow)
-    await expect(pushButton).toContainText(/Push|Force Push/)
+    // Capture HTML snapshot of the branch row with commits state
+    await captureBranchTableSnapshot(page, branchRow, "branch-with-commits-state")
   })
 
   test("should verify final branch state after all tests", async ({ page }) => {

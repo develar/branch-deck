@@ -30,25 +30,25 @@ interface UseBranchSuggestionsOptions {
  *   - commits: Reactive array of commits to analyze
  *   - isActive: Whether the suggestion UI is currently active
  *
- * @returns {Promise<Object>} Object containing:
+ * @returns {Object} Object containing:
  *   - suggestions: Computed array of non-null suggestions
  *   - isGenerating: Readonly ref indicating generation in progress
  *   - loadingProgress: Computed progress percentage (0-100)
  *
  * @example
- * const { suggestions, isGenerating } = await useBranchSuggestions({
+ * const { suggestions, isGenerating } = useBranchSuggestions({
  *   repositoryPath: '/path/to/repo',
  *   branchPrefix: 'feature/',
  *   commits: selectedCommits,
  *   isActive: isFormOpen
  * })
  */
-export async function useBranchSuggestions(options: UseBranchSuggestionsOptions) {
+export function useBranchSuggestions(options: UseBranchSuggestionsOptions) {
   const { repositoryPath, branchPrefix, commits, isActive } = options
 
   const modelState = useModelState()
   // AI state management
-  const { aiMode, setAIError, clearAIError } = await useAIToggle()
+  const { aiMode, setAIError, clearAIError } = useAIToggle()
 
   // State for streaming suggestions
   const isGenerating = ref(false)

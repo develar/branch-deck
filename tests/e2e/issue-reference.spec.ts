@@ -124,7 +124,7 @@ test.describe("Issue Reference Feature", () => {
     await testInputAutoFocus(input)
 
     // Should be able to type immediately
-    await page.keyboard.type("QUICK-TYPE")
+    await input.type("QUICK-TYPE")
     await expect(input).toHaveValue("QUICK-TYPE")
   })
 })

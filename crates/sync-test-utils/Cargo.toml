@@ -1,0 +1,9 @@
+[package]
+name = "sync-test-utils"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sync-types = { path = "../sync-types" }
+test-utils = { path = "../test-utils" }
+anyhow.workspace = true

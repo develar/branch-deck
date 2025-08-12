@@ -9,7 +9,7 @@
       >
         <template #actions>
           <!-- Global diff view toggle -->
-          <UButtonGroup v-if="hasAnyFileDiffs" size="xs">
+          <UFieldGroup v-if="hasAnyFileDiffs" size="xs">
             <UButton
               icon="i-lucide-align-left"
               :color="store.conflictDiffViewMode === 'unified' ? 'primary' : 'neutral'"
@@ -26,7 +26,7 @@
             >
               Split
             </UButton>
-          </UButtonGroup>
+          </UFieldGroup>
           <UButton
             v-if="!isInWindow"
             size="xs"
@@ -64,7 +64,9 @@
         icon="i-lucide-lightbulb"
         icon-class="text-warning"
       >
-        <p class="mb-2">To resolve this conflict, you can:</p>
+        <p class="mb-2">
+          To resolve this conflict, you can:
+        </p>
         <ul class="space-y-2 text-default">
           <li class="flex items-start gap-2">
             <span class="text-muted mt-0.5">•</span>
@@ -96,7 +98,7 @@ const props = defineProps<{
 }>()
 
 // Get conflict viewer store for diff view mode
-const store = await useConflictViewerStore()
+const store = useConflictViewerStore()
 
 // Check if any commits have file diffs
 const hasAnyFileDiffs = computed(() => {

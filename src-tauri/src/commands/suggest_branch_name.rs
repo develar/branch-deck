@@ -1,8 +1,6 @@
-use git_ops::git_command::GitCommandExecutor;
-use model_tauri::{
-  TauriModelPathProvider,
-  types::{SuggestBranchNameParams, SuggestionProgress},
-};
+use git_executor::git_command_executor::GitCommandExecutor;
+use model_ai::types::{SuggestBranchNameParams, SuggestionProgress};
+use model_tauri::{generator::ModelGeneratorState, path_provider::TauriModelPathProvider};
 use tauri::{AppHandle, State};
 use tracing::instrument;
 
@@ -10,7 +8,7 @@ use tracing::instrument;
 #[specta::specta]
 #[instrument(skip(model_state, git_executor, app, params, progress))]
 pub async fn suggest_branch_name_stream(
-  model_state: State<'_, model_tauri::ModelGeneratorState>,
+  model_state: State<'_, ModelGeneratorState>,
   git_executor: State<'_, GitCommandExecutor>,
   app: AppHandle,
   params: SuggestBranchNameParams,

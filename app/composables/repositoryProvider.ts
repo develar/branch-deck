@@ -1,13 +1,10 @@
 import { watchDebounced } from "@vueuse/core"
 import { commands } from "~/utils/bindings"
 import type { Result } from "~/utils/bindings"
-import { appStore, type ProjectMetadata } from "~/utils/app-store"
 import { VcsRequestFactory } from "~/composables/git/vcsRequest"
 import { useAppSettingsStore } from "~/stores/appSettings"
+import { repositorySettings, type ProjectMetadata } from "~/stores/repositorySettings"
 import { getErrorDetails } from "#layers/shared-ui/utils/errorHandling"
-
-// Debounce delay for persistence operations (ms)
-const PERSISTENCE_DEBOUNCE_MS = 500
 
 export interface PathValidation {
   valid: boolean
@@ -20,31 +17,11 @@ export interface PathValidation {
 // Injection key
 const RepositoryKey = Symbol("repository")
 
-// Repository state interface
-export interface RepositoryState {
-  // State
-  selectedProject: Ref<ProjectMetadata | null>
-  recentProjects: Readonly<Ref<ProjectMetadata[]>>
-  pathValidation: Readonly<Ref<PathValidation>>
-  isValidatingPath: Readonly<Ref<boolean>>
-  gitProvidedBranchPrefix: Readonly<Ref<Result<string, string>>>
-  isLoadingBranchPrefix: Readonly<Ref<boolean>>
-  loadingPromise: Readonly<Ref<Promise<void> | null>>
-
-  // Computed
-  effectiveBranchPrefix: ComputedRef<string>
-  vcsRequestFactory: VcsRequestFactory
-  issueNavigationConfig: Readonly<ComputedRef<IssueNavigationConfig | undefined>>
-
-  // Actions
-  browseRepository: () => Promise<void>
-  getFullBranchName: (branchName: string) => string
-}
-
 // Create repository state
-export function createRepositoryState(): RepositoryState {
+export function createRepositoryState() {
+  // Repository settings is now synchronous
+
   // State
-  const recentProjects = ref<ProjectMetadata[]>([])
   const pathValidation = ref<PathValidation>({ valid: true })
   const isValidatingPath = ref(false)
   const gitProvidedBranchPrefix = ref<Result<string, string>>({ status: "error", error: "Not loaded" })
@@ -56,12 +33,12 @@ export function createRepositoryState(): RepositoryState {
 
   // Computed selected project (first in the list)
   const selectedProject = computed<ProjectMetadata | null>({
-    get: () => recentProjects.value[0] || null,
+    get: () => repositorySettings[0] || null,
     set: (project: ProjectMetadata | null) => {
       if (project) {
         // we validate explicitly on browse (and even if path is not valid anymore, it is ok - we will report on sync)
         // noinspection JSIgnoredPromiseFromCall
-        selectProjectWithValidation(isReactive(project) ? project : reactive(project), { valid: true, error: undefined })
+        selectProjectWithValidation(project, { valid: true, error: undefined })
       }
       else {
         console.error("Selected project is null")
@@ -82,34 +59,6 @@ export function createRepositoryState(): RepositoryState {
     selectedProject.value?.issueNavigationConfig,
   )
 
-  // async function validatePath(path: string) {
-  //   if (!path) {
-  //     pathValidation.value = { valid: true }
-  //     return
-  //   }
-  //
-  //   isValidatingPath.value = true
-  //   try {
-  //     const result = await commands.validateRepositoryPath({ path })
-  //     if (result.status === "ok") {
-  //       // Empty string means valid, non-empty means error
-  //       pathValidation.value = {
-  //         valid: result.data === "",
-  //         error: result.data || undefined,
-  //       }
-  //     }
-  //     else {
-  //       pathValidation.value = { valid: false, error: result.error }
-  //     }
-  //   }
-  //   catch (error) {
-  //     handleInternalErrorWithPathValidation(error, "Path validation", pathValidation)
-  //   }
-  //   finally {
-  //     isValidatingPath.value = false
-  //   }
-  // }
-
   function selectProjectWithValidation(
     project: ProjectMetadata,
     preValidated: PathValidation,
@@ -122,17 +71,17 @@ export function createRepositoryState(): RepositoryState {
 
     const path = project.path
     // path is valid - update recent projects list
-    const existingIndex = recentProjects.value.findIndex(p => p.path === path)
+    const existingIndex = repositorySettings.findIndex(p => p.path === path)
     if (existingIndex > 0) {
       // move existing project to front
-      const projects = [...recentProjects.value]
+      const projects = [...repositorySettings]
       projects.splice(existingIndex, 1)
-      projects.unshift(recentProjects.value[existingIndex]!)
-      recentProjects.value = projects
+      projects.unshift(repositorySettings[existingIndex]!)
+      repositorySettings.splice(0, repositorySettings.length, ...projects)
     }
     else if (existingIndex === -1) {
       // add new project at front
-      recentProjects.value = [project, ...recentProjects.value]
+      repositorySettings.unshift(project)
     }
     // If existingIndex === 0, it's already at the front
   }
@@ -143,11 +92,15 @@ export function createRepositoryState(): RepositoryState {
       if (result.status === "ok") {
         const { path, valid, error } = result.data
         if (path) {
+          // Check if this project already exists in our list
+          const existingProject = repositorySettings.find(p => p.path === path)
+          const project: ProjectMetadata = reactive(existingProject || { path, cachedBranchPrefix: undefined })
+
           if (error) {
-            selectProjectWithValidation(reactive({ path }), { valid, path, error: `Invalid path: ${path}`, errorDetails: getErrorDetails(error) })
+            selectProjectWithValidation(project, { valid, path, error: `Invalid path: ${path}`, errorDetails: getErrorDetails(error) })
           }
           else {
-            selectProjectWithValidation(reactive({ path }), { valid })
+            selectProjectWithValidation(project, { valid })
           }
         }
       }
@@ -178,16 +131,39 @@ export function createRepositoryState(): RepositoryState {
 
     isLoadingBranchPrefix.value = true
     try {
-      // Pass empty string to get global config when no repository is selected
+      // Try to get branch prefix for the specific repository path
       const result = await commands.getBranchPrefixFromGitConfig({ repositoryPath: currentPath || "" })
 
+      // Check if the Tauri command returned an error
+      if (result.status === "error") {
+        // Check if path changed while we were loading
+        if (selectedProject.value?.path !== currentPath) {
+          return
+        }
+
+        // Repository not accessible - update pathValidation for UI feedback
+        // Use the error message from the result directly (it already contains context)
+        pathValidation.value = {
+          valid: false,
+          path: currentPath,
+          error: result.error,
+          errorDetails: result.error,
+        }
+
+        // Set empty prefix - error is already in pathValidation for UI display
+        gitProvidedBranchPrefix.value = { status: "ok", data: "" }
+        return
+      }
+
       if (project != null) {
-        project.cachedBranchPrefix = result.status === "ok" ? result.data : undefined
+        project.cachedBranchPrefix = result.status === "ok" && result.data ? result.data : undefined
       }
 
       // check if project changed while we were loading
       if (selectedProject.value?.path === currentPath) {
         gitProvidedBranchPrefix.value = result
+        // Repository is accessible - clear any previous errors
+        pathValidation.value = { valid: true }
       }
     }
     catch (error) {
@@ -196,8 +172,16 @@ export function createRepositoryState(): RepositoryState {
         return
       }
 
-      notifyInternalError(error, "Load branch prefix")
-      gitProvidedBranchPrefix.value = { status: "error", error: "Failed to load branch prefix" }
+      // JavaScript exception (unexpected error) - update pathValidation for UI feedback
+      pathValidation.value = {
+        valid: false,
+        path: currentPath,
+        error: `Repository not accessible: ${currentPath}`,
+        errorDetails: getErrorDetails(error),
+      }
+
+      // Set empty prefix - error is already in pathValidation for UI display
+      gitProvidedBranchPrefix.value = { status: "ok", data: "" }
     }
     finally {
       // Only set loading to false if we're still on the same path
@@ -207,29 +191,20 @@ export function createRepositoryState(): RepositoryState {
     }
   }
 
-  async function initialize() {
-    try {
-      const projects = await appStore.get<ProjectMetadata[]>("recentProjects") ?? []
-      recentProjects.value = projects.map(p => reactive(p))
+  // Initialize branch prefix loading for selected project
+  triggerBranchPrefixLoad(selectedProject.value)
 
-      triggerBranchPrefixLoad(selectedProject.value)
-
-      // watch for selected project changes to load branch prefix
-      watchDebounced(selectedProject, (value) => {
-        triggerBranchPrefixLoad(value)
-      }, { flush: "post", debounce: 50 })
-
-      setupRepositoryPersistence(recentProjects)
+  // watch for selected project path changes to load branch prefix
+  // Only watch the path to avoid triggering when cachedBranchPrefix changes
+  watchDebounced(() => selectedProject.value?.path, (path, oldPath) => {
+    // Only trigger if path actually changed
+    if (path === oldPath) {
+      return
     }
-    catch (error) {
-      notifyError("Failed to load recent paths", error, useToast())
-      recentProjects.value = []
-    }
-  }
 
-  // Initialize on creation
-  // noinspection JSIgnoredPromiseFromCall
-  initialize()
+    // Always call backend - it handles invalid paths gracefully with global fallback
+    triggerBranchPrefixLoad(selectedProject.value)
+  }, { flush: "post", debounce: 50 })
 
   // Utility function to get full branch name with prefix
   const getFullBranchName = (branchName: string) => {
@@ -239,7 +214,7 @@ export function createRepositoryState(): RepositoryState {
   return {
     // State
     selectedProject,
-    recentProjects: readonly(recentProjects) as Readonly<Ref<ProjectMetadata[]>>,
+    recentProjects: readonly(toRef(() => repositorySettings)),
     pathValidation: readonly(pathValidation),
     isValidatingPath: readonly(isValidatingPath),
     gitProvidedBranchPrefix: readonly(gitProvidedBranchPrefix),
@@ -249,7 +224,7 @@ export function createRepositoryState(): RepositoryState {
     // Computed
     effectiveBranchPrefix,
     vcsRequestFactory,
-    issueNavigationConfig: issueNavigationConfig,
+    issueNavigationConfig,
 
     // Actions
     browseRepository,
@@ -265,34 +240,12 @@ export function provideRepository() {
 }
 
 // Use repository state
-export function useRepository(): RepositoryState {
-  const state = inject<RepositoryState>(RepositoryKey)
+export function useRepository() {
+  const state = inject<ReturnType<typeof createRepositoryState>>(RepositoryKey)
   if (!state) {
     throw new Error("Repository state not provided. Make sure to call provideRepository() at the app level.")
   }
   return state
-}
-
-function setupRepositoryPersistence(
-  recentProjects: Ref<ProjectMetadata[]>,
-) {
-  // Watch recent projects
-  watchDebounced(
-    recentProjects,
-    async (newProjects) => {
-      try {
-        await appStore.set("recentProjects", newProjects.length ? newProjects : null)
-      }
-      catch (error) {
-        logError("Failed to save recent projects", error)
-      }
-    },
-    {
-      debounce: PERSISTENCE_DEBOUNCE_MS,
-      deep: true,
-      flush: "post",
-    },
-  )
 }
 
 // Helper for internal errors that need to be shown via pathValidation

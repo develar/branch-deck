@@ -1,6 +1,6 @@
 use anyhow::Result;
-use branch_sync::repository_validation::BrowseResult;
 use serde::Deserialize;
+use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;
 
 /// Opens a native file dialog to browse for a git repository
@@ -15,7 +15,7 @@ pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseRes
   match file_response {
     Some(folder_path) => {
       let path = folder_path.to_string();
-      Ok(branch_sync::repository_validation::validate_and_create_result(path))
+      Ok(sync_core::repository_validation::validate_and_create_result(path))
     }
     None => Ok(BrowseResult {
       path: None,
@@ -37,7 +37,7 @@ pub struct ValidateRepositoryPathParams {
 #[specta::specta]
 #[instrument]
 pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, String> {
-  match branch_sync::repository_validation::validate_path(&params.path) {
+  match sync_core::repository_validation::validate_path(&params.path) {
     Ok(_) => Ok(String::new()),
     Err(e) => Ok(e.to_string()),
   }

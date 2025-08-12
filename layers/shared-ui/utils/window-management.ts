@@ -19,6 +19,9 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>) {
     data,
   } = options
 
+  // Get the current store snapshot
+  const storeCache = appStore.getStoreSnapshot()
+
   // Use the Rust command to create/focus the window
   const result = await commands.openSubWindow({
     windowId,
@@ -27,6 +30,7 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>) {
     width,
     height,
     data: JSON.stringify(data),
+    storeCache: JSON.stringify(storeCache),
   })
 
   if (result.status === "error") {

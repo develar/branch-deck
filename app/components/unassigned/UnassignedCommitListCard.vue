@@ -51,7 +51,6 @@
 </template>
 
 <script lang="ts" setup>
-
 import type { CommitList } from "#components"
 
 import type { Commit } from "~/utils/bindings"

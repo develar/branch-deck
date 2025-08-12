@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
-use test_utils::TestRepoGenerator;
+use test_utils::test_repo_generator::TestRepoGenerator;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Generate test Git repository with Branch Deck conflict scenarios", long_about = None)]

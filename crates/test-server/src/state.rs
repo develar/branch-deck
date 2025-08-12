@@ -1,6 +1,7 @@
 use dashmap::DashMap;
-use git_ops::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
@@ -9,6 +10,7 @@ pub struct AppState {
   pub path_to_id: DashMap<String, String>, // path -> repository_id
   pub git_executor: GitCommandExecutor,
   pub test_root_dir: tempfile::TempDir,
+  pub templates_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

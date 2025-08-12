@@ -1,9 +1,11 @@
-use crate::test_utils::{convert_to_raw_git_format, CommitDiff, FileDiff};
+use crate::test_utils::{CommitDiff, FileDiff, convert_to_raw_git_format};
 use anyhow::Result;
 use git_ops::model::CommitInfo;
 use insta::{assert_yaml_snapshot, with_settings};
-use model_core::{prompt::MAX_BRANCH_NAME_LENGTH, ModelConfig};
-use model_core::{QuantizedQwen3BranchGenerator, Qwen25BranchGenerator};
+use model_core::config::ModelConfig;
+use model_core::prompt::MAX_BRANCH_NAME_LENGTH;
+use model_core::quantized_qwen3::QuantizedQwen3BranchGenerator;
+use model_core::qwen25::Qwen25BranchGenerator;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -27,7 +29,7 @@ async fn get_test_model_paths(model: &ModelConfig) -> Result<PathBuf> {
   let model_path = PathBuf::from(home_dir).join("Library/Caches/branch-deck/models").join(model_dir);
 
   if !model_path.exists() {
-    eprintln!("Test model not found at {}. Skipping generation tests for {:?}.", model_path.display(), model);
+    tracing::debug!(path = %model_path.display(), ?model, "Test model not found. Skipping generation tests");
     return Err(anyhow::anyhow!("Test model not found"));
   }
   Ok(model_path)
@@ -42,15 +44,15 @@ enum BranchGenerator {
 impl BranchGenerator {
   async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, is_alternative: bool) -> Result<model_core::BranchNameResult> {
     match self {
-      BranchGenerator::Qwen25(gen) => gen.generate_branch_name(prompt, max_tokens, is_alternative).await,
-      BranchGenerator::QuantizedQwen3(gen) => gen.generate_branch_name(prompt, max_tokens, is_alternative).await,
+      BranchGenerator::Qwen25(generator) => generator.generate_branch_name(prompt, max_tokens, is_alternative).await,
+      BranchGenerator::QuantizedQwen3(generator) => generator.generate_branch_name(prompt, max_tokens, is_alternative).await,
     }
   }
 
   fn create_prompt(&self, git_output: &str) -> Result<String> {
     match self {
-      BranchGenerator::Qwen25(gen) => gen.create_prompt(git_output),
-      BranchGenerator::QuantizedQwen3(gen) => gen.create_prompt(git_output),
+      BranchGenerator::Qwen25(generator) => generator.create_prompt(git_output),
+      BranchGenerator::QuantizedQwen3(generator) => generator.create_prompt(git_output),
     }
   }
 }
@@ -463,35 +465,37 @@ async fn test_model_generation_with_snapshots() {
       Ok(model_path) => {
         let generator = match model {
           ModelConfig::Qwen25Coder15B | ModelConfig::Qwen25Coder3B => {
-            let mut gen = Qwen25BranchGenerator::new();
-            if let Err(e) = gen.load_model(model_path).await {
-              eprintln!("Failed to load Qwen2.5 model: {e}. Skipping.");
+            let mut qwen25_gen = Qwen25BranchGenerator::new();
+            if let Err(e) = qwen25_gen.load_model(model_path).await {
+              tracing::warn!(error = %e, "Failed to load Qwen2.5 model. Skipping");
               continue;
             }
-            BranchGenerator::Qwen25(gen)
+            BranchGenerator::Qwen25(qwen25_gen)
           }
           ModelConfig::Qwen3_17B => {
-            let mut gen = QuantizedQwen3BranchGenerator::new();
-            if let Err(e) = gen.load_model(model_path).await {
-              eprintln!("Failed to load Quantized Qwen3 model: {e}. Skipping.");
+            let mut qwen3_gen = QuantizedQwen3BranchGenerator::new();
+            if let Err(e) = qwen3_gen.load_model(model_path).await {
+              tracing::warn!(error = %e, "Failed to load Quantized Qwen3 model. Skipping");
               continue;
             }
-            BranchGenerator::QuantizedQwen3(gen)
+            BranchGenerator::QuantizedQwen3(qwen3_gen)
           }
         };
         generators.insert(*model, generator);
       }
       Err(_) => {
-        eprintln!("Model {model:?} not found, skipping");
+        tracing::debug!(?model, "Model not found, skipping");
       }
     }
   }
 
   if generators.is_empty() {
-    eprintln!("No models loaded. Skipping tests.");
-    eprintln!("To run these tests, ensure models are downloaded to:");
-    eprintln!("  ~/Library/Caches/branch-deck/models/qwen25-coder-05b");
-    eprintln!("  ~/Library/Caches/branch-deck/models/qwen3-17b");
+    tracing::warn!(
+      "No models loaded. Skipping tests. \
+       To run these tests, ensure models are downloaded to: \
+       ~/Library/Caches/branch-deck/models/qwen25-coder-05b or \
+       ~/Library/Caches/branch-deck/models/qwen3-17b"
+    );
     return;
   }
 
@@ -575,7 +579,7 @@ async fn test_model_generation_with_snapshots() {
             verify_prompt_characteristics(model_config, &model_prompt, *use_files_only, scenario_name);
           }
           Err(e) => {
-            eprintln!("    Failed to generate for {model_config:?}: {e}");
+            tracing::warn!(?model_config, error = %e, "Failed to generate branch name");
           }
         }
       }

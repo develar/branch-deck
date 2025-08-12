@@ -14,14 +14,7 @@
     ]
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "BranchDeck",
-        "width": 1024,
-        "height": 900
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

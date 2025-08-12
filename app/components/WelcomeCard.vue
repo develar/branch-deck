@@ -4,7 +4,9 @@
       <template #header>
         <div class="flex items-center gap-2">
           <UIcon name="i-lucide-git-branch" class="size-5 text-primary" />
-          <h3 class="text-lg font-semibold">Welcome to Branch Deck!</h3>
+          <h3 class="text-lg font-semibold">
+            Welcome to Branch Deck!
+          </h3>
         </div>
       </template>
 
@@ -24,7 +26,9 @@
               </div>
             </div>
             <div class="flex-1">
-              <h4 class="font-medium mb-1">Select a Git repository</h4>
+              <h4 class="font-medium mb-1">
+                Select a Git repository
+              </h4>
               <p class="text-sm text-muted">
                 Use the repository selector above or click the folder icon to browse for your project.
               </p>
@@ -39,7 +43,9 @@
               </div>
             </div>
             <div class="flex-1">
-              <h4 class="font-medium mb-1">Configure your branch prefix</h4>
+              <h4 class="font-medium mb-1">
+                Configure your branch prefix
+              </h4>
               <p class="text-sm text-muted mb-2">
                 Set a default prefix for your branches to keep them organized. For example: <code class="text-xs bg-muted/20 px-1 py-0.5 rounded">username/</code>
               </p>
@@ -68,7 +74,6 @@
         </div>
       </div>
     </UCard>
-
   </div>
 </template>
 

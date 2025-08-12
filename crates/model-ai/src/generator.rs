@@ -1,6 +1,11 @@
 use crate::path_provider::ModelPathProvider;
 use anyhow::{Context, Result};
-use model_core::{BranchNameResult, GeneratorType, ModelConfig, QuantizedQwen3BranchGenerator, Qwen25BranchGenerator, Qwen3BranchGenerator};
+use model_core::BranchNameResult;
+use model_core::config::ModelConfig;
+use model_core::generator_type::GeneratorType;
+use model_core::quantized_qwen3::QuantizedQwen3BranchGenerator;
+use model_core::qwen3::Qwen3BranchGenerator;
+use model_core::qwen25::Qwen25BranchGenerator;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -89,12 +94,12 @@ impl ModelBasedBranchGenerator {
 
   pub async fn ensure_model_loaded(&mut self, provider: &dyn ModelPathProvider) -> Result<()> {
     // Quick check: if already loaded, return immediately
-    if let Some(ref generator) = self.generator {
-      if generator.is_loaded() {
-        let mut loading_state = self.loading_state.lock().await;
-        *loading_state = ModelLoadingState::Loaded;
-        return Ok(());
-      }
+    if let Some(ref generator) = self.generator
+      && generator.is_loaded()
+    {
+      let mut loading_state = self.loading_state.lock().await;
+      *loading_state = ModelLoadingState::Loaded;
+      return Ok(());
     }
 
     // Check loading state with coordination
@@ -104,10 +109,10 @@ impl ModelBasedBranchGenerator {
       match &*loading_state {
         ModelLoadingState::Loaded => {
           // Another thread loaded it - verify our generator is set
-          if let Some(ref generator) = self.generator {
-            if generator.is_loaded() {
-              return Ok(());
-            }
+          if let Some(ref generator) = self.generator
+            && generator.is_loaded()
+          {
+            return Ok(());
           }
           // Fall through to reload if generator is inconsistent
           *loading_state = ModelLoadingState::NotLoaded;

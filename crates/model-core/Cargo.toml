@@ -1,14 +1,14 @@
 [package]
 name = "model-core"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Core ML inference package for branch name generation"
 
 [dependencies]
 # ML/AI inference stack (package-specific)
-candle-core = { git = "https://github.com/huggingface/candle.git", rev = "1ef13411b5fce996ce5abb7497905bf2e4b64f79", default-features = false }
-candle-nn = { git = "https://github.com/huggingface/candle.git", rev = "1ef13411b5fce996ce5abb7497905bf2e4b64f79", default-features = false }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", rev = "1ef13411b5fce996ce5abb7497905bf2e4b64f79", default-features = false }
+candle-core = { git = "https://github.com/huggingface/candle.git", rev = "be4f920f35b99af5919a86c0a2e08a78f3f63567", default-features = false }
+candle-nn = { git = "https://github.com/huggingface/candle.git", rev = "be4f920f35b99af5919a86c0a2e08a78f3f63567", default-features = false }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", rev = "be4f920f35b99af5919a86c0a2e08a78f3f63567", default-features = false }
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 
 # Core utilities (shared via workspace)
@@ -30,3 +30,4 @@ cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+test-log = { workspace = true }

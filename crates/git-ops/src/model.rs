@@ -1,17 +1,20 @@
 use anyhow::ensure;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "specta")]
 use specta::Type;
 
 /// Simple commit information with hash and message.
 /// Used for passing commit data between frontend and backend.
-#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 pub struct CommitInfo {
   pub hash: String,
   pub message: String,
 }
 
 /// Status of a branch synchronization operation.
-#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "specta", derive(Type))]
 pub enum BranchSyncStatus {
   Created,
   Updated,
@@ -22,7 +25,8 @@ pub enum BranchSyncStatus {
 }
 
 /// Status of a commit synchronization.
-#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "specta", derive(Type))]
 pub enum CommitSyncStatus {
   Pending,
   Created,
@@ -34,7 +38,8 @@ pub enum CommitSyncStatus {
 /// Represents details of a conflict during a cherry-pick operation.
 ///
 /// Includes the path of the conflicted file, its status, and the diff details for the conflict.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictDetail {
   pub file: String,
@@ -50,7 +55,8 @@ pub struct ConflictDetail {
 /// Details about a merge conflict encountered during a cherry-pick operation.
 ///
 /// Contains information about the conflicting files, associated commit details, and conflict analysis results.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MergeConflictInfo {
   pub commit_message: String,
@@ -73,7 +79,8 @@ pub struct MergeConflictInfo {
   pub conflict_marker_commits: std::collections::HashMap<String, ConflictMarkerCommitInfo>,
 }
 /// Information about a commit referenced in conflict markers
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictMarkerCommitInfo {
   pub hash: String,
@@ -84,7 +91,8 @@ pub struct ConflictMarkerCommitInfo {
 }
 
 /// Branch operation errors.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 pub enum BranchError {
   Generic(String),
   MergeConflict(Box<MergeConflictInfo>),
@@ -101,6 +109,13 @@ pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::R
   let sanitized_name = sanitize_branch_name(name);
 
   Ok(format!("{prefix}/virtual/{sanitized_name}"))
+}
+
+/// Extract the simple branch name from a full virtual branch name
+/// e.g., "user/virtual/feature-auth" -> "feature-auth"
+pub fn extract_branch_name_from_final(full_branch_name: &str, branch_prefix: &str) -> Option<String> {
+  let prefix = format!("{}/virtual/", branch_prefix.trim_end_matches('/'));
+  full_branch_name.strip_prefix(&prefix).map(|s| s.to_string())
 }
 
 /// Sanitizes a branch name to make it valid for Git references

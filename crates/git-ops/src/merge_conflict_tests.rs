@@ -1,10 +1,11 @@
 use super::cache::TreeIdCache;
 use super::cherry_pick::perform_fast_cherry_pick_with_context;
 use super::copy_commit::CopyCommitError;
-use super::git_command::GitCommandExecutor;
 use super::model::BranchError;
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use test_utils::git_test_utils::{setup_deletion_conflict, ConflictTestBuilder, TestRepo};
+use test_log::test;
+use test_utils::git_test_utils::{ConflictTestBuilder, TestRepo, setup_deletion_conflict};
 
 #[test]
 fn test_conflict_hunks_extraction() {
@@ -39,8 +40,8 @@ fn test_conflict_hunks_extraction() {
     // Verify the file name
     assert_eq!(conflict_detail.file, "test.txt");
 
-    // Debug: print conflict detail
-    println!("Conflict detail: {conflict_detail:?}");
+    // Debug: log conflict detail
+    tracing::debug!(?conflict_detail, "Conflict detail");
 
     // Verify we have a full diff
     let file_diff = &conflict_detail.file_diff;
@@ -69,10 +70,10 @@ fn test_conflict_hunks_extraction() {
     assert!(has_cherry_change, "Conflict hunks should contain cherry-pick changes");
     assert!(has_base_content, "Conflict hunks should contain base content (zdiff3)");
 
-    // Print conflict hunks for debugging
-    println!("\\nConflict hunks for test.txt:");
+    // Log conflict hunks for debugging
+    tracing::debug!("Conflict hunks for test.txt:");
     for (i, hunk) in file_diff.hunks.iter().enumerate() {
-      println!("\\nHunk {}:\\n{}", i + 1, hunk);
+      tracing::debug!(hunk_number = i + 1, hunk, "Conflict hunk");
     }
   } else {
     panic!("Expected MergeConflict error, got: {result:?}");
@@ -510,9 +511,9 @@ init {
     assert_eq!(conflict_detail.file_diff.old_file.content, "", "old_file should be empty");
 
     // Debug output to see what's being generated
-    eprintln!("Conflict content length: {}", conflict_content.len());
-    eprintln!("Number of hunks: {}", conflict_detail.file_diff.hunks.len());
-    eprintln!("Hunks: {:?}", conflict_detail.file_diff.hunks);
+    tracing::debug!(length = conflict_content.len(), "Conflict content length");
+    tracing::debug!(count = conflict_detail.file_diff.hunks.len(), "Number of hunks");
+    tracing::debug!(hunks = ?conflict_detail.file_diff.hunks, "Hunks");
 
     // Verify hunks show conflict markers as additions
     assert!(!conflict_detail.file_diff.hunks.is_empty(), "Should have hunks");
@@ -606,8 +607,8 @@ return result;
 
     // Count conflict regions (each <<<<<<< marks a new conflict)
     let conflict_start_count = conflict_content.matches("<<<<<<<").count();
-    eprintln!("Conflict content:\n{conflict_content}");
-    eprintln!("Number of conflict regions found: {conflict_start_count}");
+    tracing::debug!(conflict_content, "Conflict content");
+    tracing::debug!(conflict_start_count, "Number of conflict regions found");
     // Git merge-tree may combine nearby conflicts into a single region
     assert!(conflict_start_count >= 1, "Should have at least 1 conflict region, found {conflict_start_count}");
 
@@ -735,13 +736,13 @@ init {
       conflict_content.contains("InternalThreading.TransferredWriteActionEvent"),
       "Should contain cherry's new event type"
     );
-    eprintln!("Real world conflict content:\n{conflict_content}");
-    eprintln!("Number of conflict regions found: {}", conflict_content.matches("<<<<<<<").count());
+    tracing::debug!(conflict_content, "Real world conflict content");
+    tracing::debug!(count = conflict_content.matches("<<<<<<<").count(), "Number of conflict regions found");
 
     // Verify empty old_file content
     assert_eq!(conflict_detail.file_diff.old_file.content, "", "old_file should be empty");
 
-    println!("Real-world conflict captured successfully");
+    tracing::debug!("Real-world conflict captured successfully");
   } else {
     panic!("Expected MergeConflict error");
   }

@@ -4,14 +4,18 @@
     <UAlert icon="i-lucide-info" color="neutral" variant="subtle">
       <template #description>
         <div class="space-y-2 text-sm">
-          <p class="font-medium">Understanding 3-way merge conflicts</p>
+          <p class="font-medium">
+            Understanding 3-way merge conflicts
+          </p>
           <p>This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:</p>
           <ul class="list-disc list-inside space-y-1 text-muted">
             <li><strong>Base (Common Ancestor)</strong>: The original content before the branches diverged</li>
             <li><strong>Target Branch</strong>: How the file changed in your current branch</li>
             <li><strong>Cherry-pick</strong>: How the file changed in the commit you're trying to apply</li>
           </ul>
-          <p class="text-xs text-muted mt-2">The conflict occurs because both branches modified the same parts of the file differently.</p>
+          <p class="text-xs text-muted mt-2">
+            The conflict occurs because both branches modified the same parts of the file differently.
+          </p>
         </div>
       </template>
     </UAlert>
@@ -38,6 +42,7 @@
             class="h-[600px] w-full"
           >
             <!-- Base Version -->
+            <!-- @vue-expect-error collapsed prop works at runtime -->
             <SplitterPanel
               :id="`${index}-base`"
               :collapsible="true"
@@ -171,7 +176,9 @@
 
     <div v-else class="text-center py-8">
       <UIcon name="i-lucide-git-merge" class="size-8 text-muted mx-auto mb-2" />
-      <p class="text-sm text-muted">No conflicts to display</p>
+      <p class="text-sm text-muted">
+        No conflicts to display
+      </p>
     </div>
   </div>
 </template>

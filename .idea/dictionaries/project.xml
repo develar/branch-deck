@@ -3,10 +3,13 @@
     <words>
       <w>branchdeck</w>
       <w>chatml</w>
+      <w>committerdate</w>
+      <w>deeb</w>
       <w>heroicons</w>
       <w>icns</w>
       <w>ijpl</w>
       <w>lucide</w>
+      <w>objectname</w>
       <w>opentelemetry</w>
       <w>otel</w>
       <w>otlp</w>
@@ -14,6 +17,9 @@
       <w>safetensors</w>
       <w>singleline</w>
       <w>specta</w>
+      <w>tanstack</w>
+      <w>testid</w>
+      <w>unpushed</w>
     </words>
   </dictionary>
 </component>

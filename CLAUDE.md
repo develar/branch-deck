@@ -4,80 +4,115 @@
 Desktop Git branch management tool using Nuxt 4 + Tauri v2. Use `pnpm` only.
 
 ## Quick Commands
-```bash
-pnpm install         # Install dependencies
-pnpm lint            # Lint all code (frontend + backend)
-pnpm lint:frontend   # Lint TypeScript/Vue only (faster)
-pnpm run tauri dev   # Run Tauri app
-pnpm test            # Run all tests (Rust)
-pnpm test:rust       # Run Rust tests with nextest
-pnpm e2e             # Run E2E tests
+See `package.json` for the full list of scripts.
 
-# TypeScript bindings regenerate automatically with `pnpm run tauri dev`
+```bash
+# Core Development
+pnpm install              # Install dependencies
+pnpm run tauri dev        # Run the full Tauri app (frontend + backend)
+pnpm dev                  # Run only the Nuxt frontend
+
+# Testing
+pnpm test                 # Run all tests (Rust and E2E)
+pnpm test:backend         # Run backend tests with nextest (fast)
+pnpm test-model-ai        # Run AI model tests (requires --release)
+pnpm e2e                  # Run Playwright E2E tests
+DEBUG_E2E=1 pnpm e2e      # Run E2E tests with verbose debug output
+
+# Linting & Formatting
+pnpm lint                 # Run all linting and formatting
+pnpm lint:backend         # Format and lint Rust code (clippy --fix)
+pnpm lint:frontend        # Lint and type-check TypeScript/Vue
 ```
+
+## ⚠️ Critical Testing Rule
+**NEVER use `cargo test` - ALWAYS use `cargo nextest run`**
+
+This is not optional. `nextest` is mandatory for all Rust testing because it provides:
+- **Automatic retries** for flaky tests
+- **Parallel execution** for speed
+- **Better output formatting** and diffs
+- **Proper test isolation**
+
+Using `cargo test` may lead to incorrect results or miss failures.
+
+## Technology Stack
+We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
+- **Nuxt 4**: With auto-imports and layers architecture.
+- **Tauri v2**: For the desktop application shell.
+- **Vue 3**: Using the Composition API and `<script setup>`.
+- **TypeScript 5**: With strict mode enabled.
+- **Tailwind CSS v4**: Using the new, faster Rust-based engine.
+- **Vite**: As the build tool for the frontend.
+- **Pinia**: For global state management, with Zod for schema validation.
+- **Nextest**: As the test runner for all Rust tests.
+- **Playwright**: For End-to-End (E2E) testing.
+
+## Recent Features
+- **Integration Status**: Auto-detection and archiving of merged, rebased, or squashed branches.
+- **AI Branch Naming**: On-device ML model to generate branch names from unassigned commits.
+- **Context Menus**: Right-click operations (`UContextMenu`) for common actions on branches and commits.
 
 ## Development Rules
 
 ### Git Operations
-- All git operations use CLI via `GitCommandExecutor`
-- Always use `--no-pager` flag
-- Handle special exit codes (merge-tree exit 1 = conflicts)
+- All git operations use the CLI via the `GitCommandExecutor` in Rust.
+- Always use the `--no-pager` flag for non-interactive commands.
+- Handle special exit codes (e.g., `git merge-tree` exiting with 1 indicates conflicts).
+
+### Rust Import Rules
+- **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.
+- **Explicit Imports**: All imports must use full module paths (e.g., `use git_executor::git_command_executor::GitCommandExecutor`).
+- **Module Structure**: Make modules public with `pub mod` instead of re-exporting their contents.
+- **Clarity**: Every import should clearly show where types and functions originate from.
 
 ### Code Style
-- **UI**: Semantic colors only (`text-muted`, `bg-default`), never `dark:` classes
-- **Icons**: Lucide only (`i-lucide-*`), semantic sizes (`size-3`)
-- **TypeScript**: u32 for timestamps, snake_case for Rust bindings
-- **Spacing**: Parent `space-y-*` instead of child `mt-*`
-- **Components**: `UTooltip` for text, `UPopover` for rich content, `UKbd` for shortcuts
+- **UI**: Use semantic colors only (e.g., `text-muted`, `bg-default`). **Never** use `dark:` variants; the theme is handled automatically.
+- **Icons**: Use Lucide icons only (`i-lucide-*`) with semantic sizes (e.g., `size-3`).
+- **Spacing**: Prefer parent `space-y-*` for vertical spacing over individual child `mt-*`.
+- **Components**: Use `UTooltip` for simple text tooltips and `UPopover` for rich content. Use `UKbd` for keyboard shortcuts.
+- **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
+- **Rust**: Use `snake_case` for all variables and functions.
+- **Imports**: Always use explicit, full module paths. Never use `pub use` re-exports. Examples:
+  - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
+  - ✅ `use sync_types::issue_navigation::IssueNavigationConfig`
+  - ❌ `pub use config::ModelConfig` (in lib.rs)
 
-### Button Styling Guidelines
-- **Colors**:
-  - `primary`: Main actions (e.g., Sync button when active)
-  - `neutral`: Secondary actions and utility buttons (default for most buttons)
-  - `error`: Error states and destructive actions
-  - `warning`/`info`: Contextual states
-- **Variants**:
-  - `ghost`: Utility buttons with minimal styling (e.g., copy, expand/collapse)
-  - `outline`: Secondary actions with borders
-  - `solid`: Primary actions with filled backgrounds
-  - `soft`: Subtle background for suggestions and badges
-- **Sizes**: Use `xs` for table/compact layouts, `sm` for standard buttons
-- **Copy Buttons**: Always `color="neutral"`, `variant="ghost"`, `size="xs"`
-- **Modal Buttons**: Primary action (default), Cancel (`variant="ghost"`)
-- **Icon Buttons**: Always include tooltips for accessibility
+### Naming Conventions
+- **Components**: PascalCase (e.g., `BranchTableCard.vue`).
+- **Composables**: camelCase with `use` prefix (e.g., `useRepository.ts`).
+- **Stores**: camelCase (e.g., `repositoryStore.ts`).
+- **Rust modules**: snake_case (e.g., `git_ops.rs`).
 
-### Testing
-- Run `pnpm lint` before commits
-- Rust tests use **nextest** runner with automatic retries
-- Use `TestRepo` framework in Rust tests
-- Use `pretty_assertions` for better test failure diffs
-- E2E tests use Playwright with custom test fixtures
+### Nuxt Auto-imports (IMPORTANT!)
+- **ALL** composables, types, and utilities are auto-imported by Nuxt 4.
+- **NEVER** manually import Vue APIs (`ref`, `computed`), Nuxt composables, or project utilities/types.
+- In Vue templates, refs are automatically unwrapped (no `.value` needed).
 
-## AI Model Integration
+## Performance & Debugging
 
-**Default Model**: Qwen3-1.7B (1.83GB) - Fast (2-3s) branch name generation
+### Performance Guidelines
+- **Frontend**: Use virtual scrolling for large lists. Debounce user inputs where appropriate (e.g., using `p-debounce`).
+- **Backend**: Batch Git operations using `--stdin` where possible. Always use `--no-pager`.
+- **AI/ML**: Always build with `--release` for ML inference (it's 8-10x faster). In dev mode, only ML dependencies are optimized to keep rebuilds fast.
 
-**Important**: Always build with `--release` for ML inference (8-10x faster)
+### Debugging & Troubleshooting
+- **Slow ML inference**: Ensure you are running in `--release` mode.
+- **E2E Test Issues**: Run with `DEBUG_E2E=1` for verbose logging from the mock server.
+- **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 
-### Development Optimization
-- Only ML dependencies are optimized in dev mode (candle-*, tokenizers)
-- All other code remains unoptimized for fast rebuilds
-- This gives ~2-3x faster ML inference in development while keeping build times fast
-
-### Model Architecture
-Three-tier separation for clean architecture:
-- **model-core**: Core ML inference engine (candle, tokenizers)
-- **model-ai**: Domain logic, prompt engineering, generators
-- **model-tauri**: Tauri integration layer (commands, progress, downloads)  
-
-
-
-
-
-
-
+## Error Handling Patterns
+- **Frontend**: Use toast notifications for user-facing errors. Log detailed errors to the Tauri log plugin.
+- **Backend (Rust)**: Use the `tracing` crate for structured logging. Use `#[instrument]` to automatically trace function entry/exit and arguments. Return proper `Result` types, not strings.
 
 ## Architecture
+
+### Design Documents
+- [Async Patterns and spawn_blocking](docs/architecture/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
+- [Distributed Settings Architecture](docs/architecture/distributed-settings.md) - Settings synchronization across windows
+- [E2E Testing Architecture](docs/architecture/e2e-testing.md) - E2E test infrastructure with mock Tauri API
+- [Integration Detection and Caching](docs/architecture/integration-detection-caching.md) - How branch integration detection works with git notes caching
+- [Import Guidelines](docs/architecture/import-guidelines.md) - No re-exports policy and proper import patterns
 
 ### Layer Structure
 - **shared-ui**: Basic UI components and utilities
@@ -86,141 +121,11 @@ Three-tier separation for clean architecture:
 - **app**: Application-specific features
 
 ### State Management
-- Use Pinia stores for global state
-- Stores use Zod schemas for validation and defaults
-- Persistence handled by Pinia plugin (auto-saves to Tauri store)
-- Use reactive Maps for collections
-- Compute arrays from Maps for reactivity
+- Use Pinia stores for global state with Zod schemas for validation.
+- Persistence is handled by a Pinia plugin that auto-saves to the Tauri store.
+- Use reactive `Map` objects for collections and `computed` properties to derive arrays for reactivity.
 
-### Nuxt Auto-imports (IMPORTANT!)
-- **ALL** composables, types, and utilities are auto-imported by Nuxt 4
-- **NEVER** manually import: Vue APIs, Nuxt composables, project composables, or their types
-- This includes: `ref`, `computed`, `watch`, `useRepository`, `RepositoryState`, etc.
-- Auto-imports work in both components AND composables
-- In Vue templates, refs are automatically unwrapped (no `.value` needed)
-
-### Key Patterns
-- Use `#[instrument]` for Rust tracing
-- Batch git operations with `--stdin`
-- Use `GitCommandExecutor` for all git operations
-- When destructuring from composables, refs keep their reactive nature
-- Always destructure only what you need: `const { pathValidation } = useRepository()`
-
-
-
-## UI Patterns
-
-### Key Components
-- **Modals**: Use `useOverlay()` for programmatic modals
-- **Toasts**: Use `toast.update()` for progress notifications
-- **Forms**: Use `UForm` with validation schemas
-
-
-
-### Button Conventions
-- Modal buttons: `[Cancel] [Primary Action]` right-aligned
-- Use `variant="ghost"` for cancel buttons
-- Copy buttons: Use `color="neutral"` (not `text-muted`)
-
-
-
-## Conflict Handling
-- Uses `git merge-tree --write-tree` for detection
-- Shows 3-way merge view with base, target, and cherry-pick
-- Pre-fetches commit info for conflict markers
-
-### How Branch Deck Conflicts Work
-Branch Deck groups commits by branch prefix and cherry-picks them to virtual branches. Conflicts occur when this grouping changes the order of commits from their linear history.
-
-**Example Linear History:**
-```
-1. (feature-auth) Add authentication
-2. (feature-cache) Add caching  
-3. (feature-auth) Integrate auth with cache (depends on commit 2)
-4. (feature-cache) Optimize cache with auth (depends on commit 1)
-```
-
-**When Grouped:**
-- feature-auth branch gets: commits 1, 3
-- feature-cache branch gets: commits 2, 4
-
-Commit 3 expects caching from commit 2 (missing in feature-auth) → **CONFLICT**
-
-### Missing Commits
-"Missing commits" are commits that:
-- Exist in the source branch's history but NOT in the target branch
-- Modified the same files that are now in conflict
-- Can be assigned (with prefix) or unassigned (no prefix)
-
-The UI shows "X commits behind target" to indicate how many commits the target is missing.
-
-### Test Repository Requirements
-A good test repo needs:
-1. **Interleaved commits** with different prefixes modifying the same files
-2. **Dependencies between commits** with different prefixes  
-3. **Mix of assigned and unassigned commits**
-4. **Clear order-dependent changes** that will conflict when reordered
-
-## Window Management
-- Use `openSubWindow()` utility from shared-ui layer
-- Sub-windows use handshake pattern for data transfer
-- Pages use `definePageMeta({ layout: false })`
-
-
-## E2E Testing
-- Tests use Playwright with Tauri `mockIPC` API
-- Test server on port 3030 handles Tauri commands
-- Use custom `base-test` fixture for automatic mocking
-- **Debug E2E tests**: Use `DEBUG_E2E=1 pnpm e2e` to see Tauri mock debug logs
-
-## E2E Test Architecture
-
-### Test Isolation
-Each test runs with its own isolated repository:
-1. Test calls `setupRepo("template_name")` which creates repository via test server
-2. Test server copies pre-created template to new isolated directory
-3. Test navigates to `/?repoId=xxx` - this ID is used by tauri mock for isolation
-4. All commands use this repository ID to maintain test isolation
-
-### Template System
-- Templates are pre-created when test server starts (in `tests/test-repos/`)
-- Each test gets a fresh copy of the template in an isolated directory
-- Available templates:
-  - `simple`: Basic git repo with 2 commits
-  - `unassigned`: Repository with commits lacking branch prefix
-  - `conflict_*`: Various conflict scenarios
-  - `NO_REPO`: Special - creates entry without actual directory
-  - `empty-non-git`: Directory without git initialization
-
-### How Commands Find Their Repository
-Most Tauri commands receive `repository_path` in their request parameters. The test server:
-1. Uses `path_to_id` map to find repository ID from path
-2. Validates the repository exists in test state
-3. Executes the command on that repository
-
-### browse_repository Special Behavior
-Unlike other commands, `browse_repository`:
-- Does NOT receive a repository path (it's browsing for one)
-
-### Test Configuration
-Tests can configure mock behavior using `__BRANCH_DECK_TEST_CONFIG__`:
-```javascript
-await page.addInitScript(() => {
-  (globalThis as any).__BRANCH_DECK_TEST_CONFIG__ = {
-    browseRepository: {
-      returnInvalid: true  // Will use template that fails validation
-    }
-  }
-})
-```
-
-## Test Configuration
-- **nextest**: Fast parallel test runner with automatic retries
-- **pretty_assertions**: Colored diffs for test failures
-- Config in `.config/nextest.toml` (minimal by design)
-- Run `cargo nextest run` for better test output
-
-## File Structure
+### File Structure
 ```
 layers/
 ├── shared-ui/       # Basic UI components and utilities
@@ -235,34 +140,27 @@ app/
 ├── utils/           # App utilities (appStore, etc.)
 src-tauri/
 ├── commands/        # Tauri commands
-├── auto_update.rs   # Auto-update functionality
-├── menu.rs          # Application menu
-├── progress.rs      # Progress reporting
-├── telemetry.rs     # OpenTelemetry integration
+├── ...
 crates/
 ├── git-ops/         # Git operations library
-├── model-ai/        # AI model inference
-├── model-core/      # Core AI types
+├── model-ai/        # AI model inference & domain logic
+├── model-core/      # Core AI types (e.g. candle, tokenizers)
 ├── model-tauri/     # Tauri integration for AI models
 ├── branch-sync/     # Branch sync logic
-├── test-utils/      # Testing utilities
-├── test-server/     # E2E test server
+└── ...
 ```
 
+## How Branch Deck Virtual Branches Work
+### Core Concept
+Branch Deck automatically groups commits by prefix (e.g., `(feature-auth)`) and creates virtual branches by cherry-picking these grouped commits onto a new base.
 
+### The Sync Process
+1.  **Commit Grouping**: `CommitGrouper` reads commits and groups them by prefix.
+2.  **Virtual Branch Creation**: For each group, it creates a branch `{user}/virtual/{prefix}` by cherry-picking commits.
+3.  **Note Structure**: Git notes are created on the NEW virtual commits to track the ORIGINAL commit OID, for reverse tracking.
 
+## Conflict Handling
+- Uses `git merge-tree --write-tree` for conflict detection.
+- Shows a 3-way merge view (base, target, cherry-pick).
+- Conflicts occur when grouping by prefix changes the linear history of commits that depend on each other.
 
-
-## TanStack Table
-- Use commit hashes as row IDs for stable selection
-- Let TanStack handle selection state
-- Convert between v-model array and TanStack object format
-
-## Key Patterns
-
-- **State**: Pinia stores for global, reactive Maps for collections
-- **UI**: Semantic colors, Lucide icons, parent spacing
-- **Git**: CLI only with special exit code handling
-- **Windows**: Handshake pattern for data transfer
-- **Testing**: Run `pnpm lint` before commits
-- **Types**: snake_case for Rust, u32 for timestamps

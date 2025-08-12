@@ -308,8 +308,6 @@ function getCommitStatusText(status: CommitSyncStatus, error?: BranchError | nul
   return status
 }
 
-// Remove old keyboard event listener setup - now handled in template
-
 // Expose table instance for parent components
 defineExpose({
   table,

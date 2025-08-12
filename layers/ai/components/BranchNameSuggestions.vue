@@ -77,10 +77,10 @@ const emit = defineEmits<{
 }>()
 
 // AI state
-const { aiMode, isInitial } = await useAIToggle()
+const { aiMode, isInitial } = useAIToggle()
 
 // Branch suggestions with AI
-const { suggestions, isGenerating: isLoading, loadingProgress } = await useBranchSuggestions({
+const { suggestions, isGenerating: isLoading, loadingProgress } = useBranchSuggestions({
   repositoryPath: props.repositoryPath,
   branchPrefix: props.branchPrefix,
   commits: computed(() => props.commits),

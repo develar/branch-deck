@@ -1,6 +1,6 @@
+use crate::BranchNameResult;
 use crate::constants::LOGITS_PROCESSOR_SEED;
 use crate::utils::{clean_branch_name, detect_device, truncate_tokens_if_needed};
-use crate::BranchNameResult;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -130,11 +130,11 @@ impl Qwen25BranchGenerator {
       }
 
       // Early stopping for newlines or common separators in branch names
-      if let Ok(token_text) = tokenizer.decode(&[next_token], false) {
-        if token_text.contains('\n') || token_text.contains("```") {
-          debug!("Found separator, stopping generation");
-          break;
-        }
+      if let Ok(token_text) = tokenizer.decode(&[next_token], false)
+        && (token_text.contains('\n') || token_text.contains("```"))
+      {
+        debug!("Found separator, stopping generation");
+        break;
       }
     }
 

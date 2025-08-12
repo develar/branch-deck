@@ -1,10 +1,13 @@
 [package]
 name = "git-ops"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Git operations and repository management for Branch Deck"
 
 [dependencies]
+# Core git functionality
+git-executor = { path = "../git-executor" }
+
 # Core utilities (shared via workspace)
 anyhow.workspace = true
 serde.workspace = true
@@ -13,14 +16,16 @@ tracing.workspace = true
 # Git and file operations
 dashmap.workspace = true
 
+
 # Tauri dependencies for IPC
 tauri.workspace = true
-specta.workspace = true
+specta = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }
-tracing-subscriber.workspace = true
 pretty_assertions = { workspace = true }
+test-log = { workspace = true }
 
 [features]
 default = []
+specta = ["dep:specta"]

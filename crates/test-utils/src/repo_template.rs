@@ -123,6 +123,7 @@ pub mod templates {
   use anyhow::Result;
   use std::fs;
   use std::path::Path;
+  use std::process::Command;
 
   /// Simple repository with 2 commits using branch prefix
   pub fn simple() -> RepoTemplate {
@@ -853,11 +854,48 @@ data class User(
         &[("docs.md", "# Documentation\n\nUpdated project documentation.")],
         Some(1704126600),
       )
+      // Multi-commit issue branch ABC-123 (4 commits)
+      .commit_with_timestamp(
+        "(ABC-123) Add user authentication module",
+        &[("auth/module.js", "// User authentication module\nexport class AuthModule {}")],
+        Some(1704128400),
+      )
+      .commit_with_timestamp(
+        "(ABC-123) Add password hashing utility",
+        &[("auth/hash.js", "// Password hashing utility\nexport function hashPassword() {}")],
+        Some(1704130200),
+      )
+      .commit_with_timestamp(
+        "(ABC-123) Add session management",
+        &[("auth/session.js", "// Session management\nexport class SessionManager {}")],
+        Some(1704132000),
+      )
+      .commit_with_timestamp(
+        "(ABC-123) Add authentication tests",
+        &[("test/auth.test.js", "// Authentication tests\ntest('should authenticate user', () => {})")],
+        Some(1704133800),
+      )
+      // Multi-commit issue branch JIRA-456 (3 commits)
+      .commit_with_timestamp(
+        "(JIRA-456) Fix database connection pool timeout",
+        &[("db/pool.js", "// Database connection pool\nexport const pool = { timeout: 30000 }")],
+        Some(1704135600),
+      )
+      .commit_with_timestamp(
+        "(JIRA-456) Increase pool size to 50",
+        &[("db/pool.js", "// Database connection pool\nexport const pool = { timeout: 30000, size: 50 }")],
+        Some(1704137400),
+      )
+      .commit_with_timestamp(
+        "(JIRA-456) Add connection retry logic",
+        &[("db/retry.js", "// Connection retry logic\nexport function retryConnection() {}")],
+        Some(1704139200),
+      )
       // Unassigned commit with issue reference
       .commit_with_timestamp(
         "Emergency fix for CRITICAL-111",
         &[("fix.js", "// Emergency fix for CRITICAL-111\nexport function emergencyFix() {}")],
-        Some(1704128400),
+        Some(1704141000),
       )
   }
 
@@ -880,12 +918,146 @@ data class User(
       Ok(())
     }
   }
+
+  /// Repository with archived branches (integrated, partially integrated, and not integrated)
+  /// Implements its own build to create archived refs under user-name/archived/<date>/...
+  pub struct ArchivedBranchesTemplate;
+
+  pub fn archived_branches() -> ArchivedBranchesTemplate {
+    ArchivedBranchesTemplate
+  }
+
+  impl ArchivedBranchesTemplate {
+    pub fn build(self, output_path: &Path) -> Result<()> {
+      // Initialize repo
+      fs::create_dir_all(output_path)?;
+      Command::new("git").args(["init", "--initial-branch=main"]).current_dir(output_path).output()?;
+      Command::new("git").args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
+      Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
+      Command::new("git")
+        .args(["config", "branchdeck.branchPrefix", "user-name"])
+        .current_dir(output_path)
+        .output()?;
+
+      // Helper closures
+      let write_file = |rel: &str, content: &str| -> Result<()> {
+        let full = output_path.join(rel);
+        if let Some(parent) = full.parent() {
+          fs::create_dir_all(parent)?;
+        }
+        fs::write(full, content)?;
+        Ok(())
+      };
+      let git_add_all = || -> Result<()> {
+        Command::new("git").args(["add", "."]).current_dir(output_path).output()?;
+        Ok(())
+      };
+      let git_commit = |message: &str, ts: i64| -> Result<()> {
+        let date_str = format!("{ts} +0000");
+        let mut cmd = Command::new("git");
+        cmd.env("GIT_AUTHOR_DATE", &date_str);
+        cmd.env("GIT_COMMITTER_DATE", &date_str);
+        cmd.args(["commit", "-m", message]).current_dir(output_path).output()?;
+        Ok(())
+      };
+
+      // Timestamps (fixed)
+      let t0 = 1704117600; // B0
+      let t1 = 1704117900; // F1
+      let t2 = 1704118200; // F2
+      let t3 = 1704118500; // P1
+
+      // B0: initial
+      write_file("README.md", "# Test Repo for Archived Branches\n")?;
+      write_file("src/app.txt", "init\n")?;
+      git_add_all()?;
+      git_commit("Initial commit", t0)?;
+
+      // F1: full step 1 (integrated)
+      write_file("src/full.txt", "full step 1\n")?;
+      git_add_all()?;
+      git_commit("full step 1", t1)?;
+
+      // F2: full step 2 (integrated)
+      write_file("src/full.txt", "full step 2\n")?;
+      git_add_all()?;
+      git_commit("full step 2", t2)?;
+
+      // P1: partial step 1 (integrated only first)
+      write_file("src/partial.txt", "partial step 1\n")?;
+      git_add_all()?;
+      git_commit("partial step 1", t3)?;
+
+      // Add origin remote and set origin/main to HEAD (current state with all commits)
+      Command::new("git").args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
+      let current_head = String::from_utf8(Command::new("git").args(["rev-parse", "HEAD"]).current_dir(output_path).output()?.stdout)?;
+      let current_head = current_head.trim();
+      Command::new("git")
+        .args(["update-ref", "refs/remotes/origin/main", current_head])
+        .current_dir(output_path)
+        .output()?;
+
+      // Create archived branches with their own histories, starting from the initial commit
+      let date = "2025-01-11";
+
+      // helper: checkout a detached state at initial commit
+      let co_initial = || -> Result<()> {
+        // get initial
+        let init = String::from_utf8(Command::new("git").args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?.stdout)?;
+        let init = init.trim().to_string();
+        Command::new("git").args(["checkout", "-f", &init]).current_dir(output_path).output()?;
+        Ok(())
+      };
+      let create_archived_from = |branch_name: &str, steps: &[(&str, &str, &str, i64)]| -> Result<()> {
+        co_initial()?;
+        // create a temp branch
+        let tmp = format!("tmp-{}", branch_name);
+        Command::new("git").args(["checkout", "-b", &tmp]).current_dir(output_path).output()?;
+        for (path, content, message, ts) in steps {
+          write_file(path, content)?;
+          git_add_all()?;
+          git_commit(message, *ts)?;
+        }
+        // Use the expected archived prefix as per E2E docs and snapshots
+        let full_ref = format!("user-name/archived/{date}/{branch}", branch = branch_name);
+        Command::new("git").args(["branch", &full_ref, "HEAD"]).current_dir(output_path).output()?;
+        // return to master
+        Command::new("git").args(["checkout", "-f", "main"]).current_dir(output_path).output()?;
+        // delete temp branch
+        Command::new("git").args(["branch", "-D", &tmp]).current_dir(output_path).output()?;
+        Ok(())
+      };
+
+      // feature-full archived (fully integrated): point archived ref to current main HEAD
+      // This results in zero right-side commits relative to main
+      let archived_full_ref = format!("user-name/archived/{date}/feature-full");
+      Command::new("git").args(["branch", &archived_full_ref, "HEAD"]).current_dir(output_path).output()?;
+
+      // feature-partial archived: first commit matches baseline P1, second is new
+      let p1a = 1704118500; // align with P1
+      let p2a = 1704118800; // new
+      create_archived_from(
+        "feature-partial",
+        &[
+          ("src/partial.txt", "partial step 1\n", "partial step 1", p1a),
+          ("src/partial.txt", "partial step 2\n", "partial step 2", p2a),
+        ],
+      )?;
+
+      // feature-pending archived: new content only (not on baseline)
+      let n1 = 1704119100;
+      create_archived_from("feature-pending", &[("src/pending.txt", "pending work\n", "pending work", n1)])?;
+
+      Ok(())
+    }
+  }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
   use tempfile::TempDir;
+  use test_log::test;
 
   #[test]
   fn test_simple_template() {

@@ -2,18 +2,20 @@ use axum::{
   extract::State,
   http::{HeaderMap, StatusCode},
   response::{
-    sse::{Event, KeepAlive, Sse},
     Json,
+    sse::{Event, KeepAlive, Sse},
   },
 };
-use branch_sync::progress::{ProgressReporter, SyncEvent};
-use branch_sync::sync::sync_branches_core;
 use futures::stream::{Stream, StreamExt};
 use git_ops::model::{BranchError, BranchSyncStatus};
 use model_ai::types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
+use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
+use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
+use sync_core::sync::sync_branches_core_with_cache;
+use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -36,13 +38,13 @@ fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), StatusCo
 
 pub async fn add_issue_reference_to_commits(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<branch_sync::add_issue_reference::AddIssueReferenceParams>,
-) -> Result<Json<branch_sync::add_issue_reference::AddIssueReferenceResult>, StatusCode> {
+  Json(params): Json<sync_core::add_issue_reference::AddIssueReferenceParams>,
+) -> Result<Json<sync_core::add_issue_reference::AddIssueReferenceResult>, StatusCode> {
   // Validate that the repository path belongs to a test repository
   ensure_repository_exists(&state, &params.repository_path)?;
 
   // Use the shared git executor from state
-  match branch_sync::add_issue_reference::add_issue_reference_to_commits_core(&state.git_executor, params).await {
+  match sync_core::add_issue_reference::add_issue_reference_to_commits_core(&state.git_executor, params) {
     Ok(result) => Ok(Json(result)),
     Err(e) => {
       tracing::error!("Failed to add issue reference: {}", e);
@@ -58,7 +60,7 @@ pub struct ValidateRepositoryPathRequest {
 
 pub async fn validate_repository_path(Json(request): Json<ValidateRepositoryPathRequest>) -> Json<String> {
   // Use production validation logic
-  match branch_sync::repository_validation::validate_path(&request.path) {
+  match sync_core::repository_validation::validate_path(&request.path) {
     Ok(_) => Json(String::new()),
     Err(e) => Json(e.to_string()),
   }
@@ -70,13 +72,24 @@ pub struct GetBranchPrefixRequest {
   repository_path: String,
 }
 
-pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> Result<Json<String>, StatusCode> {
-  tracing::debug!("get_branch_prefix_from_git_config called with path: {}", request.repository_path);
+pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> Json<serde_json::Value> {
+  // Handle NO_REPO case - return error result to simulate non-existent directory
+  // This matches how Tauri commands work: they return Result<String, String> not HTTP status codes
+  if request.repository_path.starts_with("NO_REPO_") {
+    let error_response = serde_json::json!({
+      "status": "error",
+      "error": format!("Repository not accessible: {}", request.repository_path)
+    });
+    return Json(error_response);
+  }
 
-  // Handle NO_REPO case or empty path - return empty string
-  if request.repository_path.is_empty() || request.repository_path.starts_with("NO_REPO_") {
-    tracing::debug!("NO_REPO or empty path detected, returning empty branch prefix");
-    return Ok(Json(String::new()));
+  // Handle empty path - return success with empty string (for global config fallback)
+  if request.repository_path.is_empty() {
+    tracing::debug!("Empty path detected, returning empty branch prefix for global config");
+    return Json(serde_json::json!({
+      "status": "ok",
+      "data": ""
+    }));
   }
 
   // Log all known paths for debugging
@@ -86,17 +99,32 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
   }
 
   // Validate that the repository path belongs to a test repository
-  ensure_repository_exists(&state, &request.repository_path)?;
+  if ensure_repository_exists(&state, &request.repository_path).is_err() {
+    let error_response = serde_json::json!({
+      "status": "error",
+      "error": format!("Repository not found: {}", request.repository_path)
+    });
+    return Json(error_response);
+  }
 
   // Use the shared git executor from state
-  let prefix = branch_sync::branch_prefix::get_branch_prefix_from_git_config_sync(&state.git_executor, &request.repository_path).map_err(|e| {
-    tracing::error!("Failed to get branch prefix: {}", e);
-    StatusCode::INTERNAL_SERVER_ERROR
-  })?;
-  Ok(Json(prefix))
+  match get_branch_prefix_from_git_config_sync(&state.git_executor, &request.repository_path) {
+    Ok(prefix) => Json(serde_json::json!({
+      "status": "ok",
+      "data": prefix
+    })),
+    Err(e) => {
+      tracing::error!("Failed to get branch prefix: {}", e);
+      Json(serde_json::json!({
+        "status": "error",
+        "error": e.to_string()
+      }))
+    }
+  }
 }
 
 // Progress reporter that sends events through a channel
+#[derive(Clone)]
 struct ChannelProgressReporter {
   sender: mpsc::UnboundedSender<SyncEvent>,
 }
@@ -123,35 +151,29 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   // Create a channel for streaming events
   let (tx, rx) = mpsc::unbounded_channel();
 
-  // Clone values for the spawned task
-  let repository_path = request.repository_path.clone();
-  let branch_prefix = request.branch_prefix.clone();
+  // Create a progress reporter that sends events through the channel
+  let reporter = ChannelProgressReporter { sender: tx };
 
-  // Clone the git executor for the spawned task
-  let git_executor = state.git_executor.clone();
-
-  // Spawn a task to run the sync
-  tokio::spawn(async move {
-    // Create a progress reporter that sends events through the channel
-    let reporter = ChannelProgressReporter { sender: tx };
-
-    // Run the sync
-    match sync_branches_core(&git_executor, &repository_path, &branch_prefix, &reporter).await {
-      Ok(_) => {
-        // Send completion event
-        let _ = reporter.send(SyncEvent::Completed);
-      }
-      Err(e) => {
-        tracing::error!("Sync branches failed: {}", e);
-        // Send error as a branch status event so the client knows what happened
-        let _ = reporter.send(SyncEvent::BranchStatusUpdate {
-          branch_name: String::from("sync"),
-          status: BranchSyncStatus::Error,
-          error: Some(BranchError::Generic(format!("Sync failed: {e}"))),
-        });
-      }
+  // Run the sync directly (no need for tokio::spawn since this is already async)
+  let git_executor = &state.git_executor;
+  let repository_path = &request.repository_path;
+  let branch_prefix = &request.branch_prefix;
+  let progress = reporter.clone();
+  match sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, None).await {
+    Ok(_) => {
+      // Send completion event
+      let _ = reporter.send(SyncEvent::Completed);
     }
-  });
+    Err(e) => {
+      tracing::error!("Sync branches failed: {}", e);
+      // Send error as a branch status event so the client knows what happened
+      let _ = reporter.send(SyncEvent::BranchStatusUpdate {
+        branch_name: String::from("sync"),
+        status: BranchSyncStatus::Error,
+        error: Some(BranchError::Generic(format!("Sync failed: {e}"))),
+      });
+    }
+  }
 
   // Convert the receiver into a stream of SSE events
   let stream = UnboundedReceiverStream::new(rx).map(|event| Ok(Event::default().event("sync").data(serde_json::to_string(&event).unwrap())));
@@ -161,13 +183,13 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
 
 pub async fn create_branch_from_commits(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<branch_sync::create_branch::CreateBranchFromCommitsParams>,
-) -> Result<Json<branch_sync::create_branch::RewordResult>, StatusCode> {
+  Json(params): Json<sync_core::create_branch::CreateBranchFromCommitsParams>,
+) -> Result<Json<sync_core::create_branch::RewordResult>, StatusCode> {
   // Validate that the repository path belongs to a test repository
   ensure_repository_exists(&state, &params.repository_path)?;
 
   // Use the shared git executor from state
-  match branch_sync::create_branch::do_create_branch_from_commits(&state.git_executor, params).await {
+  match sync_core::create_branch::do_create_branch_from_commits(&state.git_executor, params) {
     Ok(result) => Ok(Json(result)),
     Err(e) => {
       tracing::error!("Failed to create branch from commits: {}", e);
@@ -179,7 +201,7 @@ pub async fn create_branch_from_commits(
 pub async fn browse_repository(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(repo_id): axum::extract::Path<String>,
-) -> Result<Json<branch_sync::repository_validation::BrowseResult>, StatusCode> {
+) -> Result<Json<sync_core::repository_validation::BrowseResult>, StatusCode> {
   // Get the repository from state
   let repo = state.repositories.get(&repo_id).ok_or_else(|| {
     tracing::error!("Repository not found: {}", repo_id);
@@ -189,7 +211,7 @@ pub async fn browse_repository(
   let path = repo.path.clone();
 
   // Use shared validation logic from branch-sync
-  Ok(Json(branch_sync::repository_validation::validate_and_create_result(path)))
+  Ok(Json(sync_core::repository_validation::validate_and_create_result(path)))
 }
 
 // AI Command Handlers
@@ -284,23 +306,23 @@ pub async fn download_model(
       *model_state = crate::state::ModelState::Downloading;
     }
 
-    let slow = if let Some(settings_value) = repo_entry.store.get("modelSettings") {
+    let slow = if let Some(settings_value) = repo_entry.store.get("ai") {
       if let Some(settings_obj) = settings_value.as_object() {
         let slow = settings_obj.get("simulateSlowDownload").and_then(|v| v.as_bool()).unwrap_or(false);
-        eprintln!("simulateSlowDownload setting found: {slow}");
+        tracing::debug!(slow, "simulateSlowDownload setting found");
         slow
       } else {
-        eprintln!("modelSettings is not an object");
+        tracing::debug!("ai is not an object");
         false
       }
     } else {
-      eprintln!("modelSettings not found in store");
+      tracing::debug!("ai not found in store");
       false
     };
 
     (slow, repo_entry.model_state.clone(), repo_entry.download_cancelled.clone())
   } else {
-    eprintln!("Repository not found: {repo_id}");
+    tracing::debug!(repo_id, "Repository not found");
     return Err(StatusCode::NOT_FOUND);
   };
 
@@ -310,14 +332,14 @@ pub async fn download_model(
   // Send the Started event immediately to establish the SSE connection
   // This prevents ERR_EMPTY_RESPONSE if the spawned task doesn't run immediately
   let _ = tx.send(DownloadProgress::Started { total_files: 3 });
-  eprintln!("Sent Started event immediately");
+  tracing::debug!("Sent Started event immediately");
 
   // Clone repo_id for the spawned task
   let repo_id_clone = repo_id.clone();
 
   // Spawn download simulation for the rest of the events
   tokio::spawn(async move {
-    eprintln!("Starting download simulation for repo: {repo_id_clone}");
+    tracing::debug!(repo_id = repo_id_clone, "Starting download simulation");
 
     // Small delay after Started event
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -351,12 +373,12 @@ pub async fn download_model(
       let chunk_size = file_size / chunks;
       let delay_ms: u64 = if simulate_slow_download { 1000 } else { 100 }; // 1 second vs 100ms per chunk
 
-      eprintln!(
-        "Download simulation for {}: chunks={}, delay_ms={}, total_time={}s",
+      tracing::debug!(
         file_name,
         chunks,
         delay_ms,
-        (chunks as u64 * delay_ms) / 1000
+        total_time_s = (chunks as u64 * delay_ms) / 1000,
+        "Download simulation parameters"
       );
 
       for i in 1..=chunks {
@@ -382,7 +404,7 @@ pub async fn download_model(
         });
 
         if i % 50 == 0 {
-          eprintln!("Progress for {file_name}: chunk {i}/{chunks}");
+          tracing::debug!(file_name, chunk = i, total_chunks = chunks, "Download progress");
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
       }
@@ -399,13 +421,13 @@ pub async fn download_model(
   });
 
   // Convert to SSE stream
-  eprintln!("Creating SSE stream for download_model");
+  tracing::debug!("Creating SSE stream for download_model");
   let stream = UnboundedReceiverStream::new(rx).map(|event| {
-    eprintln!("Sending SSE event: {event:?}");
+    tracing::debug!(?event, "Sending SSE event");
     Ok(Event::default().event("download").data(serde_json::to_string(&event).unwrap()))
   });
 
-  eprintln!("Returning SSE response for download_model");
+  tracing::debug!("Returning SSE response for download_model");
   // Add keep-alive to prevent connection from closing
   Ok(Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
 }
@@ -417,10 +439,27 @@ pub async fn cancel_model_download(
 ) -> Result<StatusCode, StatusCode> {
   if let Some(repo) = state.repositories.get(&repo_id) {
     repo.download_cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
-    eprintln!("Download cancelled for repository: {repo_id}");
+    tracing::debug!(repo_id, "Download cancelled for repository");
     Ok(StatusCode::OK)
   } else {
-    eprintln!("Repository not found for cancel: {repo_id}");
+    tracing::debug!(repo_id, "Repository not found for cancel");
     Err(StatusCode::NOT_FOUND)
+  }
+}
+
+pub async fn delete_archived_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<DeleteArchivedBranchParams>,
+) -> Result<StatusCode, StatusCode> {
+  // Validate that the repository path belongs to a test repository
+  ensure_repository_exists(&state, &params.repository_path)?;
+
+  // Use the shared git executor from state
+  match delete_archived_branch_core(&state.git_executor, params) {
+    Ok(()) => Ok(StatusCode::OK),
+    Err(e) => {
+      tracing::error!("Failed to delete archived branch: {}", e);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
   }
 }

@@ -50,10 +50,10 @@ async fn main() {
 
     // Remove existing templates
     let test_repos_dir = test_server::get_test_repos_dir();
-    if test_repos_dir.exists() {
-      if let Err(e) = std::fs::remove_dir_all(&test_repos_dir) {
-        tracing::warn!("Failed to remove existing templates: {}", e);
-      }
+    if test_repos_dir.exists()
+      && let Err(e) = std::fs::remove_dir_all(&test_repos_dir)
+    {
+      tracing::warn!("Failed to remove existing templates: {}", e);
     }
 
     // Recreate templates

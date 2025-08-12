@@ -12,8 +12,7 @@ const AppSettingsSchema = z.object({
 // Create the persistent store
 export const appSettingsStore = createPersistentStore(
   "appSettings",
-  AppSettingsSchema,
-  "App",
+  { schema: AppSettingsSchema, isArray: false, isMainOnly: false },
 )
 
 // Export a composable for consistency with existing code

@@ -1,13 +1,16 @@
-// Note: We don't import GitCommandExecutor here to avoid circular dependency
-// Each crate that uses TestRepo should provide its own GitCommandExecutor
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use tempfile::TempDir;
+
+// Constants for test Git user configuration
+const TEST_USER_NAME: &str = "Test User";
+const TEST_USER_EMAIL: &str = "test@example.com";
 
 /// Git test repository wrapper with helper methods
 pub struct TestRepo {
   dir: TempDir,
+  git_executor: GitCommandExecutor,
 }
 
 impl Default for TestRepo {
@@ -21,34 +24,30 @@ impl TestRepo {
   pub fn new() -> Self {
     let dir = tempfile::tempdir().unwrap();
     let repo_path = dir.path();
+    let git_executor = GitCommandExecutor::new();
 
     // Initialize git repository
-    let output = Command::new("git").args(["--no-pager", "init"]).current_dir(repo_path).output().unwrap();
-    if !output.status.success() {
-      panic!("Git init failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
+    git_executor
+      .execute_command(&["init"], repo_path.to_str().unwrap())
+      .unwrap_or_else(|e| panic!("Git init failed: {}", e));
 
     // Configure git user for the test repo
-    Command::new("git")
-      .args(["--no-pager", "config", "user.name", "Test User"])
-      .current_dir(repo_path)
-      .output()
-      .unwrap();
-
-    Command::new("git")
-      .args(["--no-pager", "config", "user.email", "test@example.com"])
-      .current_dir(repo_path)
-      .output()
-      .unwrap();
+    Self::configure_git_user(&git_executor, repo_path.to_str().unwrap()).unwrap();
 
     // Configure merge conflict style
-    Command::new("git")
-      .args(["--no-pager", "config", "merge.conflictstyle", "zdiff3"])
-      .current_dir(repo_path)
-      .output()
+    git_executor
+      .execute_command(&["config", "merge.conflictstyle", "zdiff3"], repo_path.to_str().unwrap())
       .unwrap();
 
-    Self { dir }
+    Self { dir, git_executor }
+  }
+
+  /// Creates an empty temporary directory without initializing git
+  /// Useful for cloning into
+  pub fn new_empty() -> Self {
+    let dir = tempfile::tempdir().unwrap();
+    let git_executor = GitCommandExecutor::new();
+    Self { dir, git_executor }
   }
 
   /// Get the repository path
@@ -56,8 +55,17 @@ impl TestRepo {
     self.dir.path()
   }
 
-  // Note: GitCommandExecutor removed to avoid circular dependency
-  // Tests that need GitCommandExecutor can create their own: GitCommandExecutor::new()
+  /// Get the repository path as a string
+  fn path_str(&self) -> &str {
+    self.dir.path().to_str().unwrap()
+  }
+
+  /// Configure Git user for a repository
+  fn configure_git_user(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(), anyhow::Error> {
+    git_executor.execute_command(&["config", "user.name", TEST_USER_NAME], repo_path)?;
+    git_executor.execute_command(&["config", "user.email", TEST_USER_EMAIL], repo_path)?;
+    Ok(())
+  }
 
   /// Creates a commit with a file
   pub fn create_commit(&self, message: &str, filename: &str, content: &str) -> String {
@@ -74,109 +82,91 @@ impl TestRepo {
     std::fs::write(&file_path, content).unwrap();
 
     // Add to git
-    let output = Command::new("git").args(["--no-pager", "add", filename]).current_dir(self.path()).output().unwrap();
-    if !output.status.success() {
-      panic!("Git add failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
+    self
+      .git_executor
+      .execute_command(&["add", filename], self.path_str())
+      .unwrap_or_else(|e| panic!("Git add failed: {}", e));
 
     // Commit with optional fixed timestamp
-    let mut cmd = Command::new("git");
-
-    // If timestamp is provided, set GIT_AUTHOR_DATE and GIT_COMMITTER_DATE
     if let Some(ts) = timestamp {
       let date_str = format!("{ts} +0000");
-      cmd.env("GIT_AUTHOR_DATE", &date_str);
-      cmd.env("GIT_COMMITTER_DATE", &date_str);
-    }
+      let env_vars = vec![("GIT_AUTHOR_DATE", date_str.as_str()), ("GIT_COMMITTER_DATE", date_str.as_str())];
 
-    let output = if message.is_empty() {
-      cmd
-        .args(["--no-pager", "commit", "--allow-empty-message", "-m", ""])
-        .current_dir(self.path())
-        .output()
-        .unwrap()
+      if message.is_empty() {
+        self
+          .git_executor
+          .execute_command_with_env(&["commit", "--allow-empty-message", "-m", ""], self.path_str(), &env_vars)
+          .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+      } else {
+        self
+          .git_executor
+          .execute_command_with_env(&["commit", "-m", message], self.path_str(), &env_vars)
+          .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+      }
+    } else if message.is_empty() {
+      self
+        .git_executor
+        .execute_command(&["commit", "--allow-empty-message", "-m", ""], self.path_str())
+        .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
     } else {
-      cmd.args(["--no-pager", "commit", "-m", message]).current_dir(self.path()).output().unwrap()
-    };
-
-    if !output.status.success() {
-      panic!("Git commit failed: {}", String::from_utf8_lossy(&output.stderr));
+      self
+        .git_executor
+        .execute_command(&["commit", "-m", message], self.path_str())
+        .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
     }
 
     // Get the commit hash
-    let output = Command::new("git").args(["--no-pager", "rev-parse", "HEAD"]).current_dir(self.path()).output().unwrap();
-
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    self.git_executor.execute_command(&["rev-parse", "HEAD"], self.path_str()).unwrap().trim().to_string()
   }
 
   /// Creates a branch pointing to the current HEAD
   pub fn create_branch(&self, branch_name: &str) -> Result<(), String> {
-    let output = Command::new("git").args(["--no-pager", "branch", branch_name]).current_dir(self.path()).output().unwrap();
-
-    if output.status.success() {
-      Ok(())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command(&["branch", branch_name], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 
   /// Creates a branch pointing to a specific commit
   pub fn create_branch_at(&self, branch_name: &str, commit_hash: &str) -> Result<(), String> {
-    let output = Command::new("git")
-      .args(["--no-pager", "branch", branch_name, commit_hash])
-      .current_dir(self.path())
-      .output()
-      .unwrap();
-
-    if output.status.success() {
-      Ok(())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command(&["branch", branch_name, commit_hash], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 
   /// Checkout a branch or commit
   pub fn checkout(&self, ref_name: &str) -> Result<(), String> {
-    let output = Command::new("git").args(["--no-pager", "checkout", ref_name]).current_dir(self.path()).output().unwrap();
-
-    if output.status.success() {
-      Ok(())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command(&["checkout", ref_name], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 
   /// Hard reset to a commit
   pub fn reset_hard(&self, commit_hash: &str) -> Result<(), String> {
-    let output = Command::new("git")
-      .args(["--no-pager", "reset", "--hard", commit_hash])
-      .current_dir(self.path())
-      .output()
-      .unwrap();
-
-    if output.status.success() {
-      Ok(())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command(&["reset", "--hard", commit_hash], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 
   /// Get the current HEAD commit hash
   pub fn head(&self) -> String {
-    let output = Command::new("git").args(["--no-pager", "rev-parse", "HEAD"]).current_dir(self.path()).output().unwrap();
-
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    self.git_executor.execute_command(&["rev-parse", "HEAD"], self.path_str()).unwrap().trim().to_string()
   }
 
   /// Get the commit hash of a reference
   pub fn rev_parse(&self, ref_name: &str) -> Result<String, String> {
-    let output = Command::new("git").args(["--no-pager", "rev-parse", ref_name]).current_dir(self.path()).output().unwrap();
-
-    if output.status.success() {
-      Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command(&["rev-parse", ref_name], self.path_str())
+      .map(|output| output.trim().to_string())
+      .map_err(|e| e.to_string())
   }
 
   /// Creates a commit with multiple files
@@ -188,68 +178,325 @@ impl TestRepo {
       }
       fs::write(&file_path, content).unwrap();
 
-      Command::new("git").args(["--no-pager", "add", filename]).current_dir(self.path()).output().unwrap();
+      self.git_executor.execute_command(&["add", filename], self.path_str()).unwrap();
     }
 
-    let output = Command::new("git").args(["--no-pager", "commit", "-m", message]).current_dir(self.path()).output().unwrap();
-
-    if !output.status.success() {
-      panic!("Git commit failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
+    self
+      .git_executor
+      .execute_command(&["commit", "-m", message], self.path_str())
+      .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
 
     self.head()
   }
 
   /// Set config value
   pub fn set_config(&self, key: &str, value: &str) -> Result<(), String> {
-    let output = Command::new("git").args(["--no-pager", "config", key, value]).current_dir(self.path()).output().unwrap();
-
-    if output.status.success() {
-      Ok(())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command(&["config", key, value], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 
   /// Check if branch exists
   pub fn branch_exists(&self, branch_name: &str) -> bool {
-    let output = Command::new("git")
-      .args(["--no-pager", "show-ref", "--verify", "--quiet", &format!("refs/heads/{branch_name}")])
-      .current_dir(self.path())
-      .output()
-      .unwrap();
-
-    output.status.success()
+    let ref_path = format!("refs/heads/{branch_name}");
+    self
+      .git_executor
+      .execute_command_with_status(&["show-ref", "--verify", "--quiet", &ref_path], self.path_str())
+      .map(|(_, exit_code)| exit_code == 0)
+      .unwrap_or(false)
   }
 
   /// Get list of files in a commit
   pub fn get_files_in_commit(&self, commit_hash: &str) -> Result<Vec<String>, String> {
-    let output = Command::new("git")
-      .args(["--no-pager", "ls-tree", "-r", "--name-only", commit_hash])
-      .current_dir(self.path())
-      .output()
-      .unwrap();
-
-    if output.status.success() {
-      Ok(String::from_utf8_lossy(&output.stdout).lines().map(|s| s.to_string()).collect())
-    } else {
-      Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    self
+      .git_executor
+      .execute_command_lines(&["ls-tree", "-r", "--name-only", commit_hash], self.path_str())
+      .map_err(|e| e.to_string())
   }
 
   /// Get the last N commit messages from HEAD
   pub fn get_commit_messages(&self, count: usize) -> Vec<String> {
-    let output = Command::new("git")
-      .args(["--no-pager", "log", &format!("-{count}"), "--pretty=format:%s"])
-      .current_dir(self.path())
-      .output()
-      .unwrap();
+    let count_arg = format!("-{count}");
+    self
+      .git_executor
+      .execute_command_lines(&["log", &count_arg, "--pretty=format:%s"], self.path_str())
+      .unwrap_or_default()
+  }
 
-    if output.status.success() {
-      String::from_utf8_lossy(&output.stdout).lines().map(|s| s.to_string()).collect()
-    } else {
-      vec![]
-    }
+  /// Cherry-pick a commit and return the new commit hash
+  pub fn cherry_pick(&self, commit: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["cherry-pick", commit], self.path_str())
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Cherry-pick a commit with a specific timestamp
+  pub fn cherry_pick_with_timestamp(&self, commit: &str, timestamp: i64) -> Result<String, String> {
+    let date_str = format!("{timestamp} +0000");
+    let env_vars = vec![("GIT_COMMITTER_DATE", date_str.as_str())];
+
+    self
+      .git_executor
+      .execute_command_with_env(&["cherry-pick", commit], self.path_str(), &env_vars)
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Rebase current branch onto another branch
+  pub fn rebase(&self, onto: &str) -> Result<(), String> {
+    self.git_executor.execute_command(&["rebase", onto], self.path_str()).map(|_| ()).map_err(|e| e.to_string())
+  }
+
+  /// Merge a branch with --no-ff
+  pub fn merge_no_ff(&self, branch: &str, message: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["merge", "--no-ff", branch, "-m", message], self.path_str())
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Merge a branch with --no-ff and specific timestamp
+  pub fn merge_no_ff_with_timestamp(&self, branch: &str, message: &str, timestamp: i64) -> Result<String, String> {
+    let date_str = format!("{timestamp} +0000");
+    let env_vars = vec![("GIT_COMMITTER_DATE", date_str.as_str())];
+
+    self
+      .git_executor
+      .execute_command_with_env(&["merge", "--no-ff", branch, "-m", message], self.path_str(), &env_vars)
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Squash merge a branch (creates a single commit with all changes)
+  pub fn merge_squash(&self, branch: &str, message: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["merge", "--squash", branch], self.path_str())
+      .map_err(|e| e.to_string())?;
+
+    // After squash merge, we need to commit
+    self
+      .git_executor
+      .execute_command(&["commit", "-m", message], self.path_str())
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Squash merge a branch with specific timestamp
+  pub fn merge_squash_with_timestamp(&self, branch: &str, message: &str, timestamp: i64) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["merge", "--squash", branch], self.path_str())
+      .map_err(|e| e.to_string())?;
+
+    // After squash merge, we need to commit with timestamp
+    let date_str = format!("{timestamp} +0000");
+    let env_vars = vec![("GIT_COMMITTER_DATE", date_str.as_str())];
+
+    self
+      .git_executor
+      .execute_command_with_env(&["commit", "-m", message], self.path_str(), &env_vars)
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Get the committer timestamp of a commit
+  pub fn get_commit_timestamp(&self, commit: &str) -> Result<u32, String> {
+    self
+      .git_executor
+      .execute_command(&["show", "-s", "--format=%ct", commit], self.path_str())
+      .map_err(|e| e.to_string())
+      .and_then(|output| output.trim().parse::<u32>().map_err(|e| format!("Failed to parse timestamp: {e}")))
+  }
+
+  /// Delete a branch
+  pub fn delete_branch(&self, branch: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["branch", "-D", branch], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Clone a repository into this directory
+  pub fn clone_from(&self, source_path: &Path) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["clone", source_path.to_str().unwrap(), "."], self.path_str())
+      .map_err(|e| e.to_string())?;
+
+    // Configure git user for the cloned repo
+    Self::configure_git_user(&self.git_executor, self.path_str()).map_err(|e| e.to_string())?;
+
+    Ok(())
+  }
+
+  /// Create and checkout a new branch
+  pub fn checkout_new_branch(&self, branch_name: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["checkout", "-b", branch_name], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Push a branch to a remote
+  pub fn push(&self, remote: &str, branch: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["push", remote, branch], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Fetch from a remote with prune option
+  pub fn fetch_prune(&self, remote: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["fetch", "--prune", remote], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Pull from a remote
+  pub fn pull(&self) -> Result<(), String> {
+    self.git_executor.execute_command(&["pull"], self.path_str()).map(|_| ()).map_err(|e| e.to_string())
+  }
+
+  /// Merge with fast-forward only
+  pub fn merge_ff_only(&self, branch: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["merge", "--ff-only", branch], self.path_str())
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Merge a branch (standard merge)
+  pub fn merge(&self, branch: &str, message: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["merge", branch, "-m", message], self.path_str())
+      .map(|_| self.head())
+      .map_err(|e| e.to_string())
+  }
+
+  /// List branches matching a pattern
+  pub fn list_branches(&self, pattern: &str) -> Result<Vec<String>, String> {
+    self
+      .git_executor
+      .execute_command_lines(&["branch", "--list", pattern], self.path_str())
+      .map(|lines| lines.into_iter().map(|line| line.trim().trim_start_matches("* ").to_string()).collect())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Get git log output
+  pub fn log(&self, args: &[&str]) -> Result<String, String> {
+    let mut cmd_args = vec!["log"];
+    cmd_args.extend_from_slice(args);
+
+    self.git_executor.execute_command(&cmd_args, self.path_str()).map_err(|e| e.to_string())
+  }
+
+  /// Get current branch name
+  pub fn current_branch(&self) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["branch", "--show-current"], self.path_str())
+      .map(|output| output.trim().to_string())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Delete a branch (safe version, using -d instead of -D)
+  pub fn delete_branch_safe(&self, branch: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["branch", "-d", branch], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Add a git note to a commit
+  pub fn add_note(&self, commit_hash: &str, note_content: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["notes", "add", "-f", "-m", note_content, commit_hash], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Show the note for a commit
+  pub fn show_note(&self, commit_hash: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["notes", "show", commit_hash], self.path_str())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Add a git note to a commit with a custom ref
+  pub fn add_note_with_ref(&self, notes_ref: &str, commit_hash: &str, note_content: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["notes", "--ref", notes_ref, "add", "-f", "-m", note_content, commit_hash], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Show the note for a commit with a custom ref
+  pub fn show_note_with_ref(&self, notes_ref: &str, commit_hash: &str) -> Result<String, String> {
+    self
+      .git_executor
+      .execute_command(&["notes", "--ref", notes_ref, "show", commit_hash], self.path_str())
+      .map_err(|e| e.to_string())
+  }
+
+  /// List all notes in a ref
+  pub fn list_notes_with_ref(&self, notes_ref: &str) -> Result<Vec<String>, String> {
+    self
+      .git_executor
+      .execute_command_lines(&["notes", "--ref", notes_ref, "list"], self.path_str())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Remove a note from a commit with a custom ref
+  pub fn remove_note_with_ref(&self, notes_ref: &str, commit_hash: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["notes", "--ref", notes_ref, "remove", commit_hash], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Copy a note from one commit to another with a custom ref
+  pub fn copy_note_with_ref(&self, notes_ref: &str, from_commit: &str, to_commit: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["notes", "--ref", notes_ref, "copy", "-f", from_commit, to_commit], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Rename a branch
+  pub fn rename_branch(&self, old_name: &str, new_name: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["branch", "-m", old_name, new_name], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Add a remote
+  pub fn add_remote(&self, name: &str, url: &str) -> Result<(), String> {
+    self
+      .git_executor
+      .execute_command(&["remote", "add", name, url], self.path_str())
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 }
 
@@ -323,39 +570,22 @@ impl<'a> ConflictTestBuilder<'a> {
         }
       }
 
-      // Stage the deletions
+      // Stage the deletions using GitCommandExecutor
       for (filename, _) in &self.initial_files {
-        let output = std::process::Command::new("git")
-          .args(["--no-pager", "rm", filename])
-          .current_dir(self.repo.path())
-          .output()
-          .unwrap();
-
-        if !output.status.success() {
-          // File might already be deleted, that's OK for this scenario
-          eprintln!("Warning: could not git rm {}: {}", filename, String::from_utf8_lossy(&output.stderr));
-        }
+        // Try to remove the file from git index
+        // It's OK if this fails (file might already be deleted)
+        let _ = self.repo.git_executor.execute_command(&["rm", filename], self.repo.path_str());
       }
 
       // Create a commit with the deletions (may be empty, which is fine for deletion)
-      let output = std::process::Command::new("git")
-        .args(["--no-pager", "commit", "--allow-empty", "-m", self.target_message])
-        .current_dir(self.repo.path())
-        .output()
-        .unwrap();
-
-      if !output.status.success() {
-        panic!("Failed to commit deletion: {}", String::from_utf8_lossy(&output.stderr));
-      }
+      self
+        .repo
+        .git_executor
+        .execute_command(&["commit", "--allow-empty", "-m", self.target_message], self.repo.path_str())
+        .unwrap_or_else(|e| panic!("Failed to commit deletion: {}", e));
 
       // Get the commit hash
-      let output = std::process::Command::new("git")
-        .args(["--no-pager", "rev-parse", "HEAD"])
-        .current_dir(self.repo.path())
-        .output()
-        .unwrap();
-
-      String::from_utf8_lossy(&output.stdout).trim().to_string()
+      self.repo.head()
     };
 
     // Reset to initial commit

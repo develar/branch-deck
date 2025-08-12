@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { createAsyncPersistentStore } from "~/utils/persistent-store"
+import { createPersistentStore } from "~/utils/persistent-store"
 
 // AI mode states
 export type AIMode = "initial" | "enabled" | "disabled"
@@ -9,25 +9,14 @@ const AISettingsSchema = z.object({
   aiMode: z.enum(["initial", "enabled", "disabled"]).default("initial"),
 })
 
-// Create the persistent store promise
-const aiSettingsStorePromise = createAsyncPersistentStore(
-  "modelSettings",
-  AISettingsSchema,
-  "AI",
+// Create the persistent store
+export const aiSettingsStore = createPersistentStore(
+  "ai",
+  { schema: AISettingsSchema, isArray: false, isMainOnly: false },
 )
 
-// Cache the resolved store
-let cachedStore: z.infer<typeof AISettingsSchema> | null = null
-
-// Export a composable that returns the promise
-export const useAISettingsStore = async () => {
-  if (cachedStore) {
-    return cachedStore
-  }
-
-  cachedStore = await aiSettingsStorePromise
-  return cachedStore
-}
+// Export a composable for consistency with existing code
+export const useAISettingsStore = () => aiSettingsStore
 
 // Helper to check if AI is in initial state
 export function isAIInitial(aiMode: AIMode): boolean {

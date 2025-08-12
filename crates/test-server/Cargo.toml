@@ -1,7 +1,7 @@
 [package]
 name = "test-server"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 default-run = "test-server"
 
 [lib]
@@ -32,8 +32,10 @@ listenfd = "1.0"
 
 # Use the git operations crate
 git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
 test-utils = { path = "../test-utils" }
-branch-sync = { path = "../branch-sync" }
+sync-core = { path = "../sync-core" }
+sync-types = { path = "../sync-types" }
 model-ai = { path = "../model-ai" }
 tempfile.workspace = true
 fs_extra = "1.3.0"

@@ -1,5 +1,5 @@
-use branch_sync::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
-use git_ops::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
+use sync_core::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
 use tauri::State;
 use tracing::instrument;
 
@@ -9,5 +9,9 @@ use tracing::instrument;
 #[specta::specta]
 #[instrument(skip(git_executor))]
 pub async fn add_issue_reference_to_commits(git_executor: State<'_, GitCommandExecutor>, params: AddIssueReferenceParams) -> Result<AddIssueReferenceResult, String> {
-  add_issue_reference_to_commits_core(&git_executor, params).await
+  // Clone the executor since spawn_blocking requires 'static lifetime
+  let git = git_executor.inner().clone();
+  tokio::task::spawn_blocking(move || add_issue_reference_to_commits_core(&git, params))
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }

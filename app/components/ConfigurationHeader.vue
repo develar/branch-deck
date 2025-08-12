@@ -13,7 +13,8 @@
 
         <div
           v-if="selectedProject && branchCount > 0 && pathValidation.valid"
-          class="hidden sm:flex items-center gap-3 text-xs text-muted">
+          class="hidden sm:flex items-center gap-3 text-xs text-muted"
+        >
           <span class="whitespace-nowrap">
             {{ branchCount }} {{ branchCount === 1 ? 'branch' : 'branches' }}
           </span>

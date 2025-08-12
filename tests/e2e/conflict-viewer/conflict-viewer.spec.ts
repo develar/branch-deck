@@ -58,10 +58,7 @@ test.describe("Conflict Viewer Feature", () => {
       // Wait for conflict viewer to be visible
       await waitForConflictViewer(page, bugFixDetails)
 
-      // Wait a bit for content to fully render
-      await page.waitForTimeout(500)
-
-      // Find the file accordion button directly in bugFixDetails
+      // Find the file accordion button and wait for it to be visible
       const fileAccordion = bugFixDetails.locator("button:has-text('src/main/kotlin/com/example/service/UserService.kt')").first()
       await expect(fileAccordion).toBeVisible()
 

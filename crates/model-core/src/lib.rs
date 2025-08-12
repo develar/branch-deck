@@ -1,10 +1,10 @@
-mod config;
+pub mod config;
 mod constants;
-mod generator_type;
+pub mod generator_type;
 pub mod prompt;
-mod quantized_qwen3;
-mod qwen25;
-mod qwen3;
+pub mod quantized_qwen3;
+pub mod qwen25;
+pub mod qwen3;
 pub mod utils;
 
 // Make test_utils available for standalone apps too
@@ -14,13 +14,6 @@ pub mod test_utils;
 mod prompt_tests;
 
 use serde::{Deserialize, Serialize};
-
-pub use config::ModelConfig;
-pub use generator_type::GeneratorType;
-pub use quantized_qwen3::QuantizedQwen3BranchGenerator;
-pub use qwen25::Qwen25BranchGenerator;
-pub use qwen3::Qwen3BranchGenerator;
-pub use utils::detect_device;
 
 /// Branch name generation result
 #[derive(Debug, Clone, Serialize, Deserialize)]

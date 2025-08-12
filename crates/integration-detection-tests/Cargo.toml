@@ -1,0 +1,24 @@
+[package]
+name = "integration-detection-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+sync-core = { path = "../sync-core" }
+sync-types = { path = "../sync-types" }
+branch-integration = { path = "../branch-integration" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+test-utils = { path = "../test-utils" }
+sync-test-utils = { path = "../sync-test-utils" }
+
+anyhow.workspace = true
+tokio.workspace = true
+pretty_assertions.workspace = true
+test-log.workspace = true
+tracing.workspace = true
+chrono = "0.4"
+indexmap.workspace = true
+serde_json.workspace = true
+

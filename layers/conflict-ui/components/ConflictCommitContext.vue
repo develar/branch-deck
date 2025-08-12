@@ -1,6 +1,6 @@
 <template>
   <div class="flex items-start gap-3">
-    <UIcon name="i-lucide-git-merge" class="size-5 text-error mt-0.5 flex-shrink-0"/>
+    <UIcon name="i-lucide-git-merge" class="size-5 text-error mt-0.5 flex-shrink-0" />
     <div class="flex-1 min-w-0">
       <p class="text-sm font-medium text-highlighted mb-1">
         {{ title || 'Cherry-pick conflict' }}

@@ -1,8 +1,8 @@
-use crate::conflict_analysis::{get_files_content_at_commit, FileInfo};
+use crate::conflict_analysis::{FileInfo, get_files_content_at_commit};
 use crate::copy_commit::CopyCommitError;
-use crate::git_command::GitCommandExecutor;
 use crate::model::{ConflictDetail, ConflictMarkerCommitInfo};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, instrument};

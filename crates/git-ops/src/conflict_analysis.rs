@@ -1,6 +1,7 @@
-use crate::git_command::GitCommandExecutor;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "specta")]
 use specta::Type;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -8,7 +9,8 @@ use tracing::{debug, instrument};
 
 /// Represents a commit that exists in the source branch but is missing from the target branch.
 /// These commits might be causing merge conflicts.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MissingCommit {
   pub hash: String,
@@ -22,7 +24,8 @@ pub struct MissingCommit {
 }
 
 /// Represents the diff between two versions of a file.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileDiff {
   pub old_file: FileInfo,
@@ -31,7 +34,8 @@ pub struct FileDiff {
 }
 
 /// Information about a file including its content and metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileInfo {
   pub file_name: String,
@@ -40,7 +44,8 @@ pub struct FileInfo {
 }
 
 /// Analysis results for a merge conflict, including missing commits and divergence information.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictAnalysis {
   pub missing_commits: Vec<MissingCommit>,
@@ -53,7 +58,8 @@ pub struct ConflictAnalysis {
 }
 
 /// Summary of how two branches have diverged from their common ancestor.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DivergenceSummary {
   pub commits_ahead_in_source: u32,  // How many commits the source branch is ahead
@@ -148,10 +154,10 @@ pub(crate) fn find_missing_commits_for_conflicts(
   for line in output.lines() {
     if let Some(commit_data) = line.strip_prefix("COMMIT:") {
       // Process previous commit if exists
-      if let Some((hash, author_time, committer_time, author, subject, message)) = current_commit.take() {
-        if !current_files.is_empty() {
-          commits_to_process.push((hash, author_time, committer_time, author, subject, message, current_files.clone()));
-        }
+      if let Some((hash, author_time, committer_time, author, subject, message)) = current_commit.take()
+        && !current_files.is_empty()
+      {
+        commits_to_process.push((hash, author_time, committer_time, author, subject, message, current_files.clone()));
       }
 
       // Parse new commit line with null-delimited format
@@ -177,10 +183,10 @@ pub(crate) fn find_missing_commits_for_conflicts(
   }
 
   // Process the last commit
-  if let Some((hash, author_time, committer_time, author, subject, message)) = current_commit {
-    if !current_files.is_empty() {
-      commits_to_process.push((hash, author_time, committer_time, author, subject, message, current_files));
-    }
+  if let Some((hash, author_time, committer_time, author, subject, message)) = current_commit
+    && !current_files.is_empty()
+  {
+    commits_to_process.push((hash, author_time, committer_time, author, subject, message, current_files));
   }
 
   // Batch get all file diffs
@@ -283,7 +289,7 @@ pub(crate) fn batch_rev_parse(git_executor: &GitCommandExecutor, repo_path: &str
   let mut args = vec!["rev-parse"];
   args.extend(refs);
 
-  let output = git_executor.execute_command(&args, repo_path).map_err(|e| anyhow!("Failed to batch rev-parse: {}", e))?;
+  let output = git_executor.execute_command(&args, repo_path)?;
 
   // Parse output - one hash per line, in the same order as input refs
   let hashes: Vec<&str> = output.lines().collect();
@@ -530,10 +536,10 @@ pub(crate) fn get_files_content_at_commit(git_executor: &GitCommandExecutor, rep
 pub(crate) fn parse_cat_file_header(line: &str) -> Option<(String, usize)> {
   // Format: <sha> <type> <size>
   let parts: Vec<&str> = line.split_whitespace().collect();
-  if parts.len() >= 3 {
-    if let Ok(size) = parts[2].parse::<usize>() {
-      return Some((parts[0].to_string(), size));
-    }
+  if parts.len() >= 3
+    && let Ok(size) = parts[2].parse::<usize>()
+  {
+    return Some((parts[0].to_string(), size));
   }
   None
 }

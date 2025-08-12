@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use model_core::{GeneratorType, Qwen25BranchGenerator, QuantizedQwen3BranchGenerator};
+use model_core::generator_type::GeneratorType;
+use model_core::qwen25::Qwen25BranchGenerator;
+use model_core::quantized_qwen3::QuantizedQwen3BranchGenerator;
 use model_core::test_utils::{convert_to_raw_git_format, CommitInfo, CommitDiff, FileDiff};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

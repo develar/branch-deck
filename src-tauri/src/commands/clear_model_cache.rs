@@ -1,4 +1,7 @@
-use model_tauri::{ModelConfig, ModelGeneratorState, ModelPathProvider, TauriModelPathProvider};
+use model_ai::path_provider::ModelPathProvider;
+use model_core::config::ModelConfig;
+use model_tauri::generator::ModelGeneratorState;
+use model_tauri::path_provider::TauriModelPathProvider;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, State};

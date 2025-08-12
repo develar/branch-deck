@@ -42,15 +42,15 @@ test.describe("Inline Branch Creator Feature", () => {
     // Type a branch name and submit
     await submitInlineForm(input, "feature-authentication")
 
-    // Wait for branch creation to complete
-    await page.waitForTimeout(500)
-
     // Branch creator should disappear after successful creation
     await inlineBranchCreator.waitForHidden(page)
 
     // Then wait for the new branch to appear
     // The branch name will include the prefix, so look for "authentication" part
     await page.waitForSelector("text=authentication")
+
+    // Wait for unassigned commits section to be removed from DOM when it becomes empty
+    await page.waitForSelector("[data-testid=\"unassigned-commits-section\"]", { state: "detached" })
   })
 
   test("should validate branch name format", async ({ page }) => {
@@ -97,7 +97,7 @@ test.describe("Inline Branch Creator Feature", () => {
     await testInputAutoFocus(input)
 
     // Should be able to type immediately
-    await page.keyboard.type("quick-type-test")
+    await input.type("quick-type-test")
     await expect(input).toHaveValue("quick-type-test")
   })
 

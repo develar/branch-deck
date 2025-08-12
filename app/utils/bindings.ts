@@ -123,6 +123,22 @@ async suggestBranchNameStream(params: SuggestBranchNameParams, progress: TAURI_C
     else return { status: "error", error: e  as any };
 }
 },
+async getArchivedBranchCommits(repositoryPath: string, branchName: string) : Promise<Result<Commit[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteArchivedBranch(repositoryPath: string, branchName: string, branchPrefix: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_archived_branch", { repositoryPath, branchName, branchPrefix }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async downloadModel(progress: TAURI_CHANNEL<DownloadProgress>) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("download_model", { progress }) };
@@ -173,6 +189,14 @@ export type AddIssueReferenceResult = { success: boolean; updatedCount: number; 
  * Branch operation errors.
  */
 export type BranchError = { Generic: string } | { MergeConflict: MergeConflictInfo }
+/**
+ * Unified branch integration info
+ */
+export type BranchIntegrationInfo = { name: string; summary: string; status: BranchIntegrationStatus }
+/**
+ * Unified branch integration status
+ */
+export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number | null; confidence: IntegrationConfidence; commitCount: number } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number }
 /**
  * Branch name suggestion
  */
@@ -232,7 +256,11 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
  */
 export type FileInfo = { fileName: string; fileLang: string; content: string }
 export type GetBranchPrefixParams = { repositoryPath: string }
-export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number }
+export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number; summary: string }
+/**
+ * Confidence level for integration detection
+ */
+export type IntegrationConfidence = "Exact" | "High"
 export type IssueNavigationConfig = { links: IssueNavigationLink[] }
 export type IssueNavigationLink = { issueRegexp: string; linkRegexp: string }
 /**
@@ -248,8 +276,16 @@ export type MergeConflictInfo = { commitMessage: string; commitHash: string; com
 export type MissingCommit = { hash: string; subject: string; message: string; authorTime: number; committerTime: number; author: string; filesTouched: string[]; fileDiffs: FileDiff[] }
 export type ModelFilesStatus = { config: boolean; model: boolean; tokenizer: boolean }
 export type ModelStatus = { available: boolean; modelName: string; modelSize: string; filesPresent: ModelFilesStatus }
-export type OpenSubWindowParams = { windowId: string; url: string; title: string; width: number | null; height: number | null; data: string }
+export type OpenSubWindowParams = { windowId: string; url: string; title: string; width: number | null; height: number | null; data: string; storeCache: string }
 export type PushBranchParams = { repositoryPath: string; branchPrefix: string; branchName: string }
+/**
+ * Remote branch status information
+ */
+export type RemoteStatusUpdate = { branchName: string; remoteExists: boolean; remoteHead: string | null; unpushedCommits: string[]; commitsBehind: number; 
+/**
+ * Number of commits ahead authored by the current user (derived during sync)
+ */
+myUnpushedCount: number }
 export type RewordResult = { success: boolean; message: string; reworded_count: number }
 /**
  * Parameters for requesting branch name suggestions
@@ -260,6 +296,9 @@ export type SuggestBranchNameParams = { repositoryPath: string; branchPrefix: st
  */
 export type SuggestionProgress = { type: "Started"; data: { total: number } } | { type: "SuggestionReady"; data: { suggestion: BranchSuggestion; index: number } } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: { message: string } } | { type: "ModelDownloadInProgress"; data: { model_name: string; model_size: string } }
 export type SyncBranchesParams = { repositoryPath: string; branchPrefix: string }
+/**
+ * Progress events for sync operations
+ */
 export type SyncEvent = 
 /**
  * Sent at the beginning with issue navigation configuration if found
@@ -289,6 +328,18 @@ export type SyncEvent =
  * Sent when a branch status changes (including during processing and completion)
  */
 { type: "branchStatusUpdate"; data: { branchName: string; status: BranchSyncStatus; error?: BranchError | null } } | 
+/**
+ * Unified per-branch detection event for any status (Integrated, Orphaned, NotIntegrated, Partial)
+ */
+{ type: "branchIntegrationDetected"; data: { info: BranchIntegrationInfo } } | 
+/**
+ * Sent immediately when archived branches are found (before expensive detection)
+ */
+{ type: "archivedBranchesFound"; data: { branchNames: string[] } } | 
+/**
+ * Sent when remote branch status is checked
+ */
+{ type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
 /**
  * Final completion event
  */

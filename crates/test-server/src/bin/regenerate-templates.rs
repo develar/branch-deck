@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use test_utils::templates;
+use test_utils::repo_template::templates;
 
 fn main() -> anyhow::Result<()> {
   println!("Regenerating test repository templates...");
@@ -20,12 +20,19 @@ fn main() -> anyhow::Result<()> {
     ("unassigned", templates::unassigned()),
     ("conflict_unassigned", templates::conflict_unassigned()),
     ("conflict_branches", templates::conflict_branches()),
+    ("issue_links", templates::issue_links()),
   ];
 
   for (name, template) in templates_to_create {
     let repo_path = test_repos_dir.join(name);
     println!("Creating template: {name}");
     template.build(&repo_path)?;
+  }
+  {
+    let name = "archived_branches";
+    let repo_path = test_repos_dir.join(name);
+    println!("Creating template: {name}");
+    templates::archived_branches().build(&repo_path)?;
   }
 
   println!("Test repository templates regenerated successfully!");

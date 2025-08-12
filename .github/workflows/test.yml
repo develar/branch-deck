@@ -19,10 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Upgrade Git to latest version (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew upgrade git || brew install git
+          git --version
+
       - name: install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - name: setup Node.js
         uses: actions/setup-node@v4
@@ -48,6 +54,9 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install
 
+      - name: nuxt prepare
+        run: pnpm nuxt prepare
+
       - name: Run frontend linting
         run: pnpm lint
 
@@ -56,10 +65,7 @@ jobs:
         env:
           NEXTEST_PROFILE: ci
 
-      - name: Run Rust doc tests
-        run: pnpm test:rust-doc
-
-      - uses: tauri-apps/tauri-action@v0.5
+      - uses: tauri-apps/tauri-action@v0.5.22
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

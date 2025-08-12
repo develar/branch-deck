@@ -4,7 +4,7 @@
     <UCard class="overflow-hidden" :ui="{ body: 'p-0 sm:p-0' }">
       <template #header>
         <div class="flex items-start gap-3">
-          <UIcon name="i-lucide-git-merge" class="size-5 text-error mt-0.5 flex-shrink-0"/>
+          <UIcon name="i-lucide-git-merge" class="size-5 text-error mt-0.5 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-highlighted mb-1">
               Cherry-pick conflict detected
@@ -16,7 +16,8 @@
               :hash="conflict.commitHash"
               :author-time="conflict.commitAuthorTime"
               :committer-time="conflict.commitCommitterTime"
-              class="mt-1" />
+              class="mt-1"
+            />
           </div>
         </div>
       </template>
@@ -25,7 +26,7 @@
       <div class="bd-padding-card">
         <div v-if="conflict.conflictAnalysis" class="bg-elevated rounded-lg bd-padding-card border border-warning">
           <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-file-diff" class="size-4 text-warning"/>
+            <UIcon name="i-lucide-file-diff" class="size-4 text-warning" />
             <span class="text-sm font-medium text-highlighted">Insight: Missing commits modified the conflicting files</span>
           </div>
 

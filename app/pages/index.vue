@@ -1,11 +1,10 @@
 <template>
   <UContainer class="pb-4">
-    <BranchCreator/>
+    <BranchCreator />
   </UContainer>
 </template>
 
 <script lang="ts" setup>
-
 const { checkForUpdatesOnStartup } = useAutoUpdate()
 
 onMounted(() => {

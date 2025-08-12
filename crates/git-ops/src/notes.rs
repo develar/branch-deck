@@ -1,16 +1,18 @@
-use crate::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Mutex;
 use tracing::instrument;
 
 pub const PREFIX: &str = "v-commit-v1:";
 
 /// Information needed to write a git note after successful branch sync
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CommitNoteInfo {
   pub original_oid: String,
   pub new_oid: String,
   pub author: String,
   pub author_email: String,
+  pub tree_id: String,
+  pub subject: String,
 }
 
 /// Write git notes for all commits in a batch using git CLI for better performance

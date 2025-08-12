@@ -2,10 +2,10 @@
 
 [package]
 name = "branch-deck"
-version = "0.1.0"
+version.workspace = true
 description = "Branch Deck"
 authors = ["you"]
-edition = "2024"
+edition.workspace = true
 default-run = "branch-deck"
 
 [features]
@@ -34,7 +34,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri.workspace = true
 serde.workspace = true
-branch-sync = { path = "../crates/branch-sync", features = ["specta"] }
+sync-core = { path = "../crates/sync-core", features = ["specta"] }
+sync-types = { path = "../crates/sync-types", features = ["specta"] }
+branch-integration = { path = "../crates/branch-integration", features = ["specta"] }
 #noinspection CargoUnusedDependency
 serde_json.workspace = true
 specta.workspace = true
@@ -46,7 +48,6 @@ tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
 anyhow.workspace = true
 tracing.workspace = true
-tracing-log = "0.2"
 log = "0.4"
 
 # Development and telemetry dependencies (feature-gated)
@@ -56,10 +57,13 @@ opentelemetry = { version = "0.30.0", optional = true }
 opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"], optional = true }
 opentelemetry-otlp = { version = "0.30.0", features = ["http-proto", "reqwest-blocking-client"], optional = true }
 tracing-opentelemetry = { version = "0.31.0", optional = true }
-tempfile.workspace = true
+moka.workspace = true
 
 # Crate dependencies
 git-ops = { path = "../crates/git-ops" }
+git-executor = { path = "../crates/git-executor" }
+model-core = { path = "../crates/model-core" }
+model-ai = { path = "../crates/model-ai", features = ["specta"] }
 tokio.workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -74,5 +78,9 @@ model-tauri = { path = "../crates/model-tauri", features = ["metal", "accelerate
 model-tauri = { path = "../crates/model-tauri" }
 
 [dev-dependencies]
-test-utils = { path = "../crates/test-utils" }
+tempfile = "3"
+
+[package.metadata.cargo-machete]
+# Build dependencies used in build.rs
+ignored = ["tauri-build"]
 

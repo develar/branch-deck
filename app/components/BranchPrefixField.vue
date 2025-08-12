@@ -1,6 +1,6 @@
 <template>
   <UTooltip text="Your personal prefix (e.g., username) prepended to all branch names">
-    <UButtonGroup>
+    <UFieldGroup>
       <UInput
         v-model="appSettingsStore.globalUserBranchPrefix"
         :disabled="disabled"
@@ -13,12 +13,11 @@
         :configured="configured"
         :disabled="!!disabled"
       />
-    </UButtonGroup>
+    </UFieldGroup>
   </UTooltip>
 </template>
 
 <script lang="ts" setup>
-
 const props = defineProps<{
   disabled?: boolean
 }>()

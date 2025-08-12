@@ -73,23 +73,56 @@ export const tauriMockScript = () => {
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
     
-    const response = await fetch(`http://localhost:3030/invoke/${cmd}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(actualPayload),
-    })
+    try {
+      const response = await fetch(`http://localhost:3030/invoke/${cmd}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(actualPayload),
+      })
 
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Test server error: ${response.statusText} - ${error}`)
+      if (!response.ok) {
+        const error = await response.text()
+        // Return a Result type with error status to match Tauri bindings
+        const result = {
+          status: "error",
+          error: `${response.statusText} - ${error}`,
+        }
+        return result
+      }
+
+      const contentType = response.headers.get("content-type")
+      let data
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json()
+      } else {
+        data = await response.text()
+      }
+
+      // Check if the test server returned a Result-like object
+      if (data && typeof data === "object" && "status" in data) {
+        if (data.status === "error") {
+          // Throw a proper Error object so the bindings layer catches it and wraps it properly
+          const error = new Error(data.error)
+          error.name = "TauriError" // Mark it as a Tauri error, not a network error
+          throw error
+        }
+        // For success responses, return just the data (bindings will wrap it)
+        return data.data
+      }
+
+      // For backwards compatibility, return raw data (bindings will wrap it)
+      return data
+    } catch (networkError) {
+      // Re-throw TauriErrors so they reach the bindings layer
+      if (networkError.name === "TauriError") {
+        throw networkError
+      }
+      // Network errors should also be wrapped in Result type
+      return {
+        status: "error",
+        error: `Network error: ${networkError.message}`,
+      }
     }
-
-    const contentType = response.headers.get("content-type")
-    if (contentType && contentType.includes("application/json")) {
-      return response.json()
-    }
-
-    return response.text()
   }
 
   // === Command Handlers ===
@@ -401,6 +434,7 @@ export const tauriMockScript = () => {
     "get_branch_prefix_from_git_config",
     "create_branch_from_commits",
     "add_issue_reference_to_commits",
+    "delete_archived_branch",
     "push_branches",
     "suggest_branch_name_stream",
   ]
@@ -572,8 +606,20 @@ export const tauriMockScript = () => {
       else if (name === 'id' && value.match(/diff-root--\d+/)) {
         value = value.replace(/diff-root--\d+/g, 'diff-root--[DYNAMIC]')
       }
+      else if (name === 'id' && value.match(/reka-\w+(-\w+)?-v-\d+/)) {
+        value = value.replace(/reka-(\w+(?:-\w+)?)-v-\d+/g, 'reka-$1-v-[N]')
+      }
+      else if (name === 'id' && value.match(/^v-\d+$/)) {
+        value = value.replace(/^v-\d+$/, 'v-[N]')
+      }
       else if ((name === 'aria-describedby' || name === 'aria-labelledby') && value.match(/v-\d+-\d+/)) {
         value = value.replace(/v-\d+-\d+/g, '[ARIA_ID]')
+      }
+      else if ((name === 'aria-describedby' || name === 'aria-labelledby' || name === 'aria-controls') && value.match(/reka-\w+(-\w+)?-v-\d+/)) {
+        value = value.replace(/reka-(\w+(?:-\w+)?)-v-\d+/g, 'reka-$1-v-[N]')
+      }
+      else if (name === 'for' && value.match(/^v-\d+$/)) {
+        value = value.replace(/^v-\d+$/, 'v-[N]')
       }
       else if (name === 'style') {
         const filteredStyle = value

@@ -13,7 +13,9 @@
           <p v-if="downloadProgress.type === 'Started'" class="text-muted">
             Preparing {{ downloadProgress.data.totalFiles }} {{ downloadProgress.data.totalFiles === 1 ? 'file' : 'files' }}...
           </p>
-          <p v-else-if="'fileName' in downloadProgress.data" class="font-semibold">{{ downloadProgress.data.fileName }}</p>
+          <p v-else-if="'fileName' in downloadProgress.data" class="font-semibold">
+            {{ downloadProgress.data.fileName }}
+          </p>
 
           <div class="space-y-1">
             <!-- FileStarted: show file size -->
@@ -77,15 +79,21 @@
         <div class="space-y-2">
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-alert-triangle" class="size-4 text-error" />
-            <p class="font-semibold text-error">Download Failed</p>
+            <p class="font-semibold text-error">
+              Download Failed
+            </p>
           </div>
-          <p class="text-muted">{{ downloadProgress.data.message }}</p>
+          <p class="text-muted">
+            {{ downloadProgress.data.message }}
+          </p>
         </div>
       </template>
 
       <!-- Cancelled -->
       <template v-else-if="downloadProgress.type === 'Cancelled'">
-        <p class="text-muted">Download cancelled</p>
+        <p class="text-muted">
+          Download cancelled
+        </p>
       </template>
     </div>
 

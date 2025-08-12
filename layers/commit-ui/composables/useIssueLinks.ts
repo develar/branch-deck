@@ -3,6 +3,8 @@
  * Converts issue references to clickable links based on IntelliJ IDEA configuration
  */
 
+import type { IssueNavigationLink } from "~/utils/bindings"
+
 interface CompiledPattern {
   regex: RegExp
   linkTemplate: string
@@ -24,7 +26,7 @@ export function useIssueLinks() {
       return []
     }
 
-    return config.links.map((link) => {
+    return config.links.map((link: IssueNavigationLink) => {
       try {
         // Convert the issue regexp to a JavaScript RegExp
         // IntelliJ uses Java regex syntax, we need to handle some differences
