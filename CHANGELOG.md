@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/develar/branch-deck/compare/v0.7.1...v0.8.0) (2025-08-25)
+
+
+### Features
+
+* integration status ([5ce7e7b](https://github.com/develar/branch-deck/commit/5ce7e7b9de4443b5fd2e9dc5aa82d84f40b8d1eb))
+
 ## [0.7.1](https://github.com/develar/branch-deck/compare/v0.7.0...v0.7.1) (2025-08-07)
 
 
