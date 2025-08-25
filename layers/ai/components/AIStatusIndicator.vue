@@ -1,11 +1,12 @@
 <template>
   <!-- AI indicator icon with integrated help -->
-  <UPopover v-if="!isDownloading" mode="hover" :popper="{ strategy: 'fixed', placement: 'bottom' }">
+  <UPopover v-if="!isDownloading" mode="hover">
+    <!-- @vue-expect-error @click works on UIcon -->
     <UIcon
       name="i-lucide-sparkles"
       :class="[
         'size-3.5 cursor-pointer transition-all',
-        aiStatus.iconClass
+        aiStatus.iconClass,
       ]"
       data-testid="ai-status-icon"
       @click="handleClick"
@@ -16,15 +17,23 @@
         <template v-if="aiError">
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-alert-triangle" class="size-4 text-error" />
-            <p class="font-semibold text-error">AI Malfunction</p>
+            <p class="font-semibold text-error">
+              AI Malfunction
+            </p>
           </div>
           <div class="space-y-2 mt-2">
             <div class="p-2 bg-error/10 border border-error/20 rounded-md">
-              <p class="font-medium text-error mb-1">Error:</p>
-              <p class="text-toned break-words">{{ aiError.message }}</p>
+              <p class="font-medium text-error mb-1">
+                Error:
+              </p>
+              <p class="text-toned break-words">
+                {{ aiError.message }}
+              </p>
             </div>
             <details class="cursor-pointer">
-              <summary class="text-muted hover:text-highlighted">View full details</summary>
+              <summary class="text-muted hover:text-highlighted">
+                View full details
+              </summary>
               <pre class="mt-2 p-2 bg-subtle rounded text-xs overflow-x-auto whitespace-pre-wrap break-words">{{ aiError.details }}</pre>
             </details>
             <div class="flex items-center justify-between text-xs text-muted">
@@ -40,7 +49,9 @@
             </div>
           </div>
           <div class="pt-2 border-t border-default">
-            <p class="text-muted mb-2">Click the icon to retry or disable AI</p>
+            <p class="text-muted mb-2">
+              Click the icon to retry or disable AI
+            </p>
           </div>
         </template>
         <!-- Normal state -->
@@ -75,7 +86,6 @@
   <UPopover
     v-else
     mode="hover"
-    :popper="{ strategy: 'fixed', placement: 'bottom' }"
   >
     <UIcon
       name="i-lucide-sparkles"
@@ -95,7 +105,7 @@
 <script lang="ts" setup>
 // AI composables are auto-imported from ai layer
 
-const { aiMode, aiStatus, aiError } = await useAIToggle()
+const { aiMode, aiStatus, aiError } = useAIToggle()
 
 // Click handler to toggle between enabled/disabled
 function handleClick() {

@@ -28,8 +28,10 @@
     <!-- Loading state -->
     <div v-else class="flex items-center justify-center min-h-[400px]">
       <div class="text-center">
-        <UIcon name="i-lucide-loader-2" class="size-8 text-muted animate-spin mx-auto mb-3"/>
-        <p class="text-sm text-muted">Loading conflicting files data...</p>
+        <UIcon name="i-lucide-loader-2" class="size-8 text-muted animate-spin mx-auto mb-3" />
+        <p class="text-sm text-muted">
+          Loading conflicting files data...
+        </p>
       </div>
     </div>
   </div>

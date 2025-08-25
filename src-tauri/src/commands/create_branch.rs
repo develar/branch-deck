@@ -1,9 +1,8 @@
-use git_ops::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
 use tauri::State;
 use tracing::instrument;
 
-// Re-export types from branch-sync for backward compatibility
-pub use branch_sync::create_branch::{CreateBranchFromCommitsParams, RewordResult};
+use sync_core::create_branch::{CreateBranchFromCommitsParams, RewordResult};
 
 /// Assigns commits to a branch by prepending a branch prefix to their messages.
 /// Uses git plumbing commands to efficiently rewrite commit messages without touching the working directory.
@@ -11,5 +10,9 @@ pub use branch_sync::create_branch::{CreateBranchFromCommitsParams, RewordResult
 #[specta::specta]
 #[instrument(skip(git_executor))]
 pub async fn create_branch_from_commits(git_executor: State<'_, GitCommandExecutor>, params: CreateBranchFromCommitsParams) -> Result<RewordResult, String> {
-  branch_sync::create_branch::do_create_branch_from_commits(&git_executor, params).await
+  // Clone the executor since spawn_blocking requires 'static lifetime
+  let git = git_executor.inner().clone();
+  tokio::task::spawn_blocking(move || sync_core::create_branch::do_create_branch_from_commits(&git, params))
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }

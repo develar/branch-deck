@@ -1,11 +1,11 @@
 use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
 use crate::copy_commit::CopyCommitError;
-use crate::git_command::GitCommandExecutor;
-use crate::merge_conflict::{extract_conflict_details, ConflictDetailsParams, ConflictFileInfo};
+use crate::merge_conflict::{ConflictDetailsParams, ConflictFileInfo, extract_conflict_details};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use crate::progress::CherryPickProgress;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
@@ -223,7 +223,7 @@ fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id
     parent_id: None,           // Not relevant for error reporting
     tree_id: String::new(),    // Not relevant for error reporting
     note: None,                // Not relevant for error reporting
-    mapped_commit_id: None,    // Not relevant for error reporting
     stripped_subject: message, // Same as subject for error reporting
+    mapped_commit_id: None,    // Not relevant for error reporting
   })
 }

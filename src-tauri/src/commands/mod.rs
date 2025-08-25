@@ -1,4 +1,5 @@
 pub mod add_issue_reference;
+pub mod archived_branches;
 pub mod branch_prefix;
 pub mod clear_model_cache;
 pub mod create_branch;

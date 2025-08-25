@@ -1,15 +1,21 @@
-import { ref } from "vue"
 import type { VcsRequestFactory } from "./vcsRequest"
+import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import { commands } from "~/utils/bindings"
 // notifyError is auto-imported from shared-ui layer
 
-export function usePush(vcsRequestFactory: VcsRequestFactory) {
-  const pushingBranches = ref(new Set<string>())
-
+export function usePush(vcsRequestFactory: VcsRequestFactory, branches: Ref<ReactiveBranch[]>) {
   const toast = useToast()
 
+  const findBranch = (branchName: string): ReactiveBranch | undefined => {
+    return branches.value.find(branch => branch.name === branchName)
+  }
+
   const pushBranch = async (branchName: string) => {
-    pushingBranches.value.add(branchName)
+    const branch = findBranch(branchName)
+    if (branch) {
+      branch.isPushing = true
+    }
+
     try {
       const request = vcsRequestFactory.createRequest()
       const result = await commands.pushBranch({ repositoryPath: request.repositoryPath, branchPrefix: request.branchPrefix, branchName })
@@ -30,13 +36,11 @@ export function usePush(vcsRequestFactory: VcsRequestFactory) {
       return { status: "error", error: String(error) }
     }
     finally {
-      pushingBranches.value.delete(branchName)
+      if (branch) {
+        branch.isPushing = false
+      }
     }
   }
 
-  const isPushing = (branchName: string) => {
-    return pushingBranches.value.has(branchName)
-  }
-
-  return { pushBranch, isPushing }
+  return { pushBranch }
 }

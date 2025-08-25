@@ -1,7 +1,6 @@
-use crate::git_command::GitCommandExecutor;
-use crate::notes::{write_commit_notes, CommitNoteInfo, PREFIX};
+use crate::notes::{CommitNoteInfo, PREFIX, write_commit_notes};
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use std::process::Command;
 use std::sync::Mutex;
 use test_utils::git_test_utils::TestRepo;
 
@@ -29,20 +28,15 @@ fn test_write_single_commit_note() {
     new_oid: commit2_hash.clone(),
     author: "Test Author".to_string(),
     author_email: "test@example.com".to_string(),
+    tree_id: String::new(),
+    subject: "Test commit".to_string(),
   }];
 
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
   assert!(result.is_ok());
 
   // Verify the note was written
-  let output = Command::new("git")
-    .args(["--no-pager", "notes", "show", &commit1_hash])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  assert!(output.status.success(), "Failed to read note: {}", String::from_utf8_lossy(&output.stderr));
-  let note_content = String::from_utf8_lossy(&output.stdout);
+  let note_content = test_repo.show_note(&commit1_hash).unwrap_or_else(|e| panic!("Failed to read note: {}", e));
   assert_eq!(note_content.trim(), format!("{PREFIX}{commit2_hash}"));
 }
 
@@ -69,6 +63,8 @@ fn test_write_multiple_commit_notes() {
       new_oid: new,
       author: format!("Author {i}"),
       author_email: format!("author{i}@example.com"),
+      tree_id: String::new(),
+      subject: format!("Commit {i}"),
     });
   }
 
@@ -78,14 +74,9 @@ fn test_write_multiple_commit_notes() {
 
   // Verify all notes were written correctly
   for i in 0..7 {
-    let output = Command::new("git")
-      .args(["--no-pager", "notes", "show", &original_commits[i]])
-      .current_dir(test_repo.path())
-      .output()
-      .unwrap();
-
-    assert!(output.status.success(), "Failed to read note for commit {}: {}", i, String::from_utf8_lossy(&output.stderr));
-    let note_content = String::from_utf8_lossy(&output.stdout);
+    let note_content = test_repo
+      .show_note(&original_commits[i])
+      .unwrap_or_else(|e| panic!("Failed to read note for commit {}: {}", i, e));
     assert_eq!(
       note_content.trim(),
       format!("{}{}", PREFIX, new_commits[i]),
@@ -111,20 +102,15 @@ fn test_write_commit_notes_with_special_characters() {
     new_oid: commit2.clone(),
     author: "Author with 'quotes' and spaces".to_string(),
     author_email: "special.chars+test@example.com".to_string(),
+    tree_id: String::new(),
+    subject: "Special commit".to_string(),
   }];
 
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
   assert!(result.is_ok());
 
   // Verify the note
-  let output = Command::new("git")
-    .args(["--no-pager", "notes", "show", &commit1])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  assert!(output.status.success());
-  let note_content = String::from_utf8_lossy(&output.stdout);
+  let note_content = test_repo.show_note(&commit1).unwrap();
   assert_eq!(note_content.trim(), format!("{PREFIX}{commit2}"));
 }
 
@@ -153,6 +139,8 @@ fn test_concurrent_note_writing() {
       new_oid: new.clone(),
       author: format!("Batch {i}"),
       author_email: format!("batch{i}@example.com"),
+      tree_id: String::new(),
+      subject: format!("Batch commit {i}"),
     });
 
     expected_mappings.push((original, new));
@@ -164,14 +152,7 @@ fn test_concurrent_note_writing() {
 
   // Verify all notes were written correctly
   for (i, (original, new)) in expected_mappings.iter().enumerate() {
-    let output = Command::new("git")
-      .args(["--no-pager", "notes", "show", original])
-      .current_dir(test_repo.path())
-      .output()
-      .unwrap();
-
-    assert!(output.status.success());
-    let note_content = String::from_utf8_lossy(&output.stdout);
+    let note_content = test_repo.show_note(original).unwrap();
     assert_eq!(note_content.trim(), format!("{PREFIX}{new}"), "Batch {} should have written its note correctly", i);
   }
 }
@@ -193,18 +174,14 @@ fn test_write_commit_notes_overwrites_existing() {
     new_oid: commit2.clone(),
     author: "Author".to_string(),
     author_email: "test@example.com".to_string(),
+    tree_id: String::new(),
+    subject: "Initial note".to_string(),
   }];
 
   write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex).unwrap();
 
   // Verify initial note
-  let output = Command::new("git")
-    .args(["--no-pager", "notes", "show", &commit1])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  let note_content = String::from_utf8_lossy(&output.stdout);
+  let note_content = test_repo.show_note(&commit1).unwrap();
   assert_eq!(note_content.trim(), format!("{PREFIX}{commit2}"));
 
   // Overwrite with new note
@@ -213,18 +190,14 @@ fn test_write_commit_notes_overwrites_existing() {
     new_oid: commit3.clone(),
     author: "Author".to_string(),
     author_email: "test@example.com".to_string(),
+    tree_id: String::new(),
+    subject: "Overwritten note".to_string(),
   }];
 
   write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex).unwrap();
 
   // Verify note was overwritten
-  let output = Command::new("git")
-    .args(["--no-pager", "notes", "show", &commit1])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  let note_content = String::from_utf8_lossy(&output.stdout);
+  let note_content = test_repo.show_note(&commit1).unwrap();
   assert_eq!(note_content.trim(), format!("{PREFIX}{commit3}"));
 }
 
@@ -249,6 +222,8 @@ fn test_write_notes_batch_mode_edge_cases() {
       new_oid: new,
       author: "Test".to_string(),
       author_email: "test@example.com".to_string(),
+      tree_id: String::new(),
+      subject: format!("Edge case {i}"),
     });
   }
 
@@ -258,14 +233,7 @@ fn test_write_notes_batch_mode_edge_cases() {
 
   // Verify all notes
   for (original, new) in commits {
-    let output = Command::new("git")
-      .args(["--no-pager", "notes", "show", &original])
-      .current_dir(test_repo.path())
-      .output()
-      .unwrap();
-
-    assert!(output.status.success());
-    let note_content = String::from_utf8_lossy(&output.stdout);
+    let note_content = test_repo.show_note(&original).unwrap();
     assert_eq!(note_content.trim(), format!("{PREFIX}{new}"));
   }
 }

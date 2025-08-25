@@ -1,7 +1,7 @@
 [package]
 name = "test-utils"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Shared test utilities for Branch Deck workspace"
 
 [[bin]]
@@ -13,10 +13,15 @@ path = "src/bin/generate-test-repo.rs"
 anyhow.workspace = true
 tempfile.workspace = true
 clap.workspace = true
+tracing.workspace = true
+
+# Git command executor
+git-executor = { path = "../git-executor" }
 
 # Note: git-ops removed to avoid circular dependency - git-ops has its own test utilities
 
 [dev-dependencies]
+test-log = { workspace = true }
 
 [features]
 default = []

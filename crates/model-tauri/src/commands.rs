@@ -1,4 +1,5 @@
-use crate::{ModelGeneratorState, TauriModelPathProvider};
+use crate::generator::ModelGeneratorState;
+use crate::path_provider::TauriModelPathProvider;
 use model_ai::types::DownloadProgress;
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -84,7 +85,7 @@ pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app
 }
 
 /// Check which model files exist in the given model path
-pub(crate) fn check_model_files_exist(model_config: &model_core::ModelConfig, model_path: &std::path::Path) -> (bool, bool, bool) {
+pub(crate) fn check_model_files_exist(model_config: &model_core::config::ModelConfig, model_path: &std::path::Path) -> (bool, bool, bool) {
   let download_urls = model_config.download_urls();
 
   let mut config_exists = true; // Default to true for GGUF models

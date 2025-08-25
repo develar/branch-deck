@@ -98,9 +98,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.98"
+version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
 dependencies = [
  "backtrace",
 ]
@@ -227,11 +227,12 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 [[package]]
 name = "candle-core"
 version = "0.9.1"
-source = "git+https://github.com/huggingface/candle.git?rev=1ef13411b5fce996ce5abb7497905bf2e4b64f79#1ef13411b5fce996ce5abb7497905bf2e4b64f79"
+source = "git+https://github.com/huggingface/candle.git?rev=be4f920f35b99af5919a86c0a2e08a78f3f63567#be4f920f35b99af5919a86c0a2e08a78f3f63567"
 dependencies = [
  "accelerate-src",
  "byteorder",
  "candle-metal-kernels",
+ "float8",
  "gemm 0.17.1",
  "half",
  "libc",
@@ -253,7 +254,7 @@ dependencies = [
 [[package]]
 name = "candle-metal-kernels"
 version = "0.9.1"
-source = "git+https://github.com/huggingface/candle.git?rev=1ef13411b5fce996ce5abb7497905bf2e4b64f79#1ef13411b5fce996ce5abb7497905bf2e4b64f79"
+source = "git+https://github.com/huggingface/candle.git?rev=be4f920f35b99af5919a86c0a2e08a78f3f63567#be4f920f35b99af5919a86c0a2e08a78f3f63567"
 dependencies = [
  "half",
  "metal 0.27.0",
@@ -265,7 +266,7 @@ dependencies = [
 [[package]]
 name = "candle-nn"
 version = "0.9.1"
-source = "git+https://github.com/huggingface/candle.git?rev=1ef13411b5fce996ce5abb7497905bf2e4b64f79#1ef13411b5fce996ce5abb7497905bf2e4b64f79"
+source = "git+https://github.com/huggingface/candle.git?rev=be4f920f35b99af5919a86c0a2e08a78f3f63567#be4f920f35b99af5919a86c0a2e08a78f3f63567"
 dependencies = [
  "accelerate-src",
  "candle-core",
@@ -282,7 +283,7 @@ dependencies = [
 [[package]]
 name = "candle-transformers"
 version = "0.9.1"
-source = "git+https://github.com/huggingface/candle.git?rev=1ef13411b5fce996ce5abb7497905bf2e4b64f79#1ef13411b5fce996ce5abb7497905bf2e4b64f79"
+source = "git+https://github.com/huggingface/candle.git?rev=be4f920f35b99af5919a86c0a2e08a78f3f63567#be4f920f35b99af5919a86c0a2e08a78f3f63567"
 dependencies = [
  "accelerate-src",
  "byteorder",
@@ -680,6 +681,17 @@ checksum = "4a3d7db9596fecd151c5f638c0ee5d5bd487b6e0ea232e5dc96d5250f6f94b1d"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "float8"
+version = "0.2.1"
+source = "git+https://github.com/zackangelo/float8?branch=cudarc_0_16#03c1f5fe7cdb2f9cb690823fdd40593be57c408f"
+dependencies = [
+ "half",
+ "num-traits",
+ "rand",
+ "rand_distr",
 ]
 
 [[package]]

@@ -1,7 +1,9 @@
-import type { Commit, CommitSyncStatus, GroupedBranchInfo, BranchError, BranchSyncStatus, SyncEvent } from "~/utils/bindings"
+import type { BranchError, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, SyncEvent } from "~/utils/bindings"
+import { commands } from "~/utils/bindings"
 import { Channel } from "@tauri-apps/api/core"
 import { UserError } from "~/composables/git/vcsRequest"
-import { commands } from "~/utils/bindings"
+import type { createRepositoryState } from "~/composables/repositoryProvider"
+import { createReactiveIndexedCollection } from "~/utils/reactiveIndexedCollection"
 
 // Injection key
 export const BranchSyncKey = Symbol("branch-sync")
@@ -20,9 +22,19 @@ export interface SyncedCommit extends Commit {
   error?: BranchError | null
 }
 
+// Remote status information for a branch
+export interface RemoteStatus {
+  exists: boolean
+  head?: string
+  unpushedCommits: string[]
+  commitsAhead: number
+  commitsBehind: number
+  myCommitsAhead: number
+}
+
 // Reactive branch data that updates incrementally
 export interface ReactiveBranch {
-  name: string
+  name: string // immutable
   commits: SyncedCommit[]
   commitMap: Map<string, SyncedCommit>
   commitCount: number
@@ -34,41 +46,43 @@ export interface ReactiveBranch {
   autoExpandRequested: boolean
   autoScrollRequested: boolean
   latestCommitTime: number
+  summary: string
+  // Remote tracking information (null = not yet loaded)
+  remoteStatus: RemoteStatus | null
+  // Push state
+  isPushing: boolean
 }
 
 // Create branch sync state
-export function createBranchSyncState(repository: RepositoryState) {
+export function createBranchSyncState(repository: ReturnType<typeof createRepositoryState>) {
   const { loadingPromise, vcsRequestFactory, selectedProject } = repository
   // State - using explicit refs
   const syncError = shallowRef<string | null>(null)
   const isSyncing = shallowRef(false)
   const hasCompletedSync = shallowRef(false)
-  const branches = ref<ReactiveBranch[]>([])
+  const branchCollection = createReactiveIndexedCollection<string, ReactiveBranch>()
+  const branches = branchCollection.array // Expose array for UI
   const unassignedCommits = ref<Commit[]>([])
 
-  // Internal state
-  const branchMap = new Map<string, ReactiveBranch>()
+  // Archived branches state
+  const archivedBranches = createArchivedBranchesState(repository)
 
   // Main sync action
   async function syncBranches(options?: SyncOptions) {
     isSyncing.value = true
     syncError.value = null
 
+    // Note: Don't clear archived branches - use reconcile to preserve component state
+
     try {
       // Wait for any pending branch prefix loading
       if (loadingPromise.value) {
-        try {
-          await Promise.race([
-            loadingPromise.value,
-            new Promise((_, reject) => setTimeout(() => reject(new UserError("Timeout waiting for branch prefix configuration")), 5000)),
-          ])
-        }
-        catch (error) {
-          console.error("Error loading branch prefix:", error)
-        }
+        await Promise.race([
+          loadingPromise.value,
+          new Promise((_, reject) => setTimeout(() => reject(new UserError("Timeout waiting for branch prefix configuration")), 5000)),
+        ])
       }
 
-      // Create SSE channel
       const channel = new Channel<SyncEvent>()
 
       // Handle events
@@ -78,7 +92,14 @@ export function createBranchSyncState(repository: RepositoryState) {
 
       // Start sync
       const vcsRequest = vcsRequestFactory.createRequest()
-      await commands.syncBranches(vcsRequest, channel)
+      const result = await commands.syncBranches(vcsRequest, channel)
+
+      // Check if the command returned an error via Result type
+      if (result.status === "error") {
+        syncError.value = result.error || "Failed to sync branches"
+        console.error("Sync error:", result.error)
+        return
+      }
 
       // Update last sync time
       const now = Date.now()
@@ -103,18 +124,16 @@ export function createBranchSyncState(repository: RepositoryState) {
         handleIssueNavigationConfigEvent(event.data)
         break
       case "branchesGrouped":
-        handleBranchesGroupedEvent(event.data, branchMap, branches.value)
-        // Trigger reactivity by reassigning the array
-        branches.value = [...branches.value]
+        handleBranchesGroupedEvent(event.data)
         break
       case "commitSynced":
-        handleCommitSyncedEvent(event.data, branchMap)
+        handleCommitSyncedEvent(event.data)
         break
       case "commitError":
-        handleCommitErrorEvent(event.data, branchMap, options)
+        handleCommitErrorEvent(event.data, options)
         break
       case "branchStatusUpdate":
-        handleBranchStatusUpdateEvent(event.data, branchMap, options)
+        handleBranchStatusUpdateEvent(event.data, options)
         break
       case "unassignedCommits":
         handleUnassignedCommitsEvent(event.data)
@@ -122,37 +141,47 @@ export function createBranchSyncState(repository: RepositoryState) {
       case "completed":
         handleCompletedEvent()
         break
+      case "archivedBranchesFound":
+        archivedBranches.updateFromArchivedNames(event.data.branchNames)
+        break
+      case "branchIntegrationDetected":
+        archivedBranches.updateFromIntegrationInfo(event.data.info)
+        break
+      case "remoteStatusUpdate":
+        handleRemoteStatusUpdateEvent(event.data)
+        break
     }
   }
 
   // Event handler for BranchesGrouped events
   function handleBranchesGroupedEvent(
     data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"],
-    branchMap: Map<string, ReactiveBranch>,
-    branchArray: ReactiveBranch[],
   ) {
-    const newBranchNames = new Set<string>()
+    const branchDataMap = new Map(data.branches.map(branch => [branch.name, branch]))
 
-    for (const branch of data.branches) {
-      newBranchNames.add(branch.name)
-
-      let branchItem = branchMap.get(branch.name)
-      if (!branchItem) {
-        branchItem = reactive({
+    branchCollection.reconcile(
+      new Set(data.branches.map(branch => branch.name)),
+      (name) => {
+        const branch = branchDataMap.get(name)!
+        const branchItem = reactive({
           name: branch.name,
-          commits: [],
-          commitMap: new Map(),
-          commitCount: branch.commits.length,
+          commits: [] as SyncedCommit[],
+          commitMap: new Map<string, SyncedCommit>(),
+          commitCount: branch.commits?.length ?? 0,
           status: "Syncing" as const,
           statusText: "syncing…",
           processedCount: 0,
           hasError: false,
+          errorDetails: undefined as BranchError | undefined,
           autoExpandRequested: false,
           autoScrollRequested: false,
           latestCommitTime: branch.latestCommitTime,
-        })
-        branchMap.set(branch.name, branchItem)
-        branchArray.push(branchItem)
+          summary: branch.summary,
+          // Remote tracking (null = not yet loaded)
+          remoteStatus: null as RemoteStatus | null,
+          // Push state
+          isPushing: false,
+        }) as ReactiveBranch
 
         // Add commits to new branch
         for (const commit of branch.commits) {
@@ -160,30 +189,22 @@ export function createBranchSyncState(repository: RepositoryState) {
           branchItem.commitMap.set(commit.originalHash, syncedCommit)
           branchItem.commits.push(syncedCommit)
         }
-      }
-      else {
-        resetBranch(branchItem, branch)
-      }
-    }
 
-    // Remove branches that no longer exist
-    const hasRemovedBranches = branchArray.length > newBranchNames.size
-    if (hasRemovedBranches) {
-      for (let i = branchArray.length - 1; i >= 0; i--) {
-        if (!newBranchNames.has(branchArray[i]!.name)) {
-          branchArray.splice(i, 1)
-        }
-      }
-    }
+        return branchItem
+      },
+      (_, existing, branchData) => {
+        resetBranch(existing, branchData!)
+      },
+      branchDataMap,
+    )
   }
 
   // Event handler for CommitSynced events
   function handleCommitSyncedEvent(
     data: Extract<SyncEvent, { type: "commitSynced" }>["data"],
-    branchMap: Map<string, ReactiveBranch>,
   ) {
     const { branchName, commitHash, newHash, status } = data
-    const branch = branchMap.get(branchName)
+    const branch = branchCollection.get(branchName)
     const commit = branch?.commitMap.get(commitHash)
     if (branch && commit) {
       commit.hash = newHash
@@ -196,11 +217,10 @@ export function createBranchSyncState(repository: RepositoryState) {
   // Event handler for CommitError events
   function handleCommitErrorEvent(
     data: Extract<SyncEvent, { type: "commitError" }>["data"],
-    branchMap: Map<string, ReactiveBranch>,
     options?: SyncOptions,
   ) {
     const { branchName, commitHash, error } = data
-    const branch = branchMap.get(branchName)
+    const branch = branchCollection.get(branchName)
     const commit = branch?.commitMap.get(commitHash)
 
     if (branch) {
@@ -238,11 +258,10 @@ export function createBranchSyncState(repository: RepositoryState) {
   // Event handler for BranchStatusUpdate events
   function handleBranchStatusUpdateEvent(
     data: Extract<SyncEvent, { type: "branchStatusUpdate" }>["data"],
-    branchMap: Map<string, ReactiveBranch>,
     options?: SyncOptions,
   ) {
     const { branchName, status, error } = data
-    const branch = branchMap.get(branchName)
+    const branch = branchCollection.get(branchName)
     if (branch) {
       // Store the status in the branch data
       branch.status = status
@@ -312,6 +331,26 @@ export function createBranchSyncState(repository: RepositoryState) {
     hasCompletedSync.value = true
   }
 
+  // Event handler for RemoteStatusUpdate events
+  function handleRemoteStatusUpdateEvent(
+    data: Extract<SyncEvent, { type: "remoteStatusUpdate" }>["data"],
+  ) {
+    const { branchName, remoteExists, remoteHead, unpushedCommits, commitsBehind, myUnpushedCount } = data
+    const branch = branchCollection.get(branchName)
+    if (branch) {
+      branch.remoteStatus = {
+        exists: remoteExists,
+        head: remoteHead ?? undefined, // Convert null to undefined
+        unpushedCommits,
+        commitsAhead: unpushedCommits.length,
+        commitsBehind,
+        myCommitsAhead: myUnpushedCount ?? 0,
+      }
+    }
+  }
+
+  // Event handler for ArchivedBranchesFound events
+  // Event handler for single OrphanedBranchDetected events
   // Reset branch data
   function resetBranch(branchItem: ReactiveBranch, branch: GroupedBranchInfo) {
     branchItem.commitCount = branch.commits.length
@@ -323,6 +362,11 @@ export function createBranchSyncState(repository: RepositoryState) {
     branchItem.autoExpandRequested = false
     branchItem.autoScrollRequested = false
     branchItem.latestCommitTime = branch.latestCommitTime
+    branchItem.summary = branch.summary
+    // Reset remote tracking info (null = not yet loaded)
+    branchItem.remoteStatus = null
+    // Reset push state
+    branchItem.isPushing = false
 
     // Clear existing commits and add new ones
     branchItem.commitMap.clear()
@@ -344,6 +388,9 @@ export function createBranchSyncState(repository: RepositoryState) {
 
     // Actions
     syncBranches,
+
+    // Archived branches (new composable)
+    archivedBranches,
   }
 }
 

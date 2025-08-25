@@ -10,4 +10,4 @@ model_results:
   - model: Qwen3_17B
     prompt: "<|im_start|>system\nYou are a Git branch name generator. Output only the branch name. Use lowercase letters, numbers, and hyphens only. Maximum 50 characters. /no_think<|im_end|>\n<|im_start|>user\nWIP: working on search feature\nA\tsrc/search/index.js\nA\tsrc/search/filter.js\n\nFix typo in variable name\nM\tsrc/utils/helpers.rs\n\nCode cleanup and formatting\nM\tsrc/lib.rs\nM\tsrc/main.rs<|im_end|>\n<|im_start|>assistant"
     generated_branch_name: wip-search-feature
-    generation_time_ms: 8000
+    generation_time_ms: 6000

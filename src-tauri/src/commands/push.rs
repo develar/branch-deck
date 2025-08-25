@@ -1,4 +1,4 @@
-use git_ops::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
 use serde::Deserialize;
 use tauri::State;

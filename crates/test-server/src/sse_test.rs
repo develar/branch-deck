@@ -31,7 +31,7 @@ async fn test_sync_branches_sse_stream() {
   let repo_path = temp_dir.path();
 
   // Build a simple test repository
-  test_utils::templates::simple().build(repo_path).expect("Failed to create test repository");
+  test_utils::repo_template::templates::simple().build(repo_path).expect("Failed to create test repository");
 
   // Create HTTP client
   let client = reqwest::Client::new();

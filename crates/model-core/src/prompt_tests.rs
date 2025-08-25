@@ -1,6 +1,7 @@
-use crate::prompt::{create_chatml_prompt, create_generic_prompt, MAX_BRANCH_NAME_LENGTH};
-use crate::test_utils::{convert_to_raw_git_format, CommitDiff, CommitInfo, FileDiff};
+use crate::prompt::{MAX_BRANCH_NAME_LENGTH, create_chatml_prompt, create_generic_prompt};
+use crate::test_utils::{CommitDiff, CommitInfo, FileDiff, convert_to_raw_git_format};
 use pretty_assertions::assert_eq;
+use test_log::test;
 
 #[test]
 fn test_create_generic_prompt_basic() {

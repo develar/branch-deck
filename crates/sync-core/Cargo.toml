@@ -1,0 +1,35 @@
+[package]
+name = "sync-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
+branch-integration = { path = "../branch-integration" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+anyhow.workspace = true
+indexmap.workspace = true
+tracing.workspace = true
+serde.workspace = true
+specta = { workspace = true, optional = true }
+quick-xml = "0.38"
+tokio.workspace = true
+
+[features]
+default = []
+specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+sync-test-utils = { path = "../sync-test-utils" }
+tempfile.workspace = true
+tokio.workspace = true
+pretty_assertions = { workspace = true }
+criterion = "0.7"
+test-log = { workspace = true }
+
+[[bench]]
+name = "issue_pattern_bench"
+harness = false

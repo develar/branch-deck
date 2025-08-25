@@ -19,7 +19,9 @@
         <div class="space-y-4">
           <!-- Global Configuration -->
           <div class="rounded-lg border border-default bg-subtle p-4">
-            <h3 class="text-sm font-semibold text-default mb-3">Set your global branch prefix</h3>
+            <h3 class="text-sm font-semibold text-default mb-3">
+              Set your global branch prefix
+            </h3>
             <p class="text-sm text-muted mb-3">
               Run this command in your terminal to set a global prefix for all repositories:
             </p>
@@ -33,7 +35,9 @@
 
           <!-- How It Works -->
           <div class="rounded-lg border border-info/20 bg-info/5 p-4">
-            <h3 class="text-sm font-semibold text-default mb-3">How It Works</h3>
+            <h3 class="text-sm font-semibold text-default mb-3">
+              How It Works
+            </h3>
             <p class="text-sm text-muted mb-3">
               Branch Deck groups commits based on message patterns:
             </p>
@@ -79,7 +83,9 @@
 
           <!-- Repository-specific -->
           <div class="border-t border-default pt-4">
-            <p class="text-sm text-muted mb-2">You can also set this value per repository using:</p>
+            <p class="text-sm text-muted mb-2">
+              You can also set this value per repository using:
+            </p>
             <div class="bg-default rounded p-3 overflow-x-auto">
               <code class="text-xs text-mono">git config branchdeck.branchPrefix repoSpecificPrefix</code>
             </div>

@@ -24,6 +24,7 @@ export default defineNuxtConfig({
         "@git-diff-view/vue",
         "@tanstack/vue-table",
         "reka-ui",
+        "p-debounce",
         "zod",
       ],
     },
@@ -43,10 +44,9 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
 
   // Extend from layers
-  extends: ["./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui", "./layers/ai"],
+  extends: ["./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui", "./layers/ai", "./layers/branch-ui"],
 
-  // Modules
-  modules: ["@nuxt/ui-pro", "@nuxt/eslint"],
+  modules: ["@nuxt/ui", "@nuxt/eslint"],
 
   css: ["~/assets/css/main.css"],
 
@@ -54,6 +54,12 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
     shim: false,
+    tsConfig: {
+      vueCompilerOptions: {
+        strictTemplates: true,
+        dataAttributes: ["data-*", "autocapitalize", "autocorrect", "spellcheck"],
+      },
+    },
   },
 
   devServer: {
@@ -77,7 +83,6 @@ export default defineNuxtConfig({
 
   // Component configuration
   components: [
-    { path: "~/components/branchList", pathPrefix: false },
     { path: "~/components/unassigned", pathPrefix: false },
     "~/components",
   ],

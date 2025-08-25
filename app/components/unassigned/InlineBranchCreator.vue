@@ -147,5 +147,4 @@ function cancel() {
   branchName.value = ""
   emit("cancel")
 }
-
 </script>

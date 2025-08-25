@@ -1,5 +1,5 @@
 import type { Ref } from "vue"
-import type { ProjectMetadata } from "~/utils/app-store"
+import type { ProjectMetadata } from "~/stores/repositorySettings"
 
 export class VcsRequestFactory {
   constructor(

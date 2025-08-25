@@ -20,7 +20,7 @@
               size="sm"
               :class="[
                 'capitalize ring-default rounded-sm text-[11px]',
-                props.currentColor === color.name ? 'bg-elevated' : 'hover:bg-elevated/50'
+                props.currentColor === color.name ? 'bg-elevated' : 'hover:bg-elevated/50',
               ]"
               @click="selectColor(color.name)"
             >

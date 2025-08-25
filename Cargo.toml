@@ -1,6 +1,13 @@
+cargo-features = ["profile-rustflags", "trim-paths"]
+
 [workspace]
-members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/branch-sync"]
+members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor"]
 resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+version = "0.1.0"
 
 [workspace.dependencies]
 # ============================================================================
@@ -8,28 +15,32 @@ resolver = "2"
 # ============================================================================
 
 # Core utilities (used by both src-tauri and model-core)
-anyhow = { version = "1.0.98", features = ["default", "backtrace"] }
+anyhow = { version = "1.0.99", features = ["default", "backtrace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "macros", "net", "sync", "process", "signal"] }
 tracing = { version = "0.1.41", features = ["max_level_debug", "release_max_level_info", "log"] }
 
 # Tauri framework
-tauri = { version = "2.7.0", features = [] }
+tauri = { version = "2.8.3", features = [] }
 
 # Testing utilities
 pretty_assertions = "1.4"
-tempfile = "3.20.0"
+tempfile = "3.21.0"
+test-log = { version = "0.2", features = ["trace"] }
 
 # Logging and tracing
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
 
 # Common utilities
-regex = "1.11.1"
-indexmap = "2.10.0"
+regex = "1.11.2"
+indexmap = "2.11.0"
 dashmap = "6.1.0"
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+# Caching
+moka = { version = "0.12", features = ["sync"] }
 
 # Specta for type generation (most comprehensive feature set)
 specta = { version = "=2.0.0-rc.22", features = ["derive", "function"] }
@@ -38,10 +49,6 @@ specta = { version = "=2.0.0-rc.22", features = ["derive", "function"] }
 clap = { version = "4.5", features = ["derive"] }
 tokio-stream = "0.1"
 tokio-test = "0.4"
-
-# Development profile with incremental compilation
-[profile.dev]
-incremental = true
 
 # Optimize ML dependencies for better performance
 [profile.dev.package."candle-core"]
@@ -61,3 +68,5 @@ lto = true                 # Enables link-time-optimizations
 opt-level = "s"            # Prioritizes small binary size
 panic = "abort"            # Higher performance by disabling panic handlers
 strip = true               # Ensures debug symbols are removed
+trim-paths = "all"
+rustflags = ["-Cdebuginfo=0", "-Zthreads=8"]

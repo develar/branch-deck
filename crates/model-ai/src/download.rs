@@ -1,11 +1,11 @@
 use crate::path_provider::ModelPathProvider;
 use anyhow::Result;
 use futures_util::StreamExt;
-use model_core::ModelConfig;
+use model_core::config::ModelConfig;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use std::sync::atomic::{AtomicBool, Ordering};
+use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{error, info, instrument, warn};
 
@@ -45,10 +45,10 @@ impl ProgressReporter for ConsoleProgressReporter {
       print!("({:.1} MB/s) ", bps as f64 / 1_000_000.0);
     }
 
-    if let Some(secs) = seconds_remaining {
-      if secs > 0 {
-        print!("- {} remaining", format_duration(secs));
-      }
+    if let Some(secs) = seconds_remaining
+      && secs > 0
+    {
+      print!("- {} remaining", format_duration(secs));
     }
 
     use std::io::Write;
@@ -62,12 +62,12 @@ impl ProgressReporter for ConsoleProgressReporter {
   }
 
   fn report_completed(&self) -> Result<()> {
-    println!("✅ All model files downloaded successfully");
+    tracing::info!("✅ All model files downloaded successfully");
     Ok(())
   }
 
   fn report_error(&self, message: &str) -> Result<()> {
-    eprintln!("❌ Error: {message}");
+    tracing::error!(message, "❌ Error");
     Ok(())
   }
 }
@@ -200,11 +200,11 @@ async fn download_file(
     // Stream download with progress updates
     while let Some(chunk_result) = stream.next().await {
       // Check for cancellation before processing each chunk
-      if let Some(ref cancel_flag) = cancelled {
-        if cancel_flag.load(Ordering::Relaxed) {
-          info!("Download cancelled for {}", filename);
-          return Err(anyhow::anyhow!("Download cancelled"));
-        }
+      if let Some(ref cancel_flag) = cancelled
+        && cancel_flag.load(Ordering::Relaxed)
+      {
+        info!("Download cancelled for {}", filename);
+        return Err(anyhow::anyhow!("Download cancelled"));
       }
 
       let chunk = chunk_result.map_err(|e| {
@@ -342,11 +342,11 @@ pub async fn download_model_files(model_config: &ModelConfig, provider: &dyn Mod
     info!("Downloading {}...", filename);
 
     // Check for cancellation before starting each file
-    if let Some(ref cancel_flag) = cancelled {
-      if cancel_flag.load(Ordering::Relaxed) {
-        info!("Download cancelled before starting {}", filename);
-        return Err(anyhow::anyhow!("Download cancelled"));
-      }
+    if let Some(ref cancel_flag) = cancelled
+      && cancel_flag.load(Ordering::Relaxed)
+    {
+      info!("Download cancelled before starting {}", filename);
+      return Err(anyhow::anyhow!("Download cancelled"));
     }
 
     // Download file with retry and resume support

@@ -1,7 +1,8 @@
 use crate::commands::check_model_files_exist;
-use model_core::ModelConfig;
+use model_core::config::ModelConfig;
 use std::fs;
 use tempfile::TempDir;
+use test_log::test;
 
 #[test]
 fn test_model_status_detection_for_gguf_model() {

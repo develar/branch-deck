@@ -13,6 +13,7 @@
       color="error"
       icon="i-lucide-x-circle"
       variant="soft"
+      data-testid="error-alert"
     />
     <!-- Empty State -->
     <UAlert
@@ -31,15 +32,16 @@
     <!-- Branches Table Card -->
     <BranchTableCard />
 
+    <!-- Archived Branches Card -->
+    <ArchivedBranchTableCard />
   </div>
 </template>
 
 <script lang="ts" setup>
-
 // Provide model state for AI features
 provideModelState()
 
-// Provide repository state
+// Provide repository state synchronously
 const repository = provideRepository()
 
 const branchSync = createBranchSyncState(repository)

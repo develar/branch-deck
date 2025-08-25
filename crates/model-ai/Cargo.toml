@@ -1,25 +1,20 @@
 [package]
 name = "model-ai"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "AI application layer for branch name generation and repository analysis"
 
 [dependencies]
 # Core utilities (shared via workspace)
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-specta.workspace = true
+specta = { workspace = true, optional = true }
 
 # Our crates
 model-core = { path = "../model-core" }
 git-ops = { path = "../git-ops" }
-
-# Repository analysis and text processing
-regex.workspace = true
-indexmap.workspace = true
 
 # HTTP client and download functionality
 reqwest.workspace = true
@@ -34,3 +29,4 @@ insta = { version = "1.43", features = ["yaml", "redactions"] }
 default = []
 metal = ["model-core/metal"]
 accelerate = ["model-core/accelerate"]
+specta = ["dep:specta", "git-ops/specta"]

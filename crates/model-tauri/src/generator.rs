@@ -1,12 +1,12 @@
 use anyhow::Result;
-use git_ops::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use model_ai::generator::ModelBasedBranchGenerator as CoreGenerator;
 use model_ai::path_provider::ModelPathProvider;
+use model_core::config::ModelConfig;
 use model_core::utils::clean_branch_name;
-use model_core::ModelConfig;
-use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::sync::Mutex;
 use tracing::info;
 
@@ -92,10 +92,10 @@ impl ModelBasedBranchGenerator {
     git_executor: &GitCommandExecutor,
     commits: &[CommitInfo],
     repository_path: &str,
-    progress: &tauri::ipc::Channel<crate::types::SuggestionProgress>,
+    progress: &tauri::ipc::Channel<model_ai::types::SuggestionProgress>,
     my_generation_id: u64,
   ) -> Result<()> {
-    use crate::types::{BranchSuggestion, SuggestionProgress};
+    use model_ai::types::{BranchSuggestion, SuggestionProgress};
 
     // Validate commits have non-empty hashes first, before checking model
     let valid_commits: Vec<&CommitInfo> = commits.iter().filter(|c| !c.hash.is_empty()).collect();
@@ -145,21 +145,20 @@ impl ModelBasedBranchGenerator {
       // Generate alternative using the same git output but with context of the first suggestion
       let fallback_result = self.core.generate_branch_name(&git_output, Some(&cleaned_name)).await;
 
-      if let Ok(fallback_result) = fallback_result {
-        if let Ok(fallback_name) = clean_branch_name(&fallback_result.name) {
-          if fallback_name != cleaned_name {
-            // Send alternative suggestion
-            progress
-              .send(SuggestionProgress::SuggestionReady {
-                suggestion: BranchSuggestion {
-                  name: fallback_name,
-                  reason: Some("Alternative suggestion".to_string()),
-                },
-                index: 1,
-              })
-              .map_err(|e| anyhow::anyhow!("Failed to send alternative suggestion: {e}"))?;
-          }
-        }
+      if let Ok(fallback_result) = fallback_result
+        && let Ok(fallback_name) = clean_branch_name(&fallback_result.name)
+        && fallback_name != cleaned_name
+      {
+        // Send alternative suggestion
+        progress
+          .send(SuggestionProgress::SuggestionReady {
+            suggestion: BranchSuggestion {
+              name: fallback_name,
+              reason: Some("Alternative suggestion".to_string()),
+            },
+            index: 1,
+          })
+          .map_err(|e| anyhow::anyhow!("Failed to send alternative suggestion: {e}"))?;
       }
     }
 

@@ -4,17 +4,11 @@ import { useAppSettingsStore } from "~/stores/appSettings"
 export function useColorSelector() {
   const appConfig = useAppConfig()
 
-  async function applyStyle() {
-    const appSettingsStore = useAppSettingsStore()
-    appConfig.ui.colors.primary = appSettingsStore.primaryColor
-  }
+  const appSettingsStore = useAppSettingsStore()
+  appConfig.ui.colors.primary = appSettingsStore.primaryColor
 
-  applyStyle().catch(error => notifyInternalError(error, "Apply color style"))
-
-  // Create overlay instance
   const overlay = useOverlay()
 
-  // Load user preferences on mount
   scopedListen("open_color_selector", () => {
     const primary = computed({
       get: () => appConfig.ui.colors.primary,
@@ -47,7 +41,6 @@ export function useColorSelector() {
       },
     })
 
-    // Open modal - it will stay open until user clicks outside
     modal.open()
   })
 }

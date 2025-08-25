@@ -16,6 +16,7 @@
             <div class="flex items-center gap-2">
               <!-- Input with flexible content -->
               <div class="relative flex-1">
+                <!-- @vue-expect-error @keydown event works -->
                 <UInput
                   ref="inputRef"
                   :model-value="modelValue"

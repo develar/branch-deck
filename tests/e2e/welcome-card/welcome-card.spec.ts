@@ -4,7 +4,9 @@ import { openModal } from "../helpers/modal-helpers"
 
 test.describe("Welcome Card", () => {
   test("shows welcome card for new users without branch prefix", async ({ page, setupRepo }) => {
-    await setupRepo("NO_REPO")
+    await setupRepo("NO_REPO", {
+      prepopulateStore: false, // Don't auto-populate store so welcome card shows
+    })
 
     // Verify the welcome card structure using HTML snapshot
     const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
@@ -14,7 +16,9 @@ test.describe("Welcome Card", () => {
   })
 
   test("opens branch prefix help modal from welcome card", async ({ page, setupRepo }) => {
-    await setupRepo("NO_REPO")
+    await setupRepo("NO_REPO", {
+      prepopulateStore: false, // Don't auto-populate store so welcome card shows
+    })
 
     // Wait for welcome card to be visible
     const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")

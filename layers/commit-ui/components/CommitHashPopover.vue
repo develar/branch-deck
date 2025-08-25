@@ -5,8 +5,12 @@
     </span>
     <template #content>
       <div class="p-3 space-y-2 min-w-[300px]">
-        <p class="text-sm font-medium text-highlighted">{{ subject || message || "No message available" }}</p>
-        <div v-if="hasFullMessage" class="text-xs text-toned whitespace-pre-wrap mt-2">{{ body }}</div>
+        <p class="text-sm font-medium text-highlighted">
+          {{ subject || message || "No message available" }}
+        </p>
+        <div v-if="hasFullMessage" class="text-xs text-toned whitespace-pre-wrap mt-2">
+          {{ body }}
+        </div>
         <CommitInfo :hash="hash" :author="author" :author-time="authorTime" />
       </div>
     </template>

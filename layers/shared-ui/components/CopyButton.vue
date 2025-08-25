@@ -9,7 +9,7 @@
         :size="size"
         :variant="variant"
         color="neutral"
-        :class="{'text-muted': alwaysVisible }"
+        :class="{ 'text-muted': alwaysVisible }"
         @click.stop="handleCopy"
       />
     </UTooltip>

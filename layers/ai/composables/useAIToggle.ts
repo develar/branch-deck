@@ -49,14 +49,14 @@ interface AIError {
  *   - clearAIError: Function to clear error state
  *
  * @example
- * const { aiMode } = await useAIToggle()
+ * const { aiMode } = useAIToggle()
  * // Set AI mode directly
  * aiMode.value = "enabled"
  */
-export async function useAIToggle() {
+export function useAIToggle() {
   const modelState = useModelState()
   const toast = useToast()
-  const aiSettingsStore = await useAISettingsStore()
+  const aiSettingsStore = useAISettingsStore()
 
   /** Current AI error state */
   const aiError = ref<AIError | null>(null)

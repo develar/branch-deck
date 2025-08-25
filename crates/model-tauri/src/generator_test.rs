@@ -1,18 +1,14 @@
 #[cfg(test)]
 mod tests {
   use crate::generator::ModelBasedBranchGenerator;
-  use git_ops::git_command::GitCommandExecutor;
+  use git_executor::git_command_executor::GitCommandExecutor;
   use git_ops::model::CommitInfo;
   use std::fs;
+  use test_log::test;
   use test_utils::git_test_utils::TestRepo;
-
-  fn init_test_logging() {
-    let _ = tracing_subscriber::fmt().with_env_filter("info").with_test_writer().try_init();
-  }
 
   #[test]
   fn test_get_git_output_for_single_commit() {
-    init_test_logging();
     let test_repo = TestRepo::new();
     let repo_path = test_repo.path();
     let executor = GitCommandExecutor::new();

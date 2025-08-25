@@ -1,10 +1,11 @@
 use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
-use crate::git_command::GitCommandExecutor;
 use crate::model::{BranchError, CommitSyncStatus};
 use crate::notes::CommitNoteInfo;
 use crate::progress::ProgressCallback;
 use anyhow::anyhow;
+use git_executor::git_command_executor::GitCommandExecutor;
+use std::collections::HashSet;
 use tracing::{debug, instrument};
 
 /// Custom error type for copy commit operations
@@ -58,12 +59,13 @@ pub struct CreateCommitParams<'a> {
   pub task_index: i16,
   pub git_executor: &'a GitCommandExecutor,
   pub tree_id_cache: &'a TreeIdCache,
+  pub existing_virtual_commits: Option<&'a HashSet<String>>, // For efficient batch verification
 }
 
 // Create or update a commit based on an original commit
 // Returns new commit hash, sync status, and note info for later writing
 #[instrument(skip(params), fields(commit_id = %params.commit.id, branch = %params.progress_info.branch_name))]
-pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(String, CommitSyncStatus, Option<CommitNoteInfo>), CopyCommitError> {
+pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String, CommitSyncStatus, Option<CommitNoteInfo>), CopyCommitError> {
   let CreateCommitParams {
     commit,
     new_parent_oid,
@@ -74,16 +76,38 @@ pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(String, Co
     task_index,
     git_executor,
     tree_id_cache,
+    existing_virtual_commits,
   } = params;
 
   if reuse_if_possible {
+    // First check if we have a mapped commit from git notes
     if let Some(mapped_id) = &commit.mapped_commit_id {
-      debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit");
-      return Ok((
-        mapped_id.clone(),
-        CommitSyncStatus::Unchanged,
-        None, // No need to write note for unchanged commits
-      ));
+      // Verify the mapped commit still exists
+      let mapped_exists = if let Some(existing_commits) = existing_virtual_commits {
+        existing_commits.contains(mapped_id)
+      } else {
+        git_executor.execute_command(&["rev-parse", "--verify", mapped_id], repo_path).is_ok()
+      };
+
+      if mapped_exists {
+        debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
+        // Create note info even though we're reusing
+        let note_info = CommitNoteInfo {
+          original_oid: commit.id.clone(),
+          new_oid: mapped_id.clone(),
+          author: commit.author_name.clone(),
+          author_email: commit.author_email.clone(),
+          tree_id: commit.tree_id.clone(),
+          subject: commit.stripped_subject.clone(),
+        };
+        return Ok((
+          mapped_id.clone(),
+          CommitSyncStatus::Unchanged,
+          Some(note_info), // Return note info for database tracking
+        ));
+      } else {
+        debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit no longer exists, will re-copy");
+      }
     }
   }
 
@@ -141,11 +165,18 @@ pub fn create_or_update_commit(params: CreateCommitParams) -> Result<(String, Co
   let new_commit_hash = output.trim().to_string();
 
   // Prepare note info for later batch writing
+  // Use stripped_subject if available (without branch prefix), otherwise use original subject
   let note_info = CommitNoteInfo {
     original_oid: commit.id.clone(),
     new_oid: new_commit_hash.clone(),
     author: commit.author_name.clone(),
     author_email: commit.author_email.clone(),
+    tree_id: commit.tree_id.clone(),
+    subject: if !commit.stripped_subject.is_empty() {
+      commit.stripped_subject.clone()
+    } else {
+      commit.subject.clone()
+    },
   };
 
   Ok((new_commit_hash, CommitSyncStatus::Created, Some(note_info)))

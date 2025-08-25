@@ -15,17 +15,22 @@ Branch Deck creates Git branches from your commits based on message prefixes. Co
 
 ## How It Works
 
-Branch Deck analyzes your commit history and creates separate branches based on commit message patterns:
+Branch Deck analyzes your commit history and creates separate branches based on commit message patterns. There are two distinct kinds of “prefixes” to be aware of:
 
-### Explicit Prefixes
-Use the `(name)` format in your commit messages:
-- Commits prefixed with `(feature-auth)` go to a `username/virtual/feature-auth` branch
-- Commits prefixed with `(bugfix-login)` go to a `username/virtual/bugfix-login` branch
+- Commit message grouping prefix: Text like `(feature-auth)` at the start of a commit subject. This is used only to group commits on the main branch (HEAD). It is not persisted on virtual/archived branches and not present after integration into main.
+- Branch prefix (git config): The namespace (e.g. `username`) configured via `git config branchdeck.branchPrefix`. This becomes the first path segment under `refs/heads`, e.g. `refs/heads/username/...`.
+
+### Explicit Prefixes (commit messages)
+Use the `(name)` format in your commit messages on main:
+- Commits prefixed with `(feature-auth)` are grouped into a virtual branch at `username/virtual/feature-auth`
+- Commits prefixed with `(bugfix-login)` are grouped into `username/virtual/bugfix-login`
+
+When Branch Deck creates or updates those virtual branches, the cherry-picked commit subjects are stored without the grouping prefix (e.g. `Add login`, not `(feature-auth) Add login`).
 
 ### Issue Numbers
-If no explicit prefix is found, Branch Deck automatically detects issue numbers (e.g., `JIRA-123`, `ABC-456`) in the first line of the commit message:
-- Commits with `IJPL-163558: Fix observability` go to a `username/virtual/IJPL-163558` branch
-- Commits with `[threading] IJPL-163558: Fix observability` also go to `username/virtual/IJPL-163558` branch
+If no explicit prefix is found, Branch Deck automatically detects issue numbers (e.g., `JIRA-123`, `ABC-456`) in the first line of the commit message on main:
+- Commits with `IJPL-163558: Fix observability` are grouped into `username/virtual/IJPL-163558`
+- Commits with `[threading] IJPL-163558: Fix observability` also go to `username/virtual/IJPL-163558`
 - Square bracket prefixes like `[subsystem]` are ignored when grouping by issue numbers
 - Multiple commits with the same issue number are grouped together
 - Issue numbers must be in the first line of the commit message
@@ -33,6 +38,9 @@ If no explicit prefix is found, Branch Deck automatically detects issue numbers 
 ### Priority
 - Explicit prefixes `(name)` take precedence over issue numbers
 - Commits without either pattern remain on the main branch
+
+### Virtual and Archived Branch Layout
+See [docs/design/virtual-branches.md](docs/design/virtual-branches.md) for details about branch structure and storage.
 
 This allows you to maintain a clean, organized Git history while working on multiple features simultaneously.
 
@@ -50,6 +58,13 @@ This allows you to maintain a clean, organized Git history while working on mult
 ## Installation
 
 [Download the latest release](https://github.com/develar/branch-deck/releases/latest)
+
+## Documentation
+
+For technical architecture and design decisions:
+- [Virtual Branches Architecture](docs/design/virtual-branches.md) - How the branch management system works
+- [Integration Detection](docs/design/integration-detection.md) - How we detect merged branches
+- [All Design Docs](docs/design/) - Complete technical documentation
 
 ## Contributing
 

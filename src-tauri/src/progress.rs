@@ -3,21 +3,21 @@ use git_ops::model::{BranchError, BranchSyncStatus};
 use git_ops::progress::ProgressCallback;
 use tauri::ipc::Channel;
 
-// Re-export types from branch-sync crate
-pub use branch_sync::progress::{GroupedBranchInfo, ProgressReporter, SyncEvent};
+pub use sync_types::{ProgressReporter, SyncEvent};
 
 // Implement ProgressReporter for Tauri Channel
-pub struct TauriProgressReporter<'a> {
-  channel: &'a Channel<SyncEvent>,
+#[derive(Clone)]
+pub struct TauriProgressReporter {
+  channel: Channel<SyncEvent>,
 }
 
-impl<'a> TauriProgressReporter<'a> {
-  pub fn new(channel: &'a Channel<SyncEvent>) -> Self {
+impl TauriProgressReporter {
+  pub fn new(channel: Channel<SyncEvent>) -> Self {
     Self { channel }
   }
 }
 
-impl<'a> ProgressReporter for TauriProgressReporter<'a> {
+impl ProgressReporter for TauriProgressReporter {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
     self.channel.send(event)?;
     Ok(())

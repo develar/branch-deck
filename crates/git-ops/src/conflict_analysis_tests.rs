@@ -1,10 +1,11 @@
 use super::conflict_analysis::*;
-use super::git_command::GitCommandExecutor;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use tracing::instrument;
 
@@ -14,7 +15,7 @@ fn count_commits(git_executor: &GitCommandExecutor, repo_path: &str, from_commit
   let range_arg = format!("{from_commit}..{to_commit}");
   let args = vec!["rev-list", "--count", &range_arg];
 
-  let output = git_executor.execute_command(&args, repo_path).map_err(|e| anyhow!(e))?;
+  let output = git_executor.execute_command(&args, repo_path)?;
   output.trim().parse::<u32>().map_err(|e| anyhow!("Failed to parse commit count: {}", e))
 }
 
@@ -42,7 +43,7 @@ fn test_get_files_content_at_commit() {
   let result = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit_hash, &files);
 
   if let Err(e) = &result {
-    eprintln!("Error in test_get_files_content_at_commit: {e}");
+    tracing::error!(error = %e, "Error in test_get_files_content_at_commit");
   }
 
   assert!(result.is_ok());
@@ -87,7 +88,7 @@ fn test_batch_get_file_diffs_single_commit() {
   let result = batch_get_file_diffs(git_executor, test_repo.path().to_str().unwrap(), &commit_files_map);
 
   if let Err(e) = &result {
-    eprintln!("Error in test_batch_get_file_diffs_single_commit: {e}");
+    tracing::error!(error = %e, "Error in test_batch_get_file_diffs_single_commit");
   }
 
   assert!(result.is_ok());
@@ -157,20 +158,20 @@ fn test_get_file_diffs_multiple_files() {
 
   // Get parent commit hash for debugging
   let parent_hash = test_repo.rev_parse("HEAD^").unwrap();
-  eprintln!("Current commit: {commit_hash}");
-  eprintln!("Parent commit: {parent_hash}");
+  tracing::debug!(commit_hash, "Current commit");
+  tracing::debug!(parent_hash, "Parent commit");
 
   // Check what files exist in each commit
-  eprintln!("Files in current commit:");
+  tracing::debug!("Files in current commit:");
   let current_files = test_repo.get_files_in_commit(&commit_hash).unwrap();
   for file in &current_files {
-    eprintln!("  {file}");
+    tracing::debug!(file, "  File in current commit");
   }
 
-  eprintln!("Files in parent commit:");
+  tracing::debug!("Files in parent commit:");
   let parent_files = test_repo.get_files_in_commit(&parent_hash).unwrap();
   for file in &parent_files {
-    eprintln!("  {file}");
+    tracing::debug!(file, "  File in current commit");
   }
 
   // Get diffs for both files
@@ -179,7 +180,7 @@ fn test_get_file_diffs_multiple_files() {
   let result = batch_get_file_diffs(git_executor, test_repo.path().to_str().unwrap(), &commit_files_map);
 
   if let Err(e) = &result {
-    eprintln!("Error in test_get_file_diffs_multiple_files: {e}");
+    tracing::error!(error = %e, "Error in test_get_file_diffs_multiple_files");
   }
 
   assert!(result.is_ok());
@@ -197,8 +198,8 @@ fn test_get_file_diffs_multiple_files() {
 
   // Check second file
   let diff2 = diffs.iter().find(|d| d.old_file.file_name == "file2.txt").unwrap();
-  eprintln!("file2.txt old content: {:?}", diff2.old_file.content);
-  eprintln!("file2.txt new content: {:?}", diff2.new_file.content);
+  tracing::debug!(old_content = ?diff2.old_file.content, "file2.txt old content");
+  tracing::debug!(new_content = ?diff2.new_file.content, "file2.txt new content");
   assert_eq!(diff2.old_file.content, "Content 2");
   assert_eq!(diff2.new_file.content, "Modified Content 2");
   assert!(!diff2.hunks.is_empty());
@@ -591,9 +592,9 @@ fn test_null_terminated_ls_tree_parsing() {
 
   // Debug: verify files exist in git
   let files_in_commit = test_repo.get_files_in_commit(&commit_hash).unwrap();
-  eprintln!("Files in commit:");
+  tracing::debug!("Files in commit:");
   for file in &files_in_commit {
-    eprintln!("  {file}");
+    tracing::debug!(file, "  File in current commit");
   }
 
   // Test get_files_content_at_commit with various file names
@@ -605,18 +606,18 @@ fn test_null_terminated_ls_tree_parsing() {
   ];
 
   // Initialize tracing subscriber for test debugging if needed
-  let _ = tracing_subscriber::fmt::try_init();
+  // test-log will initialize tracing for us
 
   let result = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit_hash, &files);
 
   if let Err(e) = &result {
-    eprintln!("Error in test_null_terminated_ls_tree_parsing: {e}");
+    tracing::error!(error = %e, "Error in test_null_terminated_ls_tree_parsing");
   }
 
   let contents = result.unwrap();
 
-  eprintln!("Retrieved contents: {contents:#?}");
-  eprintln!("Contents len: {}", contents.len());
+  tracing::debug!(?contents, "Retrieved contents");
+  tracing::debug!(len = contents.len(), "Contents len");
 
   assert_eq!(contents.len(), 4, "Should retrieve all 4 files");
   assert_eq!(contents.get("normal.txt").unwrap(), "content", "normal.txt content mismatch");

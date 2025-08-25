@@ -1,6 +1,6 @@
+use crate::BranchNameResult;
 use crate::constants::LOGITS_PROCESSOR_SEED;
 use crate::utils::{clean_branch_name, detect_device, truncate_tokens_if_needed};
-use crate::BranchNameResult;
 use anyhow::{Error as E, Result};
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, Tensor};

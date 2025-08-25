@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    ignore:
+      # glib vulnerability only affects Linux builds, not macOS or Windows
+      # The GTK dependencies are only compiled on Linux systems
+      # See: https://github.com/tauri-apps/tauri/issues/12048
+      - dependency-name: "glib"
+        versions: ["< 0.20.0"]
+  
+  - package-ecosystem: "npm"
+    directory: "/"

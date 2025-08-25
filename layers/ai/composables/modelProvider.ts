@@ -123,10 +123,8 @@ function handleDownloadProgress(
       state.lastProgressEvent.value = null
 
       // Disable AI since model isn't available
-      // We need to load the store asynchronously but can't await in the event handler
-      useAISettingsStore().then((store) => {
-        store.aiMode = "disabled"
-      })
+      const store = useAISettingsStore()
+      store.aiMode = "disabled"
       break
     }
 

@@ -17,7 +17,7 @@
         <!-- Divergence Info (matching main view) -->
         <div v-if="missingCommitsData.mergeBase" class="bg-elevated rounded-lg p-3 border border-warning">
           <div class="flex items-center gap-2 mb-2">
-            <UIcon name="i-lucide-file-diff" class="size-4 text-warning"/>
+            <UIcon name="i-lucide-file-diff" class="size-4 text-warning" />
             <span class="text-sm font-medium text-highlighted">
               Insight: Missing commits modified the conflicting files
             </span>
@@ -50,8 +50,10 @@
       <!-- No missing commits message -->
       <UCard v-else>
         <div class="text-center py-8">
-          <UIcon name="i-lucide-check-circle" class="size-12 text-success mx-auto mb-3"/>
-          <p class="text-sm text-muted">No missing commits found for this conflict.</p>
+          <UIcon name="i-lucide-check-circle" class="size-12 text-success mx-auto mb-3" />
+          <p class="text-sm text-muted">
+            No missing commits found for this conflict.
+          </p>
         </div>
       </UCard>
     </div>
@@ -59,8 +61,10 @@
     <!-- Loading state -->
     <div v-else class="flex items-center justify-center min-h-[400px]">
       <div class="text-center">
-        <UIcon name="i-lucide-loader-2" class="size-8 text-muted animate-spin mx-auto mb-3"/>
-        <p class="text-sm text-muted">Loading missing commits data...</p>
+        <UIcon name="i-lucide-loader-2" class="size-8 text-muted animate-spin mx-auto mb-3" />
+        <p class="text-sm text-muted">
+          Loading missing commits data...
+        </p>
       </div>
     </div>
   </div>
@@ -96,5 +100,4 @@ interface MissingCommitsWindowData {
 }
 
 const missingCommitsData = useSubWindowData<MissingCommitsWindowData>()
-
 </script>

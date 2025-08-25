@@ -1,9 +1,10 @@
 use crate::cache::TreeIdCache;
 use crate::cherry_pick::perform_fast_cherry_pick_with_context;
 use crate::copy_commit::CopyCommitError;
-use crate::git_command::GitCommandExecutor;
 use crate::model::{BranchError, MergeConflictInfo};
+use git_executor::git_command_executor::GitCommandExecutor;
 
+use test_log::test;
 use test_utils::git_test_utils::{ConflictTestBuilder, TestRepo};
 
 // Helper function to assert merge conflict and print details
@@ -13,12 +14,12 @@ fn assert_merge_conflict_and_print(result: Result<String, CopyCommitError>, expe
 
   match error {
     CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info)) => {
-      // Print actual conflicting files for debugging
-      println!("\nActual conflicting files ({}):", conflict_info.conflicting_files.len());
+      // Log actual conflicting files for debugging
+      tracing::debug!(count = conflict_info.conflicting_files.len(), "Actual conflicting files");
       for (i, file) in conflict_info.conflicting_files.iter().enumerate() {
-        println!("  {}: {}", i + 1, file.file);
+        tracing::debug!(index = i + 1, file = file.file, "Conflicting file");
       }
-      println!("Expected file: {expected_file}\n");
+      tracing::debug!(expected_file, "Expected conflicting file");
 
       // For now, just check that the expected file is among the conflicts
       let has_expected_file = conflict_info.conflicting_files.iter().any(|f| f.file == expected_file);

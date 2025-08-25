@@ -33,7 +33,8 @@ pub struct OpenSubWindowParams {
   pub title: String,
   pub width: Option<f64>,
   pub height: Option<f64>,
-  pub data: String, // JSON string
+  pub data: String,        // JSON string with window-specific data
+  pub store_cache: String, // JSON string with store cache
 }
 
 #[tauri::command]
@@ -46,14 +47,15 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
     existing_window.unminimize()?;
     existing_window.set_focus()?;
 
-    // Update __INIT_DATA__ directly by evaluating JavaScript
+    // Update both __TAURI_STORE__ and __INIT_DATA__ directly by evaluating JavaScript
     let update_script = format!(
       r#"
+      window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
       // Trigger a custom event to notify the app that data has been updated
       window.dispatchEvent(new CustomEvent('init-data-updated'));
       "#,
-      params.data
+      params.store_cache, params.data
     );
 
     existing_window.eval(&update_script)?;
@@ -61,13 +63,13 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
     return Ok(());
   }
 
-  // Use the data directly since it's already a JSON string
-  // Create initialization script that sets the data on window object
+  // Create initialization script that sets both the store cache and the window data
   let init_script = format!(
     r#"
+      window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
       "#,
-    params.data
+    params.store_cache, params.data
   );
 
   // Create new window

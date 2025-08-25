@@ -1,5 +1,4 @@
-// Re-export what tests need
-pub use axum::Router;
+use axum::Router;
 use axum::{
   extract::State,
   http::StatusCode,
@@ -21,7 +20,7 @@ mod sse_test;
 
 use state::{AppState, TestRepository};
 use svix_ksuid::{Ksuid, KsuidLike};
-use test_utils::templates;
+use test_utils::repo_template::templates;
 
 pub async fn create_test_app() -> Router {
   let (app, _state) = create_test_app_with_state().await;
@@ -29,21 +28,25 @@ pub async fn create_test_app() -> Router {
 }
 
 pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
-  // Ensure test repositories exist
-  if let Err(e) = ensure_test_repos().await {
-    tracing::error!("Failed to create test repositories: {}", e);
-  }
-
   // Create a single temp directory for all test repositories
   let test_root_dir = tempfile::tempdir().expect("Failed to create test root directory");
   tracing::info!("Test root directory created at: {:?}", test_root_dir.path());
+
+  // Create templates directory inside the temp directory
+  let templates_dir = test_root_dir.path().join("templates");
+
+  // Create test templates in the temp directory (each test instance gets its own templates)
+  if let Err(e) = create_test_templates(&templates_dir).await {
+    tracing::error!("Failed to create test repositories: {}", e);
+  }
 
   // Create shared application state
   let state = Arc::new(AppState {
     repositories: DashMap::new(),
     path_to_id: DashMap::new(),
-    git_executor: git_ops::git_command::GitCommandExecutor::new(),
+    git_executor: git_executor::git_command_executor::GitCommandExecutor::new(),
     test_root_dir,
+    templates_dir,
   });
 
   let app = create_app(state.clone());
@@ -66,6 +69,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/create_branch_from_commits", post(tauri_command_bridge::create_branch_from_commits))
+    .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     // AI command endpoints
     .route("/invoke/suggest_branch_name_stream", post(tauri_command_bridge::suggest_branch_name_stream))
@@ -89,6 +93,10 @@ pub async fn ensure_test_repos() -> anyhow::Result<()> {
   tracing::info!("Ensuring test repositories directory is empty for fresh templates");
   remove_dir_all::ensure_empty_dir(&test_repos_dir)?;
 
+  create_test_templates(&test_repos_dir).await
+}
+
+pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Result<()> {
   // Create all templates fresh on every launch
   let templates_to_create = vec![
     ("simple", templates::simple()),
@@ -103,7 +111,7 @@ pub async fn ensure_test_repos() -> anyhow::Result<()> {
   let mut futures: Vec<_> = templates_to_create
     .into_iter()
     .map(|(name, template)| {
-      let repo_path = test_repos_dir.join(name);
+      let repo_path = target_dir.join(name);
       let name = name.to_string();
 
       tokio::task::spawn_blocking(move || {
@@ -115,10 +123,17 @@ pub async fn ensure_test_repos() -> anyhow::Result<()> {
 
   // Add the empty-non-git template separately (different type)
   {
-    let repo_path = test_repos_dir.join("empty-non-git");
+    let repo_path = target_dir.join("empty-non-git");
     futures.push(tokio::task::spawn_blocking(move || {
       tracing::info!("Creating test repository template: empty-non-git");
       templates::empty_non_git().build(&repo_path)
+    }));
+  }
+  {
+    let repo_path = target_dir.join("archived_branches");
+    futures.push(tokio::task::spawn_blocking(move || {
+      tracing::info!("Creating test repository template: archived_branches");
+      templates::archived_branches().build(&repo_path)
     }));
   }
 
@@ -161,6 +176,8 @@ pub enum RepositoryTemplate {
   SingleUnassigned,
   #[serde(rename = "issue_links")]
   IssueLinks,
+  #[serde(rename = "archived_branches")]
+  ArchivedBranches,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "NO_REPO")]
@@ -176,6 +193,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::ConflictBranches => "conflict_branches",
       RepositoryTemplate::SingleUnassigned => "single_unassigned",
       RepositoryTemplate::IssueLinks => "issue_links",
+      RepositoryTemplate::ArchivedBranches => "archived_branches",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",
       RepositoryTemplate::NoRepo => "NO_REPO",
     }
@@ -203,11 +221,22 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
 
   // Handle special NO_REPO template
   if matches!(request.template, RepositoryTemplate::NoRepo) {
-    // Create an empty store without any pre-populated values
-    let store = DashMap::new();
-
     // Use a special path that doesn't exist
     let path = format!("NO_REPO_{id}");
+
+    // Create store and populate it if requested
+    let store = DashMap::new();
+    if request.prepopulate_store {
+      // Populate store with the invalid path so frontend tries to load it
+      // Omit cachedBranchPrefix to avoid Zod validation issues (it's optional)
+      store.insert(
+        "recentProjects".to_string(),
+        serde_json::json!([{
+          "path": path.clone()
+        }]),
+      );
+      tracing::info!("Populated NO_REPO store with invalid path: {}", path);
+    }
 
     let repo = TestRepository {
       id: id.clone(),
@@ -229,8 +258,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   let repo_dir = state.test_root_dir.path().join(&id);
   let path = repo_dir.to_string_lossy().to_string();
 
-  let test_repos_dir = get_test_repos_dir();
-  let template_path = test_repos_dir.join(request.template.as_str());
+  let template_path = state.templates_dir.join(request.template.as_str());
 
   if !template_path.exists() {
     tracing::error!("Template '{}' not found", request.template.as_str());
@@ -296,7 +324,7 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     Some((_, repo)) => {
       // Cancel any ongoing download before deleting
       repo.download_cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
-      eprintln!("Repository {id} being deleted, cancelling any ongoing downloads");
+      tracing::debug!(id, "Repository being deleted, cancelling any ongoing downloads");
 
       // Also remove from path_to_id map
       state.path_to_id.remove(&repo.path);

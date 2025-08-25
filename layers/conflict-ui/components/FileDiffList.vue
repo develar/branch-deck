@@ -2,7 +2,7 @@
   <div class="space-y-2">
     <!-- View mode toggle -->
     <div v-if="fileDiffs.length > 0 && !hideControls" class="flex justify-end">
-      <UButtonGroup size="xs">
+      <UFieldGroup size="xs">
         <UButton
           icon="i-lucide-align-left"
           :color="currentDiffMode === 'unified' ? 'primary' : 'neutral'"
@@ -19,7 +19,7 @@
         >
           Split
         </UButton>
-      </UButtonGroup>
+      </UFieldGroup>
     </div>
 
     <AccordionRoot
@@ -46,6 +46,7 @@
             :extend-data="getConflictExtendData(diff)"
           >
             <template #extend="{ lineNumber, side, data, diffFile, onUpdate }">
+              <!-- @vue-expect-error @update event binding -->
               <ConflictMarkerExtension
                 :line-number="lineNumber"
                 :side="side"

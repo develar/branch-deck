@@ -1,6 +1,7 @@
 use crate::commit_list::*;
-use crate::git_command::GitCommandExecutor;
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
+use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 #[test]
@@ -68,7 +69,6 @@ fn test_get_commit_list_with_origin() {
   assert!(!commits[0].author_email.is_empty());
   assert!(commits[0].committer_timestamp > 0);
   assert!(commits[0].note.is_none()); // No notes in test commits
-  assert!(commits[0].mapped_commit_id.is_none());
 }
 
 #[test]
@@ -90,12 +90,7 @@ fn test_get_commit_list_with_merges() {
   test_repo.create_commit("(master) Master change", "master.txt", "master");
 
   // Merge feature branch (this creates a merge commit)
-  let output = std::process::Command::new("git")
-    .args(["--no-pager", "merge", "feature", "-m", "Merge feature branch"])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-  assert!(output.status.success());
+  test_repo.merge("feature", "Merge feature branch").unwrap();
 
   // Add one more regular commit
   test_repo.create_commit("(post-merge) After merge", "post.txt", "post");
@@ -150,22 +145,10 @@ fn test_parse_commit_with_multiline_message() {
   let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
   test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
 
-  // Create commit with multiline message using -F
+  // Create commit with multiline message
   let multiline_message = "(feature) Add feature\n\nThis is a detailed description\nwith multiple lines.";
-  std::fs::write(test_repo.path().join("commit_msg.txt"), multiline_message).unwrap();
-  std::fs::write(test_repo.path().join("test.txt"), "test content").unwrap();
-
-  std::process::Command::new("git")
-    .args(["--no-pager", "add", "test.txt"])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  std::process::Command::new("git")
-    .args(["--no-pager", "commit", "-F", "commit_msg.txt"])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
+  // Use create_commit which handles the message properly
+  test_repo.create_commit(multiline_message, "test.txt", "test content");
 
   // Get commits
   let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
@@ -190,11 +173,7 @@ fn test_commit_with_notes() {
   let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
 
   // Add a note with the v-commit-v1: prefix
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:abc123def456", &commit_hash])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
+  test_repo.add_note(&commit_hash, "v-commit-v1:abc123def456").unwrap();
 
   // Get commits
   let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
@@ -202,7 +181,6 @@ fn test_commit_with_notes() {
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0].subject, "(feature) Add feature");
   assert_eq!(commits[0].note, Some("v-commit-v1:abc123def456".to_string()));
-  assert_eq!(commits[0].mapped_commit_id, Some("abc123def456".to_string()));
 }
 
 #[test]
@@ -218,18 +196,13 @@ fn test_commit_with_non_mapping_notes() {
   let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
 
   // Add a note without the v-commit-v1: prefix
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "This is just a regular note", &commit_hash])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
+  test_repo.add_note(&commit_hash, "This is just a regular note").unwrap();
 
   // Get commits
   let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
 
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0].note, Some("This is just a regular note".to_string()));
-  assert_eq!(commits[0].mapped_commit_id, None); // No mapped ID since no v-commit-v1: prefix
 }
 
 #[test]
@@ -253,47 +226,6 @@ fn test_get_commit_list_with_main_branch() {
   assert_eq!(commits.len(), 2);
   assert_eq!(commits[0].subject, "(feature-auth) Add authentication");
   assert_eq!(commits[1].subject, "(bugfix-login) Fix login issue");
-}
-
-#[test]
-fn test_detect_baseline_branch_scenarios() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Scenario 1: Local repository without remotes
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  // No need to create master branch - it already exists from git init
-
-  let baseline = git_executor.detect_baseline_branch(test_repo.path().to_str().unwrap(), "master").unwrap();
-  assert_eq!(baseline, "master");
-
-  // Scenario 2: Repository with main branch instead of master
-  let test_repo2 = TestRepo::new();
-  test_repo2.create_commit("Initial commit", "README.md", "# Test");
-  // Rename master to main
-  std::process::Command::new("git")
-    .args(["--no-pager", "branch", "-m", "master", "main"])
-    .current_dir(test_repo2.path())
-    .output()
-    .unwrap();
-
-  let baseline = git_executor.detect_baseline_branch(test_repo2.path().to_str().unwrap(), "master").unwrap();
-  assert_eq!(baseline, "main");
-
-  // Scenario 3: Repository with remote (simulated by creating origin/* branches)
-  let test_repo3 = TestRepo::new();
-  let initial = test_repo3.create_commit("Initial commit", "README.md", "# Test");
-  test_repo3.create_branch_at("origin/main", &initial).unwrap();
-
-  // Add a fake remote (git branch can simulate remote branches even without actual remotes)
-  std::process::Command::new("git")
-    .args(["--no-pager", "remote", "add", "origin", "fake-url"])
-    .current_dir(test_repo3.path())
-    .output()
-    .unwrap();
-
-  let baseline = git_executor.detect_baseline_branch(test_repo3.path().to_str().unwrap(), "master").unwrap();
-  assert_eq!(baseline, "origin/main");
 }
 
 #[test]
@@ -327,11 +259,7 @@ fn test_git_log_format_debug() {
 
   // Create a commit with a note
   let commit1 = test_repo.create_commit("First feature", "feature1.txt", "content1");
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:abc123", &commit1])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
+  test_repo.add_note(&commit1, "v-commit-v1:abc123").unwrap();
 
   // Create a commit without a note
   let _commit2 = test_repo.create_commit("Second feature", "feature2.txt", "content2");
@@ -431,17 +359,8 @@ fn test_get_commit_list_streaming_with_notes() {
   let commit2 = test_repo.create_commit("(feature) Second feature", "feature2.txt", "content2");
 
   // Add notes to commits
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:abc123", &commit1])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:def456", &commit2])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
+  test_repo.add_note(&commit1, "v-commit-v1:abc123").unwrap();
+  test_repo.add_note(&commit2, "v-commit-v1:def456").unwrap();
 
   // Collect commits using handler method
   let mut streamed_commits = Vec::new();
@@ -455,9 +374,7 @@ fn test_get_commit_list_streaming_with_notes() {
 
   // Verify notes were parsed correctly
   assert_eq!(streamed_commits[0].note, Some("v-commit-v1:abc123".to_string()));
-  assert_eq!(streamed_commits[0].mapped_commit_id, Some("abc123".to_string()));
   assert_eq!(streamed_commits[1].note, Some("v-commit-v1:def456".to_string()));
-  assert_eq!(streamed_commits[1].mapped_commit_id, Some("def456".to_string()));
 }
 
 #[test]
@@ -475,23 +392,9 @@ fn test_multiple_commits_with_notes() {
   let commit3 = test_repo.create_commit("(feature) Third feature", "feature3.txt", "content3");
 
   // Add notes to all commits
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:abc123", &commit1])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:def456", &commit2])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
-
-  std::process::Command::new("git")
-    .args(["--no-pager", "notes", "add", "-m", "v-commit-v1:ghi789", &commit3])
-    .current_dir(test_repo.path())
-    .output()
-    .unwrap();
+  test_repo.add_note(&commit1, "v-commit-v1:abc123").unwrap();
+  test_repo.add_note(&commit2, "v-commit-v1:def456").unwrap();
+  test_repo.add_note(&commit3, "v-commit-v1:ghi789").unwrap();
 
   // Get commits
   let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
@@ -506,19 +409,16 @@ fn test_multiple_commits_with_notes() {
   // Verify first commit
   assert_eq!(commits[0].subject, "(feature) First feature");
   assert_eq!(commits[0].note, Some("v-commit-v1:abc123".to_string()));
-  assert_eq!(commits[0].mapped_commit_id, Some("abc123".to_string()));
   // Most importantly, verify the ID doesn't have any newlines
   assert!(!commits[0].id.contains('\n'), "Commit ID should not contain newlines");
 
   // Verify second commit
   assert_eq!(commits[1].subject, "(feature) Second feature");
   assert_eq!(commits[1].note, Some("v-commit-v1:def456".to_string()));
-  assert_eq!(commits[1].mapped_commit_id, Some("def456".to_string()));
   assert!(!commits[1].id.contains('\n'), "Commit ID should not contain newlines");
 
   // Verify third commit
   assert_eq!(commits[2].subject, "(feature) Third feature");
   assert_eq!(commits[2].note, Some("v-commit-v1:ghi789".to_string()));
-  assert_eq!(commits[2].mapped_commit_id, Some("ghi789".to_string()));
   assert!(!commits[2].id.contains('\n'), "Commit ID should not contain newlines");
 }

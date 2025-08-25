@@ -2,7 +2,7 @@ use anyhow::Result;
 
 /// Generic progress callback trait that git-ops functions can use
 /// This allows the git-ops crate to be UI-framework agnostic
-pub trait ProgressCallback {
+pub trait ProgressCallback: Send + Sync {
   /// Send branch status update
   fn send_branch_status(&self, branch_name: String, status: crate::model::BranchSyncStatus, error: Option<crate::model::BranchError>) -> Result<()>;
 }

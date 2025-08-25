@@ -73,7 +73,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await setupUnassignedRepo({
       modelState: "not_downloaded", // Explicitly set model not downloaded
       initialStoreValues: {
-        modelSettings: {
+        ai: {
           aiMode: "initial", // Frontend needs this to show Enable/Not now buttons
           simulateSlowDownload: true, // Enable 5-minute download simulation
         },
@@ -124,7 +124,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     // Pre-set AI as enabled (simulating completed download)
     await setupUnassignedRepo({
       initialStoreValues: {
-        modelSettings: { aiMode: "enabled" },
+        ai: { aiMode: "enabled" },
       },
     })
 
@@ -148,7 +148,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     // Pre-set AI as enabled
     await setupUnassignedRepo({
       initialStoreValues: {
-        modelSettings: { aiMode: "enabled" },
+        ai: { aiMode: "enabled" },
       },
     })
 
@@ -201,7 +201,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     // Pre-set AI as enabled
     await setupUnassignedRepo({
       initialStoreValues: {
-        modelSettings: { aiMode: "enabled" },
+        ai: { aiMode: "enabled" },
       },
     })
 
@@ -226,7 +226,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await setupUnassignedRepo({
       modelState: "not_downloaded",
       initialStoreValues: {
-        modelSettings: {
+        ai: {
           aiMode: "initial",
           simulateSlowDownload: true,
         },
@@ -256,7 +256,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await setupUnassignedRepo({
       modelState: "not_downloaded",
       initialStoreValues: {
-        modelSettings: {
+        ai: {
           aiMode: "initial",
           simulateSlowDownload: true,
         },
@@ -301,7 +301,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     // Pre-set AI as enabled
     await setupUnassignedRepo({
       initialStoreValues: {
-        modelSettings: { aiMode: "enabled" },
+        ai: { aiMode: "enabled" },
       },
     })
 
@@ -334,7 +334,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await setupUnassignedRepo({
       modelState: "downloaded",
       initialStoreValues: {
-        modelSettings: {
+        ai: {
           aiMode: "initial",
         },
       },

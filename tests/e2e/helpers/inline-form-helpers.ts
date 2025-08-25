@@ -150,3 +150,21 @@ export const inlineIssueReference = {
     await expect(this.getForm(page)).not.toBeVisible()
   },
 }
+
+/**
+ * Common inline delete confirmation helpers
+ */
+export const inlineDeleteConfirmation = {
+  getPortal: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"]"),
+  getInput: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"] input[type=\"text\"]"),
+  getCancelButton: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"] button:has-text('Cancel')"),
+  getDeleteButton: (page: Page) => page.locator("[data-testid=\"inline-delete-input\"] button:has-text('Delete')"),
+
+  async waitForVisible(page: Page): Promise<void> {
+    await expect(this.getPortal(page)).toBeVisible()
+  },
+
+  async waitForHidden(page: Page): Promise<void> {
+    await expect(this.getPortal(page)).not.toBeVisible()
+  },
+}

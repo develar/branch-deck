@@ -150,7 +150,7 @@ impl TestRepoGenerator {
       anyhow::bail!("Git fetch failed: {}", String::from_utf8_lossy(&output.stderr));
     }
 
-    println!("✅ Pushed {num_commits} commits to origin");
+    tracing::info!("✅ Pushed {num_commits} commits to origin");
 
     Ok(())
   }
@@ -950,12 +950,14 @@ data class UserMetrics(
       &[("src/main/kotlin/com/example/service/MetricsDashboard.kt", metrics_dashboard)],
     )?;
 
-    println!("✅ Created test repository with interleaved commits");
-    println!("📊 Commit structure demonstrates Branch Deck conflicts:");
-    println!("   - Commits 4 depends on 3 (different prefix)");
-    println!("   - Commit 6 depends on 2 (different prefix)");
-    println!("   - Commits 8,9 depend on 7 (same file modifications)");
-    println!("   - Commit 10 depends on both 8 and 9");
+    tracing::info!(
+      "✅ Created test repository with interleaved commits. \
+       📊 Commit structure demonstrates Branch Deck conflicts: \
+       Commits 4 depends on 3 (different prefix), \
+       Commit 6 depends on 2 (different prefix), \
+       Commits 8,9 depend on 7 (same file modifications), \
+       Commit 10 depends on both 8 and 9"
+    );
 
     Ok(())
   }
@@ -2397,13 +2399,14 @@ during incidents and includes code examples for implementation.",
       &[("docs/troubleshooting.md", troubleshooting)],
     )?;
 
-    println!("✅ Created pushed base conflict scenarios");
-    println!("📊 Additional commits demonstrate conflicts with pushed base:");
-    println!("   - (sec) commits modify files from pushed commits");
-    println!("   - (perf) commits also modify the same pushed files");
-    println!("   - These will conflict differently than unpushed base");
-    println!("✅ Created documentation branch with large commit messages");
-    println!("   - (docs) commits create new files without conflicts");
+    tracing::info!(
+      "✅ Created pushed base conflict scenarios and documentation branch. \
+       📊 Additional commits demonstrate conflicts with pushed base: \
+       (sec) commits modify files from pushed commits, \
+       (perf) commits also modify the same pushed files. \
+       These will conflict differently than unpushed base. \
+       (docs) commits create new files without conflicts"
+    );
 
     Ok(())
   }
@@ -2436,6 +2439,7 @@ during incidents and includes code examples for implementation.",
 mod tests {
   use super::*;
   use tempfile::TempDir;
+  use test_log::test;
 
   #[test]
   fn test_generate_repo() {

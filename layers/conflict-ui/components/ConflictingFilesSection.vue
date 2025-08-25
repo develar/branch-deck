@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-3">
+    <!-- @vue-expect-error v-model type mismatch -->
     <UTabs
       v-model="store.viewMode"
       :items="tabItems"
@@ -16,7 +17,7 @@
               size="sm"
               label="Conflicts only"
             />
-            <UButtonGroup size="xs">
+            <UFieldGroup size="xs">
               <UButton
                 icon="i-lucide-align-left"
                 :color="store.conflictDiffViewMode === 'unified' ? 'primary' : 'neutral'"
@@ -33,7 +34,7 @@
               >
                 Split
               </UButton>
-            </UButtonGroup>
+            </UFieldGroup>
           </div>
 
           <!-- Diff content -->
@@ -73,7 +74,7 @@ const props = defineProps<{
 }>()
 
 // Get conflict viewer settings from store
-const store = await useConflictViewerStore()
+const store = useConflictViewerStore()
 
 // Tab items for the UTabs component
 const tabItems = [

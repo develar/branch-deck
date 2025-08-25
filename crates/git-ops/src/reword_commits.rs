@@ -1,7 +1,7 @@
 use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
-use crate::git_command::GitCommandExecutor;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use tracing::{debug, info, instrument};
 
@@ -14,7 +14,7 @@ pub struct RewordCommitParams {
 /// Reword multiple commits efficiently using git plumbing commands.
 /// Returns a mapping of old commit IDs to new commit IDs.
 #[instrument(skip(git_executor))]
-pub async fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
+pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
   if rewrites.is_empty() {
     return Ok(HashMap::new());
   }
@@ -75,9 +75,7 @@ pub async fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: 
 }
 
 fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
-  let output = git_executor
-    .execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path)
-    .map_err(|e| anyhow!("Failed to get current branch: {}", e))?;
+  let output = git_executor.execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path)?;
 
   let branch = output.trim().to_string();
   if branch.is_empty() {
@@ -89,11 +87,7 @@ fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
 
 fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, rewrite_map: &HashMap<String, String>) -> Result<(Vec<String>, String)> {
   // Get all commits to HEAD to find the oldest one chronologically
-  let all_commits_output = git_executor
-    .execute_command(&["rev-list", "HEAD"], repo_path)
-    .map_err(|e| anyhow!("Failed to get commit list: {}", e))?;
-
-  let all_commits: Vec<String> = all_commits_output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+  let all_commits = git_executor.execute_command_lines(&["rev-list", "HEAD"], repo_path)?;
 
   // Find the oldest commit that needs rewording (appears last in rev-list output)
   let mut oldest_index = None;
@@ -110,17 +104,14 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
   let parent_check = git_executor.execute_command(&["rev-parse", &format!("{oldest_commit}^")], repo_path);
 
   // Get all commits from oldest (or its parent) to HEAD in reverse order (oldest first)
-  let output = if parent_check.is_ok() {
+  let commits = if parent_check.is_ok() {
     // Has parent, use parent as starting point
     let range = format!("{oldest_commit}^..HEAD");
-    git_executor.execute_command(&["rev-list", "--reverse", &range], repo_path)
+    git_executor.execute_command_lines(&["rev-list", "--reverse", &range], repo_path)?
   } else {
     // No parent (root commit), include all commits
-    git_executor.execute_command(&["rev-list", "--reverse", "HEAD"], repo_path)
-  }
-  .map_err(|e| anyhow!("Failed to get commit range: {}", e))?;
-
-  let commits: Vec<String> = output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    git_executor.execute_command_lines(&["rev-list", "--reverse", "HEAD"], repo_path)?
+  };
 
   if commits.is_empty() {
     return Err(anyhow!("No commits found in range"));
@@ -133,14 +124,10 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
 
 fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Option<String>> {
   let args = vec!["rev-list", "--parents", "-n", "1", commit_id];
-  let output = git_executor.execute_command(&args, repo_path).map_err(|e| anyhow!("Failed to get commit parent: {}", e))?;
+  let output = git_executor.execute_command(&args, repo_path)?;
 
   let parts: Vec<&str> = output.split_whitespace().collect();
-  if parts.len() > 1 {
-    Ok(Some(parts[1].to_string()))
-  } else {
-    Ok(None)
-  }
+  if parts.len() > 1 { Ok(Some(parts[1].to_string())) } else { Ok(None) }
 }
 
 fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit> {
@@ -149,7 +136,7 @@ fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id
   let format_arg = format!("--format={format}");
   let args = vec!["show", "-s", &format_arg, commit_id];
 
-  let output = git_executor.execute_command(&args, repo_path).map_err(|e| anyhow!("Failed to get commit info: {}", e))?;
+  let output = git_executor.execute_command(&args, repo_path)?;
 
   let lines: Vec<&str> = output.lines().collect();
   if lines.len() < 7 {
@@ -177,8 +164,8 @@ fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id
     parent_id,
     tree_id,
     note: None,
-    mapped_commit_id: None,
     stripped_subject: subject, // Same as subject since we're not stripping
+    mapped_commit_id: None,    // Not relevant for rewording
   })
 }
 
@@ -218,7 +205,7 @@ fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_
   let ref_name = format!("refs/heads/{branch_name}");
   let args = vec!["update-ref", &ref_name, new_commit_id];
 
-  git_executor.execute_command(&args, repo_path).map_err(|e| anyhow!("Failed to update branch ref: {}", e))?;
+  git_executor.execute_command(&args, repo_path)?;
 
   info!("Updated branch {} to {}", branch_name, new_commit_id);
 

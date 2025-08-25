@@ -156,15 +156,16 @@ test.describe("Issue Navigation Links", () => {
   })
 
   test("should render issue links in branch names", async ({ page }) => {
-    // Check if branch names with issue references show links
-    // This depends on whether the UI shows issue links in branch names
-    // For now, we'll check the branch rows themselves
+    // Find the branch card (UCard component that contains the branches table)
+    // This will show both issue-based branches with summaries and feature branches without summaries
+    const branchCard = page.locator("[data-testid=\"branch-row\"]").first().locator("..").locator("..")
+    await expect(branchCard).toBeVisible()
 
-    // The branches table contains all the branch rows
-    const branchesTable = page.locator("table").first()
-    await expect(branchesTable).toBeVisible()
+    // Verify that issue-based branches are present
+    await expect(page.locator("[data-testid=\"branch-row\"][data-branch-name=\"ABC-123\"]")).toBeVisible()
+    await expect(page.locator("[data-testid=\"branch-row\"][data-branch-name=\"JIRA-456\"]")).toBeVisible()
 
-    // Capture snapshot of all branches to see if any branch names have issue links
-    await captureHtmlSnapshot(branchesTable, "issue-links-branch-names")
+    // Capture snapshot of the entire branch card showing all branches with/without summaries
+    await captureHtmlSnapshot(branchCard, "issue-links-branch-names")
   })
 })

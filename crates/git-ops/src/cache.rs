@@ -1,7 +1,7 @@
 use crate::copy_commit::CopyCommitError;
-use crate::git_command::GitCommandExecutor;
 use anyhow::Result;
 use dashmap::DashMap;
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
