@@ -23,7 +23,7 @@
     "lint": "pnpm run \"/^lint:.*/\""
   },
   "dependencies": {
-    "@git-diff-view/vue": "0.0.31",
+    "@git-diff-view/vue": "0.0.32",
     "@nuxt/ui": "4.0.0-alpha.0",
     "@tanstack/vue-table": "^8.21.3",
     "@tauri-apps/api": "2.8.0",
