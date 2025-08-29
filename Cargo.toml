@@ -30,7 +30,7 @@ tempfile = "3.21.0"
 test-log = { version = "0.2", features = ["trace"] }
 
 # Logging and tracing
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "registry"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "registry"] }
 
 # Common utilities
 regex = "1.11.2"
