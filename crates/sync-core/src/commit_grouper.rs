@@ -1,4 +1,5 @@
 use git_ops::commit_list::Commit;
+use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::info;
@@ -45,10 +46,10 @@ impl CommitGrouper {
     {
       // Extract prefix between parentheses
       let prefix = &subject[1..close_paren_pos];
-
       // Only accept non-empty prefixes
       if !prefix.is_empty() {
-        let prefix = prefix.trim();
+        // Sanitize the prefix to make it a valid Git branch name
+        let sanitized_prefix = sanitize_branch_name(prefix.trim());
 
         // Get the rest of the message after the closing parenthesis
         let rest = &subject[close_paren_pos + 1..];
@@ -57,7 +58,7 @@ impl CommitGrouper {
         // Set the stripped subject
         commit.stripped_subject = message_text.to_string();
 
-        self.prefix_to_commits.entry(prefix.to_string()).or_default().push(commit);
+        self.prefix_to_commits.entry(sanitized_prefix).or_default().push(commit);
         return;
       }
     }
@@ -67,7 +68,6 @@ impl CommitGrouper {
     if let Some(issue_number) = find_issue_number(subject) {
       // For issue-based grouping, we don't strip anything
       // The subject remains as-is
-
       self.prefix_to_commits.entry(issue_number.to_owned()).or_default().push(commit);
       return;
     }

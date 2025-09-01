@@ -8,6 +8,15 @@ export function useBranchCopyActions(): BranchCopyActionsReturn {
 
   const getCopyMenuItems = (branchName: string, isFullPath = false) => [
     {
+      label: "Copy Full Branch Name",
+      icon: "i-lucide-copy",
+      onSelect: () => {
+        const fullName = isFullPath ? branchName : getFullBranchName(branchName)
+        // noinspection JSIgnoredPromiseFromCall
+        copyToClipboard(fullName)
+      },
+    },
+    {
       label: "Copy Branch Name",
       icon: "i-lucide-copy",
       onSelect: () => {
@@ -16,15 +25,6 @@ export function useBranchCopyActions(): BranchCopyActionsReturn {
           : branchName
         // noinspection JSIgnoredPromiseFromCall
         copyToClipboard(nameToUse)
-      },
-    },
-    {
-      label: "Copy Full Branch Name",
-      icon: "i-lucide-copy",
-      onSelect: () => {
-        const fullName = isFullPath ? branchName : getFullBranchName(branchName)
-        // noinspection JSIgnoredPromiseFromCall
-        copyToClipboard(fullName)
       },
     },
   ]

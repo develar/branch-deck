@@ -105,10 +105,11 @@ pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::R
   let name = branch_name.trim_end_matches('/').trim();
   ensure!(!name.is_empty(), "branch name cannot be blank");
 
-  // Sanitize branch name to make it valid for Git references
+  // Validate that the branch name is already sanitized
   let sanitized_name = sanitize_branch_name(name);
+  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{}', expected '{}'", name, sanitized_name);
 
-  Ok(format!("{prefix}/virtual/{sanitized_name}"))
+  Ok(format!("{prefix}/virtual/{name}"))
 }
 
 /// Extract the simple branch name from a full virtual branch name
@@ -120,7 +121,7 @@ pub fn extract_branch_name_from_final(full_branch_name: &str, branch_prefix: &st
 
 /// Sanitizes a branch name to make it valid for Git references
 /// Git reference names cannot contain spaces, certain special characters, etc.
-pub(crate) fn sanitize_branch_name(name: &str) -> String {
+pub fn sanitize_branch_name(name: &str) -> String {
   name
     // Replace spaces with hyphens
     .replace(' ', "-")
@@ -234,14 +235,18 @@ mod tests {
   }
 
   #[test]
-  fn test_to_final_branch_name_with_sanitization() {
-    let result = to_final_branch_name("develar", "ui dispatcher").unwrap();
+  fn test_to_final_branch_name_rejects_unsanitized_input() {
+    // Should reject branch names with spaces
+    let result = to_final_branch_name("develar", "ui dispatcher");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("pre-sanitized"));
+
+    // Should reject branch names with special characters
+    let result = to_final_branch_name("feature", "test~branch");
+    assert!(result.is_err());
+
+    // Should accept pre-sanitized names
+    let result = to_final_branch_name("develar", "ui-dispatcher").unwrap();
     assert_eq!(result, "develar/virtual/ui-dispatcher");
-
-    let result = to_final_branch_name("feature", "test~branch").unwrap();
-    assert_eq!(result, "feature/virtual/test-branch");
-
-    let result = to_final_branch_name("bugfix", "hello world test").unwrap();
-    assert_eq!(result, "bugfix/virtual/hello-world-test");
   }
 }

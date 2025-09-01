@@ -1,5 +1,5 @@
 <template>
-  <UContainer class="pb-4">
+  <UContainer class="pb-4" data-testid="app-container">
     <BranchCreator />
   </UContainer>
 </template>

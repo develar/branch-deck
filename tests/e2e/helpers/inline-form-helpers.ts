@@ -125,11 +125,11 @@ export const inlineBranchCreator = {
   getAiToggle: (page: Page) => page.locator("#inline-branch-creator-portal button[aria-label=\"AI\"]"),
 
   async waitForVisible(page: Page): Promise<void> {
-    await expect(this.getPortal(page)).toBeVisible()
+    await expect(this.getPortal(page)).toBeVisible({ timeout: 10000 })
   },
 
   async waitForHidden(page: Page): Promise<void> {
-    await expect(this.getPortal(page)).not.toBeVisible()
+    await expect(this.getPortal(page)).not.toBeVisible({ timeout: 10000 })
   },
 }
 

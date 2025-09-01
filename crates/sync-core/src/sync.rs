@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use std::sync::{Arc, Mutex};
 use sync_types::issue_navigation::IssueNavigationConfig;
 use sync_types::{GroupedBranchInfo, ProgressReporter, SyncEvent};
-use sync_utils::issue_pattern::{find_issue_number, find_issue_range};
+use sync_utils::issue_pattern::{find_issue_range, has_issue_reference};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -147,6 +147,51 @@ pub async fn sync_branches_core_with_cache<P: ProgressReporter + Clone + 'static
   .await
 }
 
+/// Compute summary for a branch based on its name and commits
+/// For issue-based branches, extracts the commit message after the issue reference
+/// Searches in reverse order to skip cleanup commits and find meaningful ones
+fn compute_branch_summary(branch_name: &str, commits: &[Commit]) -> String {
+  if !has_issue_reference(branch_name) || commits.is_empty() {
+    return String::new();
+  }
+
+  let mut fallback_summary: Option<String> = None;
+
+  // Search commits in reverse order (oldest first) to find a suitable summary
+  for commit in commits.iter().rev() {
+    // Strip issue number if present
+    let summary = if let Some((_, end)) = find_issue_range(&commit.stripped_subject) {
+      commit.stripped_subject[end..].trim_start_matches([' ', ':']).trim()
+    } else {
+      commit.stripped_subject.as_str()
+    };
+
+    // Skip empty summaries
+    if summary.is_empty() {
+      continue;
+    }
+
+    // Check if it's a cleanup/refactor/format commit AFTER stripping issue prefix
+    // Use ASCII case-insensitive comparison for efficiency
+    if (summary.len() >= 7 && summary[..7].eq_ignore_ascii_case("cleanup"))
+      || (summary.len() >= 8 && summary[..8].eq_ignore_ascii_case("refactor"))
+      || (summary.len() >= 6 && summary[..6].eq_ignore_ascii_case("format"))
+    {
+      // Save the first non-empty summary as fallback (even if it's cleanup)
+      if fallback_summary.is_none() {
+        fallback_summary = Some(summary.to_string());
+      }
+      continue;
+    }
+
+    // Found a non-cleanup summary, return it
+    return summary.to_string();
+  }
+
+  // If all commits are cleanup/refactor/format, use the fallback (first non-empty)
+  fallback_summary.unwrap_or_default()
+}
+
 /// Core sync branches logic
 #[instrument(skip(git_executor, progress, options), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = options.cached_issue_config.is_some()))]
 pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
@@ -252,21 +297,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       let latest_commit_time = commits.iter().map(|commit| commit.committer_timestamp).max().unwrap_or(0);
 
       // Compute summary for issue-based branches
-      let summary = if find_issue_number(branch_name).is_some() && !commits.is_empty() {
-        // For issue-based branches, use the first commit's stripped_subject as summary
-        let first_commit = &commits[0];
-        let subject = &first_commit.stripped_subject;
-
-        // Remove the issue number from the beginning if present
-        if let Some((_, end)) = find_issue_range(subject) {
-          let after_issue = subject[end..].trim_start_matches([' ', ':']).trim();
-          if after_issue.is_empty() { String::new() } else { after_issue.to_string() }
-        } else {
-          subject.to_string()
-        }
-      } else {
-        String::new()
-      };
+      let summary = compute_branch_summary(branch_name, commits);
 
       // Tally author emails for identity derivation
       for c in commits.iter() {
@@ -279,6 +310,18 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         name: branch_name.clone(),
         latest_commit_time,
         summary,
+        all_commits_have_issue_references: {
+          if commits.is_empty() {
+            false
+          } else if has_issue_reference(branch_name) {
+            // If branch is grouped by issue reference, all commits likely have issue references
+            // (they were grouped for this reason, so this is a strong heuristic)
+            true
+          } else {
+            // For non-issue branches (like "(feature-auth)"), check each commit
+            commits.iter().all(|c| has_issue_reference(&c.subject))
+          }
+        },
         commits: commits
           .iter()
           .rev() // Reverse to show newest commits first within branch

@@ -44,7 +44,6 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **TypeScript 5**: With strict mode enabled.
 - **Tailwind CSS v4**: Using the new, faster Rust-based engine.
 - **Vite**: As the build tool for the frontend.
-- **Pinia**: For global state management, with Zod for schema validation.
 - **Nextest**: As the test runner for all Rust tests.
 - **Playwright**: For End-to-End (E2E) testing.
 
@@ -119,11 +118,6 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **commit-ui**: Commit display and interaction components
 - **conflict-ui**: Conflict visualization components
 - **app**: Application-specific features
-
-### State Management
-- Use Pinia stores for global state with Zod schemas for validation.
-- Persistence is handled by a Pinia plugin that auto-saves to the Tauri store.
-- Use reactive `Map` objects for collections and `computed` properties to derive arrays for reactivity.
 
 ### File Structure
 ```

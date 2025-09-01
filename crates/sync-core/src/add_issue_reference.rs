@@ -2,7 +2,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
 use serde::{Deserialize, Serialize};
-use sync_utils::issue_pattern::find_issue_range;
+use sync_utils::issue_pattern::has_issue_reference;
 use tracing::info;
 
 #[derive(Debug, Deserialize)]
@@ -110,47 +110,6 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
       })
     }
     Err(e) => Err(format!("Failed to add issue reference: {e}")),
-  }
-}
-
-/// Check if a message already contains an issue reference pattern (like ABC-123)
-fn has_issue_reference(message: &str) -> bool {
-  // find_issue_range now only finds issues at the start or after recognized prefixes
-  // This ensures consistent behavior between commit grouping and issue reference detection
-  // More efficient since we only need to check existence, not extract the text
-  find_issue_range(message).is_some()
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_has_issue_reference() {
-    // Test with issue reference at the start
-    assert!(has_issue_reference("ABC-123 Fix the bug"));
-    assert!(has_issue_reference("ISSUE-456 Add new feature"));
-    assert!(has_issue_reference("JIRA-1 Update docs"));
-
-    // Test cases that should NOT match
-    assert!(!has_issue_reference("Fix the bug"));
-    assert!(!has_issue_reference("abc-123 lowercase not valid"));
-    assert!(!has_issue_reference("ABC- missing number"));
-    assert!(!has_issue_reference("-123 missing prefix"));
-    assert!(!has_issue_reference(""));
-    assert!(!has_issue_reference("Some text ABC-123 issue in the middle"));
-
-    // Test that issue reference in body (not subject) is ignored
-    assert!(!has_issue_reference("Fix the bug\n\nThis fixes ABC-123"));
-    assert!(!has_issue_reference("Update feature\n\nRelated to ISSUE-456"));
-
-    // Test [category] prefix handling
-    assert!(has_issue_reference("[threading] IJPL-163558: Fix observability"));
-    assert!(has_issue_reference("[subsystem] ABC-456: Update"));
-
-    // Test semantic commit prefix handling
-    assert!(has_issue_reference("fix: ABC-123 resolve bug"));
-    assert!(has_issue_reference("feat(auth): DEF-456 add login"));
   }
 }
 

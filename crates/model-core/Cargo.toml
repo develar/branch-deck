@@ -9,7 +9,7 @@ description = "Core ML inference package for branch name generation"
 candle-core = { git = "https://github.com/huggingface/candle.git", rev = "be4f920f35b99af5919a86c0a2e08a78f3f63567", default-features = false }
 candle-nn = { git = "https://github.com/huggingface/candle.git", rev = "be4f920f35b99af5919a86c0a2e08a78f3f63567", default-features = false }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", rev = "be4f920f35b99af5919a86c0a2e08a78f3f63567", default-features = false }
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 # Core utilities (shared via workspace)
 anyhow.workspace = true

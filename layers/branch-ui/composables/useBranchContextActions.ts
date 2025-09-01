@@ -30,23 +30,24 @@ export function useBranchContextActions(): BranchContextActionsReturn {
   // Context menu items
   const getContextMenuItems = (branch: ReactiveBranch) => {
     const hasCommits = branch.commits?.length > 0
-    const canAddIssueReference = hasCommits && !branch.hasError && branch.status !== "Syncing"
+    const canShowIssueReference = hasCommits && !branch.hasError && branch.status !== "Syncing"
 
     const items = []
 
+    // Copy actions at the end with separator
+    items.push(getCopyMenuItems(branch.name))
+
     // Add Issue Reference action (if applicable)
-    if (canAddIssueReference) {
+    if (canShowIssueReference) {
       items.push([
         {
-          label: "Add Issue Reference",
+          label: branch.allCommitsHaveIssueReferences ? "Add Issue Reference (all have)" : "Add Issue Reference",
           icon: "i-lucide-tag",
+          disabled: branch.allCommitsHaveIssueReferences,
           onSelect: () => inline.openInline("issue-reference", branch.name),
         },
       ])
     }
-
-    // Copy actions at the end with separator
-    items.push(getCopyMenuItems(branch.name))
 
     return items
   }

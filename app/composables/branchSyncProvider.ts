@@ -25,11 +25,11 @@ export interface SyncedCommit extends Commit {
 // Remote status information for a branch
 export interface RemoteStatus {
   exists: boolean
-  head?: string
   unpushedCommits: string[]
   commitsAhead: number
   commitsBehind: number
   myCommitsAhead: number
+  lastPushTime: number // Unix timestamp, 0 = never pushed
 }
 
 // Reactive branch data that updates incrementally
@@ -51,6 +51,8 @@ export interface ReactiveBranch {
   remoteStatus: RemoteStatus | null
   // Push state
   isPushing: boolean
+  // Issue reference tracking
+  allCommitsHaveIssueReferences: boolean
 }
 
 // Create branch sync state
@@ -177,6 +179,7 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
           autoScrollRequested: false,
           latestCommitTime: branch.latestCommitTime,
           summary: branch.summary,
+          allCommitsHaveIssueReferences: branch.allCommitsHaveIssueReferences,
           // Remote tracking (null = not yet loaded)
           remoteStatus: null as RemoteStatus | null,
           // Push state
@@ -335,16 +338,16 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
   function handleRemoteStatusUpdateEvent(
     data: Extract<SyncEvent, { type: "remoteStatusUpdate" }>["data"],
   ) {
-    const { branchName, remoteExists, remoteHead, unpushedCommits, commitsBehind, myUnpushedCount } = data
+    const { branchName, remoteExists, unpushedCommits, commitsBehind, myUnpushedCount, lastPushTime } = data
     const branch = branchCollection.get(branchName)
     if (branch) {
       branch.remoteStatus = {
         exists: remoteExists,
-        head: remoteHead ?? undefined, // Convert null to undefined
         unpushedCommits,
         commitsAhead: unpushedCommits.length,
         commitsBehind,
         myCommitsAhead: myUnpushedCount ?? 0,
+        lastPushTime: lastPushTime ?? 0,
       }
     }
   }
@@ -363,6 +366,7 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
     branchItem.autoScrollRequested = false
     branchItem.latestCommitTime = branch.latestCommitTime
     branchItem.summary = branch.summary
+    branchItem.allCommitsHaveIssueReferences = branch.allCommitsHaveIssueReferences
     // Reset remote tracking info (null = not yet loaded)
     branchItem.remoteStatus = null
     // Reset push state

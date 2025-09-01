@@ -2,6 +2,39 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_types::RemoteStatusUpdate;
 
+/// Get remote existence and last push time in a single git reflog call
+/// Returns (remote_exists, last_push_time)
+fn get_remote_status_and_push_time(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> (bool, u32) {
+  // Get reflog entries with unix timestamps for the remote branch
+  let lines = git_executor
+    .execute_command_lines(&["--no-pager", "reflog", "show", "--date=unix", remote_ref], repository_path)
+    .ok();
+
+  if let Some(lines) = lines {
+    // Remote exists, look for push time
+    for line in lines {
+      if line.contains("update by push") {
+        // Extract unix timestamp from format: "hash refs/remotes/origin/branch@{unix_timestamp}: update by push"
+        if let Some(timestamp_start) = line.find("{")
+          && let Some(timestamp_end) = line.find("}: update by push")
+        {
+          let timestamp_str = &line[timestamp_start + 1..timestamp_end];
+
+          // Parse the unix timestamp directly
+          if let Ok(timestamp) = timestamp_str.parse::<u32>() {
+            return (true, timestamp);
+          }
+        }
+      }
+    }
+    // Remote exists but no push found
+    (true, 0)
+  } else {
+    // Remote doesn't exist
+    (false, 0)
+  }
+}
+
 /// Compute remote status for a single local virtual branch.
 /// local_ref must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix).
 pub fn compute_remote_status_for_branch(
@@ -15,10 +48,8 @@ pub fn compute_remote_status_for_branch(
 ) -> Result<RemoteStatusUpdate> {
   let remote_ref = format!("origin/{}", local_ref);
 
-  // Check if remote exists
-  let remote_exists = git_executor
-    .execute_command(&["--no-pager", "rev-parse", "--verify", "--quiet", &remote_ref], repository_path)
-    .is_ok();
+  // Get remote existence and last push time in a single call
+  let (remote_exists, last_push_time) = get_remote_status_and_push_time(git_executor, repository_path, &remote_ref);
 
   if remote_exists {
     // Ahead/behind counts in one call
@@ -62,29 +93,23 @@ pub fn compute_remote_status_for_branch(
       0
     };
 
-    // Remote head oid
-    let remote_head = git_executor
-      .execute_command(&["--no-pager", "rev-parse", &remote_ref], repository_path)
-      .ok()
-      .map(|s| s.trim().to_string());
-
     Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: true,
-      remote_head,
       unpushed_commits,
       commits_behind: behind,
       my_unpushed_count,
+      last_push_time,
     })
   } else {
     // No remote: we don't need the list or counts; indicate absence only.
     Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: false,
-      remote_head: None,
       unpushed_commits: Vec::new(),
       commits_behind: 0,
       my_unpushed_count: total_commits_in_branch,
+      last_push_time: 0, // Never pushed since remote doesn't exist
     })
   }
 }

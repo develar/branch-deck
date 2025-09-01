@@ -126,12 +126,12 @@ export async function setupTestRepository(
   // The ConfigurationHeader contains the sync button we need
   // Skip this wait if prepopulateStore is false since no repository is loaded
   if (shouldPopulateStore) {
-    await page.waitForSelector(".bg-elevated", { timeout: 10000 })
+    await page.waitForSelector(".bg-elevated", { timeout: 15000 })
   }
   else {
-    // For empty store scenarios (like welcome card), wait for basic page elements
-    await page.waitForSelector("body", { timeout: 10000 })
-    await page.waitForTimeout(1000) // Give Vue time to render
+    // For empty store scenarios (like welcome card), wait for the app to be mounted
+    // Wait for the branch creator root element which is always present
+    await page.waitForSelector("[data-testid='branch-creator-root']", { timeout: 15000 })
   }
 
   // Wait for the repository to be loaded and validated by checking if the sync button is enabled

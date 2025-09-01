@@ -148,7 +148,11 @@ async function confirmDelete(branchName: string) {
     branchName,
     async () => {
       const repoPath = selectedProject.value?.path || ""
-      const result = await commands.deleteArchivedBranch(repoPath, branchName, effectiveBranchPrefix.value)
+      const result = await commands.deleteArchivedBranch({
+        repositoryPath: repoPath,
+        branchName: branchName,
+        branchPrefix: effectiveBranchPrefix.value,
+      })
       if (result.status !== "ok") {
         throw new Error(result.error)
       }

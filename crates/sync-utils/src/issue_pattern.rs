@@ -159,6 +159,12 @@ pub fn find_issue_number(text: &str) -> Option<&str> {
   find_issue_range(text).map(|(start, end)| &text[start..end])
 }
 
+/// Check if a message already contains an issue reference pattern (like ABC-123)
+/// More efficient than find_issue_number when you only need existence check
+pub fn has_issue_reference(text: &str) -> bool {
+  find_issue_range(text).is_some()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -240,5 +246,33 @@ mod tests {
     // Test combination of prefixes
     assert_eq!(find_issue_number("[category] fix: GHI-789 combined"), Some("GHI-789"));
     assert_eq!(find_issue_number("[test] feat(api): JKL-012 all prefixes"), Some("JKL-012"));
+  }
+
+  #[test]
+  fn test_has_issue_reference() {
+    // Test with issue reference at the start
+    assert!(has_issue_reference("ABC-123 Fix the bug"));
+    assert!(has_issue_reference("ISSUE-456 Add new feature"));
+    assert!(has_issue_reference("JIRA-1 Update docs"));
+
+    // Test cases that should NOT match
+    assert!(!has_issue_reference("Fix the bug"));
+    assert!(!has_issue_reference("abc-123 lowercase not valid"));
+    assert!(!has_issue_reference("ABC- missing number"));
+    assert!(!has_issue_reference("-123 missing prefix"));
+    assert!(!has_issue_reference(""));
+    assert!(!has_issue_reference("Some text ABC-123 issue in the middle"));
+
+    // Test that issue reference in body (not subject) is ignored
+    assert!(!has_issue_reference("Fix the bug\n\nThis fixes ABC-123"));
+    assert!(!has_issue_reference("Update feature\n\nRelated to ISSUE-456"));
+
+    // Test [category] prefix handling
+    assert!(has_issue_reference("[threading] IJPL-163558: Fix observability"));
+    assert!(has_issue_reference("[subsystem] ABC-456: Update"));
+
+    // Test semantic commit prefix handling
+    assert!(has_issue_reference("fix: ABC-123 resolve bug"));
+    assert!(has_issue_reference("feat(auth): DEF-456 add login"));
   }
 }

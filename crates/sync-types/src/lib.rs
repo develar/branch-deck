@@ -13,11 +13,12 @@ pub mod issue_navigation;
 pub struct RemoteStatusUpdate {
   pub branch_name: String,
   pub remote_exists: bool,
-  pub remote_head: Option<String>,
   pub unpushed_commits: Vec<String>,
   pub commits_behind: u32,
   /// Number of commits ahead authored by the current user (derived during sync)
   pub my_unpushed_count: u32,
+  /// Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed)
+  pub last_push_time: u32,
 }
 
 /// Progress events for sync operations
@@ -74,6 +75,7 @@ pub struct GroupedBranchInfo {
   pub commits: Vec<Commit>,
   pub latest_commit_time: u32,
   pub summary: String,
+  pub all_commits_have_issue_references: bool,
 }
 
 /// Progress reporter trait that abstracts away Tauri-specific channel

@@ -15,13 +15,7 @@ pub async fn get_archived_branch_commits(git_executor: tauri::State<'_, GitComma
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_archived_branch(git_executor: tauri::State<'_, GitCommandExecutor>, repository_path: String, branch_name: String, branch_prefix: String) -> Result<(), String> {
-  let params = DeleteArchivedBranchParams {
-    repository_path,
-    branch_name,
-    branch_prefix,
-  };
-
+pub async fn delete_archived_branch(git_executor: tauri::State<'_, GitCommandExecutor>, params: DeleteArchivedBranchParams) -> Result<(), String> {
   delete_archived_branch_core(&git_executor, params).map_err(|e| e.to_string())?;
   Ok(())
 }

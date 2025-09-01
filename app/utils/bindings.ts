@@ -131,9 +131,9 @@ async getArchivedBranchCommits(repositoryPath: string, branchName: string) : Pro
     else return { status: "error", error: e  as any };
 }
 },
-async deleteArchivedBranch(repositoryPath: string, branchName: string, branchPrefix: string) : Promise<Result<null, string>> {
+async deleteArchivedBranch(params: DeleteArchivedBranchParams) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_archived_branch", { repositoryPath, branchName, branchPrefix }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_archived_branch", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -239,6 +239,7 @@ export type ConflictDetail = { file: string; status: string; fileDiff: FileDiff;
  */
 export type ConflictMarkerCommitInfo = { hash: string; message: string; author: string; authorTime: number; committerTime: number }
 export type CreateBranchFromCommitsParams = { repositoryPath: string; branchName: string; commitIds: string[] }
+export type DeleteArchivedBranchParams = { repositoryPath: string; branchName: string; branchPrefix: string }
 /**
  * Summary of how two branches have diverged from their common ancestor.
  */
@@ -256,7 +257,7 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
  */
 export type FileInfo = { fileName: string; fileLang: string; content: string }
 export type GetBranchPrefixParams = { repositoryPath: string }
-export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number; summary: string }
+export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number; summary: string; allCommitsHaveIssueReferences: boolean }
 /**
  * Confidence level for integration detection
  */
@@ -281,11 +282,15 @@ export type PushBranchParams = { repositoryPath: string; branchPrefix: string; b
 /**
  * Remote branch status information
  */
-export type RemoteStatusUpdate = { branchName: string; remoteExists: boolean; remoteHead: string | null; unpushedCommits: string[]; commitsBehind: number; 
+export type RemoteStatusUpdate = { branchName: string; remoteExists: boolean; unpushedCommits: string[]; commitsBehind: number; 
 /**
  * Number of commits ahead authored by the current user (derived during sync)
  */
-myUnpushedCount: number }
+myUnpushedCount: number; 
+/**
+ * Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed)
+ */
+lastPushTime: number }
 export type RewordResult = { success: boolean; message: string; reworded_count: number }
 /**
  * Parameters for requesting branch name suggestions

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteArchivedBranchParams {
   pub repository_path: String,
   pub branch_name: String,

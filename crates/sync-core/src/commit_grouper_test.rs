@@ -198,7 +198,34 @@ fn test_group_commits_mixed_patterns() {
   assert!(grouped.contains_key("feature"));
   assert!(grouped.contains_key("JIRA-123"));
   assert!(grouped.contains_key("ABC-456"));
-  assert_eq!(unassigned.len(), 1, "Should have 1 unassigned");
+}
+
+#[test]
+fn test_branch_name_sanitization() {
+  let mut grouper = CommitGrouper::new();
+
+  // Add commits with prefixes that need sanitization
+  grouper.add_commit(create_test_commit("1", "(mockito 5.19) Fix test framework"));
+  grouper.add_commit(create_test_commit("2", "(ui dispatcher) Update UI handler"));
+  grouper.add_commit(create_test_commit("3", "(test~branch) Add tests"));
+  grouper.add_commit(create_test_commit("4", "(feature/sub*path) New feature"));
+  grouper.add_commit(create_test_commit("5", "(---test---) Edge case"));
+  grouper.add_commit(create_test_commit("6", "(.dots.) Another edge case"));
+
+  let (grouped, unassigned) = grouper.finish();
+
+  // Verify that branch names are sanitized
+  assert!(grouped.contains_key("mockito-5.19"), "'mockito 5.19' should be sanitized to 'mockito-5.19'");
+  assert!(grouped.contains_key("ui-dispatcher"), "'ui dispatcher' should be sanitized to 'ui-dispatcher'");
+  assert!(grouped.contains_key("test-branch"), "'test~branch' should be sanitized to 'test-branch'");
+  assert!(grouped.contains_key("feature/sub-path"), "'feature/sub*path' should be sanitized to 'feature/sub-path'");
+  assert!(grouped.contains_key("test"), "'---test---' should be sanitized to 'test'");
+  assert!(grouped.contains_key("dots"), "'.dots.' should be sanitized to 'dots'");
+
+  // Verify the commits are properly grouped under sanitized names
+  assert_eq!(grouped.get("mockito-5.19").unwrap().len(), 1);
+  assert_eq!(grouped.get("ui-dispatcher").unwrap().len(), 1);
+  assert_eq!(unassigned.len(), 0, "Should have 0 unassigned - all should be grouped under sanitized names");
 }
 
 #[test]

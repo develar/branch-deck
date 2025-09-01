@@ -2685,9 +2685,9 @@ dependencies = [
 
 [[package]]
 name = "tokenizers"
-version = "0.21.2"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c3846d8588abed0daba25a0e47edd58ea15e450a6088b2575f5116fdb0b27ca"
+checksum = "af10f51be57162b69d90a15cb226eef12c9e4faecbd5e3ea98a86bfb920b3d71"
 dependencies = [
  "ahash",
  "aho-corasick",
