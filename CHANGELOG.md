@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/develar/branch-deck/compare/v0.8.0...v0.8.1) (2025-09-01)
+
+
+### Bug Fixes
+
+* disable add issue reference action if all commits have issue number ([d6c4748](https://github.com/develar/branch-deck/commit/d6c47489c704795f0c595f8f8a3a8f7508416edc))
+
 ## [0.8.0](https://github.com/develar/branch-deck/compare/v0.7.1...v0.8.0) (2025-08-25)
 
 
