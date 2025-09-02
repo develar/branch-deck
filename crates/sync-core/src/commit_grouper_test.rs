@@ -43,7 +43,7 @@ fn test_prefix_regex_patterns() {
     let mut grouper = CommitGrouper::new();
     let commit = create_test_commit(&format!("commit{i}"), subject);
     grouper.add_commit(commit);
-    let (grouped, unassigned) = grouper.finish();
+    let (grouped, unassigned, _branch_emails) = grouper.finish();
 
     if let Some(prefix) = expected_prefix {
       assert!(grouped.contains_key(prefix), "Subject '{subject}' should have prefix '{prefix}'");
@@ -71,7 +71,7 @@ fn test_group_commits_with_issue_numbers() {
   grouper.add_commit(create_test_commit("2", "XYZ-1001: Improve performance"));
   grouper.add_commit(create_test_commit("3", "IJPL-163558: Enhance logging"));
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
 
   assert_eq!(grouped.len(), 2, "Should have 2 groups");
   assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
@@ -97,7 +97,7 @@ fn test_issue_numbers_with_square_brackets() {
   grouper.add_commit(create_test_commit("3", "[threading] IJPL-163558: Enhance logging"));
   grouper.add_commit(create_test_commit("4", "[database] IJPL-163558: Update schema"));
 
-  let (grouped, _unassigned) = grouper.finish();
+  let (grouped, _unassigned, _branch_emails) = grouper.finish();
 
   // Issue numbers should be detected even with square bracket prefixes
   assert_eq!(grouped.len(), 2, "Should have 2 issue groups");
@@ -128,7 +128,7 @@ fn test_issue_numbers_only_in_first_line() {
   commit4.message = "Update dependencies\n\nResolves: JKL-111".to_string();
   grouper.add_commit(commit4);
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
 
   assert_eq!(grouped.len(), 2, "Should have 2 groups (ABC-123 and GHI-789)");
   assert!(grouped.contains_key("ABC-123"));
@@ -147,7 +147,7 @@ fn test_group_commits_by_prefix() {
   grouper.add_commit(create_test_commit("4", "No prefix commit"));
   grouper.add_commit(create_test_commit("5", "(feature-auth) Add two-factor auth"));
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
 
   assert_eq!(grouped.len(), 2, "Should have 2 groups");
   assert_eq!(unassigned.len(), 1, "Should have 1 unassigned commit");
@@ -173,7 +173,7 @@ fn test_group_commits_by_prefix_preserves_order() {
   grouper.add_commit(create_test_commit("3", "(bugfix) Bugfix commit"));
   grouper.add_commit(create_test_commit("4", "(feature) Third feature commit"));
 
-  let (grouped, _unassigned) = grouper.finish();
+  let (grouped, _unassigned, _branch_emails) = grouper.finish();
 
   let feature_commits = grouped.get("feature").unwrap();
   assert_eq!(feature_commits[0].id, "1");
@@ -192,7 +192,7 @@ fn test_group_commits_mixed_patterns() {
   grouper.add_commit(create_test_commit("4", "ABC-456: Update docs"));
   grouper.add_commit(create_test_commit("5", "No prefix or issue"));
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, _unassigned, _branch_emails) = grouper.finish();
 
   assert_eq!(grouped.len(), 3, "Should have 3 groups");
   assert!(grouped.contains_key("feature"));
@@ -212,7 +212,7 @@ fn test_branch_name_sanitization() {
   grouper.add_commit(create_test_commit("5", "(---test---) Edge case"));
   grouper.add_commit(create_test_commit("6", "(.dots.) Another edge case"));
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
 
   // Verify that branch names are sanitized
   assert!(grouped.contains_key("mockito-5.19"), "'mockito 5.19' should be sanitized to 'mockito-5.19'");
@@ -240,7 +240,7 @@ fn test_group_commits_by_prefix_handles_malformed_messages() {
   grouper.add_commit(create_test_commit("5", "")); // Empty
   grouper.add_commit(create_test_commit("6", "(valid-2) Another valid"));
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
 
   assert_eq!(grouped.len(), 2, "Should have 2 valid groups");
   assert!(grouped.contains_key("valid"));
@@ -259,7 +259,7 @@ fn test_parentheses_only_at_beginning() {
   grouper.add_commit(create_test_commit("3", "(hotfix) Emergency fix for login (critical)"));
   grouper.add_commit(create_test_commit("4", "Fix critical bug (should not be grouped)"));
 
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
 
   // Check that IJPL-191229 is correctly grouped by issue number
   assert!(grouped.contains_key("IJPL-191229"), "Should have 'IJPL-191229' group");
@@ -285,14 +285,14 @@ fn test_group_commits_edge_cases() {
   for commit in empty_commits {
     grouper.add_commit(commit);
   }
-  let (grouped, unassigned) = grouper.finish();
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
   assert_eq!(grouped.len(), 0);
   assert_eq!(unassigned.len(), 0);
 
   // Test with commit that has empty message
   let mut grouper2 = CommitGrouper::new();
   grouper2.add_commit(create_test_commit("1", ""));
-  let (grouped2, unassigned2) = grouper2.finish();
+  let (grouped2, unassigned2, _branch_emails2) = grouper2.finish();
   assert_eq!(grouped2.len(), 0);
   assert_eq!(unassigned2.len(), 1);
 }

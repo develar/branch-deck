@@ -161,8 +161,7 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   let progress = reporter.clone();
   match sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, None).await {
     Ok(_) => {
-      // Send completion event
-      let _ = reporter.send(SyncEvent::Completed);
+      // Core function completed successfully
     }
     Err(e) => {
       tracing::error!("Sync branches failed: {}", e);

@@ -44,7 +44,7 @@ pub async fn sync_branches_core_with_strategy<P: ProgressReporter + Clone + 'sta
     progress,
     SyncOptions {
       cached_issue_config: None,
-      detection_strategy: Some(strategy),
+      detection_strategy: strategy,
       ..Default::default()
     },
   )
@@ -67,7 +67,7 @@ pub async fn sync_branches_core_with_strategy_and_retention<P: ProgressReporter 
     progress,
     SyncOptions {
       cached_issue_config: None,
-      detection_strategy: Some(strategy),
+      detection_strategy: strategy,
       archive_retention_days: retention_days,
     },
   )

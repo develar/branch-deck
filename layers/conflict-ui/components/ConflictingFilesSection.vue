@@ -1,6 +1,5 @@
 <template>
   <div class="space-y-3">
-    <!-- @vue-expect-error v-model type mismatch -->
     <UTabs
       v-model="store.viewMode"
       :items="tabItems"

@@ -46,7 +46,6 @@
             :extend-data="getConflictExtendData(diff)"
           >
             <template #extend="{ lineNumber, side, data, diffFile, onUpdate }">
-              <!-- @vue-expect-error @update event binding -->
               <ConflictMarkerExtension
                 :line-number="lineNumber"
                 :side="side"

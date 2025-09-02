@@ -6,14 +6,14 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : cpus().length,
+  workers: process.env.CI ? 1 : Math.floor(cpus().length * 0.8),
   globalSetup: "./tests/e2e/setup/global-setup.ts",
 
   // Output directories for test artifacts
   outputDir: "./tests/results",
 
   use: {
-    baseURL: "http://localhost:1421",
+    baseURL: "http://localhost:3030",
     trace: "on-first-retry",
     // Set fixed timezone and locale for consistent test results
     timezoneId: "Europe/Berlin",
@@ -32,7 +32,7 @@ export default defineConfig({
 
   webServer: [
     {
-      name: "backend",
+      name: "test-server",
       command: process.env.CI ? "cargo run -p test-server" : "pnpm test-server:dev",
       port: 3030,
       reuseExistingServer: !process.env.CI,
@@ -40,16 +40,8 @@ export default defineConfig({
       env: {
         RUST_LOG: "test_server=debug,tower_http=debug",
         RUST_BACKTRACE: "1",
-      },
-    },
-    {
-      name: "frontend",
-      command: "pnpm nuxt dev -p 1421",
-      env: {
         NUXT_PUBLIC_TEST_MODE: "true",
       },
-      port: 1421,
-      reuseExistingServer: !process.env.CI,
     },
   ],
 })

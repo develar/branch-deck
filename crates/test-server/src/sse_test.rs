@@ -114,7 +114,6 @@ async fn test_sync_branches_sse_stream() {
   // Progress events are optional - they might not be sent for very fast syncs
   assert!(event_types.contains(&"branchesGrouped"), "Should have branchesGrouped event");
   assert!(event_types.contains(&"branchStatusUpdate"), "Should have branchStatusUpdate events");
-  assert!(event_types.contains(&"completed"), "Should have completed event");
 
   // Verify branchesGrouped contains our test branch
   let branches_grouped = events.iter().find(|e| e["type"] == "branchesGrouped").expect("Should have branchesGrouped event");

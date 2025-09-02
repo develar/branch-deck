@@ -18,13 +18,33 @@
     <!-- Empty State -->
     <UAlert
       v-else-if="hasCompletedSync && branches.length === 0 && unassignedCommits.length === 0"
-      color="info"
-      title="No branches found"
-      variant="soft"
-    />
+      icon="i-lucide-git-branch"
+      color="neutral"
+      title="No active branches"
+      variant="subtle"
+      data-testid="empty-state-alert"
+    >
+      <template #description>
+        <div class="space-y-3">
+          <p>
+            Commit to your main branch using prefixes like:
+          </p>
+          <ul class="list-disc list-inside font-mono">
+            <li>(auth) Add login form</li>
+            <li>YT-123 Fix bug</li>
+          </ul>
+          <p>
+            BranchDeck will automatically group your commits into virtual branches.
+          </p>
+          <p v-if="archivedBranches.archivedBranches.value.length > 0" class="text-muted text-sm">
+            Your archived branches are shown below.
+          </p>
+        </div>
+      </template>
+    </UAlert>
 
     <!-- Unassigned Commits Card -->
-    <UnassignedCommitListCard
+    <LazyUnassignedCommitListCard
       v-if="unassignedCommits.length > 0"
       :commits="unassignedCommits"
     />
@@ -47,7 +67,7 @@ const repository = provideRepository()
 const branchSync = createBranchSyncState(repository)
 provide(BranchSyncKey, branchSync)
 
-const { syncError, isSyncing, branches, unassignedCommits, hasCompletedSync } = branchSync
+const { syncError, isSyncing, branches, unassignedCommits, hasCompletedSync, archivedBranches } = branchSync
 const { pathValidation } = repository
 
 // Determine if we should show the welcome card

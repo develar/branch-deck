@@ -29,7 +29,12 @@ pub enum SyncEvent {
   /// Sent at the beginning with issue navigation configuration if found
   IssueNavigationConfig { config: Option<IssueNavigationConfig> },
   /// Sent immediately after grouping commits
-  BranchesGrouped { branches: Vec<GroupedBranchInfo> },
+  #[serde(rename_all = "camelCase")]
+  BranchesGrouped {
+    branches: Vec<GroupedBranchInfo>,
+    /// Repository's baseline branch (e.g., "origin/master", "master")
+    baseline_branch: String,
+  },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },
   /// Sent when a commit is successfully cherry-picked
@@ -56,15 +61,13 @@ pub enum SyncEvent {
   },
   /// Unified per-branch detection event for any status (Integrated, Orphaned, NotIntegrated, Partial)
   #[serde(rename_all = "camelCase")]
-  BranchIntegrationDetected { info: crate::branch_integration::BranchIntegrationInfo },
+  BranchIntegrationDetected { info: branch_integration::BranchIntegrationInfo },
   /// Sent immediately when archived branches are found (before expensive detection)
   #[serde(rename_all = "camelCase")]
   ArchivedBranchesFound { branch_names: Vec<String> },
   /// Sent when remote branch status is checked
   #[serde(rename_all = "camelCase")]
   RemoteStatusUpdate(RemoteStatusUpdate),
-  /// Final completion event
-  Completed,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -76,9 +79,13 @@ pub struct GroupedBranchInfo {
   pub latest_commit_time: u32,
   pub summary: String,
   pub all_commits_have_issue_references: bool,
+  /// Most frequent author email in this branch's commits
+  pub my_email: Option<String>,
 }
 
 /// Progress reporter trait that abstracts away Tauri-specific channel
 pub trait ProgressReporter: Send + Sync {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()>;
 }
+
+pub mod ordered_progress_reporter;

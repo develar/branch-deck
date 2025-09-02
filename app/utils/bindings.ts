@@ -7,9 +7,9 @@
 
 export const commands = {
 /**
- * Pushes a specific branch to the remote repository
+ * Pushes a specific branch to the remote repository and returns updated remote status
  */
-async pushBranch(params: PushBranchParams) : Promise<Result<string, string>> {
+async pushBranch(params: PushBranchParams) : Promise<Result<RemoteStatusUpdate, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("push_branch", { params }) };
 } catch (e) {
@@ -257,7 +257,11 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
  */
 export type FileInfo = { fileName: string; fileLang: string; content: string }
 export type GetBranchPrefixParams = { repositoryPath: string }
-export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number; summary: string; allCommitsHaveIssueReferences: boolean }
+export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number; summary: string; allCommitsHaveIssueReferences: boolean; 
+/**
+ * Most frequent author email in this branch's commits
+ */
+myEmail: string | null }
 /**
  * Confidence level for integration detection
  */
@@ -278,7 +282,7 @@ export type MissingCommit = { hash: string; subject: string; message: string; au
 export type ModelFilesStatus = { config: boolean; model: boolean; tokenizer: boolean }
 export type ModelStatus = { available: boolean; modelName: string; modelSize: string; filesPresent: ModelFilesStatus }
 export type OpenSubWindowParams = { windowId: string; url: string; title: string; width: number | null; height: number | null; data: string; storeCache: string }
-export type PushBranchParams = { repositoryPath: string; branchPrefix: string; branchName: string }
+export type PushBranchParams = { repositoryPath: string; branchPrefix: string; branchName: string; totalCommits: number; myEmail: string | null; baselineBranch: string }
 /**
  * Remote branch status information
  */
@@ -312,7 +316,11 @@ export type SyncEvent =
 /**
  * Sent immediately after grouping commits
  */
-{ type: "branchesGrouped"; data: { branches: GroupedBranchInfo[] } } | 
+{ type: "branchesGrouped"; data: { branches: GroupedBranchInfo[]; 
+/**
+ * Repository's baseline branch (e.g., "origin/master", "master")
+ */
+baselineBranch: string } } | 
 /**
  * Sent for commits that don't match any prefix pattern
  */
@@ -344,11 +352,7 @@ export type SyncEvent =
 /**
  * Sent when remote branch status is checked
  */
-{ type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
-/**
- * Final completion event
- */
-{ type: "completed" }
+{ type: "remoteStatusUpdate"; data: RemoteStatusUpdate }
 export type TAURI_CHANNEL<TSend> = null
 export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string }

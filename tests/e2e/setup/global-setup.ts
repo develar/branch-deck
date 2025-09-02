@@ -1,4 +1,5 @@
 import type { FullConfig } from "@playwright/test"
+import { execSync } from "child_process"
 
 /**
  * Wait for a URL to be available with retries
@@ -26,21 +27,26 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
 
 /**
  * Global setup for Playwright tests
- * This runs once before all tests and sets up Tauri mocks
+ * This runs once before all tests and builds the frontend and sets up the test environment
  */
 async function globalSetup(_config: FullConfig) {
   console.log("[Global Setup] Initializing test environment...")
 
-  // We'll use browser context's addInitScript in individual tests
-  // since global setup doesn't have access to test contexts
-  // Instead, we'll verify the test servers are running
-
+  // Build the frontend first
   try {
-    // Check backend server
-    await waitForServer("http://localhost:3030/health", "Backend")
+    console.log("[Global Setup] Building frontend...")
+    execSync("pnpm build", { stdio: "inherit", cwd: process.cwd() })
+    console.log("[Global Setup] Frontend build completed")
+  }
+  catch (error) {
+    console.error("[Global Setup] Frontend build failed:", error)
+    throw error
+  }
 
-    // Check frontend server - wait until it's fully ready
-    await waitForServer("http://localhost:1421", "Frontend")
+  // Verify the test server is running
+  try {
+    // Check test server (serves both API and static files)
+    await waitForServer("http://localhost:3030/health", "Test server")
   }
   catch (error) {
     console.error("[Global Setup] Server check failed:", error)

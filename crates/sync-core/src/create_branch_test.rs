@@ -366,7 +366,7 @@ fn test_create_branch_with_missing_commits_scenario() {
       SyncEvent::BranchStatusUpdate { branch_name, status, error } => {
         println!("  Branch: {branch_name}, Status: {status:?}, Error: {error:?}");
       }
-      SyncEvent::BranchesGrouped { branches } => {
+      SyncEvent::BranchesGrouped { branches, .. } => {
         println!("  Grouped branches: {:?}", branches.iter().map(|b| &b.name).collect::<Vec<_>>());
       }
       _ => {}
@@ -375,7 +375,7 @@ fn test_create_branch_with_missing_commits_scenario() {
 
   // Explicitly check if locally created branches are included in sync
   let has_security_in_grouped = events.iter().any(|e| match e {
-    SyncEvent::BranchesGrouped { branches } => branches.iter().any(|b| b.name == "security"),
+    SyncEvent::BranchesGrouped { branches, .. } => branches.iter().any(|b| b.name == "security"),
     _ => false,
   });
 

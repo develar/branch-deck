@@ -201,7 +201,7 @@ const columns = computed(() => [
         // Error details (status variant only)
         props.variant === "status" && "error" in commit && commit.error && h("div", { class: "mt-2" }, [
           "error" in commit && commit.error && "MergeConflict" in commit.error
-            ? h(resolveComponent("MergeConflictViewer"), {
+            ? h(resolveComponent("LazyMergeConflictViewer"), {
                 conflict: commit.error.MergeConflict,
                 branchName: props.branchName,
               })

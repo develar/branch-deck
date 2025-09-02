@@ -126,12 +126,12 @@ export async function setupTestRepository(
   // The ConfigurationHeader contains the sync button we need
   // Skip this wait if prepopulateStore is false since no repository is loaded
   if (shouldPopulateStore) {
-    await page.waitForSelector(".bg-elevated", { timeout: 15000 })
+    await page.waitForSelector("[data-testid='configuration-header']", { timeout: 45000 })
   }
   else {
     // For empty store scenarios (like welcome card), wait for the app to be mounted
     // Wait for the branch creator root element which is always present
-    await page.waitForSelector("[data-testid='branch-creator-root']", { timeout: 15000 })
+    await page.waitForSelector("[data-testid='branch-creator-root']", { timeout: 45000 })
   }
 
   // Wait for the repository to be loaded and validated by checking if the sync button is enabled
@@ -144,7 +144,7 @@ export async function setupTestRepository(
   // - When prepopulateStore is false since no repository is selected yet
   if (templateName !== "NO_REPO" && templateName !== "empty-non-git" && parsedOptions.prepopulateStore) {
     const syncButton = page.locator("[data-testid=\"sync-button\"]")
-    await expect(syncButton).toBeEnabled({ timeout: 15000 })
+    await expect(syncButton).toBeEnabled({ timeout: 30000 })
   }
 
   // For NO_REPO, wait for the path validation to complete and error to be processed

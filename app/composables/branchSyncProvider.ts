@@ -53,6 +53,8 @@ export interface ReactiveBranch {
   isPushing: boolean
   // Issue reference tracking
   allCommitsHaveIssueReferences: boolean
+  // Most frequent author email in this branch's commits
+  myEmail: string | null
 }
 
 // Create branch sync state
@@ -65,6 +67,9 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
   const branchCollection = createReactiveIndexedCollection<string, ReactiveBranch>()
   const branches = branchCollection.array // Expose array for UI
   const unassignedCommits = ref<Commit[]>([])
+
+  // Repository-wide sync data
+  const baselineBranch = shallowRef<string | null>(null)
 
   // Archived branches state
   const archivedBranches = createArchivedBranchesState(repository)
@@ -103,12 +108,13 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
         return
       }
 
-      // Update last sync time
+      // Update last sync time and set completion flag
       const now = Date.now()
       if (selectedProject.value) {
         selectedProject.value.lastSyncTime = now
         selectedProject.value.lastBranchCount = branches.value.length
       }
+      hasCompletedSync.value = true
     }
     catch (error) {
       syncError.value = (error instanceof Error ? error.message : String(error)) || "Failed to sync branches"
@@ -140,9 +146,6 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
       case "unassignedCommits":
         handleUnassignedCommitsEvent(event.data)
         break
-      case "completed":
-        handleCompletedEvent()
-        break
       case "archivedBranchesFound":
         archivedBranches.updateFromArchivedNames(event.data.branchNames)
         break
@@ -159,6 +162,9 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
   function handleBranchesGroupedEvent(
     data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"],
   ) {
+    // Store the baseline branch for later use
+    baselineBranch.value = data.baselineBranch
+
     const branchDataMap = new Map(data.branches.map(branch => [branch.name, branch]))
 
     branchCollection.reconcile(
@@ -180,6 +186,8 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
           latestCommitTime: branch.latestCommitTime,
           summary: branch.summary,
           allCommitsHaveIssueReferences: branch.allCommitsHaveIssueReferences,
+          // Most frequent author email in this branch's commits
+          myEmail: branch.myEmail ?? null,
           // Remote tracking (null = not yet loaded)
           remoteStatus: null as RemoteStatus | null,
           // Push state
@@ -329,11 +337,6 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
     unassignedCommits.value = data.commits
   }
 
-  // Event handler for Completed events
-  function handleCompletedEvent() {
-    hasCompletedSync.value = true
-  }
-
   // Event handler for RemoteStatusUpdate events
   function handleRemoteStatusUpdateEvent(
     data: Extract<SyncEvent, { type: "remoteStatusUpdate" }>["data"],
@@ -367,6 +370,8 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
     branchItem.latestCommitTime = branch.latestCommitTime
     branchItem.summary = branch.summary
     branchItem.allCommitsHaveIssueReferences = branch.allCommitsHaveIssueReferences
+    // Update author email
+    branchItem.myEmail = branch.myEmail ?? null
     // Reset remote tracking info (null = not yet loaded)
     branchItem.remoteStatus = null
     // Reset push state
@@ -389,6 +394,7 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
     hasCompletedSync: readonly(hasCompletedSync),
     branches,
     unassignedCommits,
+    baselineBranch: readonly(baselineBranch),
 
     // Actions
     syncBranches,

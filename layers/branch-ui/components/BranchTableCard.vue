@@ -72,7 +72,7 @@
       :dialog-description="activeInline?.branchName ? `Add issue reference form for ${activeInline.branchName} branch` : ''"
       :portal-target="activeInline?.branchName ? portalTargetIdFor(activeInline.branchName) : undefined"
       :is-active="!!activeInline"
-      @submit="(issueReference) => handleInlineSubmit(issueReference, getActiveBranch()!)"
+      @submit="(issueReference: string) => handleInlineSubmit(issueReference, getActiveBranch()!)"
       @cancel="hideInlineInput"
     />
   </UCard>

@@ -107,7 +107,7 @@ fn test_squash_merge_detection() {
         }
         _ => println!("Other integration status: {} - {:?}", info.name, info.status),
       },
-      SyncEvent::BranchesGrouped { branches } => {
+      SyncEvent::BranchesGrouped { branches, .. } => {
         for branch in branches {
           println!("Grouped branch: {} with {} commits", branch.name, branch.commits.len());
         }

@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-elevated backdrop-blur-sm rounded-lg border border-default">
+  <div class="bg-elevated backdrop-blur-sm rounded-lg border border-default" data-testid="configuration-header">
     <div class="h-14 px-4 flex items-center justify-between gap-4">
       <!-- Left group: Repository info -->
       <div class="flex items-center gap-3 min-w-0">

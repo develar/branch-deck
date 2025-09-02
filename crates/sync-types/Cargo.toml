@@ -8,6 +8,7 @@ git-ops = { path = "../git-ops" }
 anyhow.workspace = true
 serde.workspace = true
 specta = { workspace = true, optional = true }
+crossbeam = "0.8"
 
 [features]
 default = []

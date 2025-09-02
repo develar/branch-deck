@@ -10,7 +10,7 @@ use tracing::instrument;
 #[instrument(skip(git_executor))]
 pub async fn add_issue_reference_to_commits(git_executor: State<'_, GitCommandExecutor>, params: AddIssueReferenceParams) -> Result<AddIssueReferenceResult, String> {
   // Clone the executor since spawn_blocking requires 'static lifetime
-  let git = git_executor.inner().clone();
+  let git = (*git_executor).clone();
   tokio::task::spawn_blocking(move || add_issue_reference_to_commits_core(&git, params))
     .await
     .map_err(|e| format!("Task failed: {e}"))?

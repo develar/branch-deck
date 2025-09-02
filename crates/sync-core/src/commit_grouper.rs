@@ -1,15 +1,46 @@
 use git_ops::commit_list::Commit;
 use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::info;
 
-// Type alias for grouped commits result
-pub type GroupedCommitsResult = (IndexMap<String, Vec<Commit>>, Vec<Commit>);
+/// Branch data combining commits and author frequency tracking
+#[derive(Debug)]
+struct BranchData {
+  commits: Vec<Commit>,
+  author_frequencies: HashMap<String, u32>,
+}
+
+impl BranchData {
+  fn new() -> Self {
+    Self {
+      commits: Vec::new(),
+      author_frequencies: HashMap::new(),
+    }
+  }
+
+  fn add_commit(&mut self, commit: Commit) {
+    // Track author frequency
+    if !commit.author_email.is_empty() {
+      *self.author_frequencies.entry(commit.author_email.clone()).or_insert(0) += 1;
+    }
+
+    self.commits.push(commit);
+  }
+
+  fn most_frequent_author(&self) -> Option<String> {
+    self.author_frequencies.iter().max_by_key(|(_, count)| *count).map(|(email, _)| email.clone())
+  }
+}
+
+// Type alias for grouped commits result with author emails
+pub type GroupedCommitsResult = (IndexMap<String, Vec<Commit>>, Vec<Commit>, HashMap<String, Option<String>>);
 
 /// Struct to incrementally group commits by prefix
 pub struct CommitGrouper {
-  prefix_to_commits: IndexMap<String, Vec<Commit>>,
+  /// Unified structure combining commits and author frequencies per branch
+  branch_data: IndexMap<String, BranchData>,
   unassigned_commits: Vec<Commit>,
   pub oldest_commit: Option<Commit>,
   pub commit_count: usize,
@@ -24,7 +55,7 @@ impl Default for CommitGrouper {
 impl CommitGrouper {
   pub fn new() -> Self {
     Self {
-      prefix_to_commits: IndexMap::new(),
+      branch_data: IndexMap::new(),
       unassigned_commits: Vec::new(),
       oldest_commit: None,
       commit_count: 0,
@@ -58,7 +89,8 @@ impl CommitGrouper {
         // Set the stripped subject
         commit.stripped_subject = message_text.to_string();
 
-        self.prefix_to_commits.entry(sanitized_prefix).or_default().push(commit);
+        // Add commit to unified branch data structure
+        self.branch_data.entry(sanitized_prefix).or_insert_with(BranchData::new).add_commit(commit);
         return;
       }
     }
@@ -68,7 +100,9 @@ impl CommitGrouper {
     if let Some(issue_number) = find_issue_number(subject) {
       // For issue-based grouping, we don't strip anything
       // The subject remains as-is
-      self.prefix_to_commits.entry(issue_number.to_owned()).or_default().push(commit);
+
+      // Add commit to unified branch data structure
+      self.branch_data.entry(issue_number.to_owned()).or_insert_with(BranchData::new).add_commit(commit);
       return;
     }
 
@@ -77,17 +111,26 @@ impl CommitGrouper {
   }
 
   pub fn finish(self) -> GroupedCommitsResult {
+    // Extract commits and author emails from unified structure
+    let mut grouped_commits = IndexMap::new();
+    let mut branch_emails = HashMap::new();
+
+    for (branch_name, branch_data) in self.branch_data {
+      branch_emails.insert(branch_name.clone(), branch_data.most_frequent_author());
+      grouped_commits.insert(branch_name.clone(), branch_data.commits);
+    }
+
     // Build a summary of all branches for a single structured log entry
-    let branch_summary: Vec<String> = self.prefix_to_commits.iter().map(|(prefix, commits)| format!("{}: {}", prefix, commits.len())).collect();
+    let branch_details: Vec<String> = grouped_commits.iter().map(|(prefix, commits)| format!("{}: {}", prefix, commits.len())).collect();
 
     info!(
-      branches = %self.prefix_to_commits.len(),
+      branches = %grouped_commits.len(),
       unassigned = %self.unassigned_commits.len(),
-      branch_details = ?branch_summary,
+      branch_details = ?branch_details,
       "Commit grouping completed"
     );
 
-    (self.prefix_to_commits, self.unassigned_commits)
+    (grouped_commits, self.unassigned_commits, branch_emails)
   }
 }
 

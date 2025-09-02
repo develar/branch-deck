@@ -24,7 +24,7 @@
     />
 
     <!-- Inline Branch Creator (renders via portal) -->
-    <LazyInlineBranchCreator
+    <InlineBranchCreator
       v-if="isInlineCreationActive"
       :selected-commits="selectedItems"
       :is-active="isInlineCreationActive"

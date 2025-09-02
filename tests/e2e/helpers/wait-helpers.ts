@@ -144,6 +144,31 @@ export async function waitForStorePersistence(page: Page, debounceMs = 600): Pro
 }
 
 /**
+ * Wait for a collapsible card to be fully expanded (animation complete)
+ *
+ * This helper waits for both the card container and its inner collapsible content
+ * to have the 'data-state="open"' attribute, ensuring the card is fully expanded
+ * before proceeding with further operations.
+ *
+ * @param card The card locator to wait for expansion
+ *
+ * @example
+ * ```typescript
+ * const card = page.getByTestId("archived-branches-card")
+ * await card.getByText("Archived Branches", { exact: true }).click()
+ * await waitForCollapsibleCardExpanded(card)
+ * ```
+ */
+export async function waitForCollapsibleCardExpanded(card: Locator): Promise<void> {
+  // Wait for the card container to be fully expanded
+  await expect(card).toHaveAttribute("data-state", "open")
+
+  // Also wait for the collapsible content to be fully expanded
+  const collapsibleContent = card.locator(".overflow-x-auto[data-state]")
+  await expect(collapsibleContent).toHaveAttribute("data-state", "open")
+}
+
+/**
  * Wait for floating toolbar to appear
  */
 export async function waitForFloatingToolbar(

@@ -68,7 +68,7 @@ fn test_sync_branches_with_conflicting_commits() {
   assert_eq!(commits_vec.len(), 5); // 3 bugfix + 2 feature commits
 
   // Test that grouping works correctly with conflict-prone commits
-  let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
+  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
   assert_eq!(grouped.len(), 2);
   assert!(grouped.contains_key("bugfix-session"));
   assert!(grouped.contains_key("feature-auth"));
@@ -131,7 +131,7 @@ fn test_conflict_prone_commit_sequences() {
   assert_eq!(commits_vec.len(), 3); // 3 conflict-test commits ahead of baseline
 
   // Test grouping of conflict-prone commits
-  let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
+  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
   assert_eq!(grouped.len(), 1);
   assert!(grouped.contains_key("conflict-test"));
 
@@ -184,7 +184,7 @@ fn test_reproduce_bugfix_txt_conflict_scenario() {
   let git_executor = GitCommandExecutor::new();
   let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
   assert_eq!(commits_vec.len(), 3);
-  let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
+  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
   assert_eq!(grouped.len(), 1);
   assert!(grouped.contains_key("bugfix-session"));
 
@@ -232,7 +232,7 @@ fn test_rename_commit() {
   // Test grouping with the rename prefix
   let git_executor = GitCommandExecutor::new();
   let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
-  let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
+  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
 
   assert_eq!(grouped.len(), 1);
   assert!(grouped.contains_key("test-rename"));
@@ -262,7 +262,7 @@ fn test_complex_rename_scenario() {
   // Test grouping with rename prefix
   let git_executor = GitCommandExecutor::new();
   let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
-  let (grouped, _unassigned) = group_commits_by_prefix_new(&commits_vec);
+  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
 
   assert!(grouped.contains_key("test-rename"), "Should find test-rename group");
   let rename_group = grouped.get("test-rename").unwrap();
@@ -299,7 +299,7 @@ fn test_conflict_unassigned_template() {
   assert_eq!(commits_vec.len(), 7, "Should have 7 commits ahead of origin/master");
 
   // Group the commits
-  let (grouped, unassigned) = group_commits_by_prefix_new(&commits_vec);
+  let (grouped, unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
 
   // Verify we have 2 groups (feature-auth and feature-cache) and 3 unassigned commits
   assert_eq!(grouped.len(), 2, "Should have 2 groups (feature-auth and feature-cache)");
@@ -420,7 +420,7 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   let mut branches_found = Vec::new();
 
   for event in &events {
-    if let SyncEvent::BranchesGrouped { branches } = event {
+    if let SyncEvent::BranchesGrouped { branches, .. } = event {
       for branch in branches {
         branches_found.push(branch.name.clone());
       }

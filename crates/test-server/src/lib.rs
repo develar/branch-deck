@@ -13,12 +13,14 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub mod state;
+pub mod static_files;
 pub mod tauri_command_bridge;
 
 #[cfg(test)]
 mod sse_test;
 
 use state::{AppState, TestRepository};
+use static_files::serve_static_files;
 use svix_ksuid::{Ksuid, KsuidLike};
 use test_utils::repo_template::templates;
 
@@ -77,6 +79,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/cancel_model_download/{repo_id}", post(tauri_command_bridge::cancel_model_download))
     // Health check
     .route("/health", get(health_check))
+    // Serve static files from .output/public with SPA fallback
+    .fallback_service(serve_static_files())
     .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
     .layer(TraceLayer::new_for_http())
     .with_state(state)

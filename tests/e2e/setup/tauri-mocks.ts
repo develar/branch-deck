@@ -586,6 +586,44 @@ export const tauriMockScript = () => {
     },
   }
 
+  // Normalization configuration for consistent snapshot formatting
+  const NORMALIZATION_RULES = {
+    // All HTML attributes that contain Vue component IDs - applied in order, most specific first
+    attributes: [
+      { pattern: /reka-(\w+(?:-\w+)*)-v-\d+(-\d+)?/g, replacement: 'reka-$1-v-[N]' },
+      { pattern: /diff-root--\d+/g, replacement: 'diff-root--[DYNAMIC]' },
+      { pattern: /v-\d+(-\d+)?/g, replacement: 'v-[N]' }
+    ],
+    
+    // Inline styles - filters for consistency
+    style: {
+      excludeRules: ['pointer-events', 'animation-duration', 'animation-name']
+    }
+  }
+
+  // Helper function to apply normalization rules
+  function applyNormalizationRules(value: string, rules: Array<{pattern: RegExp, replacement: string}>): string {
+    return rules.reduce((normalizedValue, rule) => {
+      return normalizedValue.replace(rule.pattern, rule.replacement)
+    }, value)
+  }
+
+  // Helper function to normalize style attributes
+  function normalizeStyleAttribute(value: string): string | null {
+    const filteredStyle = value
+      .split(';')
+      .filter(rule => {
+        const trimmed = rule.trim()
+        return trimmed && !NORMALIZATION_RULES.style.excludeRules.some(excludeRule => 
+          trimmed.includes(excludeRule)
+        )
+      })
+      .join('; ')
+      .trim()
+    
+    return filteredStyle || null // Return null for empty styles
+  }
+
   // Format and normalize HTML element in a single pass
   function formatElementWithNormalization(element: Element, indent = 0): string {
     const spaces = "  ".repeat(indent)
@@ -599,42 +637,15 @@ export const tauriMockScript = () => {
       let value = attr.value
       const name = attr.name
       
-      // Apply normalization rules
-      if (name === 'id' && value.match(/v-\d+-\d+/)) {
-        value = value.replace(/v-\d+-\d+/g, '[DYNAMIC_ID]')
+      // Apply normalization rules based on attribute type
+      if (name === 'style') {
+        const normalizedStyle = normalizeStyleAttribute(value)
+        if (!normalizedStyle) continue // Skip empty styles
+        value = normalizedStyle
       }
-      else if (name === 'id' && value.match(/diff-root--\d+/)) {
-        value = value.replace(/diff-root--\d+/g, 'diff-root--[DYNAMIC]')
-      }
-      else if (name === 'id' && value.match(/reka-\w+(-\w+)?-v-\d+/)) {
-        value = value.replace(/reka-(\w+(?:-\w+)?)-v-\d+/g, 'reka-$1-v-[N]')
-      }
-      else if (name === 'id' && value.match(/^v-\d+$/)) {
-        value = value.replace(/^v-\d+$/, 'v-[N]')
-      }
-      else if ((name === 'aria-describedby' || name === 'aria-labelledby') && value.match(/v-\d+-\d+/)) {
-        value = value.replace(/v-\d+-\d+/g, '[ARIA_ID]')
-      }
-      else if ((name === 'aria-describedby' || name === 'aria-labelledby' || name === 'aria-controls') && value.match(/reka-\w+(-\w+)?-v-\d+/)) {
-        value = value.replace(/reka-(\w+(?:-\w+)?)-v-\d+/g, 'reka-$1-v-[N]')
-      }
-      else if (name === 'for' && value.match(/^v-\d+$/)) {
-        value = value.replace(/^v-\d+$/, 'v-[N]')
-      }
-      else if (name === 'style') {
-        const filteredStyle = value
-          .split(';')
-          .filter(rule => {
-            const trimmed = rule.trim()
-            return trimmed && 
-              !trimmed.includes('pointer-events') &&
-              !trimmed.includes('animation-duration') &&
-              !trimmed.includes('animation-name')
-          })
-          .join('; ')
-          .trim()
-        if (!filteredStyle) continue // Skip empty style
-        value = filteredStyle
+      else if (name === 'id' || name === 'aria-describedby' || name === 'aria-labelledby' || name === 'aria-controls' || name === 'for') {
+        // All attributes that can contain Vue component IDs use the same normalization rules
+        value = applyNormalizationRules(value, NORMALIZATION_RULES.attributes)
       }
       
       normalizedAttrs.push([name, value])
@@ -659,17 +670,29 @@ export const tauriMockScript = () => {
 
     result += ">\n"
 
-    // Process children
+    // Text content normalization patterns
+    const TEXT_NORMALIZATION_RULES = [
+      { pattern: /[0-9][A-Za-z0-9]{26}/g, replacement: '[REPO_ID]' }, // KSUIDs are 27 chars
+      { pattern: /\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, replacement: '[TEMP_PATH]' },
+      { pattern: /\b[a-f0-9]{8}\b/g, replacement: '[SHA]' }, // 8 character short SHAs
+      { pattern: /(\[{"prerenderedAt":\d+,"serverRendered":\d+},)\d+,/g, replacement: '$1[TIMESTAMP],' },
+      { pattern: /buildId:"[a-f0-9-]{36}"/g, replacement: 'buildId:"[BUILD_ID]"' },
+      { pattern: /buildId:"\[SHA]-[a-f0-9-]+"/g, replacement: 'buildId:"[BUILD_ID]"' }
+    ]
+
+    // Helper function to normalize text content
+    function normalizeTextContent(text: string): string {
+      return TEXT_NORMALIZATION_RULES.reduce((normalizedText, rule) => {
+        return normalizedText.replace(rule.pattern, rule.replacement)
+      }, text)
+    }
+
+    // Process children with optimized text normalization
     for (const child of element.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
         let text = child.textContent?.trim()
         if (text) {
-          // Normalize dynamic repository IDs in text content (KSUIDs are 27 chars)
-          text = text.replace(/[0-9][A-Za-z0-9]{26}/g, '[REPO_ID]')
-          // Normalize temporary paths
-          text = text.replace(/\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, '[TEMP_PATH]')
-          // Normalize commit SHAs (8 character short SHAs)
-          text = text.replace(/\b[a-f0-9]{8}\b/g, '[SHA]')
+          text = normalizeTextContent(text)
           result += `${"  ".repeat(indent + 1)}${text}\n`
         }
       }

@@ -19,7 +19,7 @@ path = "src/bin/regenerate-templates.rs"
 [dependencies]
 axum = { version = "0.8.4", features = ["ws"] }
 tokio.workspace = true
-tower-http = { version = "0.6.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6.6", features = ["cors", "trace", "fs"] }
 serde.workspace = true
 serde_json.workspace = true
 svix-ksuid = "0.8"

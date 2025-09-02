@@ -171,11 +171,6 @@ class MainAppStore implements IAppStore {
 
         const raw = toRaw(currentState)
 
-        // Debug logging in test mode
-        if (process.env.NUXT_PUBLIC_TEST_MODE) {
-          console.log(`[PersistentStore] ${key} changed:`, raw)
-        }
-
         // Validate and normalize the data through Zod
         // This ensures data integrity and handles any invalid mutations
         let validated: unknown

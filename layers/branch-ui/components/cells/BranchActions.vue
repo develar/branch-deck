@@ -41,8 +41,8 @@ const props = defineProps<{
 }>()
 
 const { vcsRequestFactory, getFullBranchName } = useRepository()
-const { isSyncing, branches } = useBranchSync()
-const { pushBranch } = usePush(vcsRequestFactory, branches)
+const { isSyncing, branches, baselineBranch } = useBranchSync()
+const { pushBranch } = usePush(vcsRequestFactory, branches, baselineBranch)
 
 // Use reactive push button state
 const {

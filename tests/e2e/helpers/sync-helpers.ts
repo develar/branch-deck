@@ -40,7 +40,7 @@ export async function syncBranches(page: Page, waitForSelectors?: string[]): Pro
     await page.waitForFunction(() => {
       const branchRows = document.querySelectorAll("[data-testid=\"branch-row\"]").length
       const unassignedSection = Array.from(document.querySelectorAll("h2")).find(h => h.textContent?.includes("Unassigned Commits"))
-      const emptyState = document.querySelector("[title=\"No branches found\"]")
+      const emptyState = document.querySelector("[data-testid=\"empty-state-alert\"]")
       console.log(`[Sync waitForFunction] Branch rows: ${branchRows}, Unassigned section: ${unassignedSection ? "found" : "not found"}, Empty state: ${emptyState ? "found" : "not found"}`)
       return branchRows > 0 || unassignedSection !== null || emptyState !== null
     }, { timeout: 10000 })

@@ -3,6 +3,7 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { syncBranches, waitForSyncComplete } from "../helpers/sync-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
+import { waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
 // Sets up a repo with archived branches and snapshots the card
@@ -24,11 +25,25 @@ test.describe("Archived Branches Table", () => {
     // Expand the card by clicking the header title
     await card.getByText("Archived Branches", { exact: true }).click()
 
-    // Wait for table body to render (header cells become visible)
-    await expect(card.locator("thead")).toBeVisible()
+    // Wait for the card to be fully expanded (animation complete)
+    await waitForCollapsibleCardExpanded(card)
 
     // Capture expanded snapshot
     await captureHtmlSnapshot(card, "archived-branches-card-expanded")
+  })
+
+  test("should show empty state alert when only archived branches exist", async ({ page }) => {
+    // The beforeEach already sets up "archived_branches" template and syncs
+
+    // Verify empty state appears and capture its HTML structure
+    const emptyState = page.locator("[data-testid=\"empty-state-alert\"]")
+    await expect(emptyState).toBeVisible()
+
+    // Capture HTML snapshot of the empty state alert
+    await captureHtmlSnapshot(emptyState, "empty-state-with-archived-branches")
+
+    // Also capture the full page to show the empty state in context with archived branches below
+    await captureHtmlSnapshot(page.locator("[data-testid=\"branch-creator-root\"]"), "branch-creator-with-empty-state-and-archived")
   })
 
   test("should delete archived branch via context menu", async ({ page }) => {
@@ -38,8 +53,8 @@ test.describe("Archived Branches Table", () => {
     // Expand the card by clicking the header title
     await card.getByText("Archived Branches", { exact: true }).click()
 
-    // Wait for table body to render
-    await expect(card.locator("thead")).toBeVisible()
+    // Wait for the card to be fully expanded (animation complete)
+    await waitForCollapsibleCardExpanded(card)
 
     // Find the branch row for feature-partial (this branch exists in the archived_branches template)
     const branchRow = page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")
