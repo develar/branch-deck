@@ -37,13 +37,15 @@ jobs:
           cache: 'pnpm'
 
       - name: install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly-2025-09-03
+        uses: actions-rust-lang/setup-rust-toolchain@ac90e63697ac2784f4ecfe2964e1a285c304003a # v1.14.1
         with:
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up the linux and windows builds.
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+          target: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Install nextest
         uses: taiki-e/install-action@6e092deb71cc9ba464addeccefe34c0d06921585 # v2.58.31
+        with:
+          tool: nextest@0.9.103
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
