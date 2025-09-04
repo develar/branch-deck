@@ -2,8 +2,11 @@ use std::error::Error;
 use tauri::menu::MenuItemBuilder;
 use tauri::{
   App, Emitter,
-  menu::{Menu, MenuEvent, PredefinedMenuItem, SubmenuBuilder},
+  menu::{Menu, MenuEvent, SubmenuBuilder},
 };
+
+#[cfg(not(target_os = "linux"))]
+use tauri::menu::PredefinedMenuItem;
 use tracing::instrument;
 
 #[instrument(skip(app))]
