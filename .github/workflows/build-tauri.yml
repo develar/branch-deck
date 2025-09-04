@@ -46,9 +46,9 @@ jobs:
           cache: 'pnpm'
 
       - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly-2025-09-03
+        uses: actions-rust-lang/setup-rust-toolchain@ac90e63697ac2784f4ecfe2964e1a285c304003a # v1.14.1
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+          target: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
