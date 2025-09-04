@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/develar/branch-deck/compare/v0.8.1...v0.8.2) (2025-09-04)
+
+
+### Bug Fixes
+
+* update remote sync on push ([dd7ad83](https://github.com/develar/branch-deck/commit/dd7ad8352b723744ab6da55435bd7337830a10ef))
+
 ## [0.8.1](https://github.com/develar/branch-deck/compare/v0.8.0...v0.8.1) (2025-09-01)
 
 
