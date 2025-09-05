@@ -38,6 +38,7 @@ export function useAddIssueReference() {
         return result.data
       },
       {
+        processingMessage: `Adding ${issueReference} to ${branch.name}...`,
         success: ({ updatedCount, skippedCount }) => {
           if (updatedCount > 0) {
             let description = `Updated ${updatedCount} commit${updatedCount === 1 ? "" : "s"}`

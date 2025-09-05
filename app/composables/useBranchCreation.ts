@@ -1,53 +1,48 @@
 import { commands } from "~/utils/bindings"
 
 export function useBranchCreation() {
-  const isCreating = ref(false)
-  const toast = useToast()
+  const { withRowProcessing } = useInlineRowAction()
 
   async function createBranch(params: {
     repositoryPath: string
     branchName: string
     commitIds: string[]
   }) {
-    if (isCreating.value) {
-      return false
-    }
+    const key = "branch-creation" // Use a consistent key for the processing state
 
-    isCreating.value = true
-    try {
-      const result = await commands.createBranchFromCommits({
-        repositoryPath: params.repositoryPath,
-        branchName: params.branchName,
-        commitIds: params.commitIds,
-      })
-
-      if (result.status === "ok") {
-        return true
-      }
-      else {
-        toast.add({
-          title: "Branch Creation Failed",
-          description: result.error || `Unable to create branch "${params.branchName}" with selected commits`,
-          color: "error",
+    const result = await withRowProcessing(
+      key,
+      async () => {
+        const result = await commands.createBranchFromCommits({
+          repositoryPath: params.repositoryPath,
+          branchName: params.branchName,
+          commitIds: params.commitIds,
         })
-        return false
-      }
-    }
-    catch (error) {
-      toast.add({
-        title: "Unexpected Error",
-        description: error instanceof Error ? error.message : `An unexpected error occurred while creating branch "${params.branchName}"`,
-        color: "error",
-      })
-      return false
-    }
-    finally {
-      isCreating.value = false
-    }
+
+        if (result.status !== "ok") {
+          throw new Error(result.error || `Unable to create branch "${params.branchName}" with selected commits`)
+        }
+
+        return result.data
+      },
+      {
+        processingMessage: `Creating branch "${params.branchName}"...`,
+        success: () => ({
+          title: "Success",
+          description: `Branch "${params.branchName}" created successfully`,
+          duration: 5000,
+        }),
+        error: error => ({
+          title: "Branch Creation Failed",
+          description: error instanceof Error ? error.message : `Failed to create branch "${params.branchName}"`,
+        }),
+      },
+    )
+
+    return result !== undefined
   }
 
   return {
-    isCreating: readonly(isCreating),
     createBranch,
   }
 }

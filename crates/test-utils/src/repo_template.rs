@@ -127,9 +127,24 @@ pub mod templates {
 
   /// Simple repository with 2 commits using branch prefix
   pub fn simple() -> RepoTemplate {
+    simple_template(true)
+  }
+
+  /// Simple repository without branch prefix configured (for testing Welcome Card Step 2)
+  pub fn simple_no_prefix() -> RepoTemplate {
+    simple_template(false)
+  }
+
+  fn simple_template(with_branch_prefix: bool) -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 14:00:00 UTC and 14:30:00 UTC
-    RepoTemplate::new("simple")
-      .branch_prefix("user-name")
+    let name = if with_branch_prefix { "simple" } else { "simple_no_prefix" };
+    let mut template = RepoTemplate::new(name);
+
+    if with_branch_prefix {
+      template = template.branch_prefix("user-name");
+    }
+
+    template
       .commit_with_timestamp("(test-branch) foo 1", &[("file1.txt", "Content 1")], Some(1704117600))
       .commit_with_timestamp("(test-branch) foo 2", &[("file2.txt", "Content 2")], Some(1704119400))
   }

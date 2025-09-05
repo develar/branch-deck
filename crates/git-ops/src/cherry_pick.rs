@@ -183,7 +183,7 @@ pub fn perform_fast_cherry_pick_with_context(
 
 /// Get the parent commit ID using git CLI
 #[instrument(skip(git_executor), fields(commit_id = %commit_id))]
-fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<String, CopyCommitError> {
+pub fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<String, CopyCommitError> {
   let parent_ref = format!("{commit_id}^");
   let args = vec!["rev-parse", &parent_ref];
   let output = git_executor
@@ -194,36 +194,38 @@ fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_
 
 /// Get basic commit information using git CLI
 #[instrument(skip(git_executor), fields(commit_id = %commit_id))]
-fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit, CopyCommitError> {
-  // Get commit message
-  let message_args = vec!["log", "-1", "--format=%s", commit_id];
-  let message_output = git_executor
-    .execute_command(&message_args, repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit message for {}: {}", commit_id, e)))?;
-  let message = message_output.trim().to_string();
+pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit, CopyCommitError> {
+  // Fetch subject and both timestamps in a single call for performance
+  // Format: %s<NULL>%at<NULL>%ct
+  let fmt = "%s%x00%at%x00%ct";
+  let output = git_executor
+    .execute_command(&["log", "-1", &format!("--format={}", fmt), commit_id], repo_path)
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit info for {}: {}", commit_id, e)))?;
 
-  // Get commit timestamp
-  let timestamp_args = vec!["log", "-1", "--format=%ct", commit_id];
-  let timestamp_output = git_executor
-    .execute_command(&timestamp_args, repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit timestamp for {}: {}", commit_id, e)))?;
-  let timestamp: u32 = timestamp_output
-    .trim()
+  let mut parts = output.split('\0');
+  let subject = parts.next().unwrap_or("").trim().to_string();
+  let author_ts_str = parts.next().unwrap_or("").trim();
+  let committer_ts_str = parts.next().unwrap_or("").trim();
+
+  let author_timestamp: u32 = author_ts_str
     .parse()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid timestamp for commit {}: {}", commit_id, e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid author timestamp for commit {}: {}", commit_id, e)))?;
+  let committer_timestamp: u32 = committer_ts_str
+    .parse()
+    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid committer timestamp for commit {}: {}", commit_id, e)))?;
 
   Ok(Commit {
     id: commit_id.to_string(),
-    subject: message.clone(),    // We only have the subject line from %s
-    message: message.clone(),    // For error reporting, subject is sufficient
+    subject: subject.clone(),
+    message: subject.clone(),    // For error reporting, subject is sufficient
     author_name: String::new(),  // Not available from this query
     author_email: String::new(), // Not available from this query
-    author_timestamp: timestamp,
-    committer_timestamp: timestamp,
-    parent_id: None,           // Not relevant for error reporting
-    tree_id: String::new(),    // Not relevant for error reporting
-    note: None,                // Not relevant for error reporting
-    stripped_subject: message, // Same as subject for error reporting
-    mapped_commit_id: None,    // Not relevant for error reporting
+    author_timestamp,
+    committer_timestamp,
+    parent_id: None,
+    tree_id: String::new(),
+    note: None,
+    stripped_subject: subject,
+    mapped_commit_id: None,
   })
 }

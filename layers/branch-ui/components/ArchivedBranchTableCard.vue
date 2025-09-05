@@ -36,7 +36,6 @@
                 'hover:bg-muted transition-all cursor-pointer',
                 isExpanded(branch) && 'bg-elevated',
                 branch.isLoadingCommits && 'animate-pulse',
-                inline.processingClass(branch.name),
               ]"
               @click="toggleExpanded(branch)"
             >
@@ -65,11 +64,18 @@
             </tr>
           </UContextMenu>
 
-          <!-- Inline delete portal row -->
-          <tr v-if="activeInline?.branchName === branch.name && activeInline?.type === 'delete-archived'" :key="`${branch.name}-delete`">
-            <td colspan="4" class="p-0">
-              <!-- Portal target for dialog content -->
-              <div :id="inline.portalTargetIdFor(branch.name)" />
+          <!-- Single inline form portal row -->
+          <tr
+            v-if="activeInline?.branchName === branch.name"
+            :key="`${branch.name}-inline`">
+            <td :id="inline.portalTargetIdFor(branch.name)" colspan="4" class="p-0 relative overflow-hidden">
+              <!-- Portal target for any inline form -->
+              <!-- Progress bar overlaying the top border -->
+              <div
+                v-if="activeInline?.processing"
+                class="absolute top-0 left-0 w-full h-px bg-accented overflow-hidden">
+                <div class="absolute inset-y-0 w-1/2 bg-primary animate-[carousel_2s_ease-in-out_infinite]"/>
+              </div>
             </td>
           </tr>
 

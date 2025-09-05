@@ -106,6 +106,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   // Create all templates fresh on every launch
   let templates_to_create = vec![
     ("simple", templates::simple()),
+    ("simple_no_prefix", templates::simple_no_prefix()),
     ("unassigned", templates::unassigned()),
     ("conflict_unassigned", templates::conflict_unassigned()),
     ("conflict_branches", templates::conflict_branches()),
@@ -179,6 +180,8 @@ pub struct CreateRepositoryResponse {
 pub enum RepositoryTemplate {
   #[serde(rename = "simple")]
   Simple,
+  #[serde(rename = "simple_no_prefix")]
+  SimpleNoPrefix,
   #[serde(rename = "unassigned")]
   Unassigned,
   #[serde(rename = "conflict_unassigned")]
@@ -203,6 +206,7 @@ impl RepositoryTemplate {
   pub fn as_str(&self) -> &'static str {
     match self {
       RepositoryTemplate::Simple => "simple",
+      RepositoryTemplate::SimpleNoPrefix => "simple_no_prefix",
       RepositoryTemplate::Unassigned => "unassigned",
       RepositoryTemplate::ConflictUnassigned => "conflict_unassigned",
       RepositoryTemplate::ConflictBranches => "conflict_branches",

@@ -194,7 +194,7 @@ fn compute_branch_summary(branch_name: &str, commits: &[Commit]) -> String {
 }
 
 /// Prepare grouped commits for UI display with sorting and metadata
-fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Commit>>, branch_emails: &HashMap<String, Option<String>>) -> Vec<GroupedBranchInfo> {
+pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Commit>>, branch_emails: &HashMap<String, Option<String>>) -> Vec<GroupedBranchInfo> {
   let mut grouped_branches_for_ui = Vec::with_capacity(grouped_commits.len());
 
   for (branch_name, commits) in grouped_commits {
@@ -226,7 +226,7 @@ fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Commit>>, bran
           true
         } else {
           // For non-issue branches (like "(feature-auth)"), check each commit
-          commits.iter().all(|c| has_issue_reference(&c.subject))
+          commits.iter().all(|c| has_issue_reference(&c.stripped_subject))
         }
       },
       my_email: branch_my_email,

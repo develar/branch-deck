@@ -39,12 +39,20 @@
       :show-author="true"
       :selectable="true"
       :highlight-selection="isInlineCreationActive"
+      :context-menu-items="getContextMenuItemsForCommits"
       @selection-change="handleSelectionChange"
       @keydown="handleKeydown"
     >
       <template #portal-target>
         <!-- Portal target for inline branch creator -->
-        <div v-if="isInlineCreationActive" id="inline-branch-creator-portal" class="mb-4" />
+        <div v-if="isInlineCreationActive" id="inline-branch-creator-portal" class="mb-4 relative overflow-hidden">
+          <!-- Progress bar overlaying the top border -->
+          <div
+            v-if="activeInline?.processing && activeInline.branchName === 'branch-creation'"
+            class="absolute top-0 left-0 w-full h-px bg-accented overflow-hidden">
+            <div class="absolute inset-y-0 w-1/2 bg-primary animate-[carousel_2s_ease-in-out_infinite]"/>
+          </div>
+        </div>
       </template>
     </CommitList>
   </UCard>
@@ -53,7 +61,14 @@
 <script lang="ts" setup>
 import type { CommitList } from "#components"
 
-import type { Commit } from "~/utils/bindings"
+import type { Commit, MissingCommit } from "~/utils/bindings"
+import type { SyncedCommit } from "~/composables/branchSyncProvider"
+
+// Union type for all supported commit types
+type CommitUnion = Commit | SyncedCommit | MissingCommit
+
+const { getContextMenuItems } = useUnassignedCommitContextActions()
+const { activeInline } = useInlineRowAction()
 
 defineProps<{
   commits: Commit[]
@@ -150,6 +165,16 @@ function cancelInlineCreation() {
 function handleBranchSuccess() {
   isInlineCreationActive.value = false
   clearSelection()
+}
+
+// Create context menu items for selected commits
+function getContextMenuItemsForCommits(selectedCommits: CommitUnion[]) {
+  // Disable context menu when inline creation is active
+  if (isInlineCreationActive.value) {
+    return []
+  }
+
+  return getContextMenuItems(selectedCommits, activateInlineCreation)
 }
 
 // Watch for inline creator activation

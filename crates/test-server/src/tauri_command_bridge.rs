@@ -13,7 +13,6 @@ use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
-use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::sync::sync_branches_core_with_cache;
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
@@ -109,18 +108,23 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
     return Json(error_response);
   }
 
-  // Use the shared git executor from state
-  match get_branch_prefix_from_git_config_sync(&state.git_executor, &request.repository_path) {
-    Ok(prefix) => Json(serde_json::json!({
-      "status": "ok",
-      "data": prefix
-    })),
+  // For deterministic tests, ignore user's global git config.
+  // Only read the local repo config for branchdeck.branchPrefix.
+  // If not set locally, return empty string instead of falling back to global.
+  let repo_path = &request.repository_path;
+  match state.git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path) {
+    Ok((output, exit_code)) => match exit_code {
+      0 => Json(serde_json::json!({ "status": "ok", "data": output.trim() })),
+      1 => Json(serde_json::json!({ "status": "ok", "data": "" })),
+      128 => Json(serde_json::json!({ "status": "error", "error": format!("Repository not accessible: {}", repo_path) })),
+      code => {
+        tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
+        Json(serde_json::json!({ "status": "ok", "data": "" }))
+      }
+    },
     Err(e) => {
-      tracing::error!("Failed to get branch prefix: {}", e);
-      Json(serde_json::json!({
-        "status": "error",
-        "error": e.to_string()
-      }))
+      tracing::error!(error = %e, repo_path, "Failed to execute git config --local");
+      Json(serde_json::json!({ "status": "error", "error": format!("Failed to access repository {}: {}", repo_path, e) }))
     }
   }
 }
@@ -210,6 +214,16 @@ pub async fn browse_repository(
   })?;
 
   let path = repo.path.clone();
+
+  // Handle NO_REPO case specially - simulate user selecting a non-existent path
+  // Return an error result as if the path exists but is not accessible
+  if path.starts_with("NO_REPO_") {
+    return Ok(Json(sync_core::repository_validation::BrowseResult {
+      path: Some(path.clone()),
+      valid: false,
+      error: Some("Path does not exist".to_string()),
+    }));
+  }
 
   // Use shared validation logic from branch-sync
   Ok(Json(sync_core::repository_validation::validate_and_create_result(path)))

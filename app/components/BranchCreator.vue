@@ -2,8 +2,12 @@
   <div class="space-y-6" data-testid="branch-creator-root">
     <ConfigurationHeader />
 
-    <!-- Welcome Card for new users -->
-    <LazyWelcomeCard v-if="shouldShowWelcomeCard" :has-branch-prefix="!!repository.effectiveBranchPrefix.value" />
+    <!-- Welcome Card for new users or when branch prefix is missing -->
+    <LazyWelcomeCard
+      v-if="shouldShowWelcomeCard"
+      :has-repository="hasRepository"
+      :has-branch-prefix="!!repository.effectiveBranchPrefix.value"
+    />
 
     <!-- Error Alert (inline, no card) -->
     <UAlert
@@ -68,16 +72,36 @@ const branchSync = createBranchSyncState(repository)
 provide(BranchSyncKey, branchSync)
 
 const { syncError, isSyncing, branches, unassignedCommits, hasCompletedSync, archivedBranches } = branchSync
-const { pathValidation } = repository
+const { pathValidation, isLoadingBranchPrefix } = repository
+
+// Basic repository flags
+// Consider repository selected as soon as a project is chosen
+const hasRepository = computed(() => !!repository.selectedProject.value)
+const hasBranchPrefix = computed(() => !!repository.effectiveBranchPrefix.value)
 
 // Determine if we should show the welcome card
 const shouldShowWelcomeCard = computed(() => {
   // Show if:
-  // 1. No repository is selected
-  // 2. No recent projects exist
-  const hasNoRepository = !repository.selectedProject.value
+  // 1. No repository is selected AND no recent projects exist (first-run)
+  // 2. A repository is selected BUT branch prefix is not configured (guide user to Step 2)
+  // Don't show if there's a path validation error (let error alert handle it)
   const hasNoRecentProjects = repository.recentProjects.value.length === 0
 
-  return hasNoRepository && hasNoRecentProjects
+  if (!hasRepository.value) {
+    return hasNoRecentProjects
+  }
+
+  // Don't show welcome card if repository path validation is still in progress
+  if (isLoadingBranchPrefix.value) {
+    return false
+  }
+
+  // Don't show welcome card if there's an error that will be displayed by the error alert
+  // This prevents both welcome card and error alert from showing simultaneously
+  if (pathValidation.value.error && !isSyncing.value) {
+    return false
+  }
+
+  return !hasBranchPrefix.value
 })
 </script>

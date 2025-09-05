@@ -502,3 +502,135 @@ fn test_detect_baseline_branch_scenarios() {
   let baseline = detect_baseline_branch(&git_executor, test_repo3.path().to_str().unwrap(), "master").unwrap();
   assert_eq!(baseline, "origin/main");
 }
+
+#[test]
+fn test_prepare_branches_for_ui_issue_references() {
+  use crate::sync::prepare_branches_for_ui;
+  use git_ops::commit_list::Commit;
+  use indexmap::IndexMap;
+  use std::collections::HashMap;
+
+  // Helper function to create a test commit
+  fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timestamp: u32) -> Commit {
+    Commit {
+      id: hash.to_string(),
+      subject: subject.to_string(),
+      stripped_subject: stripped_subject.to_string(),
+      message: subject.to_string(),
+      author_name: "Test Author".to_string(),
+      author_email: "test@example.com".to_string(),
+      author_timestamp: timestamp,
+      committer_timestamp: timestamp,
+      parent_id: None,
+      tree_id: "tree123".to_string(),
+      note: None,
+      mapped_commit_id: None,
+    }
+  }
+
+  let mut grouped_commits = IndexMap::new();
+  let mut branch_emails = HashMap::new();
+
+  // Test case 1: Branch with parenthesis prefix and issue reference in stripped subject
+  let parallel_commit = create_test_commit(
+    "abc123",
+    "(parallel-load-state) IJPL-191229 part 8 - introduce NonCancelableInvocator",
+    "IJPL-191229 part 8 - introduce NonCancelableInvocator",
+    1000000000,
+  );
+  grouped_commits.insert("parallel-load-state".to_string(), vec![parallel_commit]);
+  branch_emails.insert("parallel-load-state".to_string(), Some("test@example.com".to_string()));
+
+  // Test case 2: Branch with parenthesis prefix but no issue reference
+  let grpc_commit = create_test_commit("def456", "(gprc-1.7.5) update grpc from 1.73.0 to 1.75.0", "update grpc from 1.73.0 to 1.75.0", 1000000001);
+  grouped_commits.insert("gprc-1.7.5".to_string(), vec![grpc_commit]);
+  branch_emails.insert("gprc-1.7.5".to_string(), Some("test@example.com".to_string()));
+
+  // Test case 3: Branch named with issue reference (should get heuristic true)
+  let bazel_commit = create_test_commit(
+    "ghi789",
+    "BAZEL-2158 convert ShowIntentionActionsHandler to kotlin",
+    "BAZEL-2158 convert ShowIntentionActionsHandler to kotlin",
+    1000000002,
+  );
+  grouped_commits.insert("BAZEL-2158".to_string(), vec![bazel_commit]);
+  branch_emails.insert("BAZEL-2158".to_string(), Some("test@example.com".to_string()));
+
+  // Call the function
+  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails);
+
+  // Sort by name for consistent testing
+  let mut result = result;
+  result.sort_by(|a, b| a.name.cmp(&b.name));
+
+  assert_eq!(result.len(), 3);
+
+  // Test parallel-load-state: should have all_commits_have_issue_references = true
+  let parallel_branch = result.iter().find(|b| b.name == "parallel-load-state").unwrap();
+  assert!(
+    parallel_branch.all_commits_have_issue_references,
+    "parallel-load-state should have all_commits_have_issue_references = true because its commit has IJPL-191229 in stripped_subject"
+  );
+
+  // Test gprc-1.7.5: should have all_commits_have_issue_references = false
+  let grpc_branch = result.iter().find(|b| b.name == "gprc-1.7.5").unwrap();
+  assert!(
+    !grpc_branch.all_commits_have_issue_references,
+    "gprc-1.7.5 should have all_commits_have_issue_references = false because its commit has no issue reference"
+  );
+
+  // Test BAZEL-2158: should have all_commits_have_issue_references = true (heuristic)
+  let bazel_branch = result.iter().find(|b| b.name == "BAZEL-2158").unwrap();
+  assert!(
+    bazel_branch.all_commits_have_issue_references,
+    "BAZEL-2158 should have all_commits_have_issue_references = true because branch name has issue reference (heuristic)"
+  );
+}
+
+#[test]
+fn test_prepare_branches_for_ui_mixed_commits() {
+  use crate::sync::prepare_branches_for_ui;
+  use git_ops::commit_list::Commit;
+  use indexmap::IndexMap;
+  use std::collections::HashMap;
+
+  // Helper function to create a test commit
+  fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timestamp: u32) -> Commit {
+    Commit {
+      id: hash.to_string(),
+      subject: subject.to_string(),
+      stripped_subject: stripped_subject.to_string(),
+      message: subject.to_string(),
+      author_name: "Test Author".to_string(),
+      author_email: "test@example.com".to_string(),
+      author_timestamp: timestamp,
+      committer_timestamp: timestamp,
+      parent_id: None,
+      tree_id: "tree123".to_string(),
+      note: None,
+      mapped_commit_id: None,
+    }
+  }
+
+  let mut grouped_commits = IndexMap::new();
+  let mut branch_emails = HashMap::new();
+
+  // Test case: Branch with mixed commits - some have issue references, some don't
+  let commit_with_issue = create_test_commit("abc123", "(feature-auth) JIRA-456 add authentication", "JIRA-456 add authentication", 1000000000);
+  let commit_without_issue = create_test_commit("def456", "(feature-auth) refactor login code", "refactor login code", 1000000001);
+
+  grouped_commits.insert("feature-auth".to_string(), vec![commit_with_issue, commit_without_issue]);
+  branch_emails.insert("feature-auth".to_string(), Some("test@example.com".to_string()));
+
+  // Call the function
+  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails);
+
+  assert_eq!(result.len(), 1);
+  let branch = &result[0];
+
+  // Should be false because not ALL commits have issue references
+  assert!(
+    !branch.all_commits_have_issue_references,
+    "feature-auth should have all_commits_have_issue_references = false because only one of two commits has an issue reference"
+  );
+}

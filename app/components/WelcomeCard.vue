@@ -12,17 +12,17 @@
 
       <div class="space-y-4">
         <p class="text-muted">
-          {{ hasBranchPrefix
-            ? 'You\'re almost ready! Just select a Git repository to start managing your branches.'
+          {{ hasRepository
+            ? 'You\'re almost ready! Configure your branch prefix to start managing your branches.'
             : 'Let\'s get you started with managing your Git branches. Follow these simple steps:' }}
         </p>
 
         <div class="space-y-3">
           <!-- Step 1: Select Repository -->
-          <div class="flex gap-3">
+          <div v-if="!hasRepository" class="flex gap-3">
             <div class="flex-shrink-0 mt-0.5">
               <div class="size-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary">
-                {{ hasBranchPrefix ? '✓' : '1' }}
+                1
               </div>
             </div>
             <div class="flex-1">
@@ -80,9 +80,11 @@
 <script lang="ts" setup>
 import { BranchPrefixHelp } from "#components"
 
-defineProps<{
+const props = defineProps<{
+  hasRepository: boolean
   hasBranchPrefix: boolean
 }>()
+const { hasRepository, hasBranchPrefix } = toRefs(props)
 
 const overlay = useOverlay()
 
@@ -90,7 +92,7 @@ const openBranchPrefixHelp = () => {
   const modal = overlay.create(BranchPrefixHelp, {
     props: {
       disabled: false,
-      configured: true,
+      configured: hasBranchPrefix.value,
     },
   })
   modal.open()

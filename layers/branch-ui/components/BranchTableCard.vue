@@ -20,7 +20,6 @@
               :class="[
                 'branch-row hover:bg-muted transition-all cursor-pointer group',
                 isExpanded(branch) && 'data-[state=open]:bg-elevated',
-                processingClass(branch.name),
               ]"
               @click="toggleExpanded(branch)"
             >
@@ -45,19 +44,18 @@
             </tr>
           </UContextMenu>
 
-          <!-- Inline issue reference input row -->
-          <tr v-if="activeInline?.branchName === branch.name && activeInline?.type === 'issue-reference'" :key="`${branch.name}-inline`">
-            <td colspan="4" class="p-0">
-              <!-- Portal target for dialog content -->
-              <div :id="portalTargetIdFor(branch.name)" />
-            </td>
-          </tr>
-
-          <!-- Inline amend changes input row -->
-          <tr v-if="activeInline?.branchName === branch.name && activeInline?.type === 'amend-changes'" :key="`${branch.name}-amend-inline`">
-            <td colspan="4" class="p-0">
-              <!-- Portal target for dialog content -->
-              <div :id="portalTargetIdFor(branch.name)" />
+          <!-- Single inline form portal row (for any active inline form) -->
+          <tr
+            v-if="activeInline?.branchName === branch.name && (activeInline?.type === 'issue-reference' || activeInline?.type === 'amend-changes')"
+            :key="`${branch.name}-inline`">
+            <td :id="portalTargetIdFor(branch.name)" colspan="4" class="p-0 relative overflow-hidden">
+              <!-- Portal target for any inline form -->
+              <!-- Progress bar overlaying the top border -->
+              <div
+                v-if="activeInline?.processing"
+                class="absolute top-0 left-0 w-full h-px bg-accented overflow-hidden">
+                <div class="absolute inset-y-0 w-1/2 bg-primary animate-[carousel_2s_ease-in-out_infinite]"/>
+              </div>
             </td>
           </tr>
 
@@ -122,7 +120,7 @@ const { syncBranches, branches } = useBranchSync()
 // Use generic table expansion composable
 const { isExpanded, toggleExpanded, setExpanded } = useGenericTableExpansion((branch: ReactiveBranch) => branch.name)
 
-const { activeInline, portalTargetIdFor, processingClass, isProcessing, closeInline } = useInlineRowAction()
+const { activeInline, portalTargetIdFor, isProcessing, closeInline } = useInlineRowAction()
 const { getContextMenuItems } = useBranchContextActions({ setExpanded })
 
 // Listen for sync-branches event from menu

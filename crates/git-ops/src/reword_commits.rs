@@ -130,7 +130,7 @@ fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_
   if parts.len() > 1 { Ok(Some(parts[1].to_string())) } else { Ok(None) }
 }
 
-fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit> {
+pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit> {
   // Use git show with format to get all commit info at once
   let format = "%an%n%ae%n%at%n%ct%n%T%n%P%n%B";
   let format_arg = format!("--format={format}");
@@ -201,7 +201,7 @@ fn create_commit_with_info(git_executor: &GitCommandExecutor, repo_path: &str, c
   Ok(output.trim().to_string())
 }
 
-fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str) -> Result<()> {
+pub fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str) -> Result<()> {
   let ref_name = format!("refs/heads/{branch_name}");
   let args = vec!["update-ref", &ref_name, new_commit_id];
 

@@ -10,37 +10,42 @@
       @keydown="handleKeydown"
     >
       <tbody class="divide-y divide-default">
-        <tr
+        <UContextMenu
           v-for="row in table.getRowModel().rows"
           :key="row.id"
-          :data-row-id="row.id"
-          :data-selected="selectable && row.getIsSelected()"
-          :class="[
-            !selectable && 'hover:bg-muted transition-colors',
-            selectable && 'cursor-pointer relative select-none hover:bg-muted',
-            selectable && row.getIsSelected() && 'bg-primary/10 hover:bg-primary/15',
-          ]"
-          @click="handleRowClick($event, row)"
+          :items="getContextMenuItemsForRow(row)"
+          :disabled="!props.contextMenuItems || !props.selectable"
         >
-          <td class="bd-padding-list-item">
-            <!-- Selection indicator bar -->
-            <div
-              v-if="selectable && row.getIsSelected() && highlightSelection"
-              class="absolute left-0 top-1 bottom-1 w-1 bg-primary rounded-r-sm"
-            />
-
-            <!-- Row content -->
-            <div v-for="cell in row.getVisibleCells()" :key="cell.id">
-              <component
-                :is="cell.column.columnDef.cell"
-                v-bind="cell.getContext()"
+          <tr
+            :data-row-id="row.id"
+            :data-selected="selectable && row.getIsSelected()"
+            :class="[
+              !selectable && 'hover:bg-muted transition-colors',
+              selectable && 'cursor-pointer relative select-none hover:bg-muted',
+              selectable && row.getIsSelected() && 'bg-primary/10 hover:bg-primary/15',
+            ]"
+            @click="handleRowClick($event, row)"
+          >
+            <td class="bd-padding-list-item">
+              <!-- Selection indicator bar -->
+              <div
+                v-if="selectable && row.getIsSelected() && highlightSelection"
+                class="absolute left-0 top-1 bottom-1 w-1 bg-primary rounded-r-sm"
               />
-            </div>
 
-            <!-- Slot for additional content after commit -->
-            <slot name="after-commit" :commit="row.original" :index="row.index" />
-          </td>
-        </tr>
+              <!-- Row content -->
+              <div v-for="cell in row.getVisibleCells()" :key="cell.id">
+                <component
+                  :is="cell.column.columnDef.cell"
+                  v-bind="cell.getContext()"
+                />
+              </div>
+
+              <!-- Slot for additional content after commit -->
+              <slot name="after-commit" :commit="row.original" :index="row.index" />
+            </td>
+          </tr>
+        </UContextMenu>
       </tbody>
     </table>
   </div>
@@ -49,13 +54,13 @@
 <script lang="ts" setup>
 import type { Commit, CommitSyncStatus, BranchError, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import type { Row } from "@tanstack/vue-table"
 import {
   createColumnHelper,
   getCoreRowModel,
   getExpandedRowModel,
   useVueTable,
 } from "@tanstack/vue-table"
-// useTableSelection is auto-imported from shared-ui layer
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit
@@ -78,6 +83,9 @@ interface Props {
   // Selection support
   selectable?: boolean
   highlightSelection?: boolean
+
+  // Context menu support
+  contextMenuItems?: (selectedCommits: CommitUnion[]) => Array<Array<{ label: string, icon: string, disabled?: boolean, onSelect: () => void }>>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -88,6 +96,7 @@ const props = withDefaults(defineProps<Props>(), {
   branchName: undefined,
   selectable: false,
   highlightSelection: false,
+  contextMenuItems: undefined,
 })
 
 const emit = defineEmits<{
@@ -250,6 +259,21 @@ function handleKeydown(event: KeyboardEvent) {
   if (!event.defaultPrevented && props.selectable) {
     handleKeyboardShortcuts(event)
   }
+}
+
+// Get context menu items for a specific row
+function getContextMenuItemsForRow(row: Row<CommitUnion>) {
+  if (!props.contextMenuItems || !props.selectable) {
+    return []
+  }
+
+  // If this row is selected, use all selected commits
+  // Otherwise, use just this row's commit
+  const commits = row.getIsSelected() && selectedItems.value.length > 0
+    ? selectedItems.value
+    : [row.original]
+
+  return props.contextMenuItems(commits)
 }
 
 // Helper to get file count for a commit

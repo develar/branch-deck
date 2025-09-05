@@ -78,7 +78,10 @@ const validationState = computed(() => ({
   message: rawValidationState.value.message,
   textClass: rawValidationState.value.textClass,
 }))
-const { isCreating, createBranch } = useBranchCreation()
+
+const { createBranch } = useBranchCreation()
+const { isProcessing } = useInlineRowAction()
+const isCreating = computed(() => isProcessing("branch-creation"))
 
 // Handle activation to reset auto-population
 watch(() => props.isActive, (active) => {
@@ -125,11 +128,8 @@ async function handleCreateBranch() {
 
   branchName.value = ""
   emit("success")
-  useToast().add({
-    title: "Success",
-    description: `Branch "${effectiveBranchName}" created successfully`,
-    color: "success",
-  })
+
+  // Sync branches after successful creation
   await syncBranches({
     targetBranchName: effectiveBranchName,
     autoExpand: true,

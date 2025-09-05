@@ -6,6 +6,8 @@ export interface ActiveInline {
   type: InlineActionType
   branchName: string
   conflictInfo?: import("~/utils/bindings").MergeConflictInfo // For amend-conflict type
+  processing?: boolean
+  processingMessage?: string
 }
 
 export interface UseInlineRowActionReturn {
@@ -17,12 +19,11 @@ export interface UseInlineRowActionReturn {
   portalTargetIdFor: (branchName: string) => string
   withPostSubmit: (fn: () => void | Promise<void>) => void
   // Row processing helpers
-  processingKey: Ref<string | null>
   isProcessing: (key: string) => boolean
-  processingClass: (key: string) => string
   withRowProcessing: <T>(key: string, fn: () => Promise<T>, opts: {
     success: (value: T) => { title: string, description?: string, duration?: number }
     error: (err: unknown) => { title: string, description?: string, duration?: number }
+    processingMessage?: string
   }) => Promise<T | undefined>
 }
 
@@ -37,36 +38,42 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
 
   const activeInline = ref<ActiveInline | null>(null)
 
-  // Row processing state shared by inline actions
-  const processingKey = ref<string | null>(null)
+  // Row processing state based on activeInline
   function isProcessing(key: string) {
-    return processingKey.value === key
-  }
-  function processingClass(key: string) {
-    return isProcessing(key) ? "processing-border" : ""
+    return activeInline.value?.branchName === key && activeInline.value?.processing === true
   }
 
   async function withRowProcessing<T>(key: string, fn: () => Promise<T>, opts: {
     success: (value: T) => { title: string, description?: string, duration?: number }
     error: (err: unknown) => { title: string, description?: string, duration?: number }
+    processingMessage?: string
   }): Promise<T | undefined> {
     const toast = useToast()
-    // close any active inline UI before starting processing
-    closeInline()
-    processingKey.value = key
+
+    // Set processing state instead of closing
+    if (activeInline.value?.branchName === key) {
+      activeInline.value.processing = true
+      activeInline.value.processingMessage = opts.processingMessage
+    }
+
     try {
       const value = await fn()
       const message = opts.success(value)
       toast.add({ color: "success", title: message.title, description: message.description, duration: message.duration })
+
+      // Close inline on success
+      closeInline()
+
       return value
     }
     catch (error) {
       const message = opts.error(error)
       toast.add({ color: "error", title: message.title, description: message.description, duration: message.duration })
+
+      // Close inline on error
+      closeInline()
+
       return undefined
-    }
-    finally {
-      processingKey.value = null
     }
   }
 
@@ -78,11 +85,11 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
       activeInline.value = null
       // noinspection JSIgnoredPromiseFromCall
       nextTick(() => {
-        activeInline.value = { type, branchName, conflictInfo }
+        activeInline.value = { type, branchName, conflictInfo, processing: false }
       })
     }
     else if (!activeInline.value) {
-      activeInline.value = { type, branchName, conflictInfo }
+      activeInline.value = { type, branchName, conflictInfo, processing: false }
     }
   }
 
@@ -121,9 +128,7 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
     isActiveForRow,
     portalTargetIdFor,
     withPostSubmit,
-    processingKey,
     isProcessing,
-    processingClass,
     withRowProcessing,
   }
 

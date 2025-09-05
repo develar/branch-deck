@@ -8,7 +8,7 @@ export function useAmendChanges() {
   const toast = useToast()
   const { selectedProject } = useRepository()
   const { syncBranches } = useBranchSync()
-  const inline = useInlineRowAction()
+  const { withRowProcessing, openInline } = useInlineRowAction()
 
   // State for diff data when amending changes
   const diffData = ref<UncommittedChangesResult | null>(null)
@@ -55,72 +55,64 @@ export function useAmendChanges() {
       return
     }
 
-    // Close current inline (the form)
-    inline.closeInline()
-    inline.processingKey.value = branch.name
-
-    try {
-      const result = await commands.amendUncommittedToBranch({
-        repositoryPath: selectedProject.value?.path || "",
-        branchName: branch.name,
-        originalCommitId: tipCommit.originalHash,
-        mainBranch: "master", // TODO: get from repository settings
-      })
-
-      if (result.status !== "ok") {
-        toast.add({
-          color: "error",
-          title: `${branch.name}: Failed to Amend Changes`,
-          description: result.error,
+    const data = await withRowProcessing(
+      branch.name,
+      async () => {
+        const result = await commands.amendUncommittedToBranch({
+          repositoryPath: selectedProject.value?.path || "",
+          branchName: branch.name,
+          originalCommitId: tipCommit.originalHash,
+          mainBranch: "master", // TODO: get from repository settings
         })
-        return
-      }
 
-      // Handle the new AmendCommandResult structure
-      if (result.data.status === "branchError") {
-        const branchError = result.data.data
-        if ("MergeConflict" in branchError) {
-          // Show conflict viewer inline at the same location as the form
-          inline.openInline("amend-conflict", branch.name, branchError.MergeConflict)
-          return // Don't sync, rebase was aborted
+        if (result.status !== "ok") {
+          throw new Error(result.error)
         }
-        else {
-          // Generic branch error
-          toast.add({
-            color: "error",
+
+        // Handle the new AmendCommandResult structure
+        if (result.data.status === "branchError") {
+          const branchError = result.data.data
+          if ("MergeConflict" in branchError) {
+            // For conflicts, we need special handling
+            throw { type: "conflict", data: branchError.MergeConflict }
+          }
+          else {
+            throw new Error(branchError.Generic)
+          }
+        }
+
+        return result.data.data
+      },
+      {
+        processingMessage: `Amending changes to ${branch.name}...`,
+        success: ({ amendedCommitId, rebasedToCommit }) => ({
+          title: `${branch.name}: Changes Amended`,
+          description: `Amended commit ${amendedCommitId.slice(0, 8)} → ${rebasedToCommit.slice(0, 8)}`,
+          duration: 5000,
+        }),
+        error: (error) => {
+          // Handle conflict case specially
+          if (error && typeof error === "object" && "type" in error && error.type === "conflict" && "data" in error) {
+            // Show conflict viewer - we need to handle this outside withRowProcessing
+            openInline("amend-conflict", branch.name, error.data as import("~/utils/bindings").MergeConflictInfo)
+            return { title: "Conflict detected", description: "Opening conflict resolver..." }
+          }
+          return {
             title: `${branch.name}: Failed to Amend Changes`,
-            description: branchError.Generic,
-          })
-          return
-        }
-      }
+            description: error instanceof Error ? error.message : "Failed to amend uncommitted changes",
+          }
+        },
+      },
+    )
 
-      // Success case
-      const { amendedCommitId, rebasedToCommit } = result.data.data
-      toast.add({
-        color: "success",
-        title: `${branch.name}: Changes Amended`,
-        description: `Amended commit ${amendedCommitId.slice(0, 8)} → ${rebasedToCommit.slice(0, 8)}`,
-        duration: 5000,
-      })
-
+    if (data) {
       // Sync branches on success
       await syncBranches({ autoScroll: false, autoExpand: false })
-    }
-    catch (error) {
-      toast.add({
-        color: "error",
-        title: `${branch.name}: Failed to Amend Changes`,
-        description: error instanceof Error ? error.message : "Failed to amend uncommitted changes",
-      })
-    }
-    finally {
-      inline.processingKey.value = null
     }
   }
 
   const handleSubmit = (branch: ReactiveBranch) => {
-    inline.withPostSubmit(() => amendChanges(branch))
+    amendChanges(branch)
   }
 
   return {

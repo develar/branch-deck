@@ -377,14 +377,34 @@ export const tauriMockScript = () => {
     return expectJson ? await response.json() : null
   }
 
-  function handleAppCommand(cmd: string, payload: any): any {
+  async function handleAppCommand(cmd: string, payload: any): Promise<any> {
     switch (cmd) {
       case "validate_repository_path":
         // Always return empty string for valid path in tests
         return ""
         
       case "browse_repository":
-        return proxyCommandWithRepoId("browse_repository")
+        // Special-case: when current path is NO_REPO_*, simulate a valid selection by
+        // creating a real repo and returning its path. Otherwise, proxy as before.
+        try {
+          const repoInfoRes = await fetch(`http://localhost:3030/repositories/${repoId}`)
+          if (repoInfoRes.ok) {
+            const repoInfo = await repoInfoRes.json()
+            const currentPath: string | undefined = repoInfo?.path
+            if (currentPath && currentPath.startsWith("NO_REPO_")) {
+              const createRes = await fetch("http://localhost:3030/repositories", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ template: "simple_no_prefix", prepopulate_store: false }),
+              })
+              if (createRes.ok) {
+                const created = await createRes.json()
+                return { path: created.path, valid: true, error: null }
+              }
+            }
+          }
+        } catch (_) {}
+        return await proxyCommandWithRepoId("browse_repository")
         
       case "download_model":
         // Handle streaming command with repoId in URL
@@ -454,7 +474,7 @@ export const tauriMockScript = () => {
     debug(`[Test Mock] Handling command: ${cmd}`, payload)
 
     // Check app-specific commands first
-    const appResult = handleAppCommand(cmd, payload)
+    const appResult = await handleAppCommand(cmd, payload)
     if (appResult !== null) {
       return appResult
     }
@@ -598,6 +618,11 @@ export const tauriMockScript = () => {
       { pattern: /v-\d+(-\d+)?/g, replacement: 'v-[N]' }
     ],
     
+    // Vue scoped CSS attributes - these should be completely removed from snapshots
+    vueScoped: [
+      { pattern: /^data-v-[a-f0-9]+$/, remove: true }
+    ],
+    
     // Inline styles - filters for consistency
     style: {
       excludeRules: ['pointer-events', 'animation-duration', 'animation-name']
@@ -639,6 +664,12 @@ export const tauriMockScript = () => {
     for (const attr of element.attributes) {
       let value = attr.value
       const name = attr.name
+      
+      // Check if this is a Vue scoped CSS attribute that should be removed
+      const shouldRemoveVueScoped = NORMALIZATION_RULES.vueScoped.some(rule => rule.remove && rule.pattern.test(name))
+      if (shouldRemoveVueScoped) {
+        continue // Skip Vue scoped CSS attributes
+      }
       
       // Apply normalization rules based on attribute type
       if (name === 'style') {
