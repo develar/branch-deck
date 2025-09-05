@@ -73,6 +73,7 @@ interface Props {
   // Feature flags
   showFileCount?: boolean
   showAuthor?: boolean
+  highlightTipCommit?: boolean
 
   // Selection support
   selectable?: boolean
@@ -83,6 +84,7 @@ const props = withDefaults(defineProps<Props>(), {
   variant: "compact",
   showFileCount: false,
   showAuthor: false,
+  highlightTipCommit: false,
   branchName: undefined,
   selectable: false,
   highlightSelection: false,
@@ -158,30 +160,11 @@ const columns = computed(() => [
 
         // Metadata line
         h("div", { class: "mt-1 flex items-center gap-2 text-xs text-muted" }, [
-          // Hash(es)
-          h("span", { class: "font-mono" }, formatShortHash(getCommitHash(commit))),
-
-          props.variant === "status" && "hash" in commit && commit.hash && [
-            h("span", "→"),
-            h("span", { class: "font-mono" }, formatShortHash(commit.hash)),
-          ],
-
-          // Author (if enabled)
-          props.showAuthor && "author" in commit && commit.author && [
-            h("span", "•"),
-            h("span", commit.author),
-          ],
-
-          // Timestamp
-          commit.authorTime && [
-            h("span", "•"),
-            commit.committerTime
-              ? h(resolveComponent("TimeWithPopover"), {
-                  authorTime: commit.authorTime,
-                  committerTime: commit.committerTime,
-                })
-              : h("span", formatTimestamp(commit.authorTime)),
-          ],
+          h(resolveComponent("CommitMetadata"), {
+            commit: commit,
+            showAuthor: props.showAuthor,
+            variant: props.variant,
+          }),
 
           // File count (if enabled)
           props.showFileCount && getFileCount(commit) && [
@@ -195,6 +178,12 @@ const columns = computed(() => [
             h("span", {
               class: getCommitStatusClass(commit.status),
             }, getCommitStatusText(commit.status, "error" in commit ? commit.error : undefined)),
+          ],
+
+          // Amend indicator for tip commit
+          props.highlightTipCommit && row.index === 0 && [
+            h("span", "•"),
+            h("span", { class: "text-info" }, "Changes will be amended to this commit"),
           ],
         ]),
 

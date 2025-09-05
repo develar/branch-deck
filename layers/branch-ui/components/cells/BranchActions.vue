@@ -14,7 +14,7 @@
       :ui="{ content: 'whitespace-pre-line break-words px-3 py-2 text-sm leading-snug' }"
     >
       <UButton
-        :disabled="isPushButtonDisabled"
+        :disabled="isPushButtonDisabled || isProcessing(branch.name)"
         :loading="branch.isPushing"
         :color="pushButtonColor"
         icon="i-lucide-upload"
@@ -43,8 +43,8 @@ const props = defineProps<{
 const { vcsRequestFactory, getFullBranchName } = useRepository()
 const { isSyncing, branches, baselineBranch } = useBranchSync()
 const { pushBranch } = usePush(vcsRequestFactory, branches, baselineBranch)
+const { isProcessing } = useInlineRowAction()
 
-// Use reactive push button state
 const {
   pushButtonText,
   pushButtonColor,

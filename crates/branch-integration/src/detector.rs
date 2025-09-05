@@ -54,7 +54,6 @@ async fn process_branches_parallel(params: BranchProcessingParams<'_>) -> Result
   let mut all_caches_to_write = Vec::new();
 
   for archived_branch in branches {
-    let git = git_executor.clone();
     let repo = repo_path.to_string();
     let baseline = baseline_branch.to_string();
     let strategy_clone = strategy.clone();
@@ -89,7 +88,7 @@ async fn process_branches_parallel(params: BranchProcessingParams<'_>) -> Result
       repo: repo.clone(),
       baseline: baseline.clone(),
     };
-    set.spawn(run_branch_task(inputs, git.clone()));
+    set.spawn(run_branch_task(inputs, git_executor.clone()));
   }
 
   // Process results as they complete, sending individual events immediately

@@ -72,6 +72,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/create_branch_from_commits", post(tauri_command_bridge::create_branch_from_commits))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
+    .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
+    .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     // AI command endpoints
     .route("/invoke/suggest_branch_name_stream", post(tauri_command_bridge::suggest_branch_name_stream))
@@ -140,6 +142,13 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
       templates::archived_branches().build(&repo_path)
     }));
   }
+  {
+    let repo_path = target_dir.join("amend_changes");
+    futures.push(tokio::task::spawn_blocking(move || {
+      tracing::info!("Creating test repository template: amend_changes");
+      templates::amend_changes().build(&repo_path)
+    }));
+  }
 
   // Wait for all templates to be created
   for result in futures {
@@ -182,6 +191,8 @@ pub enum RepositoryTemplate {
   IssueLinks,
   #[serde(rename = "archived_branches")]
   ArchivedBranches,
+  #[serde(rename = "amend_changes")]
+  AmendChanges,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "NO_REPO")]
@@ -198,6 +209,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::SingleUnassigned => "single_unassigned",
       RepositoryTemplate::IssueLinks => "issue_links",
       RepositoryTemplate::ArchivedBranches => "archived_branches",
+      RepositoryTemplate::AmendChanges => "amend_changes",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",
       RepositoryTemplate::NoRepo => "NO_REPO",
     }

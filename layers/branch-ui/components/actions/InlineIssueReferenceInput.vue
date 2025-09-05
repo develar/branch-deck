@@ -1,17 +1,19 @@
 <template>
-  <BaseInlineInput
+  <InlineInputDialog
     v-model="issueReference"
-    :is-active="isActive"
+    :open="isActive"
     :placeholder="`Issue reference for ${branchName} (${commitCount} ${commitCount === 1 ? 'commit' : 'commits'})`"
-    :validation-state="validationState"
-    :is-valid="isValid"
-    :dialog-title="dialogTitle"
-    :dialog-description="dialogDescription"
+    :validation-message="errorMessage"
+    :validation-color="errorMessage ? 'error' : 'primary'"
+    :validation-text-class="errorMessage ? 'text-error' : ''"
+    :can-submit="isValid"
+    :title="dialogTitle"
+    :description="dialogDescription"
     :portal-target="portalTarget"
-    primary-button-text="Add"
-    data-testid="inline-issue-input"
-    @submit="handleSubmit"
-    @cancel="cancel"
+    submit-text="Add"
+    data-test-id="inline-issue-input"
+    @submit="onSubmit"
+    @cancel="closeInline"
   >
     <template #leading-icon>
       <UIcon name="i-lucide-tag" class="size-4 text-muted" />
@@ -20,60 +22,52 @@
     <template #help-text>
       The issue reference will be added after the branch prefix in commit messages.
     </template>
-  </BaseInlineInput>
+  </InlineInputDialog>
 </template>
 
 <script lang="ts" setup>
-// BaseInlineInput is auto-imported from shared-ui layer
+// InlineInputDialog is auto-imported from shared-ui layer
 
-defineProps<{
-  branchName: string
-  commitCount: number
-  dialogTitle?: string
-  dialogDescription?: string
-  portalTarget?: string
-  isActive?: boolean
-}>()
-
-const emit = defineEmits<{
-  cancel: []
-  submit: [issueReference: string]
-}>()
+// Access context and composables
+const { branches } = useBranchSync()
+const { addIssueReference } = useAddIssueReference()
+const { activeInline, portalTargetIdFor, closeInline } = useInlineRowAction()
 
 // State
 const issueReference = ref("")
-const showError = ref(false)
 
-// Reset error when typing
-watch(issueReference, () => {
-  showError.value = false
-})
+// Computed properties from activeInline
+const branchName = computed(() => activeInline.value?.branchName || "")
+const isActive = computed(() => activeInline.value?.type === "issue-reference" && !!activeInline.value?.branchName)
+const dialogTitle = computed(() => branchName.value ? `Add Issue Reference to ${branchName.value}` : "")
+const dialogDescription = computed(() => branchName.value ? `Add issue reference form for ${branchName.value} branch` : "")
+const portalTarget = computed(() => branchName.value ? portalTargetIdFor(branchName.value) : undefined)
+
+// Get branch and compute commit count
+const activeBranch = computed(() => branches.value.find(b => b.name === branchName.value))
+const commitCount = computed(() => activeBranch.value?.commitCount || 0)
+
+// Submit handler: add issue reference to the active branch
+const onSubmit = () => {
+  if (!activeBranch.value) {
+    return
+  }
+  addIssueReference(issueReference.value, activeBranch.value)
+}
 
 // Validation
-const validationState = computed(() => {
-  if (!issueReference.value || !showError.value) {
-    return {
-      color: "primary" as const,
-      message: "",
-      textClass: "",
-    }
+const errorMessage = computed(() => {
+  if (!issueReference.value) {
+    return undefined
   }
 
   // Allow flexible issue formats: ABC-123, ISSUE-456, etc.
   const pattern = /^[A-Z]+-\d+$/
   if (!pattern.test(issueReference.value)) {
-    return {
-      color: "error" as const,
-      message: "Issue reference must be in format like ABC-123",
-      textClass: "text-error",
-    }
+    return "Issue reference must be in format like ABC-123"
   }
 
-  return {
-    color: "primary" as const,
-    message: "",
-    textClass: "",
-  }
+  return undefined
 })
 
 const isValid = computed(() => {
@@ -85,18 +79,4 @@ const isValid = computed(() => {
   return pattern.test(issueReference.value)
 })
 
-// Handle submission
-function handleSubmit() {
-  if (!isValid.value) {
-    showError.value = true
-    return
-  }
-
-  emit("submit", issueReference.value)
-}
-
-// Cancel action
-function cancel() {
-  emit("cancel")
-}
 </script>

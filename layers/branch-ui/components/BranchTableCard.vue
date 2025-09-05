@@ -12,7 +12,7 @@
       <tbody class="divide-y divide-default">
         <template v-for="branch in branches" :key="branch.name">
           <!-- Branch row -->
-          <UContextMenu :items="getContextMenuItems(branch)">
+          <UContextMenu :items="getContextMenuItems(branch)" :disabled="isProcessing(branch.name)">
             <tr
               data-testid="branch-row"
               :data-branch-name="branch.name"
@@ -20,7 +20,7 @@
               :class="[
                 'branch-row hover:bg-muted transition-all cursor-pointer group',
                 isExpanded(branch) && 'data-[state=open]:bg-elevated',
-                pulseClass(branch.name),
+                processingClass(branch.name),
               ]"
               @click="toggleExpanded(branch)"
             >
@@ -53,10 +53,48 @@
             </td>
           </tr>
 
+          <!-- Inline amend changes input row -->
+          <tr v-if="activeInline?.branchName === branch.name && activeInline?.type === 'amend-changes'" :key="`${branch.name}-amend-inline`">
+            <td colspan="4" class="p-0">
+              <!-- Portal target for dialog content -->
+              <div :id="portalTargetIdFor(branch.name)" />
+            </td>
+          </tr>
+
+          <!-- Inline amend conflict viewer row -->
+          <tr v-if="activeInline?.branchName === branch.name && activeInline?.type === 'amend-conflict'" :key="`${branch.name}-conflict`">
+            <td colspan="4" class="p-0">
+              <div class="bd-padding-content border-b border-default bg-warning/5">
+                <!-- Header with dismiss button -->
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-alert-triangle" class="size-5 text-warning" />
+                    <span class="font-medium">Cannot amend: conflicts with subsequent commits</span>
+                  </div>
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    icon="i-lucide-x"
+                    @click="closeInline"
+                  />
+                </div>
+
+                <!-- Conflict viewer component -->
+                <LazyMergeConflictViewer
+                  :conflict="activeInline.conflictInfo!"
+                  :branch-name="activeInline.branchName"
+                />
+              </div>
+            </td>
+          </tr>
+
           <!-- Expanded row content -->
           <tr v-if="isExpanded(branch)" :key="`${branch.name}-expanded`" class="!border-t-0">
             <td colspan="4" class="px-0 py-4">
-              <ActiveBranchExpanded :branch="branch" />
+              <ActiveBranchExpanded
+                :branch="branch"
+                :highlight-tip-commit="activeInline?.branchName === branch.name && activeInline?.type === 'amend-changes'"
+              />
             </td>
           </tr>
         </template>
@@ -64,17 +102,10 @@
     </table>
 
     <!-- Inline issue reference input (renders via portal) -->
-    <LazyActionsInlineIssueReferenceInput
-      v-if="activeInline?.type === 'issue-reference' && activeInline?.branchName"
-      :branch-name="activeInline?.branchName || ''"
-      :commit-count="getActiveBranchCommitCount()"
-      :dialog-title="activeInline?.branchName ? `Add Issue Reference to ${activeInline.branchName}` : ''"
-      :dialog-description="activeInline?.branchName ? `Add issue reference form for ${activeInline.branchName} branch` : ''"
-      :portal-target="activeInline?.branchName ? portalTargetIdFor(activeInline.branchName) : undefined"
-      :is-active="!!activeInline"
-      @submit="(issueReference: string) => handleInlineSubmit(issueReference, getActiveBranch()!)"
-      @cancel="hideInlineInput"
-    />
+    <LazyActionsInlineIssueReferenceInput v-if="activeInline?.type === 'issue-reference'" />
+
+    <!-- Inline amend changes input (renders via portal) -->
+    <LazyActionsInlineAmendChangesInput v-if="activeInline?.type === 'amend-changes'" />
   </UCard>
 </template>
 
@@ -89,31 +120,10 @@ import TableHeader from "~/components/shared/TableHeader.vue"
 const { syncBranches, branches } = useBranchSync()
 
 // Use generic table expansion composable
-const { isExpanded, toggleExpanded } = useGenericTableExpansion((branch: ReactiveBranch) => branch.name)
+const { isExpanded, toggleExpanded, setExpanded } = useGenericTableExpansion((branch: ReactiveBranch) => branch.name)
 
-// Context actions composable
-const {
-  activeInline,
-  getContextMenuItems,
-  hideInlineInput,
-  handleInlineSubmit,
-  portalTargetIdFor,
-  pulseClass,
-} = useBranchContextActions()
-
-// Get active branch data
-const getActiveBranch = () => {
-  if (activeInline.value?.branchName) {
-    return branches.value.find(b => b.name === activeInline.value!.branchName)
-  }
-  else {
-    return null
-  }
-}
-
-const getActiveBranchCommitCount = () => {
-  return getActiveBranch()?.commitCount || 0
-}
+const { activeInline, portalTargetIdFor, processingClass, isProcessing, closeInline } = useInlineRowAction()
+const { getContextMenuItems } = useBranchContextActions({ setExpanded })
 
 // Listen for sync-branches event from menu
 scopedListen("sync-branches", () => {

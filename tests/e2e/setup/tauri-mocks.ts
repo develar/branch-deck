@@ -411,6 +411,22 @@ export const tauriMockScript = () => {
     "plugin:path": handlePathCommand,
     "plugin:log": () => null, // Ignore log commands
     
+    // Repository commands
+    "get_branch_prefix_from_git_config": (cmd: string, payload: any) => {
+      const params = payload?.params || payload
+      const repositoryPath = params?.repositoryPath || ""
+      
+      // For NO_REPO test cases, return a TauriError instead of proxying
+      if (repositoryPath.includes("NO_REPO")) {
+        const pathParts = repositoryPath.split("/")
+        const repoName = pathParts[pathParts.length - 1]
+        throw new Error(`TauriError: Repository not accessible: ${repoName}`)
+      }
+      
+      // For real repositories, proxy to test server
+      return proxyToTestServer(cmd, payload)
+    },
+    
     // Special async commands
     "sync_branches": async (_cmd: string, payload: any) => {
       if (payload && payload.progress) {
@@ -429,15 +445,7 @@ export const tauriMockScript = () => {
     },
   }
 
-  // Commands that should be proxied to test server
-  const PROXY_WHITELIST = [
-    "get_branch_prefix_from_git_config",
-    "create_branch_from_commits",
-    "add_issue_reference_to_commits",
-    "delete_archived_branch",
-    "push_branches",
-    "suggest_branch_name_stream",
-  ]
+  // All unhandled commands are proxied to test server for single source of truth
 
   /**
    * Main command handler
@@ -453,19 +461,14 @@ export const tauriMockScript = () => {
 
     // Check command registry
     const prefix = cmd.split("|")[0]
-    const handler = COMMAND_HANDLERS[prefix] || COMMAND_HANDLERS[cmd]
+    const handler = (prefix && COMMAND_HANDLERS[prefix]) || COMMAND_HANDLERS[cmd]
     
     if (handler) {
       return handler(cmd, payload)
     }
 
-    // Check if command should be proxied
-    if (PROXY_WHITELIST.includes(cmd)) {
-      return proxyToTestServer(cmd, payload)
-    }
-
-    // Warn about unimplemented commands
-    debug(`[Test Mock] Command not implemented: ${cmd}. Attempting to proxy to test server.`)
+    // Proxy all unhandled commands to test server (single source of truth)
+    debug(`[Test Mock] Command not handled locally: ${cmd}. Proxying to test server.`)
     
     try {
       return await proxyToTestServer(cmd, payload)
@@ -697,7 +700,11 @@ export const tauriMockScript = () => {
         }
       }
       else if (child.nodeType === Node.COMMENT_NODE) {
-        result += `${"  ".repeat(indent + 1)}<!--${child.textContent}-->\n`
+        // Skip empty Vue comments (<!---->)
+        const commentContent = child.textContent?.trim()
+        if (commentContent && commentContent.length > 0) {
+          result += `${"  ".repeat(indent + 1)}<!--${child.textContent}-->\n`
+        }
       }
       else if (child.nodeType === Node.ELEMENT_NODE) {
         result += formatElementWithNormalization(child as Element, indent + 1) + "\n"

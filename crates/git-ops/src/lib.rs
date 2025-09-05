@@ -1,3 +1,4 @@
+pub mod amend_operations;
 pub mod cache;
 pub mod cherry_pick;
 pub mod commit_list;
@@ -8,6 +9,9 @@ pub mod model;
 pub mod notes;
 pub mod progress;
 pub mod reword_commits;
+
+#[cfg(test)]
+mod amend_operations_test;
 
 #[cfg(test)]
 mod conflict_analysis_tests;

@@ -12,9 +12,11 @@ use model_ai::types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParam
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
+use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::sync::sync_branches_core_with_cache;
+use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -455,6 +457,52 @@ pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(par
     Ok(()) => Ok(StatusCode::OK),
     Err(e) => {
       tracing::error!("Failed to delete archived branch: {}", e);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
+pub async fn amend_uncommitted_to_branch(State(state): State<Arc<AppState>>, Json(params): Json<AmendUncommittedToBranchParams>) -> Result<Json<AmendCommandResult>, StatusCode> {
+  // Validate that the repository path belongs to a test repository
+  ensure_repository_exists(&state, &params.repository_path)?;
+
+  // Use the shared git executor from state and spawn blocking task
+  match tokio::task::spawn_blocking({
+    let git_executor = state.git_executor.clone();
+    move || amend_uncommitted_to_branch_core(&git_executor, params)
+  })
+  .await
+  {
+    Ok(Ok(result)) => Ok(Json(result)),
+    Ok(Err(error_msg)) => {
+      tracing::error!("Failed to amend uncommitted changes: {}", error_msg);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+    Err(join_error) => {
+      tracing::error!("Task failed: {}", join_error);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
+pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> Result<Json<UncommittedChangesResult>, StatusCode> {
+  // Validate that the repository path belongs to a test repository
+  ensure_repository_exists(&state, &params.repository_path)?;
+
+  // Use the shared git executor from state and spawn blocking task
+  match tokio::task::spawn_blocking({
+    let git_executor = state.git_executor.clone();
+    move || core_get_uncommitted_changes(&git_executor, params)
+  })
+  .await
+  {
+    Ok(Ok(result)) => Ok(Json(result)),
+    Ok(Err(error_msg)) => {
+      tracing::error!("Failed to get uncommitted changes: {}", error_msg);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+    Err(join_error) => {
+      tracing::error!("Task failed: {}", join_error);
       Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
   }

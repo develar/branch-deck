@@ -25,6 +25,7 @@ specta = { workspace = true, optional = true }
 test-utils = { path = "../test-utils" }
 pretty_assertions = { workspace = true }
 test-log = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
 default = []

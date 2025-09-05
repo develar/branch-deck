@@ -1,15 +1,17 @@
 <template>
-  <BaseInlineInput
-    ref="baseInputRef"
+  <InlineInputDialog
+    ref="inlineInputDialogRef"
     v-model="branchName"
-    :is-active="isActive"
+    :open="isActive"
     :placeholder="`Branch name for ${selectedCommits.length} ${selectedCommits.length === 1 ? 'commit' : 'commits'}`"
-    :validation-state="validationState"
-    :is-valid="isValid"
-    :dialog-title="dialogTitle"
-    :dialog-description="dialogDescription"
+    :can-submit="isValid && !isCreating"
+    :title="dialogTitle"
+    :description="dialogDescription"
     :portal-target="portalTarget"
-    primary-button-text="Create"
+    :validation-message="validationState.message"
+    :validation-color="validationState.color || 'primary'"
+    :validation-text-class="validationState.textClass"
+    submit-text="Create"
     @submit="handleCreateBranch"
     @cancel="cancel"
   >
@@ -24,10 +26,6 @@
       </div>
     </template>
 
-    <template #validation-message>
-      {{ validationState.message }}
-    </template>
-
     <template #after-controls>
       <!-- Suggestions (compact) - handles both initial prompt and suggestions -->
       <BranchNameSuggestions
@@ -38,7 +36,7 @@
         @select="handleSuggestionSelect"
       />
     </template>
-  </BaseInlineInput>
+  </InlineInputDialog>
 </template>
 
 <script lang="ts" setup>
@@ -70,7 +68,7 @@ const branchName = ref("")
 const hasAutoPopulated = ref(false)
 
 // Template refs
-const baseInputRef = useTemplateRef("baseInputRef")
+const inlineInputDialogRef = useTemplateRef("inlineInputDialogRef")
 
 const { sanitizedBranchName, validationState: rawValidationState, isValid } = useBranchNameValidation(branchName)
 
@@ -105,17 +103,13 @@ function handleSuggestionSelect(name: string, isAuto = false) {
 
   // Select all text for easy override and ensure focus
   nextTick(() => {
-    baseInputRef.value?.selectText()
-    baseInputRef.value?.focusInput()
+    inlineInputDialogRef.value?.selectText()
+    inlineInputDialogRef.value?.focusInput()
   })
 }
 
 // Create branch handler
 async function handleCreateBranch() {
-  if (!isValid.value || isCreating.value) {
-    return
-  }
-
   const commitIds = props.selectedCommits.map(c => c.originalHash)
   // save the branch name before clearing
   const effectiveBranchName = sanitizedBranchName.value

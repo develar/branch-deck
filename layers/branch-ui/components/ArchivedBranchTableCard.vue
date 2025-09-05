@@ -28,8 +28,7 @@
       </thead>
       <tbody class="divide-y divide-default">
         <template v-for="branch in archivedBranches.archivedBranches.value" :key="branch.name">
-          <!-- Branch row -->
-          <UContextMenu :items="getArchivedContextMenuItems(branch)">
+          <UContextMenu :items="getArchivedContextMenuItems(branch)" :disabled="inline.isProcessing(branch.name)">
             <tr
               :data-branch-name="branch.name"
               :data-state="isExpanded(branch) ? 'open' : 'closed'"
@@ -37,7 +36,7 @@
                 'hover:bg-muted transition-all cursor-pointer',
                 isExpanded(branch) && 'bg-elevated',
                 branch.isLoadingCommits && 'animate-pulse',
-                inline.pulseClass(branch.name),
+                inline.processingClass(branch.name),
               ]"
               @click="toggleExpanded(branch)"
             >

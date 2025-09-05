@@ -1,9 +1,11 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_types::RemoteStatusUpdate;
+use tracing::instrument;
 
 /// Get remote existence and last push time in a single git reflog call
 /// Returns (remote_exists, last_push_time)
+#[instrument(skip(git_executor), fields(remote_ref = %remote_ref))]
 fn get_remote_status_and_push_time(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> (bool, u32) {
   // Get reflog entries with unix timestamps for the remote branch
   let lines = git_executor
@@ -37,6 +39,14 @@ fn get_remote_status_and_push_time(git_executor: &GitCommandExecutor, repository
 
 /// Compute remote status for a single local virtual branch.
 /// local_ref must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix).
+#[instrument(
+  skip(git_executor),
+  fields(
+    branch_name = %branch_name,
+    local_ref = %local_ref,
+    baseline_branch = %baseline_branch
+  )
+)]
 pub fn compute_remote_status_for_branch(
   git_executor: &GitCommandExecutor,
   repository_path: &str,

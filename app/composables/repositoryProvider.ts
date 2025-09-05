@@ -2,8 +2,6 @@ import { watchDebounced } from "@vueuse/core"
 import { commands } from "~/utils/bindings"
 import type { Result } from "~/utils/bindings"
 import { VcsRequestFactory } from "~/composables/git/vcsRequest"
-import { useAppSettingsStore } from "~/stores/appSettings"
-import { repositorySettings, type ProjectMetadata } from "~/stores/repositorySettings"
 import { getErrorDetails } from "#layers/shared-ui/utils/errorHandling"
 
 export interface PathValidation {

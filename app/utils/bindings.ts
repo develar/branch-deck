@@ -115,6 +115,18 @@ async addIssueReferenceToCommits(params: AddIssueReferenceParams) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
+ * This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
+ */
+async amendUncommittedToBranch(params: AmendUncommittedToBranchParams) : Promise<Result<AmendCommandResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("amend_uncommitted_to_branch", { params }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async suggestBranchNameStream(params: SuggestBranchNameParams, progress: TAURI_CHANNEL<SuggestionProgress>) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("suggest_branch_name_stream", { params, progress }) };
@@ -134,6 +146,28 @@ async getArchivedBranchCommits(repositoryPath: string, branchName: string) : Pro
 async deleteArchivedBranch(params: DeleteArchivedBranchParams) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_archived_branch", { params }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get uncommitted changes with only file metadata (no content or diffs)
+ */
+async getUncommittedChanges(params: GetUncommittedChangesParams) : Promise<Result<UncommittedChangesResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_uncommitted_changes", { params }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get file content for diff display when user expands a file in the UI
+ */
+async getFileContentForDiff(params: GetFileContentForDiffParams) : Promise<Result<FileDiff, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_file_content_for_diff", { params }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -185,6 +219,12 @@ async clearModelCache(params: ClearModelCacheParams) : Promise<Result<CacheClear
 
 export type AddIssueReferenceParams = { repositoryPath: string; branchName: string; commits: CommitInfo[]; issueReference: string }
 export type AddIssueReferenceResult = { success: boolean; updatedCount: number; skippedCount: number }
+/**
+ * Result type for amend command that can be properly serialized by Tauri
+ */
+export type AmendCommandResult = { status: "ok"; data: AmendResult } | { status: "branchError"; data: BranchError }
+export type AmendResult = { amendedCommitId: string; rebasedToCommit: string }
+export type AmendUncommittedToBranchParams = { repositoryPath: string; branchName: string; originalCommitId: string; mainBranch: string }
 /**
  * Branch operation errors.
  */
@@ -257,6 +297,8 @@ export type FileDiff = { oldFile: FileInfo; newFile: FileInfo; hunks: string[] }
  */
 export type FileInfo = { fileName: string; fileLang: string; content: string }
 export type GetBranchPrefixParams = { repositoryPath: string }
+export type GetFileContentForDiffParams = { repositoryPath: string; filePath: string }
+export type GetUncommittedChangesParams = { repositoryPath: string }
 export type GroupedBranchInfo = { name: string; commits: Commit[]; latestCommitTime: number; summary: string; allCommitsHaveIssueReferences: boolean; 
 /**
  * Most frequent author email in this branch's commits
@@ -354,6 +396,8 @@ baselineBranch: string } } |
  */
 { type: "remoteStatusUpdate"; data: RemoteStatusUpdate }
 export type TAURI_CHANNEL<TSend> = null
+export type UncommittedChangesResult = { hasChanges: boolean; files: UncommittedFileChange[] }
+export type UncommittedFileChange = { filePath: string; status: string; staged: boolean; unstaged: boolean }
 export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string }
 export type ValidateRepositoryPathParams = { path: string }

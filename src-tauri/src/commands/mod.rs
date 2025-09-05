@@ -1,4 +1,5 @@
 pub mod add_issue_reference;
+pub mod amend_to_branch;
 pub mod archived_branches;
 pub mod branch_prefix;
 pub mod clear_model_cache;
@@ -7,4 +8,5 @@ pub mod push;
 pub mod repository_browser;
 pub mod suggest_branch_name;
 pub mod sync_branches;
+pub mod uncommitted_changes;
 pub mod window_management;

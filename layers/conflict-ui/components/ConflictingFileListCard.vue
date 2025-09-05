@@ -6,6 +6,7 @@
         :count="conflicts.length"
         item-singular="file"
         item-plural="files"
+        badge-color="warning"
       >
         <template #actions>
           <UButton

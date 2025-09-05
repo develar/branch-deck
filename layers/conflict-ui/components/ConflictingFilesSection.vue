@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-3">
+    <!-- @vue-expect-error store.viewMode string -->
     <UTabs
       v-model="store.viewMode"
       :items="tabItems"
@@ -16,24 +17,7 @@
               size="sm"
               label="Conflicts only"
             />
-            <UFieldGroup size="xs">
-              <UButton
-                icon="i-lucide-align-left"
-                :color="store.conflictDiffViewMode === 'unified' ? 'primary' : 'neutral'"
-                variant="outline"
-                @click="store.conflictDiffViewMode = 'unified'"
-              >
-                Unified
-              </UButton>
-              <UButton
-                icon="i-lucide-columns-2"
-                :color="store.conflictDiffViewMode === 'split' ? 'primary' : 'neutral'"
-                variant="outline"
-                @click="store.conflictDiffViewMode = 'split'"
-              >
-                Split
-              </UButton>
-            </UFieldGroup>
+            <DiffViewToggle />
           </div>
 
           <!-- Diff content -->
@@ -41,7 +25,6 @@
             :file-diffs="store.showConflictsOnly ? conflictingFileDiffsFiltered : conflictingFileDiffs"
             key-prefix="conflict"
             :conflict-marker-commits="conflictMarkerCommits"
-            :hide-controls="true"
             :diff-view-mode="store.conflictDiffViewMode"
           />
         </div>
@@ -58,7 +41,6 @@
 
 <script lang="ts" setup>
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
-import { useConflictViewerStore } from "~/stores/conflictViewer"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]
