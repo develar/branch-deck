@@ -1,26 +1,5 @@
 <template>
   <div class="space-y-2">
-    <!-- View mode toggle -->
-    <div v-if="fileDiffs.length > 0 && !hideControls" class="flex justify-end">
-      <UFieldGroup size="xs">
-        <UButton
-          icon="i-lucide-align-left"
-          :color="currentDiffMode === 'unified' ? 'primary' : 'neutral'"
-          variant="outline"
-          @click="internalDiffMode = 'unified'"
-        >
-          Unified
-        </UButton>
-        <UButton
-          icon="i-lucide-columns-2"
-          :color="currentDiffMode === 'split' ? 'primary' : 'neutral'"
-          variant="outline"
-          @click="internalDiffMode = 'split'"
-        >
-          Split
-        </UButton>
-      </UFieldGroup>
-    </div>
 
     <AccordionRoot
       type="multiple"
@@ -79,7 +58,6 @@ const props = defineProps<{
     authorTime: number
     committerTime: number
   }>
-  hideControls?: boolean
   diffViewMode?: "unified" | "split"
 }>()
 

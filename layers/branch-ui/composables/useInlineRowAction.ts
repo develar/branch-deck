@@ -1,15 +1,16 @@
 import { nextTick } from "vue"
 
-export type InlineActionType = "issue-reference" | "delete-archived"
+export type InlineActionType = "issue-reference" | "delete-archived" | "amend-changes" | "amend-conflict"
 
 export interface ActiveInline {
   type: InlineActionType
   branchName: string
+  conflictInfo?: import("~/utils/bindings").MergeConflictInfo // For amend-conflict type
 }
 
 export interface UseInlineRowActionReturn {
   activeInline: Ref<ActiveInline | null>
-  openInline: (type: InlineActionType, branchName: string) => void
+  openInline: (type: InlineActionType, branchName: string, conflictInfo?: import("~/utils/bindings").MergeConflictInfo) => void
   closeInline: () => void
   isActive: (type: InlineActionType, branchName: string) => boolean
   isActiveForRow: (branchName: string) => boolean
@@ -61,7 +62,7 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
     }
   }
 
-  function openInline(type: InlineActionType, branchName: string) {
+  function openInline(type: InlineActionType, branchName: string, conflictInfo?: import("~/utils/bindings").MergeConflictInfo) {
     const shouldRetarget = activeInline.value && (
       activeInline.value.type !== type || activeInline.value.branchName !== branchName
     )
@@ -69,11 +70,11 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
       activeInline.value = null
       // noinspection JSIgnoredPromiseFromCall
       nextTick(() => {
-        activeInline.value = { type, branchName }
+        activeInline.value = { type, branchName, conflictInfo }
       })
     }
     else if (!activeInline.value) {
-      activeInline.value = { type, branchName }
+      activeInline.value = { type, branchName, conflictInfo }
     }
   }
 

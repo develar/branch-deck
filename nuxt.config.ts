@@ -44,7 +44,7 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
 
   // Extend from layers
-  extends: ["./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui", "./layers/ai", "./layers/branch-ui"],
+  extends: ["./layers/core", "./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui", "./layers/ai", "./layers/branch-ui"],
 
   modules: ["@nuxt/ui", "@nuxt/eslint"],
 

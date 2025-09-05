@@ -1,5 +1,4 @@
 import ColorSelectorModal from "~/components/ColorSelectorModal.vue"
-import { useAppSettingsStore } from "~/stores/appSettings"
 
 export function useColorSelector() {
   const appConfig = useAppConfig()

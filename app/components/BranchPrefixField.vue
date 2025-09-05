@@ -24,7 +24,6 @@ const props = defineProps<{
 
 // Use the repository injection and app settings store
 const { gitProvidedBranchPrefix, isLoadingBranchPrefix, effectiveBranchPrefix } = useRepository()
-const { useAppSettingsStore } = await import("~/stores/appSettings")
 const appSettingsStore = useAppSettingsStore()
 
 // Compute placeholder - show git prefix when available and user hasn't entered anything

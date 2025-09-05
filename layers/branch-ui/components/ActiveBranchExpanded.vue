@@ -16,6 +16,7 @@
       :commits="branch.commits"
       variant="status"
       :show-file-count="false"
+      :highlight-tip-commit="shouldHighlightTipCommit"
     />
 
     <!-- No commits found -->
@@ -30,7 +31,11 @@ import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 
 const props = defineProps<{
   branch: ReactiveBranch
+  highlightTipCommit?: boolean
 }>()
+
+// Default to false if not provided
+const shouldHighlightTipCommit = computed(() => props.highlightTipCommit || false)
 
 // Error handling computed properties
 const hasErrorDetails = computed(() => {

@@ -29,7 +29,7 @@ interface Props {
 }
 
 withDefaults(defineProps<Props>(), {
-  badgeColor: "warning",
+  badgeColor: "info",
   itemSingular: "item",
   itemPlural: "items",
   count: undefined,
