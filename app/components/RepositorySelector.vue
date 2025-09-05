@@ -40,8 +40,6 @@
 </template>
 
 <script lang="ts" setup>
-import type { ProjectMetadata } from "~/stores/repositorySettings"
-
 defineProps<{
   disabled?: boolean
 }>()

@@ -1,6 +1,7 @@
 <template>
   <!-- AI indicator icon with integrated help -->
   <UPopover v-if="!isDownloading" mode="hover">
+    <!-- @vue-expect-error @click works on UIcon -->
     <UIcon
       name="i-lucide-sparkles"
       :class="[

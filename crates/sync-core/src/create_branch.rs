@@ -29,9 +29,14 @@ pub fn do_create_branch_from_commits(git_executor: &GitCommandExecutor, params: 
     return Err("Branch name cannot be empty".to_string());
   }
 
-  // Check for invalid characters
-  if !params.branch_name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-    return Err("Branch name can only contain letters, numbers, hyphens, and underscores".to_string());
+  // Check for invalid characters (allow dots for version numbers like "1.21.2")
+  if !params.branch_name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+    return Err("Branch name can only contain letters, numbers, hyphens, underscores, and dots".to_string());
+  }
+
+  // Git-specific rule: cannot start with a dot
+  if params.branch_name.starts_with('.') {
+    return Err("Branch name cannot start with a dot".to_string());
   }
 
   let prefix = format!("({}) ", params.branch_name);

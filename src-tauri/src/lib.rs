@@ -13,6 +13,7 @@ mod repository_state_test;
 
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::add_issue_reference::add_issue_reference_to_commits;
+use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
@@ -21,6 +22,7 @@ use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
+use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::window_management::open_sub_window;
 use tauri_specta::{Builder, collect_commands};
 
@@ -43,9 +45,12 @@ pub fn run() {
     open_sub_window,
     create_branch_from_commits,
     add_issue_reference_to_commits,
+    amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,
     delete_archived_branch,
+    get_uncommitted_changes,
+    get_file_content_for_diff,
     model_tauri::commands::download_model,
     model_tauri::commands::check_model_status,
     model_tauri::commands::cancel_model_download,

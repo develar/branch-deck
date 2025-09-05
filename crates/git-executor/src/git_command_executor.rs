@@ -112,6 +112,31 @@ impl GitCommandExecutor {
     }
   }
 
+  /// Execute a git command and return raw untrimmed output
+  /// Useful for commands where exact formatting matters (e.g., git status --porcelain)
+  #[instrument(
+    skip(self),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      success = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_raw(&self, args: &[&str], repository_path: &str) -> Result<String> {
+    let (output, _exit_code) = self.execute_command_internal(args, repository_path)?;
+
+    if output.status.success() || self.is_acceptable_failure(args, &output.status) {
+      if !output.status.success() {
+        tracing::debug!("git merge-tree returned with conflicts");
+      }
+      let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+      tracing::Span::current().record("success", true);
+      Ok(stdout)
+    } else {
+      self.handle_error(&output, args)
+    }
+  }
+
   /// Execute a git command and return the output with exit code
   /// Useful when you need to distinguish between different types of failures
   #[instrument(

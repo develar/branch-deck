@@ -1,15 +1,16 @@
 import { nextTick } from "vue"
 
-export type InlineActionType = "issue-reference" | "delete-archived"
+export type InlineActionType = "issue-reference" | "delete-archived" | "amend-changes" | "amend-conflict"
 
 export interface ActiveInline {
   type: InlineActionType
   branchName: string
+  conflictInfo?: import("~/utils/bindings").MergeConflictInfo // For amend-conflict type
 }
 
 export interface UseInlineRowActionReturn {
   activeInline: Ref<ActiveInline | null>
-  openInline: (type: InlineActionType, branchName: string) => void
+  openInline: (type: InlineActionType, branchName: string, conflictInfo?: import("~/utils/bindings").MergeConflictInfo) => void
   closeInline: () => void
   isActive: (type: InlineActionType, branchName: string) => boolean
   isActiveForRow: (branchName: string) => boolean
@@ -18,14 +19,22 @@ export interface UseInlineRowActionReturn {
   // Row processing helpers
   processingKey: Ref<string | null>
   isProcessing: (key: string) => boolean
-  pulseClass: (key: string) => string
+  processingClass: (key: string) => string
   withRowProcessing: <T>(key: string, fn: () => Promise<T>, opts: {
     success: (value: T) => { title: string, description?: string, duration?: number }
     error: (err: unknown) => { title: string, description?: string, duration?: number }
   }) => Promise<T | undefined>
 }
 
+// Singleton instance to be shared across all components
+let singletonInstance: UseInlineRowActionReturn | null = null
+
 export function useInlineRowAction(): UseInlineRowActionReturn {
+  // Return existing instance if it exists
+  if (singletonInstance) {
+    return singletonInstance
+  }
+
   const activeInline = ref<ActiveInline | null>(null)
 
   // Row processing state shared by inline actions
@@ -33,8 +42,8 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
   function isProcessing(key: string) {
     return processingKey.value === key
   }
-  function pulseClass(key: string) {
-    return isProcessing(key) ? "animate-pulse ring-2 ring-primary/50" : ""
+  function processingClass(key: string) {
+    return isProcessing(key) ? "processing-border" : ""
   }
 
   async function withRowProcessing<T>(key: string, fn: () => Promise<T>, opts: {
@@ -61,7 +70,7 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
     }
   }
 
-  function openInline(type: InlineActionType, branchName: string) {
+  function openInline(type: InlineActionType, branchName: string, conflictInfo?: import("~/utils/bindings").MergeConflictInfo) {
     const shouldRetarget = activeInline.value && (
       activeInline.value.type !== type || activeInline.value.branchName !== branchName
     )
@@ -69,11 +78,11 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
       activeInline.value = null
       // noinspection JSIgnoredPromiseFromCall
       nextTick(() => {
-        activeInline.value = { type, branchName }
+        activeInline.value = { type, branchName, conflictInfo }
       })
     }
     else if (!activeInline.value) {
-      activeInline.value = { type, branchName }
+      activeInline.value = { type, branchName, conflictInfo }
     }
   }
 
@@ -104,7 +113,7 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
     })
   }
 
-  return {
+  const result = {
     activeInline,
     openInline,
     closeInline,
@@ -114,7 +123,12 @@ export function useInlineRowAction(): UseInlineRowActionReturn {
     withPostSubmit,
     processingKey,
     isProcessing,
-    pulseClass,
+    processingClass,
     withRowProcessing,
   }
+
+  // Store singleton instance
+  singletonInstance = result
+
+  return result
 }

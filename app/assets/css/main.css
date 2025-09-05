@@ -32,6 +32,30 @@
   .bd-padding-content {
     @apply px-4 sm:px-6 py-4;
   }
+  
+  /* Processing animation for branch rows */
+  .processing-border {
+    @apply pointer-events-none relative;
+    border-bottom: 2px solid transparent;
+    background: linear-gradient(90deg, 
+      transparent 0%, 
+      rgb(var(--color-primary-500)) 20%,
+      rgb(var(--color-primary-500)) 80%,
+      transparent 100%) 
+      no-repeat;
+    background-size: 30% 2px;
+    background-position: -30% 100%;
+    animation: slide-border 1.5s ease-in-out infinite;
+  }
+  
+  @keyframes slide-border {
+    0% {
+      background-position: -30% 100%;
+    }
+    100% {
+      background-position: 130% 100%;
+    }
+  }
 }
 
 /* TW doesn't support Nuxt layers by default, so we need to import them manually */

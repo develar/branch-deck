@@ -66,16 +66,57 @@ fn test_create_branch_with_invalid_name() {
   assert!(result.is_err());
   assert_eq!(result.unwrap_err(), "Branch name cannot be empty");
 
-  // Test branch name with invalid characters
+  // Test branch name with invalid characters (slash)
   let params = CreateBranchFromCommitsParams {
     repository_path: repo_path.to_string(),
     branch_name: "feat/123".to_string(), // Contains slash
+    commit_ids: vec![commit1.clone()],
+  };
+
+  let result = do_create_branch_from_commits(&git_executor, params);
+  assert!(result.is_err());
+  assert!(result.unwrap_err().contains("can only contain letters, numbers, hyphens, underscores, and dots"));
+
+  // Test branch name starting with dot (not allowed by Git)
+  let params = CreateBranchFromCommitsParams {
+    repository_path: repo_path.to_string(),
+    branch_name: ".hidden-branch".to_string(),
     commit_ids: vec![commit1],
   };
 
   let result = do_create_branch_from_commits(&git_executor, params);
   assert!(result.is_err());
-  assert!(result.unwrap_err().contains("can only contain letters, numbers, hyphens, and underscores"));
+  assert_eq!(result.unwrap_err(), "Branch name cannot start with a dot");
+}
+
+#[test]
+fn test_create_branch_with_version_number() {
+  let test_repo = TestRepo::new();
+  let repo_path = test_repo.path().to_str().unwrap();
+
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  let commit1 = test_repo.create_commit("Update jsoup library", "pom.xml", "version 1.21.2");
+
+  let git_executor = GitCommandExecutor::new();
+
+  // Test valid branch name with dots (version number)
+  let params = CreateBranchFromCommitsParams {
+    repository_path: repo_path.to_string(),
+    branch_name: "jsoup-1.21.2-update".to_string(),
+    commit_ids: vec![commit1],
+  };
+
+  let result = do_create_branch_from_commits(&git_executor, params).unwrap();
+
+  // Verify result
+  assert!(result.success);
+  assert_eq!(result.reworded_count, 1);
+  assert!(result.message.contains("Successfully assigned 1 commit to branch 'jsoup-1.21.2-update'"));
+
+  // Verify commit was reworded with version number intact
+  let log_args = vec!["log", "-1", "--pretty=format:%s"];
+  let message = git_executor.execute_command(&log_args, repo_path).unwrap();
+  assert_eq!(message, "(jsoup-1.21.2-update) Update jsoup library");
 }
 
 #[test]

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { createPersistentStore } from "~/utils/persistent-store"
+import { createPersistentStore } from "../utils/persistent-store"
 
 // Schema for ProjectMetadata with normalization
 const ProjectMetadataSchema = z.object({

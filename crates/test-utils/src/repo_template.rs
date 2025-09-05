@@ -919,6 +919,62 @@ data class User(
     }
   }
 
+  /// Repository with commits and uncommitted changes for testing amend functionality
+  pub struct AmendChangesTemplate;
+
+  pub fn amend_changes() -> AmendChangesTemplate {
+    AmendChangesTemplate
+  }
+
+  impl AmendChangesTemplate {
+    pub fn build(self, output_path: &Path) -> Result<()> {
+      // First create the base repository with commits
+      let base_template = RepoTemplate::new("amend_changes")
+        .branch_prefix("user-name")
+        .commit_with_timestamp("Initial setup", &[("README.md", "# Test Project\n\nInitial project setup.")], Some(1704117600))
+        .commit_with_timestamp(
+          "(feature-auth) Add authentication service",
+          &[(
+            "src/auth.js",
+            "// Authentication service\nexport function authenticate(user, password) {\n  return user && password;\n}",
+          )],
+          Some(1704119400),
+        )
+        .commit_with_timestamp(
+          "(feature-api) Add API endpoints",
+          &[("src/api.js", "// API endpoints\nexport function getUsers() {\n  return [];\n}")],
+          Some(1704121200),
+        );
+
+      // Build the base repository
+      base_template.build(output_path)?;
+
+      // Now add uncommitted changes (both staged and unstaged)
+
+      // Add a new file (unstaged)
+      let new_file_path = output_path.join("src/utils.js");
+      if let Some(parent) = new_file_path.parent() {
+        fs::create_dir_all(parent)?;
+      }
+      fs::write(
+        &new_file_path,
+        "// Utility functions\nexport function formatDate(date) {\n  return date.toISOString();\n}\n\nexport function validateEmail(email) {\n  return email.includes('@');\n}",
+      )?;
+
+      // Modify existing file (unstaged)
+      let existing_file_path = output_path.join("src/auth.js");
+      fs::write(
+        &existing_file_path,
+        "// Enhanced authentication service\nexport function authenticate(user, password) {\n  if (!user || !password) {\n    return false;\n  }\n  return user.length > 0 && password.length >= 8;\n}\n\nexport function logout(user) {\n  // New logout functionality\n  console.log('Logging out user:', user);\n}",
+      )?;
+
+      // Stage the new file
+      Command::new("git").args(["add", "src/utils.js"]).current_dir(output_path).output()?;
+
+      Ok(())
+    }
+  }
+
   /// Repository with archived branches (integrated, partially integrated, and not integrated)
   /// Implements its own build to create archived refs under user-name/archived/<date>/...
   pub struct ArchivedBranchesTemplate;

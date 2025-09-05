@@ -1,17 +1,19 @@
 <template>
-  <BaseInlineInput
+  <InlineInputDialog
     v-model="inputText"
-    :is-active="isActive"
+    :open="isActive"
     :placeholder="`Type ${simpleName} to confirm deletion`"
-    :validation-state="validationState"
-    :is-valid="isValid"
-    :dialog-title="dialogTitle"
-    :dialog-description="dialogDescription"
+    :validation-message="errorMessage"
+    :validation-color="errorMessage ? 'error' : 'primary'"
+    :validation-text-class="errorMessage ? 'text-error' : ''"
+    :can-submit="isValid"
+    :title="dialogTitle"
+    :description="dialogDescription"
     :portal-target="portalTarget"
-    primary-button-text="Delete"
-    data-testid="inline-delete-input"
-    @submit="handleSubmit"
-    @cancel="cancel"
+    submit-text="Delete"
+    data-test-id="inline-delete-input"
+    @submit="() => emit('submit')"
+    @cancel="emit('cancel')"
   >
     <template #leading-icon>
       <UIcon name="i-lucide-trash-2" class="size-4 text-muted" />
@@ -20,11 +22,11 @@
     <template #help-text>
       This action will permanently delete the archived branch. This cannot be undone.
     </template>
-  </BaseInlineInput>
+  </InlineInputDialog>
 </template>
 
 <script lang="ts" setup>
-// BaseInlineInput is auto-imported from shared-ui layer
+// InlineInputDialog is auto-imported from shared-ui layer
 const props = defineProps<{
   branchName: string
   dialogTitle?: string
@@ -40,11 +42,6 @@ const emit = defineEmits<{
 
 // State
 const inputText = ref("")
-const showError = ref(false)
-
-watch(inputText, () => {
-  showError.value = false
-})
 
 const simpleName = computed(() => getSimpleBranchName(props.branchName))
 
@@ -52,31 +49,10 @@ const isValid = computed(() => {
   return inputText.value === simpleName.value
 })
 
-const validationState = computed(() => {
-  if (!showError.value) {
-    return { color: "primary" as const, message: "", textClass: "" }
-  }
-
+const errorMessage = computed(() => {
   if (!isValid.value) {
-    return {
-      color: "error" as const,
-      message: `Type the exact name: ${simpleName.value}`,
-      textClass: "text-error",
-    }
+    return `Type the exact name: ${simpleName.value}`
   }
-
-  return { color: "primary" as const, message: "", textClass: "" }
+  return undefined
 })
-
-function handleSubmit() {
-  if (!isValid.value) {
-    showError.value = true
-    return
-  }
-  emit("submit")
-}
-
-function cancel() {
-  emit("cancel")
-}
 </script>
