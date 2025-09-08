@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/develar/branch-deck/compare/v0.8.2...v0.9.0) (2025-09-08)
+
+
+### Features
+
+* amend local changes to a branch ([fd2ad77](https://github.com/develar/branch-deck/commit/fd2ad7759f41f5dba914e29dc5959964db7fd915))
+
 ## [0.8.2](https://github.com/develar/branch-deck/compare/v0.8.1...v0.8.2) (2025-09-04)
 
 
