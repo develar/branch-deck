@@ -51,7 +51,7 @@
     "eslint": "9.35.0",
     "eslint-plugin-vue": "10.4.0",
     "nuxt": "4.1.1",
-    "rolldown-vite": "7.1.5",
+    "rolldown-vite": "7.1.8",
     "tailwindcss": "4.1.13",
     "typescript": "5.9.2",
     "vite": "npm:rolldown-vite@7.1.5",
