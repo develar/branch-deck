@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/develar/branch-deck/compare/v0.9.0...v0.9.1) (2025-09-09)
+
+
+### Bug Fixes
+
+* inline action progress ([6f89681](https://github.com/develar/branch-deck/commit/6f89681c1c00bc90b4ac014686c65a98bd493c49))
+
 ## [0.9.0](https://github.com/develar/branch-deck/compare/v0.8.2...v0.9.0) (2025-09-08)
 
 
