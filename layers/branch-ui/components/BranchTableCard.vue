@@ -46,7 +46,7 @@
 
           <!-- Single inline form portal row (for any active inline form) -->
           <tr
-            v-if="activeInline?.branchName === branch.name && (activeInline?.type === 'issue-reference' || activeInline?.type === 'amend-changes')"
+            v-if="activeInline?.branchName === branch.name && (activeInline?.type === 'issue-reference' || activeInline?.type === 'amend-changes' || activeInline?.type === 'unapply')"
             :key="`${branch.name}-inline`">
             <td :id="portalTargetIdFor(branch.name)" colspan="4" class="p-0 relative overflow-hidden">
               <!-- Portal target for any inline form -->
@@ -104,6 +104,9 @@
 
     <!-- Inline amend changes input (renders via portal) -->
     <LazyActionsInlineAmendChangesInput v-if="activeInline?.type === 'amend-changes'" />
+
+    <!-- Inline unapply confirmation (renders via portal) -->
+    <LazyActionsInlineUnapplyConfirm v-if="activeInline?.type === 'unapply'" />
   </UCard>
 </template>
 

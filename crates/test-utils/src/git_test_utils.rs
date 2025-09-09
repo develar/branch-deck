@@ -60,6 +60,11 @@ impl TestRepo {
     self.dir.path().to_str().unwrap()
   }
 
+  /// Get a reference to the git executor
+  pub fn git_executor(&self) -> &GitCommandExecutor {
+    &self.git_executor
+  }
+
   /// Configure Git user for a repository
   fn configure_git_user(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(), anyhow::Error> {
     git_executor.execute_command(&["config", "user.name", TEST_USER_NAME], repo_path)?;

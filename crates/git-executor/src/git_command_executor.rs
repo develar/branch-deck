@@ -229,6 +229,48 @@ impl GitCommandExecutor {
     }
   }
 
+  #[instrument(
+    skip(self, input),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      input_length = input.len(),
+      success = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_with_env_and_stdin(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], input: &str) -> Result<String> {
+    Self::validate_path(repository_path)?;
+    let git_info = self.get_info()?;
+
+    let mut cmd = Command::new(&git_info.path);
+    cmd
+      .args(args)
+      .current_dir(repository_path)
+      .stdin(Stdio::piped())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped());
+
+    // Set environment variables
+    for (key, value) in env_vars {
+      cmd.env(key, value);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
+
+    // Write input to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+      stdin.write_all(input.as_bytes()).map_err(|e| anyhow!("Failed to write to stdin: {e}"))?;
+    }
+
+    let output = child.wait_with_output().map_err(|e| anyhow!("Failed to execute git command: {e}"))?;
+
+    if output.status.success() {
+      Ok(Self::handle_success(&output))
+    } else {
+      self.handle_error(&output, args)
+    }
+  }
+
   /// Execute a git command with streaming output
   /// Calls the handler function with chunks of output as they arrive
   #[instrument(
@@ -340,5 +382,14 @@ impl GitCommandExecutor {
       .map(|s| s.parse::<u32>().map_err(|e| anyhow!("Failed to parse count '{}': {}", s, e)))
       .collect::<Result<Vec<_>>>()?;
     Ok(counts)
+  }
+
+  /// Resolve the tree object ID for a given revision (commit, ref, or symbolic like HEAD).
+  /// This does not cache; callers can cache based on their own rules if needed.
+  #[instrument(skip(self))]
+  pub fn resolve_tree_id(&self, repository_path: &str, rev: &str) -> Result<String> {
+    let tree_ref = format!("{rev}^{{tree}}");
+    let out = self.execute_command(&["rev-parse", &tree_ref], repository_path)?;
+    Ok(out.trim().to_string())
   }
 }

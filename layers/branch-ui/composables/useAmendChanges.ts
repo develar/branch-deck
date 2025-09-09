@@ -44,12 +44,22 @@ export function useAmendChanges() {
 
   // Amend changes to the branch
   const amendChanges = async (branch: ReactiveBranch) => {
-    // Get the tip commit (last commit in the branch)
-    const tipCommit = branch.commits?.[branch.commits.length - 1]
+    // Get the tip commit (first commit - newest after .rev() in backend)
+    const tipCommit = branch.commits?.[0]
     if (!tipCommit) {
       toast.add({
         title: `${branch.name}: No Commits Found`,
         description: "Branch has no commits to amend changes to",
+        color: "error",
+      })
+      return
+    }
+
+    // Ensure we have the uncommitted changes data with file list
+    if (!diffData.value?.files) {
+      toast.add({
+        title: `${branch.name}: No Files to Amend`,
+        description: "No uncommitted changes found to amend",
         color: "error",
       })
       return
@@ -62,7 +72,7 @@ export function useAmendChanges() {
           repositoryPath: selectedProject.value?.path || "",
           branchName: branch.name,
           originalCommitId: tipCommit.originalHash,
-          mainBranch: "master", // TODO: get from repository settings
+          files: diffData.value!.files.map(f => f.filePath),
         })
 
         if (result.status !== "ok") {

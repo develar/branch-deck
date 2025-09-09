@@ -44,93 +44,12 @@ pub fn generate_diff_hunks(
       "--",
       file_path,
     ];
-    let diff_output = git_executor.execute_command(&args, repo_path).unwrap_or_default();
+    let diff_output = git_executor
+      .execute_command(&args, repo_path)
+      .map_err(|e| CopyCommitError::Other(anyhow!("git diff failed: {}", e)))?;
 
-    // Check if git diff produced a complete diff - if so, parse it properly to separate hunks
-    if diff_output.contains("---") && diff_output.contains("+++") {
-      // Parse the complete git diff output to extract separate hunks with file headers
-      let mut file_headers = String::new();
-      let mut current_hunk = String::new();
-      let mut in_hunk = false;
-      let mut found_headers = false;
-
-      for line in diff_output.lines() {
-        if line.starts_with("diff --git") || line.starts_with("index ") {
-          // Skip git diff metadata lines
-          continue;
-        } else if line.starts_with("---") {
-          // Start of file headers
-          file_headers.clear();
-          file_headers.push_str(line);
-          file_headers.push('\n');
-          found_headers = false;
-        } else if line.starts_with("+++") {
-          // End of file headers
-          file_headers.push_str(line);
-          file_headers.push('\n');
-          found_headers = true;
-        } else if line.starts_with("@@") && found_headers {
-          // Start of a new hunk - save previous hunk if exists
-          if in_hunk && !current_hunk.is_empty() {
-            hunks.push((file_headers.clone() + &current_hunk).trim().to_string());
-          }
-          current_hunk = line.to_string();
-          current_hunk.push('\n');
-          in_hunk = true;
-        } else if in_hunk {
-          // Part of current hunk - include all lines (context, additions, deletions, etc.)
-          current_hunk.push_str(line);
-          current_hunk.push('\n');
-        }
-      }
-
-      // Add the last hunk if it exists
-      if in_hunk && !current_hunk.is_empty() {
-        hunks.push((file_headers + &current_hunk).trim().to_string());
-      }
-    } else {
-      // Parse the diff output to extract hunks (fallback for incomplete output)
-      // Add file headers to each hunk manually
-      let file_headers = format!("--- a/{file_path}\n+++ b/{file_path}\n");
-      let mut current_hunk = String::new();
-      let mut in_hunk = false;
-
-      for line in diff_output.lines() {
-        if line.starts_with("@@") {
-          // Start of a new hunk
-          if !current_hunk.is_empty() {
-            hunks.push((file_headers.clone() + &current_hunk).trim().to_string());
-          }
-          current_hunk = line.to_string();
-          current_hunk.push('\n');
-          in_hunk = true;
-        } else if in_hunk && (line.starts_with(' ') || line.starts_with('+') || line.starts_with('-')) {
-          // Part of the current hunk
-          current_hunk.push_str(line);
-          current_hunk.push('\n');
-        } else if in_hunk && line.starts_with("\\") {
-          // "\ No newline at end of file" - include it in the hunk
-          current_hunk.push_str(line);
-          current_hunk.push('\n');
-        } else if in_hunk && line.is_empty() {
-          // Empty line in hunk
-          current_hunk.push(' ');
-          current_hunk.push('\n');
-        } else if in_hunk {
-          // End of hunk
-          if !current_hunk.is_empty() {
-            hunks.push((file_headers.clone() + &current_hunk).trim().to_string());
-            current_hunk.clear();
-          }
-          in_hunk = false;
-        }
-      }
-
-      // Add the last hunk if it exists
-      if !current_hunk.is_empty() {
-        hunks.push((file_headers + &current_hunk).trim().to_string());
-      }
-    }
+    // Parse hunks using helper function
+    hunks = parse_diff_hunks(&diff_output, file_path)?;
 
     // If no hunks were found from git diff but content is different, create a manual diff
     if hunks.is_empty() {
@@ -143,14 +62,18 @@ pub fn generate_diff_hunks(
       // Create complete diff with file headers for git-diff-view compatibility
       let mut complete_diff = format!("--- a/{file_path}\n+++ b/{file_path}\n@@ -1,{from_count} +1,{to_count} @@\n");
 
-      // Add removed lines
+      // Add removed lines (avoiding format! for performance)
       for line in from_lines {
-        complete_diff.push_str(&format!("-{line}\n"));
+        complete_diff.push('-');
+        complete_diff.push_str(line);
+        complete_diff.push('\n');
       }
 
-      // Add added lines
+      // Add added lines (avoiding format! for performance)
       for line in to_lines {
-        complete_diff.push_str(&format!("+{line}\n"));
+        complete_diff.push('+');
+        complete_diff.push_str(line);
+        complete_diff.push('\n');
       }
 
       hunks.push(complete_diff.trim().to_string());
@@ -163,9 +86,11 @@ pub fn generate_diff_hunks(
       // Create complete diff with file headers for git-diff-view compatibility
       let mut complete_diff = format!("--- a/{file_path}\n+++ b/{file_path}\n@@ -1,{line_count} +1,{line_count} @@\n");
 
-      // Add all lines as context (unchanged)
+      // Add all lines as context (unchanged, avoiding format! for performance)
       for line in lines {
-        complete_diff.push_str(&format!(" {line}\n"));
+        complete_diff.push(' ');
+        complete_diff.push_str(line);
+        complete_diff.push('\n');
       }
 
       hunks.push(complete_diff.trim().to_string());
@@ -230,12 +155,119 @@ pub fn get_merge_conflict_content_from_tree(git_executor: &GitCommandExecutor, r
   let object_path = format!("{merge_tree_oid}:{file_path}");
   let args = vec!["cat-file", "-p", &object_path];
 
-  let output = git_executor
-    .execute_command(&args, repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get file content from merge tree: {}", e)))?;
+  let output = match git_executor.execute_command(&args, repo_path) {
+    Ok(content) => content,
+    Err(e) => {
+      let error_msg = e.to_string();
+      return if error_msg.contains("does not exist") {
+        // File doesn't exist in merge tree (likely renamed/moved) - return empty content
+        debug!(file_path = %file_path, merge_tree_oid = %merge_tree_oid, "File not found in merge tree, returning empty content");
+        Ok(String::new())
+      } else {
+        Err(CopyCommitError::Other(anyhow::anyhow!("Failed to get file content from merge tree: {}", e)))
+      };
+    }
+  };
 
   debug!(content_length = output.len(), "retrieved conflict content");
   Ok(output)
+}
+
+/// Generate conflict diff hunks by comparing target commit with merge tree
+#[instrument(skip(git_executor), fields(file = %file_path))]
+fn generate_conflict_diff_hunks(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  target_commit_id: &str,
+  merge_tree_oid: &str,
+  file_path: &str,
+) -> Result<Vec<String>, CopyCommitError> {
+  // First check if the file exists in the target commit
+  let target_file_ref = format!("{}:{}", target_commit_id, file_path);
+  let check_args = vec!["cat-file", "-e", &target_file_ref];
+  let file_exists_in_target = git_executor.execute_command(&check_args, repo_path).is_ok();
+
+  if !file_exists_in_target {
+    // File doesn't exist in target (new file conflict) - show everything as additions
+    let conflict_file_ref = format!("{}:{}", merge_tree_oid, file_path);
+    let conflict_content = git_executor
+      .execute_command(&["cat-file", "-p", &conflict_file_ref], repo_path)
+      .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get conflict content: {}", e)))?;
+
+    if conflict_content.is_empty() {
+      return Ok(vec![]);
+    }
+
+    let line_count = conflict_content.lines().count();
+    let mut diff = String::with_capacity(conflict_content.len() + 100);
+    diff.push_str(&format!("--- /dev/null\n+++ b/{}\n@@ -0,0 +1,{} @@\n", file_path, line_count));
+
+    for line in conflict_content.lines() {
+      diff.push('+');
+      diff.push_str(line);
+      diff.push('\n');
+    }
+
+    return Ok(vec![diff]);
+  }
+
+  // File exists in target, do normal diff
+  let conflict_file_ref = format!("{}:{}", merge_tree_oid, file_path);
+  let diff_args = vec![
+    "-c",
+    "merge.conflictStyle=zdiff3",
+    "diff",
+    "--no-color",
+    "--unified=3",
+    &target_file_ref,
+    &conflict_file_ref,
+  ];
+
+  let diff_output = git_executor
+    .execute_command(&diff_args, repo_path)
+    .map_err(|e| CopyCommitError::Other(anyhow!("git diff failed: {}", e)))?;
+
+  if diff_output.is_empty() {
+    return Ok(vec![]);
+  }
+
+  // Parse hunks more efficiently
+  parse_diff_hunks(&diff_output, file_path)
+}
+
+/// Parse diff output into separate hunks
+fn parse_diff_hunks(diff_output: &str, file_path: &str) -> Result<Vec<String>, CopyCommitError> {
+  let mut hunks = Vec::new();
+  let mut current_hunk = String::new();
+  let mut in_hunk = false;
+  let file_header = format!("--- a/{}\n+++ b/{}\n", file_path, file_path);
+
+  for line in diff_output.lines() {
+    if line.starts_with("diff --git") || line.starts_with("index ") {
+      continue; // Skip git metadata
+    } else if line.starts_with("--- ") || line.starts_with("+++ ") {
+      continue; // Skip original headers, we'll add our own
+    } else if line.starts_with("@@") {
+      // Start of new hunk
+      if in_hunk && !current_hunk.is_empty() {
+        hunks.push(format!("{}{}", file_header, current_hunk.trim()));
+        current_hunk.clear();
+      }
+      current_hunk.push_str(line);
+      current_hunk.push('\n');
+      in_hunk = true;
+    } else if in_hunk {
+      current_hunk.push_str(line);
+      current_hunk.push('\n');
+    }
+  }
+
+  // Add the last hunk
+  if in_hunk && !current_hunk.is_empty() {
+    hunks.push(format!("{}{}", file_header, current_hunk.trim()));
+  }
+
+  Ok(hunks)
 }
 
 /// Parameters for extract_conflict_details function
@@ -312,130 +344,8 @@ pub fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Co
 
       // Use git diff --cc with a temporary merge commit to get proper 3-way conflict diffs
       let hunks = if original_content != conflict_content {
-        // Create a temporary merge commit using the merge tree and git commit-tree
-        let merge_message = "Temporary merge commit for conflict analysis".to_string();
-        let commit_tree_args = vec![
-          "commit-tree",
-          params.merge_tree_oid,
-          "-p",
-          params.target_commit_id,
-          "-p",
-          params.cherry_commit_id,
-          "-m",
-          &merge_message,
-        ];
-
-        if let Ok(merge_commit_output) = params.git_executor.execute_command(&commit_tree_args, params.repo_path) {
-          let merge_commit_id = merge_commit_output.trim();
-          debug!(merge_commit_id, "created temporary merge commit");
-
-          // Use git diff to show the conflict properly
-          // We want to show: target state -> conflicted state
-          // This will show conflict markers in context
-
-          // First check if the file exists in the target commit
-          let check_ref = format!("{}:{}", params.target_commit_id, file_path);
-          let check_args = vec!["cat-file", "-e", &check_ref];
-          let file_exists_in_target = params.git_executor.execute_command(&check_args, params.repo_path).is_ok();
-
-          let diff_output = if file_exists_in_target {
-            // File exists in target, do normal diff
-            let target_file_ref = format!("{}:{}", params.target_commit_id, file_path);
-            let conflict_file_ref = format!("{}:{}", params.merge_tree_oid, file_path);
-
-            let diff_args = vec![
-              "-c",
-              "merge.conflictStyle=zdiff3",
-              "diff",
-              "--no-color",
-              "--unified=3",
-              &target_file_ref,
-              &conflict_file_ref,
-            ];
-
-            params
-              .git_executor
-              .execute_command(&diff_args, params.repo_path)
-              .map_err(|e| CopyCommitError::Other(anyhow!("git diff failed: {}", e)))?
-          } else {
-            // File doesn't exist in target (delete/modify conflict)
-            // Show everything as additions
-            String::new()
-          };
-
-          debug!(diff_output_length = diff_output.len(), "generated git diff");
-
-          // Parse the unified diff output to extract hunks
-          let mut hunks = Vec::new();
-          let mut current_hunk = String::new();
-          let mut in_hunk = false;
-          let mut has_headers = false;
-
-          for line in diff_output.lines() {
-            if line.starts_with("diff --git") {
-              // Skip git metadata
-              continue;
-            } else if line.starts_with("index ") {
-              // Skip index line
-              continue;
-            } else if line.starts_with("--- ") {
-              // Start of file headers
-              if in_hunk && !current_hunk.is_empty() {
-                hunks.push(current_hunk.trim().to_string());
-                current_hunk.clear();
-              }
-              current_hunk.push_str(&format!("--- a/{file_path}\n"));
-              has_headers = true;
-              in_hunk = false;
-            } else if line.starts_with("+++ ") {
-              // Complete file headers
-              current_hunk.push_str(&format!("+++ b/{file_path}\n"));
-            } else if line.starts_with("@@") && has_headers {
-              // Hunk header
-              if in_hunk && !current_hunk.is_empty() {
-                // Save previous hunk
-                hunks.push(current_hunk.trim().to_string());
-                current_hunk = format!("--- a/{file_path}\n+++ b/{file_path}\n");
-              }
-              current_hunk.push_str(line);
-              current_hunk.push('\n');
-              in_hunk = true;
-            } else if in_hunk {
-              // Hunk content
-              current_hunk.push_str(line);
-              current_hunk.push('\n');
-            }
-          }
-
-          // Add the last hunk
-          if in_hunk && !current_hunk.is_empty() {
-            hunks.push(current_hunk.trim().to_string());
-          }
-
-          // If git diff didn't produce output (e.g., for new files), create a simple diff
-          if hunks.is_empty() {
-            let line_count = conflict_content.lines().count();
-            let mut diff = String::new();
-            diff.push_str(&format!("--- a/{file_path}\n"));
-            diff.push_str(&format!("+++ b/{file_path}\n"));
-            diff.push_str(&format!("@@ -0,0 +1,{line_count} @@\n"));
-
-            for line in conflict_content.lines() {
-              diff.push_str(&format!("+{line}\n"));
-            }
-
-            hunks.push(diff.trim().to_string());
-          }
-
-          // Clean up the temporary merge commit
-          let _ = params
-            .git_executor
-            .execute_command(&["update-ref", "-d", "refs/temp-merge", merge_commit_id], params.repo_path);
-
-          hunks
-        } else {
-          return Err(CopyCommitError::Other(anyhow!("git commit-tree failed to create temporary merge commit")));
-        }
+        // Generate diff directly without creating temporary commit objects
+        generate_conflict_diff_hunks(params.git_executor, params.repo_path, params.target_commit_id, params.merge_tree_oid, &file_path)?
       } else {
         // If same content, show as context
         let lines = conflict_content.lines().collect::<Vec<_>>();
@@ -455,12 +365,12 @@ pub fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Co
       };
 
       crate::conflict_analysis::FileDiff {
-        old_file: crate::conflict_analysis::FileInfo {
+        old_file: FileInfo {
           file_name: file_path.clone(),
           file_lang: file_ext.clone(),
           content: original_content,
         },
-        new_file: crate::conflict_analysis::FileInfo {
+        new_file: FileInfo {
           file_name: file_path.clone(),
           file_lang: file_ext,
           content: conflict_content,

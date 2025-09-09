@@ -1,5 +1,4 @@
-import type { ReactiveBranch, RemoteStatus } from "~/composables/branchSyncProvider"
-import { buildRemoteStatusTexts } from "~/composables/remoteStatusText"
+import { buildRemoteStatusTexts } from "#layers/branch-ui/composables/remoteStatus"
 import type { UIColor } from "~/utils/uiTypes"
 
 export function usePushButton(
@@ -47,45 +46,40 @@ export function usePushButton(
     return "Push"
   })
 
-  const pushButtonColor = computed((): UIColor => {
-    const branchValue = branch.value
-    const remoteStatus = branchValue.remoteStatus
-    if (remoteStatus != null) {
-      if (isRemoteUpToDate(branchValue)) {
-        return "neutral"
-      }
-      else if (isFirstPush(branchValue)) {
-        return "success"
-      }
-      else if (needsForcePush(branchValue) || branchValue.status === "Updated") {
-        return "info"
-      }
-    }
+  // Computed remote status texts (used by both color and tooltip)
+  const remoteStatusTexts = computed(() => {
+    const remoteStatus = branch.value.remoteStatus
+    return remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
+  })
 
-    return "primary"
+  const pushButtonColor = computed((): UIColor => {
+    const texts = remoteStatusTexts.value
+    return texts != null ? texts.color : "primary"
   })
 
   const pushButtonTooltip = computed(() => {
     const branchValue = branch.value
-
     const remoteStatus = branchValue.remoteStatus
-    if (remoteStatus != null) {
+    const texts = remoteStatusTexts.value
+
+    if (remoteStatus != null && texts != null) {
       if (isRemoteUpToDate(branchValue)) {
         return "All commits are already pushed"
       }
 
-      const texts = buildRemoteStatusTexts(remoteStatus)
       if (isFirstPush(branchValue)) {
         // Reuse shared summary for consistency
         return texts.tooltip
       }
       else if (needsForcePush(branchValue) || branchValue.status === "Updated") {
-        const mine = (remoteStatus as RemoteStatus).myCommitsAhead ?? 0
+        const mine = remoteStatus.myCommitsAhead ?? 0
         const base = texts.tooltip
         if (mine > 0) {
           return `Force push ${mine} of your commits.\n${base}`
         }
-        return `Force push (no local authored changes).\n${base}; histories diverged after sync`
+        else {
+          return `Force push (no local authored changes).\n${base}; histories diverged after sync`
+        }
       }
       else if (remoteStatus.commitsAhead > 0) {
         return texts.tooltip

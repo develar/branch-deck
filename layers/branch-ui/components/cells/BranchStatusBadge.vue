@@ -9,7 +9,7 @@
         {{ status.text }}
       </UBadge>
       <template #content>
-        {{ tooltip }}
+        {{ status.tooltip }}
       </template>
     </UPopover>
   </div>
@@ -22,5 +22,5 @@ const props = defineProps<{
   branch: ReactiveBranch
 }>()
 
-const { status, tooltip } = useStatusBadge(toRef(props, "branch"))
+const status = useStatusBadge(toRef(props, "branch"))
 </script>

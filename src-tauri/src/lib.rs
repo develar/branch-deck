@@ -22,6 +22,7 @@ use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
+use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
 use commands::window_management::open_sub_window;
 use tauri_specta::{Builder, collect_commands};
@@ -49,6 +50,7 @@ pub fn run() {
     suggest_branch_name_stream,
     get_archived_branch_commits,
     delete_archived_branch,
+    unapply_branch,
     get_uncommitted_changes,
     get_file_content_for_diff,
     model_tauri::commands::download_model,

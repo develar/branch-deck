@@ -1,6 +1,6 @@
 import { nextTick } from "vue"
 
-export type InlineActionType = "issue-reference" | "delete-archived" | "amend-changes" | "amend-conflict"
+export type InlineActionType = "issue-reference" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply"
 
 export interface ActiveInline {
   type: InlineActionType

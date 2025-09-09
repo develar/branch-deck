@@ -19,27 +19,34 @@ impl TreeIdCache {
     Self { cache: Arc::new(DashMap::new()) }
   }
 
+  fn is_cacheable_key(commit_id: &str) -> bool {
+    // Only cache stable object IDs (hex). Avoid caching symbolic refs like HEAD or branch names.
+    // Accept short hex as well; they are stable during one operation.
+    !commit_id.is_empty() && commit_id.chars().all(|c| c.is_ascii_hexdigit())
+  }
+
   /// Get tree ID for a commit, using cache when possible
   #[instrument(skip(self, git_executor), fields(commit_id = %commit_id))]
   pub fn get_tree_id(&self, git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<String, CopyCommitError> {
-    // Try to read from cache first (lock-free read)
-    if let Some(tree_id) = self.cache.get(commit_id) {
-      debug!("cache hit for commit {}", commit_id);
-      return Ok(tree_id.clone());
+    let cacheable = Self::is_cacheable_key(commit_id);
+    if cacheable {
+      // Try to read from cache first (lock-free read)
+      if let Some(tree_id) = self.cache.get(commit_id) {
+        debug!("cache hit for commit {}", commit_id);
+        return Ok(tree_id.clone());
+      }
     }
 
     // Cache miss - fetch from git
     debug!("cache miss for commit {}", commit_id);
-    let tree_ref = format!("{commit_id}^{{tree}}");
-    let args = vec!["rev-parse", &tree_ref];
-    let output = git_executor
-      .execute_command(&args, repo_path)
+    let tree_id = git_executor
+      .resolve_tree_id(repo_path, commit_id)
       .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get tree ID for {}: {}", commit_id, e)))?;
 
-    let tree_id = output.trim().to_string();
-
-    // Store in cache (minimal locking, other threads can still read)
-    self.cache.insert(commit_id.to_string(), tree_id.clone());
+    // Store in cache (minimal locking) only for stable keys
+    if cacheable {
+      self.cache.insert(commit_id.to_string(), tree_id.clone());
+    }
 
     Ok(tree_id)
   }

@@ -3,20 +3,233 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};
 
+/// Action to perform on a commit during rewriting
+#[derive(Debug, Clone)]
+pub enum RewriteAction {
+  /// Keep the commit unchanged
+  Keep,
+  /// Skip (drop) this commit  
+  Skip,
+  /// Replace the commit's tree with the provided tree ID
+  Modify(String),
+}
+
+use crate::cache::TreeIdCache;
 use crate::cherry_pick::get_commit_parent;
+use crate::commit_utils::{create_commit_with_metadata, prefetch_commit_infos_map};
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictDetailsParams, ConflictFileInfo, extract_conflict_details};
 use crate::model::{BranchError, MergeConflictInfo};
 use crate::reword_commits::{get_commit_info, update_branch_ref as update_ref_plumbing};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+
+/// Generic function to rewrite commit history with a transform function
+/// This is the core rewriting logic used by both amend and drop operations
+#[instrument(skip(git_executor, transform, cache))]
+fn rewrite_commits<F>(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  start_commit: &str, // The commit to start rewriting from (exclusive)
+  main_branch: &str,
+  transform: F,
+  cache: &TreeIdCache,
+) -> Result<String, CopyCommitError>
+where
+  F: Fn(&str) -> Result<RewriteAction, CopyCommitError>,
+{
+  // Get all commits and their first parents from start to HEAD (excluding start)
+  // Using --parents lets us avoid per-commit parent lookups.
+  let range = format!("{start_commit}..HEAD");
+  let commits_with_parents_lines = git_executor
+    .execute_command_lines(&["rev-list", "--first-parent", "--reverse", "--parents", &range], repo_path)
+    .map_err(CopyCommitError::Other)?;
+
+  // Parse lines like: "<commit> <parent> [other-parents...]" and keep only first parent
+  let mut commits_to_process: Vec<(String, String)> = Vec::with_capacity(commits_with_parents_lines.len());
+  for line in commits_with_parents_lines {
+    let mut parts = line.split_whitespace();
+    if let Some(commit) = parts.next() {
+      // First parent (if any). In first-parent traversal, there should be at least one.
+      if let Some(parent) = parts.next() {
+        commits_to_process.push((commit.to_string(), parent.to_string()));
+      } else {
+        // Fallback: no parent listed (shouldn't happen for a range excluding the start). Skip safely.
+        commits_to_process.push((commit.to_string(), String::new()));
+      }
+    }
+  }
+
+  // Prefetch commit info for all selected commits in one go to avoid per-commit git calls
+  let commit_info_map = prefetch_commit_infos_map(git_executor, repo_path, &range).map_err(CopyCommitError::Other)?;
+
+  if commits_to_process.is_empty() {
+    // Nothing to rewrite
+    return Ok(start_commit.to_string());
+  }
+
+  // Start rewriting from the start commit
+  let mut current_parent = start_commit.to_string();
+
+  // Track if any commits were changed to determine when conflict detection is needed
+  let mut has_changes = false;
+
+  // Process each commit
+  for (commit, parent_of_commit) in &commits_to_process {
+    let action = transform(commit)?;
+
+    match action {
+      RewriteAction::Skip => {
+        // Skip this commit entirely
+        has_changes = true;
+        continue;
+      }
+
+      RewriteAction::Keep => {
+        // Recreate commit with new parent
+        let commit_info = match commit_info_map.get(commit).cloned() {
+          Some(ci) => ci,
+          None => get_commit_info(git_executor, repo_path, commit).map_err(CopyCommitError::Other)?,
+        };
+
+        let new_tree = if !has_changes {
+          // Fast path: no commits were changed, just use the original tree
+          // This is safe when we're just moving commits as-is with no modifications
+          cache.get_tree_id(git_executor, repo_path, commit)?
+        } else {
+          // Need conflict detection: commits were skipped or modified upstream
+          let base_tree = cache.get_tree_id(git_executor, repo_path, parent_of_commit)?;
+          let ours_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
+          let theirs_tree = cache.get_tree_id(git_executor, repo_path, commit)?;
+
+          // Optimization: check if trees already match to avoid merge-tree
+          if base_tree == ours_tree {
+            // Parent tree matches current tree, just reuse commit tree
+            theirs_tree
+          } else if ours_tree == theirs_tree {
+            // Reapplying a commit that results in the same tree; no-op merge
+            ours_tree
+          } else if theirs_tree == base_tree {
+            // The commit being replayed changed nothing relative to base; keep our tree
+            ours_tree
+          } else {
+            // Use merge-tree to compute the new tree
+            let merge_base_arg = format!("--merge-base={}", base_tree);
+            let (merged_out, status) = git_executor
+              .execute_command_with_status(&["merge-tree", "--write-tree", &merge_base_arg, &ours_tree, &theirs_tree], repo_path)
+              .map_err(CopyCommitError::Other)?;
+
+            if status == 1 {
+              // Conflict detected
+              return Err(CopyCommitError::BranchError(BranchError::Generic(format!(
+                "Rewriting would create conflicts when replaying commit {}: {}",
+                &commit[..commit.len().min(8)],
+                commit_info.subject.trim()
+              ))));
+            } else if status != 0 {
+              return Err(CopyCommitError::Other(anyhow!("git merge-tree failed while rewriting: {}", merged_out.trim())));
+            }
+
+            merged_out.trim().to_string()
+          }
+        };
+
+        current_parent =
+          create_commit_with_metadata(git_executor, repo_path, &new_tree, Some(&current_parent), &commit_info, &commit_info.message).map_err(CopyCommitError::Other)?;
+      }
+
+      RewriteAction::Modify(new_tree) => {
+        // Use the provided tree for this commit
+        // Mark that we have changes since this commit was modified
+        has_changes = true;
+
+        let commit_info = match commit_info_map.get(commit).cloned() {
+          Some(ci) => ci,
+          None => get_commit_info(git_executor, repo_path, commit).map_err(CopyCommitError::Other)?,
+        };
+        current_parent =
+          create_commit_with_metadata(git_executor, repo_path, &new_tree, Some(&current_parent), &commit_info, &commit_info.message).map_err(CopyCommitError::Other)?;
+      }
+    }
+  }
+
+  // Update the main branch ref to the new tip
+  // Capture previous HEAD tree before updating ref to determine if index needs refresh
+  let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
+
+  update_ref_plumbing(git_executor, repo_path, main_branch, &current_parent).map_err(CopyCommitError::Other)?;
+
+  // Fast path: only refresh index if the HEAD tree actually changed
+  let new_head_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
+  if prev_head_tree != new_head_tree {
+    // If current branch equals main_branch, refresh the index to match HEAD without touching worktree
+    let current_branch_result = git_executor.execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path);
+    if let Ok(current_branch) = current_branch_result {
+      let current_branch = current_branch.trim();
+      if current_branch == main_branch {
+        // Reset index to match new HEAD, but preserve working directory
+        let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &current_parent], repo_path);
+      }
+    }
+  }
+
+  Ok(current_parent)
+}
+
+// prefetch_commit_infos_map is defined in commit_utils
+
+/// Drop specified commits from HEAD while preserving working directory changes
+/// Uses the generic rewrite_commits function
+#[instrument(skip(git_executor))]
+pub fn drop_commits_from_head(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String], main_branch: &str) -> Result<String, CopyCommitError> {
+  if commit_ids_to_drop.is_empty() {
+    return Err(CopyCommitError::Other(anyhow!("No commits specified to drop")));
+  }
+
+  // Get all commits from HEAD to find the base (parent of oldest commit to drop)
+  let all_commits = git_executor
+    .execute_command_lines(&["rev-list", "--first-parent", "HEAD"], repo_path)
+    .map_err(CopyCommitError::Other)?;
+
+  // Build a fast lookup set for drop membership
+  let drop_set: HashSet<&str> = commit_ids_to_drop.iter().map(|s| s.as_str()).collect();
+
+  // Find the oldest commit to drop to determine where to start rewriting from
+  let mut oldest_pos = None;
+  for (pos, commit) in all_commits.iter().enumerate() {
+    if drop_set.contains(commit.as_str()) {
+      oldest_pos = Some(pos);
+    }
+  }
+
+  let oldest_position = oldest_pos.ok_or_else(|| CopyCommitError::Other(anyhow!("None of the specified commits found in HEAD")))?;
+
+  // Get the base commit (parent of the oldest commit to drop)
+  let oldest_commit = &all_commits[oldest_position];
+  let base_commit =
+    get_commit_parent(git_executor, repo_path, oldest_commit).map_err(|e| CopyCommitError::Other(anyhow!("Failed to get parent of oldest commit to drop: {}", e)))?;
+
+  // Create cache for tree lookups
+  let cache = TreeIdCache::new();
+
+  // Use the generic rewrite_commits function with a filter that skips commits to drop
+  rewrite_commits(
+    git_executor,
+    repo_path,
+    &base_commit,
+    main_branch,
+    |commit| if drop_set.contains(commit) { Ok(RewriteAction::Skip) } else { Ok(RewriteAction::Keep) },
+    &cache,
+  )
+}
 
 /// Parameters for amending uncommitted changes to a specific commit in main branch
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct AmendToCommitParams {
   pub original_commit_id: String,
+  pub files: Vec<String>,
 }
 
 /// Result of amending operation
@@ -27,13 +240,13 @@ pub struct AmendResult {
   pub rebased_to_commit: String,
 }
 
-/// Amend uncommitted changes to a specific commit in main branch history
+/// Amend uncommitted changes to a specific commit in current branch history
 /// Uses Git's built-in fixup and autosquash functionality with fail-fast conflict handling:
 /// 1. git commit --fixup=<commit> (create fixup commit)
 /// 2. git rebase --autosquash (automatically apply fixup, handle conflicts if they occur)
 #[instrument(skip(git_executor), fields(original_commit = %params.original_commit_id))]
-pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, _main_branch: &str, params: AmendToCommitParams) -> Result<AmendResult, CopyCommitError> {
-  let AmendToCommitParams { original_commit_id } = params;
+pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<AmendResult, CopyCommitError> {
+  let AmendToCommitParams { original_commit_id, files } = params;
 
   // Step 1: Check if there are uncommitted changes
   let status_output = git_executor.execute_command(&["status", "--porcelain"], repo_path)?;
@@ -59,17 +272,21 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
 
     debug!(commit_id = %original_commit_id, "amended HEAD commit directly");
 
-    let final_commit = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?.trim().to_string();
+    let final_commit = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?;
+    let final_commit = final_commit.trim().to_string();
     return Ok(AmendResult {
       amended_commit_id: final_commit.clone(),
       rebased_to_commit: final_commit,
     });
   }
 
+  // Create cache for tree lookups
+  let cache = TreeIdCache::new();
+
   // Prefer a fast object-only rewrite for linear histories; fall back to fixup+autosquash otherwise
   let is_linear = is_linear_range(git_executor, repo_path, &original_commit_id, "HEAD")?;
   if is_linear {
-    return fast_amend_linear(git_executor, repo_path, &original_commit_id, _main_branch);
+    return fast_amend_linear(git_executor, repo_path, &original_commit_id, &files, &cache);
   }
 
   // Fall back: fixup + autosquash rebase
@@ -147,7 +364,8 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
   }
 
   // Step 5: Get the final commit ID that HEAD points to
-  let final_commit = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?.trim().to_string();
+  let final_commit = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?;
+  let final_commit = final_commit.trim().to_string();
 
   // Step 6: Return the HEAD commit as the amended commit
   // since autosquash has properly integrated our changes
@@ -165,7 +383,7 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
 pub fn check_amend_conflicts(git_executor: &GitCommandExecutor, repo_path: &str, main_branch: &str, original_commit_id: &str) -> Result<()> {
   // Get commits between original commit and main branch HEAD
   let range = format!("{}..{}", original_commit_id, main_branch);
-  let commits_output = git_executor.execute_command(&["rev-list", "--oneline", &range], repo_path)?;
+  let commits_output = git_executor.execute_command(&["rev-list", "--first-parent", "--reverse", &range], repo_path)?;
 
   if commits_output.trim().is_empty() {
     // No commits between - safe to amend
@@ -173,19 +391,18 @@ pub fn check_amend_conflicts(git_executor: &GitCommandExecutor, repo_path: &str,
     return Ok(());
   }
 
-  // Parse the commits that will be affected by rebase
+  // Parse the commits that will be affected by rebase (hashes only)
   let affected_commits: Vec<&str> = commits_output.lines().map(|line| line.trim()).filter(|line| !line.is_empty()).collect();
 
   debug!(count = affected_commits.len(), "found commits that will be rebased");
 
   // Create a temporary tree from index to simulate the amended commit
   // Note: write-tree uses the index (staged + -a auto-stage will be reflected during amend)
-  let working_tree = git_executor.execute_command(&["write-tree"], repo_path)?.trim().to_string();
+  let working_tree = git_executor.execute_command(&["write-tree"], repo_path)?;
+  let working_tree = working_tree.trim();
 
   // For each affected commit, check if it would conflict with the amended version
-  for commit_line in affected_commits.iter() {
-    let commit_hash = commit_line.split_whitespace().next().ok_or_else(|| anyhow!("Invalid commit line: {}", commit_line))?;
-
+  for commit_hash in affected_commits.iter().copied() {
     debug!(commit = %commit_hash, "checking for conflicts");
 
     // Use git merge-tree to check if this commit would conflict
@@ -205,7 +422,11 @@ pub fn check_amend_conflicts(git_executor: &GitCommandExecutor, repo_path: &str,
 
     if exit_code == 1 {
       // Conflicts detected for this commit
-      let commit_subject = commit_line.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+      let commit_subject = git_executor
+        .execute_command(&["log", "-1", "--format=%s", commit_hash], repo_path)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
       let short_hash = if commit_hash.len() >= 8 { &commit_hash[..8] } else { commit_hash };
       return Err(anyhow!(
         "Amending would create conflicts with commit {} ({}). {} other commit(s) would also be affected by the rebase.",
@@ -215,7 +436,11 @@ pub fn check_amend_conflicts(git_executor: &GitCommandExecutor, repo_path: &str,
       ));
     } else if exit_code != 0 {
       // Some other failure: be conservative and report inability to guarantee safety
-      let commit_subject = commit_line.split_whitespace().skip(1).collect::<Vec<_>>().join(" ");
+      let commit_subject = git_executor
+        .execute_command(&["log", "-1", "--format=%s", commit_hash], repo_path)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
       let short_hash = if commit_hash.len() >= 8 { &commit_hash[..8] } else { commit_hash };
       debug!(exit_code, output = %output_or_stderr, "merge-tree returned unexpected status");
       return Err(anyhow!(
@@ -291,7 +516,8 @@ fn extract_amend_conflict_info(git_executor: &GitCommandExecutor, repo_path: &st
   }
 
   // Step 3: Get current HEAD during rebase (this is the fixup commit)
-  let current_head = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?.trim().to_string();
+  let current_head = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?;
+  let current_head = current_head.trim().to_string();
 
   // Step 4: Extract detailed conflict information using existing function
   let (detailed_conflicts, conflict_marker_commits) = extract_conflict_details(ConflictDetailsParams {
@@ -390,171 +616,203 @@ fn get_commit_info_for_conflict(git_executor: &GitCommandExecutor, repo_path: &s
 #[instrument(skip(git_executor))]
 fn is_linear_range(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<bool, CopyCommitError> {
   let range = format!("{from}..{to}");
-  let lines = git_executor
-    .execute_command_lines(&["rev-list", "--parents", "--first-parent", &range], repo_path)
+  // If there is any merge commit on first-parent in the range, it's not linear.
+  let out = git_executor
+    .execute_command(&["rev-list", "--first-parent", "--merges", &range, "-n", "1"], repo_path)
+    .map_err(CopyCommitError::Other)?;
+  Ok(out.trim().is_empty())
+}
+
+/// RAII guard for temporary index file cleanup
+struct TempIndexGuard {
+  path: PathBuf,
+}
+
+impl TempIndexGuard {
+  fn new() -> Self {
+    let tdir = std::env::temp_dir();
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let path = tdir.join(format!("branchdeck_amend_{nanos}.idx"));
+    Self { path }
+  }
+
+  fn path_str(&self) -> &str {
+    // Safe because temp paths are valid UTF-8
+    self.path.to_str().unwrap()
+  }
+}
+
+impl Drop for TempIndexGuard {
+  fn drop(&mut self) {
+    let _ = fs::remove_file(&self.path);
+  }
+}
+
+/// Compute the amended tree for a commit by applying working changes to it
+#[instrument(skip(git_executor, cache))]
+fn compute_amended_tree(git_executor: &GitCommandExecutor, repo_path: &str, original_commit_id: &str, files: &[String], cache: &TreeIdCache) -> Result<String, CopyCommitError> {
+  // Validate files list early
+  if files.is_empty() {
+    return Err(CopyCommitError::Other(anyhow!("No files specified to amend")));
+  }
+
+  // Get the original commit's tree
+  let original_tree = cache.get_tree_id(git_executor, repo_path, original_commit_id)?;
+
+  // Create temporary index file with RAII cleanup
+  let tmp_idx = TempIndexGuard::new();
+
+  // Start with the original commit's tree in the temporary index
+  git_executor
+    .execute_command_with_env(&["read-tree", &original_tree], repo_path, &[("GIT_INDEX_FILE", tmp_idx.path_str())])
     .map_err(CopyCommitError::Other)?;
 
-  for line in lines {
-    // commit <parent1> [parent2...]
-    let parent_count = line.split_whitespace().count();
-    if parent_count > 2 {
-      return Ok(false); // merge commit encountered
+  // Use git update-index with --stdin for optimal performance and correctness (handles deletions)
+  if files.len() == 1 {
+    // Single file - include --remove to handle deletions without extra checks
+    git_executor
+      .execute_command_with_env(&["update-index", "--add", "--remove", &files[0]], repo_path, &[("GIT_INDEX_FILE", tmp_idx.path_str())])
+      .map_err(|e| CopyCommitError::Other(anyhow!("Failed to update index with working changes: {}", e)))?;
+  } else {
+    // Multiple files - use batch processing with NUL delimiters for safety and speed
+    let mut input = String::new();
+    for f in files {
+      input.push_str(f);
+      input.push('\0');
     }
+    git_executor
+      .execute_command_with_env_and_stdin(
+        &["update-index", "--add", "--remove", "-z", "--stdin"],
+        repo_path,
+        &[("GIT_INDEX_FILE", tmp_idx.path_str())],
+        &input,
+      )
+      .map_err(|e| CopyCommitError::Other(anyhow!("Failed to update index with working changes: {}", e)))?;
   }
-  Ok(true)
+
+  // Write the amended tree
+  let amended_tree = git_executor
+    .execute_command_with_env(&["write-tree"], repo_path, &[("GIT_INDEX_FILE", tmp_idx.path_str())])
+    .map_err(CopyCommitError::Other)?
+    .trim()
+    .to_string();
+
+  Ok(amended_tree)
 }
 
 /// Fast amend path for linear histories using object-level rewrite (no rebase, no checkout)
-#[instrument(skip(git_executor))]
-fn fast_amend_linear(git_executor: &GitCommandExecutor, repo_path: &str, original_commit_id: &str, main_branch: &str) -> Result<AmendResult, CopyCommitError> {
-  // Trees we need
-  let head_tree = git_executor
-    .execute_command(&["rev-parse", "HEAD^{tree}"], repo_path)
+/// Now uses the generic rewrite_commits function
+#[instrument(skip(git_executor, cache))]
+fn fast_amend_linear(git_executor: &GitCommandExecutor, repo_path: &str, original_commit_id: &str, files: &[String], cache: &TreeIdCache) -> Result<AmendResult, CopyCommitError> {
+  // Get the current branch to use for ref updates
+  let current_branch = git_executor
+    .execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path)
     .map_err(CopyCommitError::Other)?
     .trim()
     .to_string();
 
-  let original_tree = git_executor
-    .execute_command(&["rev-parse", &format!("{original_commit_id}^{{tree}}")], repo_path)
-    .map_err(CopyCommitError::Other)?
-    .trim()
-    .to_string();
+  // Compute the amended tree for the original commit
+  let amended_tree = compute_amended_tree(git_executor, repo_path, original_commit_id, files, cache)?;
 
-  // Build a tree that represents HEAD + uncommitted changes (delta tree)
-  let tmp_idx = {
-    let tdir = std::env::temp_dir();
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-    tdir.join(format!("branchdeck_amend_{nanos}.idx"))
-  };
-  let tmp_idx_str = tmp_idx.to_string_lossy().to_string();
+  // Check if we're amending a root commit
+  let is_root = get_commit_parent(git_executor, repo_path, original_commit_id).is_err();
 
-  // Seed temp index with HEAD tree
-  git_executor
-    .execute_command_with_env(&["read-tree", &head_tree], repo_path, &[("GIT_INDEX_FILE", tmp_idx_str.as_str())])
-    .map_err(CopyCommitError::Other)?;
+  if is_root {
+    // For root commits, we need to handle this specially since rewrite_commits expects a parent
+    // First create the amended root commit
+    let original_commit = get_commit_info(git_executor, repo_path, original_commit_id).map_err(CopyCommitError::Other)?;
+    let amended_commit_id =
+      create_commit_with_metadata(git_executor, repo_path, &amended_tree, None, &original_commit, &original_commit.message).map_err(CopyCommitError::Other)?;
 
-  // Get working delta vs HEAD as a binary patch
-  let diff_patch = git_executor.execute_command_raw(&["diff", "--binary", "HEAD"], repo_path).map_err(CopyCommitError::Other)?;
+    // Check if there are any descendants
+    let range = format!("{}..HEAD", original_commit_id);
+    let descendants = git_executor
+      .execute_command_lines(&["rev-list", "--first-parent", "--reverse", &range], repo_path)
+      .map_err(CopyCommitError::Other)?;
 
-  // Apply the patch to the temp index (must apply cleanly against HEAD)
-  // Use a temporary file to pass the patch
-  let tmp_patch = {
-    let tdir = std::env::temp_dir();
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-    tdir.join(format!("branchdeck_amend_{nanos}.patch"))
-  };
-  if let Err(e) = fs::write(&tmp_patch, &diff_patch) {
-    return Err(CopyCommitError::Other(anyhow!("Failed to write temp patch: {}", e)));
+    if descendants.is_empty() {
+      // No descendants, just update the branch
+      let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
+      update_ref_plumbing(git_executor, repo_path, &current_branch, &amended_commit_id).map_err(CopyCommitError::Other)?;
+
+      // Only refresh index when HEAD tree changed
+      let new_head_tree = cache.get_tree_id(git_executor, repo_path, &amended_commit_id)?;
+      if prev_head_tree != new_head_tree {
+        let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &amended_commit_id], repo_path);
+      }
+
+      return Ok(AmendResult {
+        amended_commit_id: amended_commit_id.clone(),
+        rebased_to_commit: amended_commit_id,
+      });
+    }
+
+    // Has descendants - rewrite them on top of the amended root
+    // Prefetch commit info for all descendants to avoid per-commit git calls
+    let desc_range = format!("{}..HEAD", original_commit_id);
+    let info_map = prefetch_commit_infos_map(git_executor, repo_path, &desc_range)?;
+    let mut current_parent = amended_commit_id.clone();
+    for commit in descendants {
+      // Keep each descendant by rewriting it with the new parent
+      let commit_info = match info_map.get(&commit).cloned() {
+        Some(ci) => ci,
+        None => get_commit_info(git_executor, repo_path, &commit).map_err(CopyCommitError::Other)?,
+      };
+
+      // Get the tree of this commit
+      let tree = cache.get_tree_id(git_executor, repo_path, &commit)?;
+
+      current_parent = create_commit_with_metadata(git_executor, repo_path, &tree, Some(&current_parent), &commit_info, &commit_info.message).map_err(CopyCommitError::Other)?;
+    }
+
+    // Update the branch ref to the new tip
+    let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
+    update_ref_plumbing(git_executor, repo_path, &current_branch, &current_parent).map_err(CopyCommitError::Other)?;
+
+    // Only refresh index when HEAD tree changed
+    let new_head_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
+    if prev_head_tree != new_head_tree {
+      let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &current_parent], repo_path);
+    }
+
+    return Ok(AmendResult {
+      amended_commit_id,
+      rebased_to_commit: current_parent,
+    });
   }
 
-  let _ = git_executor
-    .execute_command_with_env(
-      &["apply", "--cached", tmp_patch.to_string_lossy().as_ref()],
-      repo_path,
-      &[("GIT_INDEX_FILE", tmp_idx_str.as_str())],
-    )
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to apply working changes: {}", e)))?;
+  // Normal case: commit has a parent
+  let parent = get_commit_parent(git_executor, repo_path, original_commit_id).unwrap();
 
-  let delta_tree = git_executor
-    .execute_command_with_env(&["write-tree"], repo_path, &[("GIT_INDEX_FILE", tmp_idx_str.as_str())])
-    .map_err(CopyCommitError::Other)?
-    .trim()
-    .to_string();
+  // Use the generic rewrite_commits function with a transform that modifies the target commit
+  let original_commit_id_owned = original_commit_id.to_string();
+  let amended_tree_clone = amended_tree.clone();
+  let new_head = rewrite_commits(
+    git_executor,
+    repo_path,
+    &parent,
+    &current_branch,
+    |commit| {
+      if commit == original_commit_id_owned {
+        Ok(RewriteAction::Modify(amended_tree_clone.clone()))
+      } else {
+        Ok(RewriteAction::Keep)
+      }
+    },
+    cache,
+  )?;
 
-  // Clean up temp patch file (best effort)
-  let _ = fs::remove_file(&tmp_patch);
-  let _ = fs::remove_file(&tmp_idx);
-
-  // Merge trees to get amended original tree (apply delta to original)
-  // Use modern git merge-tree syntax: --merge-base=<base> <ours> <theirs>
-  let merge_base_arg = format!("--merge-base={}", head_tree);
-  let (t0_prime_out, t0_prime_status) = git_executor
-    .execute_command_with_status(&["merge-tree", "--write-tree", &merge_base_arg, &original_tree, &delta_tree], repo_path)
-    .map_err(CopyCommitError::Other)?;
-
-  if t0_prime_status == 1 {
-    // Conflicts when porting working changes onto original commit
-    return Err(CopyCommitError::BranchError(BranchError::Generic(
-      "Amending would create conflicts when applying uncommitted changes to the target commit".to_string(),
-    )));
-  } else if t0_prime_status != 0 {
-    // Any other non-zero status is an error
-    return Err(CopyCommitError::Other(anyhow!("git merge-tree failed during amend: {}", t0_prime_out.trim())));
-  }
-
-  let amended_tree = t0_prime_out.trim().to_string();
-
-  // Create C0' commit preserving original metadata (reuse existing commit logic)
-  let original_commit = get_commit_info(git_executor, repo_path, original_commit_id).map_err(CopyCommitError::Other)?;
-  let parent = get_commit_parent(git_executor, repo_path, original_commit_id).ok();
-  let amended_commit_id = create_commit_with_tree(git_executor, repo_path, &amended_tree, parent.as_deref(), &original_commit)?;
-
-  // Rewrite descendants along first-parent chain
-  let range = format!("{original_commit_id}..HEAD");
-  let descendants = git_executor
+  // Find the amended commit ID in the rewritten history
+  // The amended commit should be the first one after parent
+  let range = format!("{}..{}", parent, new_head);
+  let commits = git_executor
     .execute_command_lines(&["rev-list", "--first-parent", "--reverse", &range], repo_path)
     .map_err(CopyCommitError::Other)?;
 
-  let mut prev_new = amended_commit_id.clone();
-  for c in descendants {
-    // base = tree(parent(c)), ours = tree(prev_new), theirs = tree(c)
-    let parent = get_commit_parent(git_executor, repo_path, &c)?;
-
-    let base_tree = git_executor
-      .execute_command(&["rev-parse", &format!("{parent}^{{tree}}")], repo_path)
-      .map_err(CopyCommitError::Other)?
-      .trim()
-      .to_string();
-
-    let ours_tree = git_executor
-      .execute_command(&["rev-parse", &format!("{prev_new}^{{tree}}")], repo_path)
-      .map_err(CopyCommitError::Other)?
-      .trim()
-      .to_string();
-
-    let theirs_tree = git_executor
-      .execute_command(&["rev-parse", &format!("{c}^{{tree}}")], repo_path)
-      .map_err(CopyCommitError::Other)?
-      .trim()
-      .to_string();
-
-    let merge_base_arg = format!("--merge-base={}", base_tree);
-    let (merged_out, status) = git_executor
-      .execute_command_with_status(&["merge-tree", "--write-tree", &merge_base_arg, &ours_tree, &theirs_tree], repo_path)
-      .map_err(CopyCommitError::Other)?;
-
-    if status == 1 {
-      // Conflict detected while rewriting descendants
-      let commit_info = get_commit_info(git_executor, repo_path, &c).map_err(CopyCommitError::Other)?;
-      return Err(CopyCommitError::BranchError(BranchError::Generic(format!(
-        "Amending would create conflicts when replaying descendant commit {}: {}",
-        &c[..c.len().min(8)],
-        commit_info.subject.trim()
-      ))));
-    } else if status != 0 {
-      return Err(CopyCommitError::Other(anyhow!("git merge-tree failed while rewriting descendants: {}", merged_out.trim())));
-    }
-
-    let new_tree = merged_out.trim().to_string();
-
-    // Create Ci' preserving original metadata (reuse existing commit-tree logic)
-    let ci_commit = get_commit_info(git_executor, repo_path, &c).map_err(CopyCommitError::Other)?;
-    prev_new = create_commit_with_tree(git_executor, repo_path, &new_tree, Some(&prev_new), &ci_commit)?;
-  }
-
-  // Update the main branch ref to the new tip
-  let new_head = prev_new;
-  update_ref_plumbing(git_executor, repo_path, main_branch, &new_head).map_err(CopyCommitError::Other)?;
-
-  // If current branch equals main_branch, refresh the index to match HEAD without touching worktree
-  let current_branch = git_executor
-    .execute_command(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path)
-    .map_err(CopyCommitError::Other)?
-    .trim()
+  let amended_commit_id = commits
+    .first()
+    .ok_or_else(|| CopyCommitError::Other(anyhow!("No commits found after rewriting")))?
     .to_string();
-  if current_branch == main_branch {
-    let _ = git_executor.execute_command(&["reset"], repo_path); // mixed reset (index -> HEAD)
-  }
 
   Ok(AmendResult {
     amended_commit_id,
@@ -562,38 +820,4 @@ fn fast_amend_linear(git_executor: &GitCommandExecutor, repo_path: &str, origina
   })
 }
 
-/// Create a commit from a tree and existing commit info, preserving metadata
-fn create_commit_with_tree(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  tree_id: &str,
-  parent_id: Option<&str>,
-  commit_info: &crate::commit_list::Commit,
-) -> Result<String, CopyCommitError> {
-  let mut args = vec!["commit-tree", tree_id];
-
-  if let Some(parent) = parent_id.or(commit_info.parent_id.as_deref()) {
-    args.push("-p");
-    args.push(parent);
-  }
-
-  args.push("-m");
-  args.push(commit_info.message.as_str());
-
-  // Convert timestamps to string format for env vars
-  let author_date = commit_info.author_timestamp.to_string();
-  let committer_date = commit_info.committer_timestamp.to_string();
-
-  let env_vars = vec![
-    ("GIT_AUTHOR_NAME", commit_info.author_name.as_str()),
-    ("GIT_AUTHOR_EMAIL", commit_info.author_email.as_str()),
-    ("GIT_AUTHOR_DATE", &author_date),
-    ("GIT_COMMITTER_NAME", commit_info.author_name.as_str()),
-    ("GIT_COMMITTER_EMAIL", commit_info.author_email.as_str()),
-    ("GIT_COMMITTER_DATE", &committer_date),
-  ];
-
-  let output = git_executor.execute_command_with_env(&args, repo_path, &env_vars).map_err(CopyCommitError::Other)?;
-
-  Ok(output.trim().to_string())
-}
+// create_commit_with_tree replaced by commit_utils::create_commit_with_metadata

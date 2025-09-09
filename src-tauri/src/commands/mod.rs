@@ -8,5 +8,6 @@ pub mod push;
 pub mod repository_browser;
 pub mod suggest_branch_name;
 pub mod sync_branches;
+pub mod unapply_branch;
 pub mod uncommitted_changes;
 pub mod window_management;

@@ -13,6 +13,7 @@ export function useBranchContextActions(options: { setExpanded: (item: ReactiveB
     const hasCommits = branch.commits?.length > 0
     const canShowIssueReference = hasCommits && !branch.hasError && branch.status !== "Syncing"
     const canAmendChanges = hasCommits && !branch.hasError && branch.status !== "Syncing"
+    const canUnapply = hasCommits && !branch.hasError && branch.status !== "Syncing"
 
     const items = []
 
@@ -39,6 +40,15 @@ export function useBranchContextActions(options: { setExpanded: (item: ReactiveB
       })
     }
 
+    // Unapply action (if applicable)
+    if (canUnapply) {
+      commitActions.push({
+        label: "Unapply",
+        icon: "i-lucide-archive-x",
+        onSelect: () => handleUnapplyAction(branch),
+      })
+    }
+
     if (commitActions.length > 0) {
       items.push(commitActions)
     }
@@ -52,6 +62,14 @@ export function useBranchContextActions(options: { setExpanded: (item: ReactiveB
     options.setExpanded(branch, true)
     // Open inline form immediately (the dialog will load data when it opens)
     inline.openInline("amend-changes", branch.name)
+  }
+
+  // Handle unapply action
+  const handleUnapplyAction = (branch: ReactiveBranch) => {
+    // Expand the branch to show commits that will be unapplied
+    options.setExpanded(branch, true)
+    // Open inline confirmation form
+    inline.openInline("unapply", branch.name)
   }
 
   return {

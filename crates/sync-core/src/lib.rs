@@ -9,6 +9,7 @@ pub mod issue_navigation;
 pub mod remote_status;
 pub mod repository_validation;
 pub mod sync;
+pub mod unapply_branch;
 pub mod uncommitted_changes;
 
 #[cfg(test)]
@@ -17,5 +18,7 @@ mod branch_prefix_test;
 mod create_branch_test;
 #[cfg(test)]
 mod sync_test;
+#[cfg(test)]
+mod unapply_branch_test;
 #[cfg(test)]
 mod uncommitted_changes_test;

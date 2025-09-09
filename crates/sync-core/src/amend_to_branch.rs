@@ -11,7 +11,7 @@ pub struct AmendUncommittedToBranchParams {
   pub repository_path: String,
   pub branch_name: String,
   pub original_commit_id: String,
-  pub main_branch: String,
+  pub files: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,13 +37,13 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
     repository_path,
     branch_name: _,
     original_commit_id,
-    main_branch,
+    files,
   } = params;
 
   // Perform the amend operation
-  let amend_params = AmendToCommitParams { original_commit_id };
+  let amend_params = AmendToCommitParams { original_commit_id, files };
 
-  match amend_to_commit_in_main(git_executor, &repository_path, &main_branch, amend_params) {
+  match amend_to_commit_in_main(git_executor, &repository_path, amend_params) {
     Ok(result) => Ok(AmendCommandResult::Ok(AmendResult {
       amended_commit_id: result.amended_commit_id,
       rebased_to_commit: result.rebased_to_commit,

@@ -77,9 +77,10 @@ fn test_amend_to_commit_basic() -> Result<()> {
 
   let params = AmendToCommitParams {
     original_commit_id: commit1.clone(),
+    files: vec!["file1.txt".to_string()],
   };
 
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params)?;
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
   assert!(!result.amended_commit_id.is_empty());
@@ -102,10 +103,13 @@ fn test_amend_no_uncommitted_changes() -> Result<()> {
   // Create initial commit
   let commit1 = repo.commit_file("file1.txt", "initial content", "Initial commit")?;
 
-  let params = AmendToCommitParams { original_commit_id: commit1 };
+  let params = AmendToCommitParams {
+    original_commit_id: commit1,
+    files: vec!["file1.txt".to_string()],
+  };
 
   // Should fail because there are no uncommitted changes
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params);
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params);
   assert!(result.is_err());
 
   let error = result.unwrap_err().to_string();
@@ -126,9 +130,10 @@ fn test_amend_preserves_commit_metadata() -> Result<()> {
 
   let params = AmendToCommitParams {
     original_commit_id: commit1.clone(),
+    files: vec!["file1.txt".to_string()],
   };
 
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params)?;
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify original author information was preserved in amended commit
   // The original commit was created by "Test User" so that should be preserved
@@ -219,9 +224,12 @@ fn test_working_directory_preserved() -> Result<()> {
   // Add staged changes for amend
   repo.modify_file("file1.txt", "amended content")?;
 
-  let params = AmendToCommitParams { original_commit_id: commit1 };
+  let params = AmendToCommitParams {
+    original_commit_id: commit1,
+    files: vec!["file1.txt".to_string()],
+  };
 
-  amend_to_commit_in_main(&repo.git, &repo.path, "master", params)?;
+  amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify uncommitted file still exists (working directory preserved)
   assert!(uncommitted_file.exists());
@@ -245,10 +253,11 @@ fn test_amend_with_unstaged_changes() -> Result<()> {
 
   let params = AmendToCommitParams {
     original_commit_id: commit1.clone(),
+    files: vec!["file1.txt".to_string()],
   };
 
   // Should succeed with -a flag auto-staging the changes
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params)?;
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
   assert!(!result.amended_commit_id.is_empty());
@@ -284,10 +293,11 @@ fn test_amend_with_mixed_staged_unstaged_changes() -> Result<()> {
 
   let params = AmendToCommitParams {
     original_commit_id: commit1.clone(),
+    files: vec!["file1.txt".to_string(), "file3.txt".to_string()],
   };
 
   // Should succeed with -a flag handling both staged and unstaged changes
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params)?;
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
   assert!(!result.amended_commit_id.is_empty());
@@ -311,9 +321,10 @@ fn test_error_handling_invalid_commit() -> Result<()> {
 
   let params = AmendToCommitParams {
     original_commit_id: "invalid_commit_hash".to_string(),
+    files: vec!["file1.txt".to_string()],
   };
 
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params);
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params);
   assert!(result.is_err());
 
   Ok(())
@@ -333,10 +344,13 @@ fn test_amend_with_multiple_subsequent_commits() -> Result<()> {
   // Add uncommitted changes to amend to the first commit
   repo.modify_file("file1.txt", "initial amended")?;
 
-  let params = AmendToCommitParams { original_commit_id: commit1 };
+  let params = AmendToCommitParams {
+    original_commit_id: commit1,
+    files: vec!["file1.txt".to_string()],
+  };
 
   // This should fail due to conflicts or succeed with rebasing
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params);
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params);
 
   match result {
     Ok(_) => {
@@ -350,6 +364,82 @@ fn test_amend_with_multiple_subsequent_commits() -> Result<()> {
       assert!(error_msg.contains("conflict") || error_msg.contains("Cannot safely amend"));
     }
   }
+
+  Ok(())
+}
+
+#[test]
+fn test_amend_with_intervening_commits_modifying_same_file() -> Result<()> {
+  let repo = TestRepository::new()?;
+
+  // Create initial commit with a file
+  let original_commit = repo.commit_file("shared.txt", "original content", "Original commit")?;
+
+  // Create intervening commits that modify the same file (simulating other branches)
+  repo.commit_file("shared.txt", "modified by commit 1", "Intervening commit 1")?;
+  repo.commit_file("shared.txt", "modified by commit 2", "Intervening commit 2")?;
+
+  let initial_count = repo.get_commit_count()?;
+
+  // Add uncommitted changes to amend to the original commit
+  repo.modify_file("shared.txt", "original content with new amendments")?;
+
+  let params = AmendToCommitParams {
+    original_commit_id: original_commit.clone(),
+    files: vec!["shared.txt".to_string()],
+  };
+
+  // This should succeed with our new implementation
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
+
+  // Verify the operation succeeded
+  assert!(!result.amended_commit_id.is_empty());
+  assert!(!result.rebased_to_commit.is_empty());
+  assert_ne!(result.amended_commit_id, original_commit);
+
+  // Verify commit count is still the same (no commits lost)
+  assert_eq!(repo.get_commit_count()?, initial_count);
+
+  // Verify the amended commit contains our changes by checking the file at that specific commit
+  let amended_file_content = repo.git.execute_command(&["show", &format!("{}:shared.txt", result.amended_commit_id)], &repo.path)?;
+  assert_eq!(amended_file_content.trim(), "original content with new amendments");
+
+  // The final state depends on what subsequent commits did - they were rebased on top of our amended commit
+  // Since the subsequent commits completely overwrote the file content, the final state should be from the last commit
+  // But our test confirms the amend operation itself worked correctly
+
+  Ok(())
+}
+
+#[test]
+fn test_amend_multiple_files_optimization() -> Result<()> {
+  let repo = TestRepository::new()?;
+
+  // Create initial commit with multiple files
+  let original_commit = repo.commit_file("file1.txt", "content1", "Initial commit")?;
+  repo.commit_file("file2.txt", "content2", "Add file2")?;
+  repo.commit_file("file3.txt", "content3", "Add file3")?;
+
+  // Modify multiple files to test batch processing
+  repo.modify_file("file1.txt", "amended content1")?;
+  repo.modify_file("file2.txt", "amended content2")?;
+  repo.modify_file("file3.txt", "amended content3")?;
+
+  let params = AmendToCommitParams {
+    original_commit_id: original_commit.clone(),
+    files: vec!["file1.txt".to_string(), "file2.txt".to_string(), "file3.txt".to_string()],
+  };
+
+  // Should use the optimized batch processing for multiple files
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
+
+  // Verify the operation succeeded
+  assert!(!result.amended_commit_id.is_empty());
+  assert_ne!(result.amended_commit_id, original_commit);
+
+  // Verify the amended commit contains our changes for file1 (the original commit only had file1)
+  let amended_file_content = repo.git.execute_command(&["show", &format!("{}:file1.txt", result.amended_commit_id)], &repo.path)?;
+  assert_eq!(amended_file_content.trim(), "amended content1");
 
   Ok(())
 }
@@ -372,10 +462,11 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
 
   let params = AmendToCommitParams {
     original_commit_id: commit_to_amend.clone(),
+    files: vec!["file1.txt".to_string()],
   };
 
   // Attempt to amend - should fail with conflict
-  let result = amend_to_commit_in_main(&repo.git, &repo.path, "master", params);
+  let result = amend_to_commit_in_main(&repo.git, &repo.path, params);
 
   // Should return an error due to conflicts
   assert!(result.is_err());

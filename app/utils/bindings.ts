@@ -151,6 +151,14 @@ async deleteArchivedBranch(params: DeleteArchivedBranchParams) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async unapplyBranch(params: UnapplyBranchParams) : Promise<Result<UnapplyBranchResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("unapply_branch", { params }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Get uncommitted changes with only file metadata (no content or diffs)
  */
@@ -224,7 +232,7 @@ export type AddIssueReferenceResult = { success: boolean; updatedCount: number; 
  */
 export type AmendCommandResult = { status: "ok"; data: AmendResult } | { status: "branchError"; data: BranchError }
 export type AmendResult = { amendedCommitId: string; rebasedToCommit: string }
-export type AmendUncommittedToBranchParams = { repositoryPath: string; branchName: string; originalCommitId: string; mainBranch: string }
+export type AmendUncommittedToBranchParams = { repositoryPath: string; branchName: string; originalCommitId: string; files: string[] }
 /**
  * Branch operation errors.
  */
@@ -396,6 +404,8 @@ baselineBranch: string } } |
  */
 { type: "remoteStatusUpdate"; data: RemoteStatusUpdate }
 export type TAURI_CHANNEL<TSend> = null
+export type UnapplyBranchParams = { repositoryPath: string; branchName: string; branchPrefix: string; originalCommitIds: string[] }
+export type UnapplyBranchResult = { unappliedBranchName: string; commitsRemoved: string[] }
 export type UncommittedChangesResult = { hasChanges: boolean; files: UncommittedFileChange[] }
 export type UncommittedFileChange = { filePath: string; status: string; staged: boolean; unstaged: boolean }
 export type UpdateInfo = { current_version: string; available_version: string; is_update_available: boolean; status: UpdateStatus }

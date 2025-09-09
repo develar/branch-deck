@@ -1,5 +1,6 @@
-use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
+use crate::commit_utils::create_commit_with_metadata;
+use crate::commit_utils::prefetch_commit_infos_map;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -27,32 +28,34 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
   // Create a map for quick lookup
   let rewrite_map: HashMap<String, String> = rewrites.into_iter().map(|r| (r.commit_id, r.new_message)).collect();
 
-  // Get all commits from the oldest rewrite to HEAD
-  let (commits_to_process, original_tip) = get_commits_to_process(git_executor, repo_path, &rewrite_map)?;
+  // Get all commits from the oldest rewrite to HEAD with their parents, and the range used
+  let (commits_to_process, original_tip, process_range) = get_commits_to_process(git_executor, repo_path, &rewrite_map)?;
 
-  // Create a shared cache for tree IDs
-  let _tree_id_cache = TreeIdCache::new();
+  // Prefetch commit infos for the entire range in one go
+  let commit_info_map = prefetch_commit_infos_map(git_executor, repo_path, &process_range)?;
 
   // Process commits from oldest to newest, creating new commits as needed
   let mut id_mapping: HashMap<String, String> = HashMap::new();
 
-  for commit_id in &commits_to_process {
+  for (commit_id, parent_id) in &commits_to_process {
     // Determine the new parent (if the parent was rewritten, use the new ID)
-    let parent_id = get_commit_parent(git_executor, repo_path, commit_id)?;
     let new_parent_id = parent_id.as_ref().map(|p| id_mapping.get(p).cloned().unwrap_or_else(|| p.clone()));
 
     // Check if this commit needs rewording or its parent was rewritten
     let needs_new_commit = rewrite_map.contains_key(commit_id) || parent_id.as_ref().is_some_and(|p| id_mapping.contains_key(p));
 
     if needs_new_commit {
-      // Get commit info
-      let commit_info = get_commit_info(git_executor, repo_path, commit_id)?;
+      // Get commit info from prefetch map or fall back to single query
+      let commit_info = match commit_info_map.get(commit_id).cloned() {
+        Some(ci) => ci,
+        None => get_commit_info(git_executor, repo_path, commit_id)?,
+      };
 
       // Use the new message if this commit needs rewording, otherwise keep original
       let message = rewrite_map.get(commit_id).cloned().unwrap_or(commit_info.message.clone());
 
       // Create new commit
-      let new_commit_id = create_commit_with_info(git_executor, repo_path, &commit_info, new_parent_id.as_deref(), &message)?;
+      let new_commit_id = create_commit_with_metadata(git_executor, repo_path, &commit_info.tree_id, new_parent_id.as_deref(), &commit_info, &message)?;
 
       id_mapping.insert(commit_id.clone(), new_commit_id.clone());
 
@@ -85,9 +88,9 @@ fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
   Ok(branch)
 }
 
-fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, rewrite_map: &HashMap<String, String>) -> Result<(Vec<String>, String)> {
-  // Get all commits to HEAD to find the oldest one chronologically
-  let all_commits = git_executor.execute_command_lines(&["rev-list", "HEAD"], repo_path)?;
+fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, rewrite_map: &HashMap<String, String>) -> Result<(Vec<(String, Option<String>)>, String, String)> {
+  // Get all commits on first-parent to HEAD to find the oldest one chronologically among rewrites
+  let all_commits = git_executor.execute_command_lines(&["rev-list", "--first-parent", "HEAD"], repo_path)?;
 
   // Find the oldest commit that needs rewording (appears last in rev-list output)
   let mut oldest_index = None;
@@ -100,34 +103,29 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
   let oldest_index = oldest_index.ok_or_else(|| anyhow!("No commits to reword found in history"))?;
   let oldest_commit = &all_commits[oldest_index];
 
-  // Check if oldest commit has a parent
+  // Construct the processing range: if oldest has a parent, start from parent, else from root (HEAD traversal covers all)
   let parent_check = git_executor.execute_command(&["rev-parse", &format!("{oldest_commit}^")], repo_path);
+  let range = if parent_check.is_ok() { format!("{oldest_commit}^..HEAD") } else { "HEAD".to_string() };
 
-  // Get all commits from oldest (or its parent) to HEAD in reverse order (oldest first)
-  let commits = if parent_check.is_ok() {
-    // Has parent, use parent as starting point
-    let range = format!("{oldest_commit}^..HEAD");
-    git_executor.execute_command_lines(&["rev-list", "--reverse", &range], repo_path)?
-  } else {
-    // No parent (root commit), include all commits
-    git_executor.execute_command_lines(&["rev-list", "--reverse", "HEAD"], repo_path)?
-  };
+  // Get all commits (first-parent) from range in reverse with parents so we can avoid per-commit parent lookups
+  let lines = git_executor.execute_command_lines(&["rev-list", "--first-parent", "--reverse", "--parents", &range], repo_path)?;
 
-  if commits.is_empty() {
+  if lines.is_empty() {
     return Err(anyhow!("No commits found in range"));
   }
 
-  let tip = commits.last().unwrap().clone();
+  let mut commits_with_parents = Vec::with_capacity(lines.len());
+  for line in lines {
+    let mut parts = line.split_whitespace();
+    if let Some(commit) = parts.next() {
+      let parent = parts.next().map(|p| p.to_string());
+      commits_with_parents.push((commit.to_string(), parent));
+    }
+  }
 
-  Ok((commits, tip))
-}
+  let tip = commits_with_parents.last().map(|(id, _)| id.clone()).ok_or_else(|| anyhow!("Failed to determine tip"))?;
 
-fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Option<String>> {
-  let args = vec!["rev-list", "--parents", "-n", "1", commit_id];
-  let output = git_executor.execute_command(&args, repo_path)?;
-
-  let parts: Vec<&str> = output.split_whitespace().collect();
-  if parts.len() > 1 { Ok(Some(parts[1].to_string())) } else { Ok(None) }
+  Ok((commits_with_parents, tip, range))
 }
 
 pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit> {
@@ -169,37 +167,7 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commi
   })
 }
 
-/// Create a commit using existing Commit, optionally with a different parent and message
-fn create_commit_with_info(git_executor: &GitCommandExecutor, repo_path: &str, commit: &Commit, new_parent_id: Option<&str>, message: &str) -> Result<String> {
-  let mut args = vec!["commit-tree", &commit.tree_id];
-
-  if let Some(parent) = new_parent_id.or(commit.parent_id.as_deref()) {
-    args.push("-p");
-    args.push(parent);
-  }
-
-  args.push("-m");
-  args.push(message);
-
-  // Preserve original author and committer info
-  let author_date = commit.author_timestamp.to_string();
-  let committer_date = commit.committer_timestamp.to_string();
-
-  let env_vars = vec![
-    ("GIT_AUTHOR_NAME", commit.author_name.as_str()),
-    ("GIT_AUTHOR_EMAIL", commit.author_email.as_str()),
-    ("GIT_AUTHOR_DATE", &author_date),
-    ("GIT_COMMITTER_NAME", commit.author_name.as_str()),
-    ("GIT_COMMITTER_EMAIL", commit.author_email.as_str()),
-    ("GIT_COMMITTER_DATE", &committer_date),
-  ];
-
-  let output = git_executor
-    .execute_command_with_env(&args, repo_path, &env_vars)
-    .map_err(|e| anyhow!("Failed to create commit: {}", e))?;
-
-  Ok(output.trim().to_string())
-}
+// create_commit_with_info replaced by commit_utils::create_commit_with_metadata
 
 pub fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str) -> Result<()> {
   let ref_name = format!("refs/heads/{branch_name}");
