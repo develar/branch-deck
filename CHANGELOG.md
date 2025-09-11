@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/develar/branch-deck/compare/v0.9.1...v0.9.2) (2025-09-11)
+
+
+### Bug Fixes
+
+* remote status - use path-id based strategy ([8b3292a](https://github.com/develar/branch-deck/commit/8b3292acd0de85d4fac7bd67329ea76d1fc9e04c))
+
 ## [0.9.1](https://github.com/develar/branch-deck/compare/v0.9.0...v0.9.1) (2025-09-09)
 
 
