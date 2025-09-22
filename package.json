@@ -36,7 +36,7 @@
     "@vueuse/integrations": "^13.9.0",
     "p-debounce": "^4.0.0",
     "reka-ui": "^2.5.0",
-    "zod": "^4.1.8"
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.67",
