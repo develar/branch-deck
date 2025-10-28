@@ -16,7 +16,11 @@ pnpm dev                  # Run only the Nuxt frontend
 pnpm test                 # Run all tests (Rust and E2E)
 pnpm test:backend         # Run backend tests with nextest (fast)
 pnpm test-model-ai        # Run AI model tests (requires --release)
-pnpm e2e                  # Run Playwright E2E tests
+
+# E2E Testing (Playwright)
+pnpm setup:e2e            # First-time setup: Install Playwright browsers
+pnpm e2e                  # Run Playwright E2E tests (auto-installs browsers if needed)
+pnpm e2e-up               # Run E2E tests and update snapshots
 DEBUG_E2E=1 pnpm e2e      # Run E2E tests with verbose debug output
 
 # Linting & Formatting
@@ -98,6 +102,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 ### Debugging & Troubleshooting
 - **Slow ML inference**: Ensure you are running in `--release` mode.
 - **E2E Test Issues**: Run with `DEBUG_E2E=1` for verbose logging from the mock server.
+- **Playwright browser errors**: If tests fail with "Executable doesn't exist", run `pnpm setup:e2e` to install browsers. This happens automatically when running `pnpm e2e`, but may be needed after updating `@playwright/test`.
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 
 ## Error Handling Patterns
