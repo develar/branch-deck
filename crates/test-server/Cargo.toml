@@ -17,7 +17,7 @@ name = "regenerate-templates"
 path = "src/bin/regenerate-templates.rs"
 
 [dependencies]
-axum = { version = "0.8.4", features = ["ws"] }
+axum = { version = "0.8.6", features = ["ws"] }
 tokio.workspace = true
 tower-http = { version = "0.6.6", features = ["cors", "trace", "fs"] }
 serde.workspace = true

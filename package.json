@@ -21,42 +21,44 @@
     "lint:typecheck": "nuxt typecheck",
     "lint:frontend": "pnpm run \"/^lint:(js|typecheck)$/\"",
     "lint": "pnpm run \"/^lint:.*/\"",
-    "update-deps": "pnpm update --latest && cargo upgrade --incompatible && cargo update"
+    "update-deps": "pnpm update --latest && cargo upgrade --incompatible && cargo update",
+    "update-gh-deps": "actions-up"
   },
   "dependencies": {
-    "@git-diff-view/vue": "0.0.32",
-    "@nuxt/ui": "4.0.0-alpha.1",
-    "@tanstack/vue-table": "^8.21.3",
-    "@tauri-apps/api": "2.8.0",
-    "@tauri-apps/plugin-log": "2.7.0",
-    "@tauri-apps/plugin-opener": "2.5.0",
-    "@tauri-apps/plugin-store": "2.4.0",
-    "@tauri-apps/plugin-window-state": "2.4.0",
-    "@vueuse/core": "13.9.0",
-    "@vueuse/integrations": "^13.9.0",
-    "p-debounce": "^4.0.0",
-    "reka-ui": "^2.5.0",
-    "zod": "^4.1.8"
+    "@git-diff-view/vue": "0.0.35",
+    "@nuxt/ui": "4.1.0",
+    "@tanstack/vue-table": "8.21.3",
+    "@tauri-apps/api": "2.9.0",
+    "@tauri-apps/plugin-log": "2.7.1",
+    "@tauri-apps/plugin-opener": "2.5.2",
+    "@tauri-apps/plugin-store": "2.4.1",
+    "@tauri-apps/plugin-window-state": "2.4.1",
+    "@vueuse/core": "14.0.0",
+    "@vueuse/integrations": "14.0.0",
+    "p-debounce": "5.1.0",
+    "reka-ui": "2.6.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "^1.2.67",
+    "@iconify-json/lucide": "1.2.71",
     "@nuxt/eslint": "1.9.0",
-    "@nuxt/eslint-config": "^1.9.0",
-    "@playwright/test": "^1.55.0",
-    "@stylistic/eslint-plugin": "5.3.1",
+    "@nuxt/eslint-config": "1.9.0",
+    "@playwright/test": "1.56.1",
+    "@stylistic/eslint-plugin": "5.5.0",
     "@tanstack/table-core": "8.21.3",
-    "@tauri-apps/cli": "2.8.4",
-    "@vitejs/plugin-vue": "^6.0.1",
+    "@tauri-apps/cli": "2.9.1",
+    "@vitejs/plugin-vue": "6.0.1",
     "@vue/eslint-config-typescript": "14.6.0",
-    "eslint": "9.35.0",
-    "eslint-plugin-vue": "10.4.0",
-    "nuxt": "4.1.1",
-    "rolldown-vite": "7.1.9",
-    "tailwindcss": "4.1.13",
-    "typescript": "5.9.2",
-    "vite": "npm:rolldown-vite@7.1.9",
-    "vue": "^3.5.21",
-    "vue-tsc": "3.0.6"
+    "actions-up": "1.4.2",
+    "eslint": "9.38.0",
+    "eslint-plugin-vue": "10.5.1",
+    "nuxt": "4.1.2",
+    "rolldown-vite": "7.1.20",
+    "tailwindcss": "4.1.16",
+    "typescript": "5.9.3",
+    "vite": "npm:rolldown-vite@7.1.20",
+    "vue": "3.5.22",
+    "vue-tsc": "3.1.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -67,8 +69,8 @@
       "vue-demi"
     ],
     "overrides": {
-      "zod": "^4.1.8",
-      "vite": "npm:rolldown-vite@7.1.9"
+      "zod": "^4.1.12",
+      "vite": "npm:rolldown-vite@7.1.20"
     }
   }
 }
