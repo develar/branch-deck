@@ -181,6 +181,14 @@ async getFileContentForDiff(params: GetFileContentForDiffParams) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
+async updateMenuCheckbox(menuId: string, checked: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_menu_checkbox", { menuId, checked }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async downloadModel(progress: TAURI_CHANNEL<DownloadProgress>) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("download_model", { progress }) };

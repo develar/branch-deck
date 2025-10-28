@@ -554,6 +554,11 @@ export const tauriMockScript = () => {
         debug("[Test Mock] Direct invoke called", { cmd, args })
         return handleMockCommand(cmd, args)
       },
+      metadata: {
+        currentWindow: {
+          label: "main"
+        }
+      },
       mockIPC: null as any,
       clearMocks: null as any,
     }
@@ -596,6 +601,13 @@ export const tauriMockScript = () => {
         label: "main",
         close: async () => {
           debug("[Test Mock] window.close called (no-op in tests)")
+        },
+        onFocusChanged: (callback: (focused: boolean) => void) => {
+          debug("[Test Mock] window.onFocusChanged registered (no-op in tests)")
+          // Return an unlisten function for cleanup
+          return Promise.resolve(() => {
+            debug("[Test Mock] window.onFocusChanged unlisten called")
+          })
         }
       }
     }

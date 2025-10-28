@@ -4,6 +4,7 @@ pub mod archived_branches;
 pub mod branch_prefix;
 pub mod clear_model_cache;
 pub mod create_branch;
+pub mod menu_commands;
 pub mod push;
 pub mod repository_browser;
 pub mod suggest_branch_name;

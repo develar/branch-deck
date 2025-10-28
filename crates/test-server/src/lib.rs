@@ -79,6 +79,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/suggest_branch_name_stream", post(tauri_command_bridge::suggest_branch_name_stream))
     .route("/invoke/download_model/{repo_id}", post(tauri_command_bridge::download_model))
     .route("/invoke/cancel_model_download/{repo_id}", post(tauri_command_bridge::cancel_model_download))
+    // Menu command endpoints
+    .route("/invoke/update_menu_checkbox", post(tauri_command_bridge::update_menu_checkbox))
     // Health check
     .route("/health", get(health_check))
     // Serve static files from .output/public with SPA fallback

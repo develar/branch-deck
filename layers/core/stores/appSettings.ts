@@ -7,6 +7,7 @@ const AppSettingsSchema = z.object({
   neutralColor: z.string().optional(),
   radius: z.number().optional(),
   globalUserBranchPrefix: z.string().optional(),
+  autoSyncOnFocus: z.boolean().default(false),
 })
 
 // Create the persistent store

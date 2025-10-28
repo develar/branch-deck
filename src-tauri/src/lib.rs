@@ -1,6 +1,7 @@
 pub mod auto_update;
 pub mod commands;
 pub mod menu;
+pub mod menu_state;
 pub mod progress;
 pub mod repository_state;
 
@@ -18,6 +19,7 @@ use commands::archived_branches::{delete_archived_branch, get_archived_branch_co
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
 use commands::create_branch::create_branch_from_commits;
+use commands::menu_commands::update_menu_checkbox;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::suggest_branch_name::suggest_branch_name_stream;
@@ -29,6 +31,7 @@ use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event};
+use menu_state::MenuState;
 use repository_state::RepositoryStateCache;
 use tauri::Manager;
 
@@ -53,6 +56,7 @@ pub fn run() {
     unapply_branch,
     get_uncommitted_changes,
     get_file_content_for_diff,
+    update_menu_checkbox,
     model_tauri::commands::download_model,
     model_tauri::commands::check_model_status,
     model_tauri::commands::cancel_model_download,
@@ -107,6 +111,7 @@ pub fn run() {
     .setup(move |app| {
       ts_builder.mount_events(app);
 
+      app.manage(MenuState::new());
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
       app.manage(model_tauri::generator::ModelGeneratorState::new(
