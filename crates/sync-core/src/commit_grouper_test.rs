@@ -326,3 +326,146 @@ fn test_oldest_commit_tracking() {
   grouper.add_commit(create_test_commit("third", "(feature) Third"));
   assert_eq!(grouper.oldest_commit.as_ref().unwrap().id, "first");
 }
+
+#[test]
+fn test_autosquash_commits_with_parentheses_prefix() {
+  let mut grouper = CommitGrouper::new();
+
+  // Regular commits with parentheses prefix
+  grouper.add_commit(create_test_commit("1", "(feature-auth) Add login functionality"));
+  grouper.add_commit(create_test_commit("2", "(bugfix) Fix memory leak"));
+
+  // Fixup commits that should be grouped with their base commits
+  grouper.add_commit(create_test_commit("3", "fixup! (feature-auth) Add login functionality"));
+  grouper.add_commit(create_test_commit("4", "squash! (bugfix) Fix memory leak"));
+  grouper.add_commit(create_test_commit("5", "amend! (feature-auth) Add login functionality"));
+
+  // Additional regular commits
+  grouper.add_commit(create_test_commit("6", "(feature-auth) Add password reset"));
+
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
+
+  // Should have 2 groups: feature-auth and bugfix
+  assert_eq!(grouped.len(), 2, "Should have 2 groups");
+  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+
+  // Check feature-auth group - should have 4 commits (1, 3, 5, 6)
+  assert!(grouped.contains_key("feature-auth"));
+  let auth_commits = grouped.get("feature-auth").unwrap();
+  assert_eq!(auth_commits.len(), 4, "feature-auth should have 4 commits (including fixup and amend)");
+  assert_eq!(auth_commits[0].id, "1");
+  assert_eq!(auth_commits[1].id, "3"); // fixup commit
+  assert_eq!(auth_commits[2].id, "5"); // amend commit
+  assert_eq!(auth_commits[3].id, "6");
+
+  // Check bugfix group - should have 2 commits (2, 4)
+  assert!(grouped.contains_key("bugfix"));
+  let bugfix_commits = grouped.get("bugfix").unwrap();
+  assert_eq!(bugfix_commits.len(), 2, "bugfix should have 2 commits (including squash)");
+  assert_eq!(bugfix_commits[0].id, "2");
+  assert_eq!(bugfix_commits[1].id, "4"); // squash commit
+}
+
+#[test]
+fn test_autosquash_commits_with_issue_numbers() {
+  let mut grouper = CommitGrouper::new();
+
+  // Regular commits with issue numbers
+  grouper.add_commit(create_test_commit("1", "JIRA-123: Fix authentication bug"));
+  grouper.add_commit(create_test_commit("2", "ABC-456: Update documentation"));
+
+  // Fixup commits with issue numbers
+  grouper.add_commit(create_test_commit("3", "fixup! JIRA-123: Fix authentication bug"));
+  grouper.add_commit(create_test_commit("4", "squash! ABC-456: Update documentation"));
+
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
+
+  assert_eq!(grouped.len(), 2, "Should have 2 groups");
+  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+
+  // Check JIRA-123 group
+  assert!(grouped.contains_key("JIRA-123"));
+  let jira_commits = grouped.get("JIRA-123").unwrap();
+  assert_eq!(jira_commits.len(), 2, "JIRA-123 should have 2 commits (including fixup)");
+
+  // Check ABC-456 group
+  assert!(grouped.contains_key("ABC-456"));
+  let abc_commits = grouped.get("ABC-456").unwrap();
+  assert_eq!(abc_commits.len(), 2, "ABC-456 should have 2 commits (including squash)");
+}
+
+#[test]
+fn test_autosquash_commits_with_square_brackets_and_issue() {
+  let mut grouper = CommitGrouper::new();
+
+  // Regular commits with square brackets and issue numbers
+  grouper.add_commit(create_test_commit("1", "[subsystem] ISSUE-123: Do stuff"));
+  grouper.add_commit(create_test_commit("2", "[database] XYZ-789: Update schema"));
+
+  // Fixup commits - should be grouped by issue number even with square brackets
+  grouper.add_commit(create_test_commit("3", "fixup! [subsystem] ISSUE-123: Do stuff"));
+  grouper.add_commit(create_test_commit("4", "squash! [database] XYZ-789: Update schema"));
+  grouper.add_commit(create_test_commit("5", "amend! [subsystem] ISSUE-123: Do stuff"));
+
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
+
+  assert_eq!(grouped.len(), 2, "Should have 2 groups");
+  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+
+  // Check ISSUE-123 group
+  assert!(grouped.contains_key("ISSUE-123"));
+  let issue_commits = grouped.get("ISSUE-123").unwrap();
+  assert_eq!(issue_commits.len(), 3, "ISSUE-123 should have 3 commits (including fixup and amend)");
+
+  // Check XYZ-789 group
+  assert!(grouped.contains_key("XYZ-789"));
+  let xyz_commits = grouped.get("XYZ-789").unwrap();
+  assert_eq!(xyz_commits.len(), 2, "XYZ-789 should have 2 commits (including squash)");
+}
+
+#[test]
+fn test_autosquash_commits_edge_cases() {
+  let mut grouper = CommitGrouper::new();
+
+  // Test various spacing scenarios
+  grouper.add_commit(create_test_commit("1", "(feature) Add feature"));
+  grouper.add_commit(create_test_commit("2", "fixup!(feature) Add feature")); // No space after prefix
+  grouper.add_commit(create_test_commit("3", "fixup!  (feature) Add feature")); // Multiple spaces after prefix
+
+  // Test autosquash commits without any recognizable prefix in the base message
+  grouper.add_commit(create_test_commit("4", "fixup! Regular commit message"));
+
+  let (grouped, unassigned, _branch_emails) = grouper.finish();
+
+  // Commits 1, 2, 3 should be grouped under "feature"
+  assert!(grouped.contains_key("feature"));
+  let feature_commits = grouped.get("feature").unwrap();
+  assert_eq!(feature_commits.len(), 3, "feature should have 3 commits");
+
+  // Commit 4 should be unassigned (no prefix in base message)
+  assert_eq!(unassigned.len(), 1, "Should have 1 unassigned commit");
+  assert_eq!(unassigned[0].id, "4");
+}
+
+#[test]
+fn test_autosquash_commits_preserve_original_subject() {
+  let mut grouper = CommitGrouper::new();
+
+  // Add a fixup commit
+  let fixup_commit = create_test_commit("1", "fixup! (feature) Add login");
+  let original_subject = fixup_commit.subject.clone();
+  grouper.add_commit(fixup_commit);
+
+  let (grouped, _unassigned, _branch_emails) = grouper.finish();
+
+  // The commit should be grouped correctly
+  assert!(grouped.contains_key("feature"));
+  let commits = grouped.get("feature").unwrap();
+  assert_eq!(commits.len(), 1);
+
+  // The original subject should be preserved
+  assert_eq!(commits[0].subject, original_subject);
+
+  // The stripped_subject should only contain the message without prefix
+  assert_eq!(commits[0].stripped_subject, "Add login");
+}
