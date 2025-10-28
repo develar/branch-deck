@@ -1,9 +1,7 @@
 # Branch Deck
 
-**💡 Consider [GitButler](https://gitbutler.com) first**
-
 Branch Deck is a workaround for [performance](https://github.com/gitbutlerapp/gitbutler/issues/3235) 
-[issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) with GitButler on large repositories.
+[issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) with [GitButler](https://gitbutler.com) on large repositories.
 
 Automatically create Git branches from commits with prefixed messages. Organize your work into separate branches without manual branch management.
 
