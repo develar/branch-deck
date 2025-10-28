@@ -54,10 +54,10 @@ log = "0.4"
 # Development and telemetry dependencies (feature-gated)
 tauri-plugin-devtools = { version = "2.0.1", optional = true }
 tracing-subscriber = { workspace = true, optional = true }
-opentelemetry = { version = "0.30.0", optional = true }
-opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio-current-thread"], optional = true }
-opentelemetry-otlp = { version = "0.30.0", features = ["http-proto", "reqwest-blocking-client"], optional = true }
-tracing-opentelemetry = { version = "0.31.0", optional = true }
+opentelemetry = { version = "0.31.0", optional = true }
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio-current-thread"], optional = true }
+opentelemetry-otlp = { version = "0.31.0", features = ["http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "0.32.0", optional = true }
 moka.workspace = true
 
 # Crate dependencies
