@@ -2,6 +2,23 @@ import type { FullConfig } from "@playwright/test"
 import { execSync } from "child_process"
 
 /**
+ * Check if Playwright browsers are installed
+ */
+function checkPlaywrightBrowsers() {
+  try {
+    // Use --dry-run to quickly check if browsers are installed
+    execSync("playwright install --dry-run", { stdio: "pipe" })
+  }
+  catch {
+    console.error("\n❌ Playwright browsers are not installed!\n")
+    console.error("Please run one of the following commands:")
+    console.error("  • pnpm setup:e2e           (recommended - installs with system dependencies)")
+    console.error("  • pnpm exec playwright install\n")
+    throw new Error("Playwright browsers missing. Run 'pnpm setup:e2e' to install them.")
+  }
+}
+
+/**
  * Wait for a URL to be available with retries
  */
 async function waitForServer(url: string, name: string, maxRetries = 30, delay = 1000) {
@@ -31,6 +48,9 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
  */
 async function globalSetup(_config: FullConfig) {
   console.log("[Global Setup] Initializing test environment...")
+
+  // Check if Playwright browsers are installed
+  checkPlaywrightBrowsers()
 
   // Build the frontend first
   try {
