@@ -11,6 +11,29 @@
           :disabled="isSyncing || !pathValidation.valid"
         />
 
+        <UPopover>
+          <UButton
+            icon="i-lucide-settings-2"
+            size="sm"
+            color="neutral"
+            variant="ghost"
+            square
+            data-testid="sync-settings-button"
+          />
+          <template #content>
+            <div class="p-3 space-y-2 min-w-[200px]">
+              <USwitch
+                v-model="appSettings.autoSyncOnFocus"
+                size="sm"
+                label="Auto-sync on focus"
+              />
+              <div class="text-xs text-muted">
+                Automatically sync when the window gains focus
+              </div>
+            </div>
+          </template>
+        </UPopover>
+
         <div
           v-if="selectedProject && branchCount > 0 && pathValidation.valid"
           class="hidden sm:flex items-center gap-3 text-xs text-muted"
@@ -38,6 +61,7 @@
 <script lang="ts" setup>
 const { pathValidation, selectedProject } = useRepository()
 const { isSyncing, syncError, branches } = useBranchSync()
+const appSettings = useAppSettingsStore()
 
 // Computed properties for cleaner template
 const branchCount = computed(() => branches.value.length)

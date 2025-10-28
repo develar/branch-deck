@@ -62,6 +62,10 @@
 </template>
 
 <script lang="ts" setup>
+import { getCurrentWindow } from "@tauri-apps/api/window"
+import pDebounce from "p-debounce"
+import { scopedCustomListen } from "~/utils/listen"
+
 // Provide model state for AI features
 provideModelState()
 
@@ -71,8 +75,30 @@ const repository = provideRepository()
 const branchSync = createBranchSyncState(repository)
 provide(BranchSyncKey, branchSync)
 
-const { syncError, isSyncing, branches, unassignedCommits, hasCompletedSync, archivedBranches } = branchSync
+const { syncError, isSyncing, branches, unassignedCommits, hasCompletedSync, archivedBranches, syncBranches } = branchSync
 const { pathValidation, isLoadingBranchPrefix } = repository
+
+// Auto-sync on window focus
+const appSettings = useAppSettingsStore()
+
+// Sync menu checkbox with settings
+useMenuSync()
+
+const debouncedSync = pDebounce(async () => {
+  // Only sync if the setting is enabled and we're not already syncing
+  if (appSettings.autoSyncOnFocus && !isSyncing.value) {
+    await syncBranches()
+  }
+}, 100)
+
+scopedCustomListen("appWindow.onFocusChanged", () => {
+  const appWindow = getCurrentWindow()
+  return appWindow.onFocusChanged(({ payload: focused }) => {
+    if (focused) {
+      void debouncedSync()
+    }
+  })
+})
 
 // Basic repository flags
 // Consider repository selected as soon as a project is chosen

@@ -521,3 +521,16 @@ pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(pa
     }
   }
 }
+
+#[derive(Deserialize)]
+pub struct UpdateMenuCheckboxRequest {
+  #[serde(rename = "menuId")]
+  menu_id: String,
+  checked: bool,
+}
+
+pub async fn update_menu_checkbox(Json(request): Json<UpdateMenuCheckboxRequest>) -> StatusCode {
+  // No-op for tests - just log and return success
+  tracing::debug!("Menu checkbox updated: {} = {}", request.menu_id, request.checked);
+  StatusCode::OK
+}

@@ -1,7 +1,11 @@
-import { type EventCallback, type EventName, listen } from "@tauri-apps/api/event"
+import { type EventCallback, type EventName, listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { error as logError } from "@tauri-apps/plugin-log"
 
 export function scopedListen<T>(event: EventName, handler: EventCallback<T>) {
+  scopedCustomListen(event, () => listen(event, handler))
+}
+
+export function scopedCustomListen(event: string, listenImpl: () => Promise<UnlistenFn>) {
   let unlisten: (() => void) | null
   let isUnmounted = false
   // Set up event listeners for menu-triggered update checks
@@ -14,7 +18,7 @@ export function scopedListen<T>(event: EventName, handler: EventCallback<T>) {
     }
   })
 
-  listen(event, handler)
+  listenImpl()
     .then((it) => {
       if (isUnmounted) {
         it()
