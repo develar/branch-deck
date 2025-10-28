@@ -71,19 +71,31 @@ impl CommitGrouper {
 
     let subject = &commit.subject;
 
+    // Strip git autosquash prefixes (fixup!, squash!, amend!) for grouping purposes
+    // These are used by git rebase --autosquash to combine commits
+    let subject_for_grouping = if let Some(stripped) = subject
+      .strip_prefix("fixup!")
+      .or_else(|| subject.strip_prefix("squash!"))
+      .or_else(|| subject.strip_prefix("amend!"))
+    {
+      stripped.trim_start()
+    } else {
+      subject
+    };
+
     // First try to find explicit prefix in parentheses using manual parsing (faster than regex)
-    if subject.starts_with('(')
-      && let Some(close_paren_pos) = subject.find(')')
+    if subject_for_grouping.starts_with('(')
+      && let Some(close_paren_pos) = subject_for_grouping.find(')')
     {
       // Extract prefix between parentheses
-      let prefix = &subject[1..close_paren_pos];
+      let prefix = &subject_for_grouping[1..close_paren_pos];
       // Only accept non-empty prefixes
       if !prefix.is_empty() {
         // Sanitize the prefix to make it a valid Git branch name
         let sanitized_prefix = sanitize_branch_name(prefix.trim());
 
         // Get the rest of the message after the closing parenthesis
-        let rest = &subject[close_paren_pos + 1..];
+        let rest = &subject_for_grouping[close_paren_pos + 1..];
         let message_text = rest.trim_start();
 
         // Set the stripped subject
@@ -97,7 +109,7 @@ impl CommitGrouper {
 
     // If no explicit parentheses prefix, look for issue number pattern in the subject line
     // Manual parsing for issue pattern (e.g., JIRA-123, ABC-4567)
-    if let Some(issue_number) = find_issue_number(subject) {
+    if let Some(issue_number) = find_issue_number(subject_for_grouping) {
       // For issue-based grouping, we don't strip anything
       // The subject remains as-is
 
