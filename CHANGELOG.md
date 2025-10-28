@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.0](https://github.com/develar/branch-deck/compare/v0.9.2...v0.10.0) (2025-10-28)
+
+
+### Features
+
+* add auto-sync on window focus ([fd18d51](https://github.com/develar/branch-deck/commit/fd18d51fa9dfab92ada0c6a4328b32320fe22921)), closes [#45](https://github.com/develar/branch-deck/issues/45)
+* amend local changes to a branch ([2ceb6a2](https://github.com/develar/branch-deck/commit/2ceb6a24197f47ab80bde04323ae65c8b57c6ec9))
+* support fixup! commits ([9b64d85](https://github.com/develar/branch-deck/commit/9b64d85885ff89491aee8d7361ba7232e1963868)), closes [#51](https://github.com/develar/branch-deck/issues/51)
+
 ## [0.9.2](https://github.com/develar/branch-deck/compare/v0.9.1...v0.9.2) (2025-09-11)
 
 
