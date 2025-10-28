@@ -285,6 +285,12 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     return Err(StatusCode::BAD_REQUEST);
   }
 
+  // Create the repository directory first
+  std::fs::create_dir_all(&repo_dir).map_err(|e| {
+    tracing::error!("Failed to create repository directory: {}", e);
+    StatusCode::INTERNAL_SERVER_ERROR
+  })?;
+
   // Copy template contents to the new unique repository directory
   let mut copy_options = fs_extra::dir::CopyOptions::new();
   copy_options.content_only = true;
