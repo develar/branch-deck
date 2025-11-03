@@ -50,7 +50,7 @@
     "@playwright/test": "1.56.1",
     "@stylistic/eslint-plugin": "5.5.0",
     "@tanstack/table-core": "8.21.3",
-    "@tauri-apps/cli": "2.9.1",
+    "@tauri-apps/cli": "2.9.2",
     "@vitejs/plugin-vue": "6.0.1",
     "@vue/eslint-config-typescript": "14.6.0",
     "actions-up": "1.4.2",
