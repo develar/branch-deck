@@ -45,7 +45,7 @@
   },
   "devDependencies": {
     "@iconify-json/lucide": "1.2.71",
-    "@nuxt/eslint": "1.9.0",
+    "@nuxt/eslint": "1.10.0",
     "@nuxt/eslint-config": "1.9.0",
     "@playwright/test": "1.56.1",
     "@stylistic/eslint-plugin": "5.5.0",
