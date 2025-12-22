@@ -47,7 +47,7 @@
     "@iconify-json/lucide": "1.2.71",
     "@nuxt/eslint": "1.10.0",
     "@nuxt/eslint-config": "1.9.0",
-    "@playwright/test": "1.56.1",
+    "@playwright/test": "1.57.0",
     "@stylistic/eslint-plugin": "5.5.0",
     "@tanstack/table-core": "8.21.3",
     "@tauri-apps/cli": "2.9.2",
