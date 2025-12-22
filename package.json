@@ -61,7 +61,7 @@
     "tailwindcss": "4.1.16",
     "typescript": "5.9.3",
     "vite": "npm:rolldown-vite@7.1.20",
-    "vue": "3.5.22",
+    "vue": "3.5.26",
     "vue-tsc": "3.1.2"
   },
   "pnpm": {
