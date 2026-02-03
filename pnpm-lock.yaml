@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@git-diff-view/vue':
-        specifier: 0.0.35
-        version: 0.0.35(vue@3.5.26(typescript@5.9.3))
+        specifier: 0.0.36
+        version: 0.0.36(vue@3.5.26(typescript@5.9.3))
       '@nuxt/ui':
         specifier: 4.1.0
         version: 4.1.0(@babel/parser@7.28.5)(change-case@5.4.4)(db0@0.3.4)(embla-carousel@8.6.0)(ioredis@5.8.2)(magicast@0.3.5)(rolldown-vite@7.1.20(esbuild@0.25.11)(jiti@2.6.1)(terser@5.44.0)(yaml@2.8.1))(typescript@5.9.3)(vue-router@4.6.3(vue@3.5.26(typescript@5.9.3)))(vue@3.5.26(typescript@5.9.3))(zod@4.1.12)
@@ -707,14 +707,14 @@ packages:
   '@floating-ui/vue@1.1.9':
     resolution: {integrity: sha512-BfNqNW6KA83Nexspgb9DZuz578R7HT8MZw1CfK9I6Ah4QReNWEJsXWHN+SdmOVLNGmTPDi+fDT535Df5PzMLbQ==}
 
-  '@git-diff-view/core@0.0.35':
-    resolution: {integrity: sha512-cdH3BopR6AWUW+6hP78zGyryKxR9JkPgryd1JN78i5k+F9Eo4x/4S23ZF1VZnrpPlGLrSuYfiAZ0ho5m+pTuKg==}
+  '@git-diff-view/core@0.0.36':
+    resolution: {integrity: sha512-A3mN21C/ZdIJz0J9/PSZvLR1dLBu8BG13tVE+w4A9v8dLS5omkoQVjHM9K5GaoJideMhK/11y6V7CMbMXCPQoQ==}
 
-  '@git-diff-view/lowlight@0.0.35':
-    resolution: {integrity: sha512-MVpOxrNn1oHVOTOWUjxLbbf1W4OtVHjj6CHxwJbBRg9ZWZdShBINjuEgHVMSGB6vZuHKfwruRfXw8XxV3aF8zw==}
+  '@git-diff-view/lowlight@0.0.36':
+    resolution: {integrity: sha512-8H3fUfnW+jw8EEbhEOr0vq5jXxZfbhNgvf9ruY6GljQdymj8j2R69k83gwMB/GltWEMt5o5624d8MxD21vqsZA==}
 
-  '@git-diff-view/vue@0.0.35':
-    resolution: {integrity: sha512-9Hy0iDYNoKWhb1HdlitcyLvMkZ89QJ7d/FTADGg/H7Wy4lOSLJ3fX7mAtuMacomI+blRFD3tK5AAOUnMRozczw==}
+  '@git-diff-view/vue@0.0.36':
+    resolution: {integrity: sha512-UaTwDcjpZvyPDHMobDBz2ez0LRV17hGf5l7tyjUY9oBBJYk8M+hP6f3qHbpaBWibBPNHvwuA+8/1zhhQaueDwQ==}
     peerDependencies:
       vue: ^3
 
@@ -4792,6 +4792,7 @@ packages:
   tar@7.5.1:
     resolution: {integrity: sha512-nlGpxf+hv0v7GkWBK2V9spgactGOp0qvfWRxUMjqHyzrt3SgwE48DIv/FhqPHJYLHpgW1opq3nERbz5Anq7n1g==}
     engines: {node: '>=18'}
+    deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exhorbitant rates) by contacting i@izs.me
 
   terser@5.44.0:
     resolution: {integrity: sha512-nIVck8DK+GM/0Frwd+nIhZ84pR/BX7rmXMfYwyg+Sri5oGVE99/E3KvXqpC2xHFxyqXyGHTKBSioxxplrO4I4w==}
@@ -5811,22 +5812,22 @@ snapshots:
       - '@vue/composition-api'
       - vue
 
-  '@git-diff-view/core@0.0.35':
+  '@git-diff-view/core@0.0.36':
     dependencies:
-      '@git-diff-view/lowlight': 0.0.35
+      '@git-diff-view/lowlight': 0.0.36
       fast-diff: 1.3.0
       highlight.js: 11.11.1
       lowlight: 3.3.0
 
-  '@git-diff-view/lowlight@0.0.35':
+  '@git-diff-view/lowlight@0.0.36':
     dependencies:
       '@types/hast': 3.0.4
       highlight.js: 11.11.1
       lowlight: 3.3.0
 
-  '@git-diff-view/vue@0.0.35(vue@3.5.26(typescript@5.9.3))':
+  '@git-diff-view/vue@0.0.36(vue@3.5.26(typescript@5.9.3))':
     dependencies:
-      '@git-diff-view/core': 0.0.35
+      '@git-diff-view/core': 0.0.36
       '@types/hast': 3.0.4
       fast-diff: 1.3.0
       highlight.js: 11.11.1
