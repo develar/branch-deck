@@ -552,9 +552,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bindgen_cuda"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f8489af5b7d17a81bffe37e0f4d6e1e4de87c87329d05447f22c35d95a1227d"
+checksum = "282be55fb326843bb67cccceeeaf21c961ef303f60018f9a2ab69494dad8eaf9"
 dependencies = [
  "glob",
  "num_cpus",
@@ -859,19 +859,20 @@ dependencies = [
 
 [[package]]
 name = "candle-core"
-version = "0.9.2-alpha.1"
+version = "0.9.2-alpha.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14057890649ac8068ff0460f57398f6e3c9d8d168ebec9f43fb894446b131fe3"
+checksum = "eddd07d779675094f961f3673cadf685691e1cf8de96d69b52f1742b5d837491"
 dependencies = [
  "accelerate-src",
  "byteorder",
  "candle-kernels",
  "candle-metal-kernels",
- "cudarc",
- "float8 0.4.2",
+ "cudarc 0.18.2",
+ "float8 0.5.1",
  "gemm",
  "half",
  "libc",
+ "libm",
  "memmap2",
  "num-traits",
  "num_cpus",
@@ -880,7 +881,7 @@ dependencies = [
  "rand 0.9.2",
  "rand_distr",
  "rayon",
- "safetensors",
+ "safetensors 0.6.2",
  "thiserror 1.0.69",
  "ug",
  "ug-cuda",
@@ -891,18 +892,18 @@ dependencies = [
 
 [[package]]
 name = "candle-kernels"
-version = "0.9.2-alpha.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fad895887a51d1824a5d259d2303b94a28e05c15fad84f9f436bc966a9737da"
+checksum = "b8455f84bd810047c7c41216683c1020c915a9f8a740b3b0eabdd4fb2fbaa660"
 dependencies = [
  "bindgen_cuda",
 ]
 
 [[package]]
 name = "candle-metal-kernels"
-version = "0.9.2-alpha.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4b88d24e8252a0ced24c405a7e2cc70d1c88687e6c023f595da102736df6160"
+checksum = "2fdfe9d06de16ce49961e49084e5b79a75a9bdf157246e7c7b6328e87a7aa25d"
 dependencies = [
  "half",
  "objc2 0.6.3",
@@ -927,7 +928,7 @@ dependencies = [
  "num-traits",
  "objc2-metal 0.3.2",
  "rayon",
- "safetensors",
+ "safetensors 0.4.5",
  "serde",
  "thiserror 1.0.69",
 ]
@@ -1464,7 +1465,27 @@ version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9dd759ab14920eb9c07729a7e611cfa30da9088ee96c868a6faffb70c93e678a"
 dependencies = [
+ "half",
+ "libloading 0.8.9",
+]
+
+[[package]]
+name = "cudarc"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3aa12038120eb13347a6ae2ffab1d34efe78150125108627fd85044dd4d6ff1e"
+dependencies = [
  "float8 0.3.0",
+ "half",
+ "libloading 0.8.9",
+]
+
+[[package]]
+name = "cudarc"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d5be1e9776a20360ca270df637b391c85d48ea57508140f30a4e8f6da91884a"
+dependencies = [
  "half",
  "libloading 0.8.9",
 ]
@@ -2071,11 +2092,11 @@ dependencies = [
 
 [[package]]
 name = "float8"
-version = "0.4.2"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4203231de188ebbdfb85c11f3c20ca2b063945710de04e7b59268731e728b462"
+checksum = "cbacabb9d51c97ef48ac17d3c1ac868b4d3639476007300be96b918ac2bc34a4"
 dependencies = [
- "cudarc",
+ "cudarc 0.19.0",
  "half",
  "num-traits",
  "rand 0.9.2",
@@ -5756,6 +5777,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "safetensors"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "172dd94c5a87b5c79f945c863da53b2ebc7ccef4eca24ac63cca66a41aab2178"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7756,7 +7787,7 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "rayon",
- "safetensors",
+ "safetensors 0.4.5",
  "serde",
  "thiserror 1.0.69",
  "tracing",
@@ -7769,7 +7800,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f0a1fa748f26166778c33b8498255ebb7c6bffb472bcc0a72839e07ebb1d9b5"
 dependencies = [
- "cudarc",
+ "cudarc 0.17.4",
  "half",
  "serde",
  "thiserror 1.0.69",
