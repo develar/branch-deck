@@ -6,7 +6,7 @@ description = "Core ML inference package for branch name generation"
 
 [dependencies]
 # ML/AI inference stack (package-specific)
-candle-core = { version = "0.9.2-alpha.1", default-features = false }
+candle-core = { version = "0.9.2-alpha.2", default-features = false }
 candle-nn = { version = "0.9.2-alpha.1", default-features = false }
 candle-transformers = { version = "0.9.2-alpha.1", default-features = false }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
