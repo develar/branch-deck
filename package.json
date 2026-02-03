@@ -29,7 +29,7 @@
     "update-gh-deps": "actions-up"
   },
   "dependencies": {
-    "@git-diff-view/vue": "0.0.35",
+    "@git-diff-view/vue": "0.0.36",
     "@nuxt/ui": "4.1.0",
     "@tanstack/vue-table": "8.21.3",
     "@tauri-apps/api": "2.9.0",
