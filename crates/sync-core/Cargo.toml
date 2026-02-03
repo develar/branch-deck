@@ -14,7 +14,7 @@ indexmap.workspace = true
 tracing.workspace = true
 serde.workspace = true
 specta = { workspace = true, optional = true }
-quick-xml = "0.38"
+quick-xml = "0.39"
 tokio.workspace = true
 
 [features]
