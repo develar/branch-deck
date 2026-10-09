@@ -1,13 +1,24 @@
 import { lazy, Suspense, useEffect } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
+import pDebounce from "p-debounce"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
+import { useMenuSync } from "@/hooks/useMenuSync"
+import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
-import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
+import { branchSyncStore, syncBranches, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
+import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
+import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
+
+/** Window focus handler: syncs if "Auto Sync on Focus" is enabled, a project is selected and no sync is running. */
+const debouncedAutoSync = pDebounce(async () => {
+  if (appSettingsStore.getState().autoSyncOnFocus && getSelectedProject() !== null && !branchSyncStore.getState().isSyncing) {
+    await syncBranches()
+  }
+}, 100)
 
 const WelcomeCard = lazy(() => import("@/components/repository/WelcomeCard").then(it => ({ default: it.WelcomeCard })))
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
@@ -17,7 +28,10 @@ export function BranchCreator() {
   useEffect(() => {
     initRepository()
   }, [])
-  // TODO(Phase 9): menu checkbox sync (useMenuSync) and debounced auto-sync on window focus
+  useMenuSync()
+  useWindowFocus(() => {
+    void debouncedAutoSync()
+  })
 
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)
