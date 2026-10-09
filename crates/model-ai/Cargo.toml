@@ -18,12 +18,12 @@ git-ops = { path = "../git-ops" }
 
 # HTTP client and download functionality
 reqwest.workspace = true
-reqwest-middleware = "0.4"
-reqwest-retry = "0.7"
+reqwest-middleware = "0.5"
+reqwest-retry = "0.9"
 futures-util = "0.3"
 
 [dev-dependencies]
-insta = { version = "1.43", features = ["yaml", "redactions"] }
+insta = { version = "1.49", features = ["yaml", "redactions"] }
 
 [features]
 default = []

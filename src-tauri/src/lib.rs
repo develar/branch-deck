@@ -37,7 +37,9 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  let ts_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
+  // Unified serde mode: our IPC types are one-directional, so separate `_Serialize`/`_Deserialize`
+  // aliases only add noise (and type `Channel<T>` arguments with the wrong phase)
+  let ts_builder = Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
     sync_branches,
     get_branch_prefix_from_git_config,

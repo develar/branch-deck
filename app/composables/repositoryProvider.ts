@@ -1,8 +1,9 @@
 import { watchDebounced } from "@vueuse/core"
 import { commands } from "~/utils/bindings"
-import type { Result } from "~/utils/bindings"
 import { VcsRequestFactory } from "~/composables/git/vcsRequest"
 import { getErrorDetails } from "#layers/shared-ui/utils/errorHandling"
+
+type BranchPrefixResult = Awaited<ReturnType<typeof commands.getBranchPrefixFromGitConfig>>
 
 export interface PathValidation {
   valid: boolean
@@ -22,7 +23,7 @@ export function createRepositoryState() {
   // State
   const pathValidation = ref<PathValidation>({ valid: true })
   const isValidatingPath = ref(false)
-  const gitProvidedBranchPrefix = ref<Result<string, string>>({ status: "error", error: "Not loaded" })
+  const gitProvidedBranchPrefix = ref<BranchPrefixResult>({ status: "error", error: "Not loaded" })
   const isLoadingBranchPrefix = ref(true)
   const loadingPromise = shallowRef<Promise<void> | null>(null)
 

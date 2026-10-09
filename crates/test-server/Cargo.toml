@@ -17,12 +17,12 @@ name = "regenerate-templates"
 path = "src/bin/regenerate-templates.rs"
 
 [dependencies]
-axum = { version = "0.8.6", features = ["ws"] }
+axum = { version = "0.8.9", features = ["ws"] }
 tokio.workspace = true
-tower-http = { version = "0.6.6", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.7.1", features = ["cors", "trace", "fs"] }
 serde.workspace = true
 serde_json.workspace = true
-svix-ksuid = "0.8"
+svix-ksuid = { version = "0.10", default-features = false }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true

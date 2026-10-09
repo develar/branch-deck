@@ -1,6 +1,7 @@
 //! Parse IntelliJ IDEA issue navigation configuration from .idea/vcs.xml
 
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use std::path::Path;
 use sync_types::issue_navigation::{IssueNavigationConfig, IssueNavigationLink};
@@ -43,37 +44,35 @@ fn parse_issue_navigation_xml(xml: &str) -> Option<IssueNavigationConfig> {
     match reader.read_event_into(&mut buf) {
       Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
         match e.name().as_ref() {
-          b"component" => {
+          "component" => {
             // Check if this is the IssueNavigationConfiguration component
             for attr in e.attributes().flatten() {
-              if attr.key.as_ref() == b"name" {
-                let value = String::from_utf8_lossy(&attr.value);
-                if value == "IssueNavigationConfiguration" {
-                  in_issue_navigation = true;
-                }
+              if attr.key.as_ref() == "name" && attr.value == "IssueNavigationConfiguration" {
+                in_issue_navigation = true;
               }
             }
           }
-          b"list" if in_issue_navigation => {
+          "list" if in_issue_navigation => {
             in_links_list = true;
           }
-          b"IssueNavigationLink" if in_links_list => {
+          "IssueNavigationLink" if in_links_list => {
             in_issue_link = true;
             current_issue_regexp = None;
             current_link_regexp = None;
           }
-          b"option" if in_issue_link => {
+          "option" if in_issue_link => {
             // Parse option attributes
             let mut option_name: Option<String> = None;
             let mut option_value: Option<String> = None;
 
             for attr in e.attributes().flatten() {
               match attr.key.as_ref() {
-                b"name" => {
-                  option_name = Some(String::from_utf8_lossy(&attr.value).to_string());
+                "name" => {
+                  option_name = Some(attr.value.into_owned());
                 }
-                b"value" => {
-                  option_value = Some(String::from_utf8_lossy(&attr.value).to_string());
+                "value" => {
+                  // Unescape entities (e.g. `&amp;` in URLs) and normalize whitespace as per XML spec
+                  option_value = attr.normalized_value(XmlVersion::Implicit1_0).ok().map(|v| v.into_owned());
                 }
                 _ => {}
               }
@@ -97,17 +96,17 @@ fn parse_issue_navigation_xml(xml: &str) -> Option<IssueNavigationConfig> {
       }
       Ok(Event::End(ref e)) => {
         match e.name().as_ref() {
-          b"IssueNavigationLink" if in_issue_link => {
+          "IssueNavigationLink" if in_issue_link => {
             // Add the link if we have both regexps
             if let (Some(issue_regexp), Some(link_regexp)) = (current_issue_regexp.clone(), current_link_regexp.clone()) {
               links.push(IssueNavigationLink { issue_regexp, link_regexp });
             }
             in_issue_link = false;
           }
-          b"list" if in_links_list => {
+          "list" if in_links_list => {
             in_links_list = false;
           }
-          b"component" if in_issue_navigation => {
+          "component" if in_issue_navigation => {
             // We can break here as we've found what we need
             break;
           }
@@ -165,6 +164,26 @@ mod tests {
 
     assert_eq!(config.links[1].issue_regexp, r"EA\-(\d+)");
     assert_eq!(config.links[1].link_regexp, "https://web.ea.pages.jetbrains.team/#/issue/$1");
+  }
+
+  #[test]
+  fn test_parse_escaped_attribute_values() {
+    let xml = r##"<project version="4">
+  <component name="IssueNavigationConfiguration">
+    <option name="links">
+      <list>
+        <IssueNavigationLink>
+          <option name="issueRegexp" value="#(\d+)" />
+          <option name="linkRegexp" value="https://tracker.example.com/?project=a&amp;id=$1" />
+        </IssueNavigationLink>
+      </list>
+    </option>
+  </component>
+</project>"##;
+
+    let config = parse_issue_navigation_xml(xml).expect("Config should be parsed");
+    assert_eq!(config.links.len(), 1);
+    assert_eq!(config.links[0].link_regexp, "https://tracker.example.com/?project=a&id=$1");
   }
 
   #[test]

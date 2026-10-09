@@ -8,7 +8,7 @@ use tracing::{error, instrument};
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct UpdateInfo {
   pub current_version: String,
-  #[serde(skip_serializing_if = "String::is_empty")]
+  /// Empty when no update is available
   pub available_version: String,
   pub is_update_available: bool,
   pub status: UpdateStatus,
@@ -216,12 +216,9 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
       error_msg
     })?;
 
-    // Restart the app after installation
+    // Restart the app after installation (never returns)
     info!("Update installed, restarting app");
-    app_handle.restart();
-
-    // This line should never be reached since restart() restarts the app
-    Ok(())
+    app_handle.restart()
   }
 
   #[cfg(not(feature = "auto-update"))]

@@ -9,6 +9,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -236,7 +237,7 @@ fn default_prepopulate_store() -> bool {
 }
 
 pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request): Json<CreateRepositoryRequest>) -> Result<Json<CreateRepositoryResponse>, StatusCode> {
-  let id = Ksuid::new(None, None).to_string();
+  let id = Ksuid::new::<SystemTime>(None, None).to_string();
 
   // Determine model state - default to NotDownloaded
   let model_state = std::sync::Arc::new(std::sync::RwLock::new(request.model_state.unwrap_or(state::ModelState::NotDownloaded)));

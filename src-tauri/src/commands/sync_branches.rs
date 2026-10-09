@@ -15,9 +15,10 @@ pub struct SyncBranchesParams {
 }
 
 /// Synchronizes branches by grouping commits by prefix and creating/updating branches
+// `instrument` must come before `specta::specta`: specta parses the remaining attributes and rejects `%` in `fields`
 #[tauri::command]
-#[specta::specta]
 #[instrument(skip(git_executor, cache, progress), fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix))]
+#[specta::specta]
 pub async fn sync_branches(
   git_executor: State<'_, GitCommandExecutor>,
   cache: State<'_, RepositoryStateCache>,

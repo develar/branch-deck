@@ -56,7 +56,6 @@ pub enum SyncEvent {
   BranchStatusUpdate {
     branch_name: String,
     status: BranchSyncStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<BranchError>,
   },
   /// Unified per-branch detection event for any status (Integrated, Orphaned, NotIntegrated, Partial)

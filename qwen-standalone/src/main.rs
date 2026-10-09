@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use hf_hub::{api::sync::Api, Repo, RepoType};
+use hf_hub::HFClient;
 use model_core::generator_type::GeneratorType;
 use model_core::qwen25::Qwen25BranchGenerator;
 use model_core::quantized_qwen3::QuantizedQwen3BranchGenerator;
@@ -310,44 +310,45 @@ async fn download_or_load_model_path() -> Result<PathBuf> {
   };
   
   println!("📥 Downloading {} from HuggingFace...", model_id);
-  let api = Api::new()?;
-  let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
+  let client = HFClient::new()?;
 
   // Create cache directory if it doesn't exist
   std::fs::create_dir_all(&local_model_path)?;
 
   // Download tokenizer (always needed)
-  let tokenizer_file = if USE_QWEN3 {
-    // For GGUF model, get tokenizer from main Qwen3-1.7B repo
-    let tokenizer_repo = api.repo(Repo::new("Qwen/Qwen3-1.7B".to_string(), RepoType::Model));
-    tokenizer_repo.get("tokenizer.json")?
-  } else {
-    repo.get("tokenizer.json")?
-  };
+  // For GGUF model, get tokenizer from main Qwen3-1.7B repo
+  let tokenizer_repo_id = if USE_QWEN3 { "Qwen/Qwen3-1.7B" } else { model_id };
+  let tokenizer_file = download_file(&client, tokenizer_repo_id, "tokenizer.json").await?;
   std::fs::copy(&tokenizer_file, local_model_path.join("tokenizer.json"))?;
 
   if let Some(gguf_filename) = gguf_file {
     // Download GGUF model
-    let model_file = repo.get(gguf_filename)?;
+    let model_file = download_file(&client, model_id, gguf_filename).await?;
     std::fs::copy(&model_file, local_model_path.join(gguf_filename))?;
   } else {
     // Download SafeTensors model and config
-    let config_file = repo.get("config.json")?;
-    let model_file = repo.get("model.safetensors")?;
+    let config_file = download_file(&client, model_id, "config.json").await?;
+    let model_file = download_file(&client, model_id, "model.safetensors").await?;
     std::fs::copy(&config_file, local_model_path.join("config.json"))?;
     std::fs::copy(&model_file, local_model_path.join("model.safetensors"))?;
-    
+
     // Download optional files if they exist
-    if let Ok(tokenizer_config_file) = repo.get("tokenizer_config.json") {
+    if let Ok(tokenizer_config_file) = download_file(&client, model_id, "tokenizer_config.json").await {
       std::fs::copy(&tokenizer_config_file, local_model_path.join("tokenizer_config.json"))?;
     }
-    if let Ok(merges_file) = repo.get("merges.txt") {
+    if let Ok(merges_file) = download_file(&client, model_id, "merges.txt").await {
       std::fs::copy(&merges_file, local_model_path.join("merges.txt"))?;
     }
   }
 
   println!("✅ Model cached locally for future runs");
   Ok(local_model_path)
+}
+
+/// Download a file from a HuggingFace model repository (`owner/name`) into the HF cache
+async fn download_file(client: &HFClient, repo_id: &str, filename: &str) -> Result<PathBuf> {
+  let (owner, name) = repo_id.split_once('/').ok_or_else(|| anyhow::anyhow!("Invalid repo id: {repo_id}"))?;
+  Ok(client.model(owner, name).download_file().filename(filename).send().await?)
 }
 
 /// Generate text using model-core

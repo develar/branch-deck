@@ -14,7 +14,7 @@ indexmap.workspace = true
 tracing.workspace = true
 serde.workspace = true
 specta = { workspace = true, optional = true }
-quick-xml = "0.39"
+quick-xml = "0.42"
 tokio.workspace = true
 
 [features]
@@ -27,7 +27,7 @@ sync-test-utils = { path = "../sync-test-utils" }
 tempfile.workspace = true
 tokio.workspace = true
 pretty_assertions = { workspace = true }
-criterion = "0.7"
+criterion = "0.8"
 test-log = { workspace = true }
 
 [[bench]]

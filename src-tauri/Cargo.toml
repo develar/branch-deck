@@ -40,8 +40,8 @@ branch-integration = { path = "../crates/branch-integration", features = ["spect
 #noinspection CargoUnusedDependency
 serde_json.workspace = true
 specta = { workspace = true, optional = true }
-specta-typescript = "0.0.9"
-tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -51,7 +51,7 @@ tracing.workspace = true
 log = "0.4"
 
 # Development dependencies (feature-gated)
-tauri-plugin-devtools = { version = "2.0.1", optional = true }
+tauri-plugin-devtools = { version = "2.2.2", optional = true }
 moka.workspace = true
 
 # Crate dependencies
