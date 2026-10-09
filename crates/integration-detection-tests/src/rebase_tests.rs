@@ -34,20 +34,19 @@ async fn test_true_orphan_case_when_original_commits_removed_from_head() {
   let baseline = detect_baseline_branch(&git_executor, local_repo.path().to_str().unwrap(), "main").unwrap();
   println!("Detected baseline: {baseline}");
 
-  let grouped_commits = indexmap::IndexMap::new(); // Empty since we're testing archived branches
+  let active_branches = std::collections::HashSet::new(); // Empty since we're testing archived branches
   let result = detect_integrated_branches(
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
     &baseline, // Use detected baseline instead of hardcoded "main"
     branch_integration::detector::DetectConfig {
-      grouped_commits: &grouped_commits,
+      active_branches: &active_branches,
       progress: &progress,
       strategy: DetectionStrategy::Rebase,
       retention_days: 7,
     },
-  )
-  .await;
+  );
 
   println!("Orphan detection result: {result:?}");
   assert!(result.is_ok(), "Detection should succeed");
@@ -318,8 +317,9 @@ fn test_partial_integration_detection_with_rebase_strategy() {
 /// Test archiving + production cleanup with custom retention
 #[test(tokio::test)]
 async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
-  use super::test_helpers::sync_branches_core_with_strategy_and_retention;
+  use super::test_helpers::options_with_strategy;
   use branch_integration::cache::CacheOps;
+  use sync_core::sync::{SyncOptions, sync_branches};
   use sync_test_utils::TestReporter;
   use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 
@@ -398,13 +398,15 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   // Step 5: Run sync with custom retention (5 days) to trigger production cleanup
   let progress = TestReporter::new();
 
-  sync_branches_core_with_strategy_and_retention(
+  sync_branches(
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
     progress,
-    DetectionStrategy::Rebase,
-    5, // 5 days retention - should delete 10-day-old branches
+    SyncOptions {
+      archive_retention_days: 5, // 5 days retention - should delete 10-day-old branches
+      ..options_with_strategy(DetectionStrategy::Rebase)
+    },
   )
   .await
   .unwrap();

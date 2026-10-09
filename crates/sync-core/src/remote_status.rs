@@ -55,51 +55,32 @@ pub fn compute_remote_status_for_branch(
     });
   }
 
-  // Get ahead/behind counts
+  // Unpushed commits (all commits ahead, including patch-equivalent); their count is "ahead"
   let range = format!("{remote_ref}...{local_ref}");
-  let counts = git_executor.execute_command(&["--no-pager", "rev-list", "--left-right", "--count", &range], repository_path)?;
-  let counts = counts.trim();
-  let mut parts = counts.split_whitespace();
-  let _raw_behind: u32 = parts.next().unwrap_or("0").parse().unwrap_or(0);
-  let ahead: u32 = parts.next().unwrap_or("0").parse().unwrap_or(0);
+  let unpushed_range = format!("{remote_ref}..{local_ref}");
+  let unpushed_commits = git_executor.execute_command_lines(&["--no-pager", "rev-list", "--reverse", &unpushed_range], repository_path)?;
 
   // Calculate commits behind using cherry-pick to exclude patch-equivalent commits
   // This prevents showing rebased commits as "removed or changed locally"
   let behind_output = git_executor.execute_command(&["--no-pager", "rev-list", "--cherry-pick", "--left-only", "--count", &range], repository_path)?;
   let behind: u32 = behind_output.trim().parse().unwrap_or(0);
 
-  // Early return if nothing ahead
-  if ahead == 0 {
-    let last_push_time = get_last_push_time(git_executor, repository_path, &remote_ref);
-    return Ok(RemoteStatusUpdate {
-      branch_name: branch_name.to_string(),
-      remote_exists: true,
-      unpushed_commits: Vec::new(),
-      commits_behind: behind,
-      my_unpushed_count: 0,
-      last_push_time,
-    });
-  }
+  // Calculate my_unpushed_count only if something is ahead and we have an email to filter by
+  let my_unpushed_count = match my_email {
+    Some(email) if !unpushed_commits.is_empty() => {
+      // Get patch-unique commits by the specific author, excluding those already in baseline
+      // Using git's --author filter and ^baseline to exclude commits already in master
+      let author_filter = format!("--author={email}");
+      let baseline_exclusion = format!("^{baseline_branch}");
+      let output = git_executor.execute_command_lines(
+        &["--no-pager", "rev-list", "--cherry-pick", "--right-only", &author_filter, &baseline_exclusion, &range],
+        repository_path,
+      )?;
 
-  // Get unpushed commits (all commits ahead, including patch-equivalent)
-  let unpushed_range = format!("{remote_ref}..{local_ref}");
-  let unpushed_commits = git_executor.execute_command_lines(&["--no-pager", "rev-list", "--reverse", &unpushed_range], repository_path)?;
-
-  // Calculate my_unpushed_count only if we have an email to filter by
-  let my_unpushed_count = if let Some(email) = my_email {
-    // Get patch-unique commits by the specific author, excluding those already in baseline
-    // Using git's --author filter and ^baseline to exclude commits already in master
-    let author_filter = format!("--author={email}");
-    let baseline_exclusion = format!("^{baseline_branch}");
-    let output = git_executor.execute_command_lines(
-      &["--no-pager", "rev-list", "--cherry-pick", "--right-only", &author_filter, &baseline_exclusion, &range],
-      repository_path,
-    )?;
-
-    // Count patch-unique commits by the user that are not already in baseline
-    u32::try_from(output.iter().filter(|line| !line.is_empty()).count()).unwrap_or(u32::MAX)
-  } else {
-    0
+      // Count patch-unique commits by the user that are not already in baseline
+      u32::try_from(output.iter().filter(|line| !line.is_empty()).count()).unwrap_or(u32::MAX)
+    }
+    _ => 0,
   };
 
   let last_push_time = get_last_push_time(git_executor, repository_path, &remote_ref);

@@ -359,7 +359,16 @@ fn test_prefix_stripping_in_sync_branches() {
   let progress_reporter = TestReporter::new();
 
   let rt = tokio::runtime::Runtime::new().unwrap();
-  let result = rt.block_on(async { crate::sync::sync_branches_core(&git_executor, test_repo.path().to_str().unwrap(), "test-prefix", progress_reporter).await });
+  let result = rt.block_on(async {
+    crate::sync::sync_branches(
+      &git_executor,
+      test_repo.path().to_str().unwrap(),
+      "test-prefix",
+      progress_reporter,
+      crate::sync::SyncOptions::default(),
+    )
+    .await
+  });
 
   assert!(result.is_ok(), "Sync should succeed: {:?}", result.err());
 
@@ -405,7 +414,7 @@ use sync_test_utils::TestReporter;
 
 #[tokio::test]
 async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
-  use crate::sync::sync_branches_core;
+  use crate::sync::{SyncOptions, sync_branches};
   use sync_types::SyncEvent;
 
   let test_repo = TestRepo::new();
@@ -421,7 +430,7 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
 
   // First sync - should create virtual branches
   let progress = TestReporter::new();
-  sync_branches_core(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone()).await?;
+  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
 
   // Verify git directory exists
   let git_dir = test_repo.path().join(".git");
@@ -452,7 +461,7 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
 
   // Second sync - should reuse existing commits and only process the new one
   let progress2 = TestReporter::new();
-  sync_branches_core(&git_executor, test_repo.path().to_str().unwrap(), "test", progress2.clone()).await?;
+  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress2.clone(), SyncOptions::default()).await?;
 
   // Check that the auth branch was updated but cache wasn't
   let events = progress2.get_events();
@@ -482,9 +491,47 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()> {
+  use crate::sync::{SyncOptions, sync_branches};
+  use sync_types::SyncEvent;
+
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test Project");
+  for branch in ["a", "b", "c", "d"] {
+    test_repo.create_commit(&format!("({branch}) Change {branch}"), &format!("{branch}.txt"), branch);
+  }
+
+  let progress = TestReporter::new();
+  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
+
+  let events = progress.get_events();
+  // Phase 1 events are sent sequentially, in this order, before any branch task starts
+  assert!(matches!(events[0], SyncEvent::IssueNavigationConfig { .. }), "{:?}", events[0]);
+  assert!(matches!(events[1], SyncEvent::UnassignedCommits { .. }), "{:?}", events[1]);
+  assert!(matches!(&events[2], SyncEvent::BranchesGrouped { branches, .. } if branches.len() == 4), "{:?}", events[2]);
+  assert_eq!(events.iter().filter(|e| matches!(e, SyncEvent::BranchesGrouped { .. })).count(), 1);
+
+  let created = events
+    .iter()
+    .filter(|e| {
+      matches!(
+        e,
+        SyncEvent::BranchStatusUpdate {
+          status: git_ops::model::BranchSyncStatus::Created,
+          ..
+        }
+      )
+    })
+    .count();
+  assert_eq!(created, 4, "every branch must report its final status");
+  Ok(())
+}
+
 #[tokio::test]
 async fn test_zero_commit_sync_clears_branch_set() -> anyhow::Result<()> {
-  use crate::sync::sync_branches_core;
+  use crate::sync::{SyncOptions, sync_branches};
   use sync_types::SyncEvent;
 
   let test_repo = TestRepo::new();
@@ -492,7 +539,7 @@ async fn test_zero_commit_sync_clears_branch_set() -> anyhow::Result<()> {
   test_repo.create_commit("Initial commit", "README.md", "# Test Project");
 
   let progress = TestReporter::new();
-  sync_branches_core(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone()).await?;
+  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
 
   let events = progress.get_events();
   let grouped: Vec<_> = events

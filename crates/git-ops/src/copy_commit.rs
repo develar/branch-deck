@@ -42,9 +42,10 @@ pub struct ProgressInfo<'a> {
 }
 
 // Parameters for creating or updating a commit
+#[derive(Clone, Copy)]
 pub struct CreateCommitParams<'a> {
   pub commit: &'a Commit,
-  pub new_parent_oid: String,
+  pub new_parent_oid: &'a str,
   pub reuse_if_possible: bool,
   pub repo_path: &'a str,
   pub progress: &'a dyn ProgressCallback,
@@ -110,7 +111,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     // No parent means this is the initial commit, use empty tree
     String::new()
   };
-  let new_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, &new_parent_oid)?;
+  let new_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, new_parent_oid)?;
 
   // Check if trees match for fast path
   let tree_id = if original_parent_tree_id == new_parent_tree_id {
@@ -121,7 +122,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     // Use cherry-pick for efficient 3-way merge with conflict handling
     let cherry_progress = CherryPickProgress::new(progress, progress_info.branch_name);
-    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, &new_parent_oid, Some(&cherry_progress), tree_id_cache)?
+    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, new_parent_oid, Some(&cherry_progress), tree_id_cache)?
   };
 
   // Reconstruct message with stripped subject for the actual git commit
@@ -135,7 +136,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
   };
 
   // Create new commit using git commit-tree
-  let commit_args = vec!["commit-tree", &tree_id, "-p", &new_parent_oid, "-m", &commit_message];
+  let commit_args = vec!["commit-tree", &tree_id, "-p", new_parent_oid, "-m", &commit_message];
 
   // Use Unix timestamp directly (Git accepts this format)
   let author_date = commit.author_timestamp.to_string();

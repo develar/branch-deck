@@ -1,8 +1,9 @@
-use super::test_helpers::{setup_test_repos, sync_branches_core_with_strategy};
+use super::test_helpers::{options_with_strategy, setup_test_repos};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use sync_core::remote_status::compute_remote_status_for_branch;
+use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_log::test;
@@ -87,12 +88,12 @@ impl TestScenario {
 
   async fn run_sync(&self, branch_prefix: &str) -> TestReporter {
     let progress_reporter = TestReporter::new();
-    let result = sync_branches_core_with_strategy(
+    let result = sync_branches(
       &self.git_executor,
       self.local_repo.path().to_str().unwrap(),
       branch_prefix,
       progress_reporter.clone(),
-      DetectionStrategy::Rebase,
+      options_with_strategy(DetectionStrategy::Rebase),
     )
     .await;
     assert!(result.is_ok(), "Sync should succeed");

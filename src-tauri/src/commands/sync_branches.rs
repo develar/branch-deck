@@ -3,7 +3,7 @@ use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use model_tauri::command_error::CommandError;
 use serde::Deserialize;
-use sync_core::sync::{IssueConfigSource, sync_branches_core_with_cache};
+use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_types::SyncEvent;
 use tauri::State;
 use tauri::ipc::Channel;
@@ -42,8 +42,11 @@ pub async fn sync_branches(
   // Use the branch-sync implementation with TauriProgressReporter adapter
   let progress_adapter = TauriProgressReporter::new(progress);
 
-  // Use the version with cache support
-  sync_branches_core_with_cache(&git_executor, repository_path, branch_prefix, progress_adapter, issue_config)
+  let options = SyncOptions {
+    issue_config,
+    ..Default::default()
+  };
+  sync_core::sync::sync_branches(&git_executor, repository_path, branch_prefix, progress_adapter, options)
     .await
     .map_err(|e| {
       error!(error = ?e, "Branch synchronization failed");

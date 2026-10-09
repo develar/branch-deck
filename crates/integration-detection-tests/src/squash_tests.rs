@@ -2,9 +2,10 @@
 
 use super::integration_tests::test_integration_workflow_helper;
 use super::test_helpers::{
-  IntegrationMethod, UpdateMethod, get_commit_timestamp, setup_test_repos, sync_branches_core_with_strategy, verify_archived_branches_listed, verify_detection_cache_works,
+  IntegrationMethod, UpdateMethod, get_commit_timestamp, options_with_strategy, setup_test_repos, verify_archived_branches_listed, verify_detection_cache_works,
 };
 use branch_integration::strategy::DetectionStrategy;
+use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use sync_types::branch_integration::IntegrationConfidence;
@@ -41,7 +42,16 @@ fn test_squash_merge_detection() {
 
   // Sync to create virtual branch with notes
   let progress_reporter = TestReporter::new();
-  let result = rt.block_on(async { sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter, DetectionStrategy::All).await });
+  let result = rt.block_on(async {
+    sync_branches(
+      &git_executor,
+      local_repo.path().to_str().unwrap(),
+      "user",
+      progress_reporter,
+      options_with_strategy(DetectionStrategy::All),
+    )
+    .await
+  });
   assert!(result.is_ok());
 
   // Push branch
@@ -80,12 +90,12 @@ fn test_squash_merge_detection() {
 
   let progress_reporter2 = TestReporter::new();
   let result = rt.block_on(async {
-    sync_branches_core_with_strategy(
+    sync_branches(
       &git_executor,
       local_repo.path().to_str().unwrap(),
       "user",
       progress_reporter2.clone(),
-      DetectionStrategy::All,
+      options_with_strategy(DetectionStrategy::All),
     )
     .await
   });

@@ -331,7 +331,7 @@ fn test_reword_updates_branch_ref() {
 
 #[test]
 fn test_create_branch_with_missing_commits_scenario() {
-  use crate::sync::sync_branches_core;
+  use crate::sync::{SyncOptions, sync_branches};
   use sync_test_utils::TestReporter;
   use sync_types::SyncEvent;
 
@@ -407,11 +407,11 @@ fn test_create_branch_with_missing_commits_scenario() {
   assert!(result.success, "Branch creation should succeed");
   assert_eq!(result.reworded_count, 1, "Should reword 1 commit");
 
-  // Now run sync_branches_core to see if the branch is detected
+  // Now run sync_branches to see if the branch is detected
   let progress_reporter = TestReporter::new();
 
   let rt = tokio::runtime::Runtime::new().unwrap();
-  let sync_result = rt.block_on(async { sync_branches_core(&git_executor, repo_path, "test-prefix", progress_reporter.clone()).await });
+  let sync_result = rt.block_on(async { sync_branches(&git_executor, repo_path, "test-prefix", progress_reporter.clone(), SyncOptions::default()).await });
 
   assert!(sync_result.is_ok(), "Sync should succeed: {:?}", sync_result.err());
 
@@ -457,7 +457,7 @@ fn test_create_branch_with_missing_commits_scenario() {
   println!("Branch 'test-prefix/virtual/security' exists: {branch_exists}");
 
   // This test verifies the CORRECT backend behavior:
-  // When a branch has conflicts, sync_branches_core reports it but doesn't create the branch
+  // When a branch has conflicts, sync_branches reports it but doesn't create the branch
   // This is INTENTIONAL - we don't want to create broken branches
   if has_security_in_grouped && !security_branch_events.is_empty() && !branch_exists {
     println!("\nBACKEND BEHAVIOR VERIFIED (CORRECT):");

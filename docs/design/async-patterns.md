@@ -103,7 +103,14 @@ Pattern structure:
 Parallel operations:
 - Use `JoinSet::spawn_blocking` directly
 - Avoid `spawn(async { spawn_blocking(...) })` double-spawning
-- Semaphore for concurrency limiting when needed
+- Semaphore for concurrency limiting when needed (`max_parallel_git_processes()` in `git_executor::concurrency`)
+
+Sync pipeline (`sync_core::sync::sync_branches`):
+- Phase 1, one `spawn_blocking`: issue config, baseline, commit grouping; sends `IssueNavigationConfig`,
+  `UnassignedCommits` and `BranchesGrouped` (also when empty) before any per-branch work starts, so the
+  frontend always knows the branch set before per-branch events arrive
+- Phase 2, concurrently: integration detection in one `spawn_blocking`, and branch processing as
+  semaphore-bounded `JoinSet::spawn_blocking` tasks; joined with `tokio::join!` so one failure doesn't orphan the other
 
 ## Alternatives Considered
 

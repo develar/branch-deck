@@ -86,5 +86,3 @@ pub struct GroupedBranchInfo {
 pub trait ProgressReporter: Send + Sync {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()>;
 }
-
-pub mod ordered_progress_reporter;

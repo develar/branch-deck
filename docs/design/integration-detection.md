@@ -80,9 +80,10 @@ flowchart TB
   - Compact encoding with field omission for defaults
 
 - **Performance Optimizations**:
-  - Batch fetch all branch data in single git call
-  - JoinSet for parallel processing
-  - Stream results as events for UI responsiveness
+  - Batch fetch all branch data (tips and subjects in one `for-each-ref`, notes in one `log --no-walk --stdin`)
+  - `detect_integrated_branches` is synchronous and runs in one `spawn_blocking`; fresh detections run on
+    `std::thread::scope` workers bounded by `git_executor::concurrency::max_parallel_git_processes()`
+  - Stream results as events for UI responsiveness; cache notes are written sequentially afterwards
 
 ## Alternatives Considered
 

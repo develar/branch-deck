@@ -76,17 +76,17 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   cache_ops.write(&old_orphaned_tip, &not_integrated_info).unwrap();
   cache_ops.write(&recent_integrated_tip, &integrated_info).unwrap();
 
-  // Run detection (which triggers cleanup using cached notes). Use empty grouped_commits.
+  // Run detection (which triggers cleanup using cached notes). No active branches.
   let baseline = detect_baseline_branch(&git_executor, repo_path, "main").unwrap_or_else(|_| "origin/main".to_string());
-  let grouped_commits = indexmap::IndexMap::new();
+  let active_branches = std::collections::HashSet::new();
   let progress = TestReporter::new();
   let cfg = DetectConfig {
-    grouped_commits: &grouped_commits,
+    active_branches: &active_branches,
     progress: &progress,
     strategy: DetectionStrategy::Rebase,
     retention_days: 7,
   };
-  detect_integrated_branches(&git_executor, repo_path, "user", &baseline, cfg).await.unwrap();
+  detect_integrated_branches(&git_executor, repo_path, "user", &baseline, cfg).unwrap();
 
   // Verify: only old_integrated was deleted. All others remain.
   let remaining = local_repo.list_branches("user/archived/*").unwrap();

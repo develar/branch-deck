@@ -1,20 +1,24 @@
-use crate::branch_processor::{BranchProcessingParams, process_single_branch};
+use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::issue_navigation::load_issue_navigation_config;
 use anyhow::{Result, anyhow};
-use branch_integration::{detector::detect_integrated_branches, strategy::DetectionStrategy};
+use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
+use branch_integration::detector::{DetectConfig, detect_integrated_branches};
+use branch_integration::strategy::DetectionStrategy;
+use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use sync_types::issue_navigation::IssueNavigationConfig;
-use sync_types::ordered_progress_reporter::OrderedProgressReporter;
 use sync_types::{GroupedBranchInfo, ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_range, has_issue_reference};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 
 /// Where the sync takes the issue navigation configuration from
 pub enum IssueConfigSource {
@@ -39,7 +43,7 @@ impl Default for SyncOptions {
     Self {
       issue_config: IssueConfigSource::Load,
       detection_strategy: branch_integration::strategy::get_detection_strategy(),
-      archive_retention_days: 7,
+      archive_retention_days: ARCHIVE_RETENTION_DAYS,
     }
   }
 }
@@ -53,6 +57,8 @@ impl Default for SyncOptions {
 ///    - Then tries `remote/preferred_branch` (e.g., origin/master)
 ///    - Finally tries remote/master and remote/main
 ///
+/// At most three git processes: `remote`, the `@{u}` probe and one `for-each-ref` for all candidates.
+///
 /// # Arguments
 /// * `git_executor` - The git command executor
 /// * `repository_path` - Path to the repository
@@ -65,72 +71,38 @@ impl Default for SyncOptions {
 /// Returns an error if no suitable baseline branch can be found
 #[instrument(skip(git_executor))]
 pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path: &str, preferred_branch: &str) -> Result<String> {
-  // First, check if we have any remotes
+  // The first remote (usually "origin"), if any
   let remotes_output = git_executor.execute_command(&["--no-pager", "remote"], repository_path)?;
-  let has_remotes = !remotes_output.trim().is_empty();
-
-  if !has_remotes {
-    // Local repository without remotes
-    // Check if the preferred branch exists locally
-    // Check if the preferred branch, then a common branch name, exists locally
-    for branch in [preferred_branch, "master", "main"] {
-      if git_executor.ref_exists(repository_path, &format!("refs/heads/{branch}")) {
-        return Ok(branch.to_string());
-      }
-    }
-
-    return Err(anyhow!("No baseline branch found. Repository has no remotes and no main branch."));
-  }
+  let first_remote = remotes_output.lines().map(str::trim).find(|remote| !remote.is_empty());
 
   // Try to get the upstream branch for the current branch
-  if let Ok((upstream, 0)) = git_executor.execute_command_with_status(&["--no-pager", "rev-parse", "--abbrev-ref", "@{u}"], repository_path) {
+  if first_remote.is_some()
+    && let Ok((upstream, 0)) = git_executor.execute_command_with_status(&["--no-pager", "rev-parse", "--abbrev-ref", "@{u}"], repository_path)
+  {
     return Ok(upstream);
   }
 
-  // Try to find the remote tracking branch for the preferred branch
-  // Get the first remote (usually "origin")
-  let first_remote = remotes_output.lines().next().unwrap_or("origin");
+  // Candidates in priority order: (full ref, name to return)
+  let candidates: Vec<(String, String)> = [preferred_branch, "master", "main"]
+    .into_iter()
+    .map(|branch| match first_remote {
+      None => (format!("refs/heads/{branch}"), branch.to_string()),
+      Some(remote) => (format!("refs/remotes/{remote}/{branch}"), format!("{remote}/{branch}")),
+    })
+    .collect();
 
-  // Try the preferred branch, then common branch names, with the remote
-  for branch in [preferred_branch, "master", "main"] {
-    let remote_branch = format!("{first_remote}/{branch}");
-    if git_executor.ref_exists(repository_path, &format!("refs/remotes/{remote_branch}")) {
-      return Ok(remote_branch);
-    }
+  let mut args = vec!["for-each-ref", "--format=%(refname)"];
+  args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));
+  let existing: HashSet<String> = git_executor.execute_command_lines(&args, repository_path)?.into_iter().collect();
+
+  if let Some((_, name)) = candidates.into_iter().find(|(full_ref, _)| existing.contains(full_ref)) {
+    return Ok(name);
   }
 
-  Err(anyhow!(
-    "No baseline branch found. Tried upstream tracking, {first_remote}/{{{preferred_branch},master,main}}"
-  ))
-}
-
-/// Core sync branches logic without Tauri dependencies
-#[instrument(skip(git_executor, progress), fields(repository_path = %repository_path, branch_prefix = %branch_prefix))]
-pub async fn sync_branches_core<P: ProgressReporter + Clone + 'static>(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, progress: P) -> Result<()> {
-  // Delegate to the version with cache support, passing None for cached state
-  sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, IssueConfigSource::Load).await
-}
-
-/// Core sync branches logic with an explicit issue config source
-#[instrument(skip(git_executor, progress, issue_config), fields(repository_path = %repository_path, branch_prefix = %branch_prefix))]
-pub async fn sync_branches_core_with_cache<P: ProgressReporter + Clone + 'static>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  progress: P,
-  issue_config: IssueConfigSource,
-) -> Result<()> {
-  sync_branches(
-    git_executor,
-    repository_path,
-    branch_prefix,
-    progress,
-    SyncOptions {
-      issue_config,
-      ..Default::default()
-    },
-  )
-  .await
+  match first_remote {
+    None => Err(anyhow!("No baseline branch found. Repository has no remotes and no main branch.")),
+    Some(remote) => Err(anyhow!("No baseline branch found. Tried upstream tracking, {remote}/{{{preferred_branch},master,main}}")),
+  }
 }
 
 /// Compute summary for a branch based on its name and commits
@@ -159,10 +131,9 @@ fn compute_branch_summary(branch_name: &str, commits: &[Commit]) -> String {
 
     // Check if it's a cleanup/refactor/format commit AFTER stripping issue prefix
     // Use ASCII case-insensitive comparison for efficiency
-    if (summary.len() >= 7 && summary[..7].eq_ignore_ascii_case("cleanup"))
-      || (summary.len() >= 8 && summary[..8].eq_ignore_ascii_case("refactor"))
-      || (summary.len() >= 6 && summary[..6].eq_ignore_ascii_case("format"))
-    {
+    // `get` instead of slicing: the byte length of the keyword may fall inside a multi-byte character
+    let starts_with_keyword = |keyword: &str| summary.get(..keyword.len()).is_some_and(|start| start.eq_ignore_ascii_case(keyword));
+    if starts_with_keyword("cleanup") || starts_with_keyword("refactor") || starts_with_keyword("format") {
       // Save the first non-empty summary as fallback (even if it's cleanup)
       if fallback_summary.is_none() {
         fallback_summary = Some(summary.to_string());
@@ -225,41 +196,29 @@ pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Com
 
   // Sort branches by latest commit time (newest first). If committer times are equal (e.g.,
   // after a rebase that rewrites many commits at once), tie-break by latest author time.
-  // Finally, use name for a stable ordering.
-  grouped_branches_for_ui.sort_by(|a, b| {
-    use std::cmp::Ordering;
-
-    let primary = b.latest_commit_time.cmp(&a.latest_commit_time);
-    if primary != Ordering::Equal {
-      return primary;
-    }
-
-    let a_author_latest = a.commits.iter().map(|c| c.author_timestamp).max().unwrap_or(0);
-    let b_author_latest = b.commits.iter().map(|c| c.author_timestamp).max().unwrap_or(0);
-
-    let secondary = b_author_latest.cmp(&a_author_latest);
-    if secondary != Ordering::Equal {
-      return secondary;
-    }
-
-    // Stable final tie-breaker
-    a.name.cmp(&b.name)
+  // Finally, use name for a stable ordering. The key is computed once per branch.
+  grouped_branches_for_ui.sort_by_cached_key(|branch| {
+    let latest_author_time = branch.commits.iter().map(|c| c.author_timestamp).max().unwrap_or(0);
+    (Reverse(branch.latest_commit_time), Reverse(latest_author_time), branch.name.clone())
   });
 
   grouped_branches_for_ui
 }
 
-/// Core sync branches logic
-#[instrument(skip(git_executor, progress, options), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = matches!(options.issue_config, IssueConfigSource::Cached(_))))]
-pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  progress: P,
-  options: SyncOptions,
-) -> Result<()> {
+/// Result of the sequential first phase of a sync
+struct PreparedSync {
+  baseline_branch: String,
+  branches: IndexMap<String, Vec<Commit>>,
+  branch_emails: HashMap<String, Option<String>>,
+  /// Parent of the oldest commit ahead of the baseline; `None` without commits (or when that commit is a root)
+  first_parent_id: Option<String>,
+}
+
+/// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
+/// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
+fn prepare_sync(git_executor: &GitCommandExecutor, repository_path: &str, issue_config: IssueConfigSource, progress: &dyn ProgressReporter) -> Result<PreparedSync> {
   // Use cached issue config if available (including a cached "none"), otherwise load it
-  let issue_config = match options.issue_config {
+  let issue_config = match issue_config {
     IssueConfigSource::Cached(cached) => {
       debug!("Using cached issue navigation config");
       cached
@@ -269,8 +228,6 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       load_issue_navigation_config(repository_path)
     }
   };
-
-  // Send issue navigation config at the beginning
   progress.send(SyncEvent::IssueNavigationConfig { config: issue_config })?;
 
   // Detect the baseline branch (origin/master, origin/main, or local master/main)
@@ -278,191 +235,161 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
 
   // Use streaming commit processing
   let mut grouper = CommitGrouper::new();
-
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
     grouper.add_commit(commit);
     Ok(())
   })?;
 
-  // Check if we have any commits
-  if grouper.commit_count == 0 {
-    info!(commit_count = 0, "No commits ahead of baseline, checking for integrated branches");
-
-    // Send empty unassigned commits and an empty branch set to clear stale data from a previous sync
-    progress.send(SyncEvent::UnassignedCommits { commits: Vec::new() })?;
-    progress.send(SyncEvent::BranchesGrouped {
-      branches: Vec::new(),
-      baseline_branch: baseline_branch.clone(),
-    })?;
-
-    detect_integrated_branches(
-      git_executor,
-      repository_path,
-      branch_prefix,
-      &baseline_branch,
-      branch_integration::detector::DetectConfig {
-        grouped_commits: &IndexMap::new(),
-        progress: &progress,
-        strategy: options.detection_strategy,
-        retention_days: options.archive_retention_days,
-      },
-    )
-    .await?;
-
-    return Ok(());
-  }
-
   // The virtual branches are rebuilt on top of the parent of the oldest commit
-  let first_parent_id = grouper.first_parent_id.clone();
-
-  // group commits by prefix first to get all branch names
+  let first_parent_id = grouper.first_parent_id.take();
+  let commit_count = grouper.commit_count;
   let GroupedCommits {
-    branches: grouped_commits,
-    unassigned: unassigned_commits,
+    branches,
+    unassigned,
     branch_emails,
   } = grouper.finish();
+  info!(commit_count, total_branches = branches.len(), "Fetched and grouped commits");
 
-  let total_branches = grouped_commits.len();
-
-  info!(total_branches, "Fetched and grouped commits");
-
-  // Always send unassigned commits (even if empty) to ensure frontend updates
-  let unassigned_commits_for_ui: Vec<Commit> = if unassigned_commits.is_empty() {
-    Vec::new()
-  } else {
-    unassigned_commits
-      .into_iter()
-      .rev() // Reverse to show newest commits first
-      .collect()
-  };
-
+  // Always send unassigned commits (even if empty) to ensure the frontend updates; newest first
   progress.send(SyncEvent::UnassignedCommits {
-    commits: unassigned_commits_for_ui,
+    commits: unassigned.into_iter().rev().collect(),
   })?;
 
-  // Create ordered progress reporter to ensure correct event ordering
-  let ordered_progress = OrderedProgressReporter::new(progress.clone());
+  progress.send(SyncEvent::BranchesGrouped {
+    branches: prepare_branches_for_ui(&branches, &branch_emails),
+    baseline_branch: baseline_branch.clone(),
+  })?;
 
-  let ui_preparation_handle = tokio::spawn({
-    let grouped_commits = grouped_commits.clone();
-    let branch_emails = branch_emails.clone();
-    let baseline_branch = baseline_branch.clone();
-    let ordered_progress = ordered_progress.clone();
+  Ok(PreparedSync {
+    baseline_branch,
+    branches,
+    branch_emails,
+    first_parent_id,
+  })
+}
 
-    async move {
-      let grouped_branches_for_ui = prepare_branches_for_ui(&grouped_commits, &branch_emails);
-      ordered_progress.send(SyncEvent::BranchesGrouped {
-        branches: grouped_branches_for_ui,
-        baseline_branch,
-      })
+/// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` at a time.
+/// Returns the first failure, naming its branch.
+async fn process_branches<P: ProgressReporter + Clone + 'static>(
+  context: BranchSyncContext<P>,
+  branches: IndexMap<String, Vec<Commit>>,
+  mut branch_emails: HashMap<String, Option<String>>,
+) -> Result<()> {
+  let context = Arc::new(context);
+  let semaphore = Arc::new(Semaphore::new(max_parallel_git_processes()));
+  let mut tasks = JoinSet::new();
+
+  for (branch_idx, (branch_name, commits)) in branches.into_iter().enumerate() {
+    let permit = semaphore.clone().acquire_owned().await?;
+    let job = BranchJob {
+      my_email: branch_emails.remove(&branch_name).flatten(),
+      branch_name,
+      commits,
+      branch_idx,
+    };
+    let context = context.clone();
+    tasks.spawn_blocking(move || {
+      let _permit = permit;
+      let branch_name = job.branch_name.clone();
+      (branch_name, process_single_branch(&context, job))
+    });
+  }
+
+  let mut first_error = None;
+  while let Some(joined) = tasks.join_next().await {
+    match joined {
+      Ok((_, Ok(()))) => {}
+      Ok((branch_name, Err(e))) => {
+        // The error status has already been sent by process_single_branch
+        error!(branch = %branch_name, error = ?e, "Branch processing failed");
+        first_error.get_or_insert(e.context(format!("Failed to sync branch {branch_name}")));
+      }
+      Err(e) => {
+        error!(error = %e, "Branch processing task failed");
+        first_error.get_or_insert(anyhow!("Branch processing task failed: {e}"));
+      }
     }
-  });
+  }
+  first_error.map_or(Ok(()), Err)
+}
 
-  let branch_processing_handle = tokio::spawn({
+/// Sync virtual branches: group the commits ahead of the baseline by prefix, rebuild one virtual branch per group,
+/// and detect integration of archived branches concurrently. All git work runs on the blocking pool.
+#[instrument(skip(git_executor, progress, options), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = matches!(options.issue_config, IssueConfigSource::Cached(_))))]
+pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  progress: P,
+  options: SyncOptions,
+) -> Result<()> {
+  let SyncOptions {
+    issue_config,
+    detection_strategy,
+    archive_retention_days,
+  } = options;
+
+  // Phase 1: sequential, BranchesGrouped is on the wire before any per-branch task starts
+  let PreparedSync {
+    baseline_branch,
+    branches,
+    branch_emails,
+    first_parent_id,
+  } = tokio::task::spawn_blocking({
+    let git_executor = git_executor.clone();
+    let repository_path = repository_path.to_string();
+    let progress = progress.clone();
+    move || prepare_sync(&git_executor, &repository_path, issue_config, &progress)
+  })
+  .await
+  .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
+
+  // Phase 2: integration detection and branch processing run concurrently
+  let active_branches: HashSet<String> = branches.keys().cloned().collect();
+  let detection = tokio::task::spawn_blocking({
+    let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
     let branch_prefix = branch_prefix.to_string();
-    let first_parent_id = first_parent_id.clone();
-    let ordered_progress = ordered_progress.clone();
-    let git_executor = git_executor.clone();
-    let grouped_commits = grouped_commits.clone();
     let baseline_branch = baseline_branch.clone();
-    let branch_emails = branch_emails.clone();
-
-    async move {
-      let parent_commit_hash = first_parent_id.ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
-
-      // Create git notes mutex inside the spawned task
-      let git_notes_mutex = Arc::new(Mutex::new(()));
-
-      // Create tree ID cache inside the spawned task
-      let tree_id_cache = TreeIdCache::new();
-
-      // Process branches in parallel using JoinSet
-      let mut set = JoinSet::new();
-
-      for (current_branch_idx, (branch_name, commits)) in grouped_commits.into_iter().enumerate() {
-        // Use pre-computed author email with O(1) HashMap lookup
-        let branch_my_email = branch_emails.get(&branch_name).cloned().flatten();
-
-        let params = BranchProcessingParams {
-          repository_path: repository_path.clone(),
-          branch_prefix: branch_prefix.clone(),
-          branch_name,
-          commits,
-          parent_commit_hash: parent_commit_hash.clone(),
-          current_branch_idx,
-          total_branches,
-          progress: ordered_progress.clone(),
-          git_executor: git_executor.clone(),
-          tree_id_cache: tree_id_cache.clone(),
-          git_notes_mutex: git_notes_mutex.clone(),
-          my_email: branch_my_email,
-          baseline_branch: baseline_branch.clone(),
-        };
-
-        // Use spawn_blocking since process_single_branch is a sync function doing blocking I/O
-        set.spawn_blocking(move || process_single_branch(params));
-      }
-
-      // Wait for all branches to complete
-      let mut has_error = false;
-      while let Some(result) = set.join_next().await {
-        match result {
-          Ok(Ok(())) => {
-            // Branch processed successfully
-          }
-          Ok(Err(e)) => {
-            // Error status has already been sent by process_single_branch
-            error!(error = ?e, "Branch processing failed");
-            has_error = true;
-          }
-          Err(e) => {
-            error!(error = %e, "JoinSet spawn_blocking error during branch processing");
-            has_error = true;
-          }
-        }
-      }
-
-      if has_error {
-        Err(anyhow!("One or more branch processing tasks failed"))
-      } else {
-        Ok(())
-      }
+    let progress = progress.clone();
+    move || {
+      detect_integrated_branches(
+        &git_executor,
+        &repository_path,
+        &branch_prefix,
+        &baseline_branch,
+        DetectConfig {
+          active_branches: &active_branches,
+          progress: &progress,
+          strategy: detection_strategy,
+          retention_days: archive_retention_days,
+        },
+      )
     }
   });
 
-  // Clone values needed for integration detection task
-  let grouped_commits_clone = grouped_commits.clone();
-  let git_executor_clone = git_executor.clone();
-  let repository_path_str = repository_path.to_string();
-  let branch_prefix_str = branch_prefix.to_string();
-  let baseline_branch_str = baseline_branch.clone();
-  let progress_clone = progress.clone();
+  let processing = async {
+    if branches.is_empty() {
+      info!("No commits ahead of baseline, only checking for integrated branches");
+      return Ok(());
+    }
+    let parent_commit_hash = first_parent_id.ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
+    let context = BranchSyncContext {
+      repository_path: repository_path.to_string(),
+      branch_prefix: branch_prefix.to_string(),
+      parent_commit_hash,
+      baseline_branch,
+      total_branches: branches.len(),
+      progress,
+      git_executor: git_executor.clone(),
+      tree_id_cache: TreeIdCache::new(),
+      git_notes_mutex: Mutex::new(()),
+    };
+    process_branches(context, branches, branch_emails).await
+  };
 
-  // Spawn integration detection task - runs concurrently with branch processing
-  let integration_detection_handle = tokio::spawn(async move {
-    detect_integrated_branches(
-      &git_executor_clone,
-      &repository_path_str,
-      &branch_prefix_str,
-      &baseline_branch_str,
-      branch_integration::detector::DetectConfig {
-        grouped_commits: &grouped_commits_clone,
-        progress: &progress_clone,
-        strategy: options.detection_strategy,
-        retention_days: options.archive_retention_days,
-      },
-    )
-    .await
-  });
-
-  // Wait for all three tasks to complete using try_join
-  let (branch_result, ui_result, integration_result) = tokio::try_join!(branch_processing_handle, ui_preparation_handle, integration_detection_handle)?;
-
-  // Check results
-  branch_result?;
-  ui_result?;
-  integration_result?;
-
-  Ok(())
+  // join (not try_join) so a failure on one side doesn't orphan the other
+  let (processing_result, detection_result) = tokio::join!(processing, detection);
+  processing_result?;
+  detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))?
 }

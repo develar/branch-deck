@@ -6,8 +6,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::time::Instant;
 use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;
+use sync_types::SyncEvent;
 use sync_types::branch_integration::BranchIntegrationStatus;
-use sync_types::{ProgressReporter, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
 use tracing::{debug, info};
 
@@ -28,50 +28,13 @@ pub fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
   (upstream_repo, local_repo, git_executor)
 }
 
-/// Helper function for tests to sync branches with a specific detection strategy
-/// This replaces the #[cfg(test)] function that was in branch-sync crate
-pub async fn sync_branches_core_with_strategy<P: ProgressReporter + Clone + 'static>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  progress: P,
-  strategy: DetectionStrategy,
-) -> Result<()> {
-  sync_branches(
-    git_executor,
-    repository_path,
-    branch_prefix,
-    progress,
-    SyncOptions {
-      issue_config: IssueConfigSource::Load,
-      detection_strategy: strategy,
-      ..Default::default()
-    },
-  )
-  .await
-}
-
-/// Helper function for tests to sync branches with a specific detection strategy and retention days
-pub async fn sync_branches_core_with_strategy_and_retention<P: ProgressReporter + Clone + 'static>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  progress: P,
-  strategy: DetectionStrategy,
-  retention_days: u64,
-) -> Result<()> {
-  sync_branches(
-    git_executor,
-    repository_path,
-    branch_prefix,
-    progress,
-    SyncOptions {
-      issue_config: IssueConfigSource::Load,
-      detection_strategy: strategy,
-      archive_retention_days: retention_days,
-    },
-  )
-  .await
+/// Sync options for tests: load the issue config from the repository and use the given detection strategy
+pub fn options_with_strategy(strategy: DetectionStrategy) -> SyncOptions {
+  SyncOptions {
+    issue_config: IssueConfigSource::Load,
+    detection_strategy: strategy,
+    ..Default::default()
+  }
 }
 
 /// Helper to list all detection notes using `TestRepo` API
@@ -143,7 +106,14 @@ pub async fn verify_detection_cache_works(
   // Run detection again and measure time
   let progress = TestReporter::new();
   let start_time = Instant::now();
-  sync_branches_core_with_strategy(git_executor, repo.path().to_str().unwrap(), branch_prefix, progress.clone(), strategy).await?;
+  sync_branches(
+    git_executor,
+    repo.path().to_str().unwrap(),
+    branch_prefix,
+    progress.clone(),
+    options_with_strategy(strategy),
+  )
+  .await?;
   let cached_detection_time = start_time.elapsed();
 
   // Verify same detection results
@@ -239,9 +209,15 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
 
     // Sync to create virtual branch
     let progress_reporter = TestReporter::new();
-    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter, strategy)
-      .await
-      .unwrap();
+    sync_branches(
+      &git_executor,
+      local_repo.path().to_str().unwrap(),
+      "user",
+      progress_reporter,
+      options_with_strategy(strategy),
+    )
+    .await
+    .unwrap();
 
     // Push branch to upstream
     local_repo.push("origin", "user/virtual/feature-partial").unwrap();
@@ -294,9 +270,15 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
 
     // Run sync again with the specific strategy
     let progress_reporter2 = TestReporter::new();
-    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter2.clone(), strategy)
-      .await
-      .unwrap();
+    sync_branches(
+      &git_executor,
+      local_repo.path().to_str().unwrap(),
+      "user",
+      progress_reporter2.clone(),
+      options_with_strategy(strategy),
+    )
+    .await
+    .unwrap();
 
     // Check for orphaned branches detection (not fully integrated)
     let events = progress_reporter2.get_events();
@@ -353,9 +335,15 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
 
     // Run sync once more to verify cache is used
     let progress_reporter3 = TestReporter::new();
-    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter3.clone(), strategy)
-      .await
-      .unwrap();
+    sync_branches(
+      &git_executor,
+      local_repo.path().to_str().unwrap(),
+      "user",
+      progress_reporter3.clone(),
+      options_with_strategy(strategy),
+    )
+    .await
+    .unwrap();
 
     // Should get same orphaned result (from cache this time)
     let events3 = progress_reporter3.get_events();

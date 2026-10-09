@@ -69,60 +69,47 @@ where
   // Buffer to accumulate partial records
   let mut buffer = Vec::new();
   let mut commit_count = 0;
-
-  git_executor.execute_command_streaming(&args, repo_path, |chunk| {
-    // Append new data to buffer
-    buffer.extend_from_slice(chunk);
-
-    // Process complete records
-    while let Some(separator_pos) = find_record_separator(&buffer) {
-      // Extract the complete record
-      let record_bytes = buffer.drain(..=separator_pos).collect::<Vec<u8>>();
-
-      // Convert to string for parsing (skip the separator byte)
-      if let Ok(record) = std::str::from_utf8(&record_bytes[..record_bytes.len() - 1])
-        && !record.is_empty()
-      {
-        match parse_single_commit(record) {
-          Ok(commit) => {
-            commit_count += 1;
-            commit_handler(commit)?;
-          }
-          Err(e) => {
-            tracing::warn!(error = %e, "Failed to parse commit record");
-          }
+  let mut handle_record = |record: &[u8]| -> Result<()> {
+    if let Ok(record) = std::str::from_utf8(record)
+      && !record.trim().is_empty()
+    {
+      match parse_single_commit(record) {
+        Ok(commit) => {
+          commit_count += 1;
+          commit_handler(commit)?;
+        }
+        Err(e) => {
+          tracing::warn!(error = %e, "Failed to parse commit record");
         }
       }
     }
+    Ok(())
+  };
 
+  git_executor.execute_command_streaming(&args, repo_path, |chunk| {
+    // Search only the new bytes: earlier bytes in the buffer are known to hold no separator
+    let search_from = buffer.len();
+    buffer.extend_from_slice(chunk);
+
+    // Parse complete records in place, then drop them from the buffer at once
+    let mut record_start = 0;
+    for separator_pos in memchr::memchr_iter(RECORD_SEPARATOR, &buffer[search_from..]).map(|pos| pos + search_from) {
+      handle_record(&buffer[record_start..separator_pos])?;
+      record_start = separator_pos + 1;
+    }
+    buffer.drain(..record_start);
     Ok(())
   })?;
 
   // Process any remaining data in buffer
-  if !buffer.is_empty()
-    && let Ok(record) = std::str::from_utf8(&buffer)
-    && !record.is_empty()
-    && !record.chars().all(char::is_whitespace)
-  {
-    match parse_single_commit(record) {
-      Ok(commit) => {
-        commit_count += 1;
-        commit_handler(commit)?;
-      }
-      Err(e) => {
-        tracing::warn!(error = %e, "Failed to parse final commit record");
-      }
-    }
-  }
+  handle_record(&buffer)?;
 
   debug!(commits_count = commit_count, branch = %baseline_branch, current_branch = %current_branch, range = %range, "streamed commits ahead of baseline");
   Ok(())
 }
 
-/// Find the position of record separator (0x1e) in the buffer
-fn find_record_separator(buffer: &[u8]) -> Option<usize> {
-  buffer.iter().position(|&b| b == 0x1e)
-}
+/// Separator between commit records in the `git log` output (`%x1e`)
+const RECORD_SEPARATOR: u8 = 0x1e;
 
 /// Parse a single commit record
 pub fn parse_single_commit(record: &str) -> Result<Commit> {

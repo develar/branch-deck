@@ -8,25 +8,31 @@ use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_b
 use git_ops::notes::write_commit_notes;
 use git_ops::progress::ProgressCallback;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, error, instrument, warn};
 
-/// Parameters for processing a single branch
-pub(crate) struct BranchProcessingParams<P: ProgressReporter> {
+/// State shared by all branch tasks of one sync
+pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub repository_path: String,
   pub branch_prefix: String,
-  pub branch_name: String,
-  pub commits: Vec<Commit>,
+  /// Commit the virtual branches are rebuilt on (parent of the oldest commit ahead of the baseline)
   pub parent_commit_hash: String,
-  pub current_branch_idx: usize,
+  pub baseline_branch: String,
   pub total_branches: usize,
   pub progress: P,
   pub git_executor: GitCommandExecutor,
   pub tree_id_cache: TreeIdCache,
-  pub git_notes_mutex: Arc<Mutex<()>>,
+  pub git_notes_mutex: Mutex<()>,
+}
+
+/// One branch to rebuild
+pub(crate) struct BranchJob {
+  pub branch_name: String,
+  /// Commits oldest first
+  pub commits: Vec<Commit>,
   pub my_email: Option<String>,
-  pub baseline_branch: String,
+  pub branch_idx: usize,
 }
 
 /// Result of processing a single commit
@@ -57,39 +63,42 @@ impl<P: ProgressReporter> ProgressCallback for ProgressReporterAdapter<'_, P> {
 }
 
 #[instrument(
-  skip(params),
+  skip(ctx, job),
   fields(
-    branch_name = %params.branch_name,
-    branch_idx = params.current_branch_idx + 1,
-    total_branches = params.total_branches,
-    commit_count = params.commits.len(),
+    branch_name = %job.branch_name,
+    branch_idx = job.branch_idx + 1,
+    total_branches = ctx.total_branches,
+    commit_count = job.commits.len(),
   )
 )]
-pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchProcessingParams<P>) -> Result<()> {
-  let BranchProcessingParams {
+pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<()> {
+  let BranchSyncContext {
     repository_path,
     branch_prefix,
-    branch_name,
-    commits,
     parent_commit_hash,
-    current_branch_idx,
+    baseline_branch,
     total_branches,
     progress,
     git_executor,
     tree_id_cache,
     git_notes_mutex,
+  } = ctx;
+  let total_branches = *total_branches;
+  let BranchJob {
+    branch_name,
+    commits,
     my_email,
-    baseline_branch,
-  } = params;
+    branch_idx: current_branch_idx,
+  } = job;
 
-  let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
+  let full_branch_name = to_final_branch_name(branch_prefix, &branch_name)?;
 
-  let is_existing_branch = git_executor.ref_exists(&repository_path, &format!("refs/heads/{full_branch_name}"));
+  let is_existing_branch = git_executor.ref_exists(repository_path, &format!("refs/heads/{full_branch_name}"));
   debug!(name = %full_branch_name, exists = is_existing_branch, "Checking if branch exists");
 
   // If branch exists, get all its commits in one call for efficient reuse checking
   let existing_virtual_commits = if is_existing_branch {
-    match git_executor.execute_command(&["rev-list", &full_branch_name, &format!("^{parent_commit_hash}")], &repository_path) {
+    match git_executor.execute_command(&["rev-list", &full_branch_name, &format!("^{parent_commit_hash}")], repository_path) {
       Ok(output) => {
         let commits: HashSet<String> = output.lines().map(|line| line.trim().to_string()).filter(|s| !s.is_empty()).collect();
         debug!(name = %full_branch_name, commit_count = commits.len(), "Got existing virtual commits for reuse checking");
@@ -104,18 +113,16 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
     None
   };
 
-  let mut current_parent_hash = parent_commit_hash;
+  let mut current_parent_hash = parent_commit_hash.clone();
   let mut last_commit_hash = String::new();
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<(String, String)> = Vec::new();
 
   // recreate each commit on top of the last one
   let total_commits_in_branch = commits.len();
+  let progress_adapter = ProgressReporterAdapter::new(progress);
 
-  // Collect all commit hashes for potential blocking notifications
-  let all_commit_hashes: Vec<String> = commits.iter().map(|c| c.id.clone()).collect();
-
-  for (current_commit_idx, commit) in commits.into_iter().enumerate() {
+  for (current_commit_idx, commit) in commits.iter().enumerate() {
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
     // even if its own content didn't change — so that its parent reference is updated.
     let reuse_if_possible = is_existing_branch && !is_any_commit_changed;
@@ -128,22 +135,19 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
       total_branches,
     };
 
-    let progress_adapter = ProgressReporterAdapter::new(&progress);
     let commit_params = CreateCommitParams {
-      commit: &commit,
-      new_parent_oid: current_parent_hash.clone(),
+      commit,
+      new_parent_oid: &current_parent_hash,
       reuse_if_possible,
-      repo_path: &repository_path,
+      repo_path: repository_path,
       progress: &progress_adapter,
       progress_info: &progress_info,
-      git_executor: &git_executor,
-      tree_id_cache: &tree_id_cache,
+      git_executor,
+      tree_id_cache,
       existing_virtual_commits: existing_virtual_commits.as_ref(),
     };
 
-    let original_hash = commit.id.clone();
-
-    match process_single_commit(commit_params, &branch_name, &original_hash, &all_commit_hashes, &progress, &progress_info)? {
+    match process_single_commit(commit_params, &branch_name, &commit.id, &commits[current_commit_idx + 1..], progress, &progress_info)? {
       CommitProcessingResult::Success {
         new_commit_hash,
         sync_status,
@@ -188,15 +192,14 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   // only update the branch if it's new or changed
   if branch_sync_status != BranchSyncStatus::Unchanged {
     // Use git CLI to update branch reference
-    let commit_hash_str = last_commit_hash.clone();
-    let args = vec!["branch", "-f", &full_branch_name, &commit_hash_str];
-    git_executor.execute_command(&args, &repository_path)?;
+    let args = vec!["branch", "-f", &full_branch_name, &last_commit_hash];
+    git_executor.execute_command(&args, repository_path)?;
   }
 
   // Write all commit notes after successful branch sync
   if !pending_notes.is_empty() {
     debug!(count = pending_notes.len(), name = %branch_name, "Writing commit notes for branch");
-    if let Err(e) = write_commit_notes(&git_executor, &repository_path, &pending_notes, &git_notes_mutex) {
+    if let Err(e) = write_commit_notes(git_executor, repository_path, &pending_notes, git_notes_mutex) {
       error!(name = %branch_name, error = %e, "Failed to write commit notes");
       // Send error status for git notes failure
       let _ = progress.send(SyncEvent::BranchStatusUpdate {
@@ -220,13 +223,13 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   // Compute and emit remote status for this branch
   let local_ref = full_branch_name.clone(); // e.g., "prefix/virtual/name"
   if let Ok(remote_status) = compute_remote_status_for_branch(
-    &git_executor,
-    &repository_path,
+    git_executor,
+    repository_path,
     &local_ref,
     &branch_name,
     my_email.as_deref(),
     u32::try_from(total_commits_in_branch).unwrap_or(u32::MAX),
-    &baseline_branch,
+    baseline_branch,
   ) {
     let _ = progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }
@@ -235,7 +238,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
 }
 
 #[instrument(
-  skip(commit_params, all_commit_hashes, progress, progress_info),
+  skip(commit_params, remaining_commits, progress, progress_info),
   fields(
     commit_hash = %original_hash,
     commit_idx = progress_info.current_commit_idx + 1,
@@ -247,7 +250,7 @@ fn process_single_commit<P: ProgressReporter>(
   commit_params: CreateCommitParams<'_>,
   branch_name: &str,
   original_hash: &str,
-  all_commit_hashes: &[String],
+  remaining_commits: &[Commit],
   progress: &P,
   progress_info: &git_ops::copy_commit::ProgressInfo<'_>,
 ) -> Result<CommitProcessingResult> {
@@ -282,7 +285,7 @@ fn process_single_commit<P: ProgressReporter>(
       });
 
       // Send blocked events for remaining commits
-      let blocked_hashes: Vec<String> = all_commit_hashes.iter().skip(progress_info.current_commit_idx + 1).cloned().collect();
+      let blocked_hashes: Vec<String> = remaining_commits.iter().map(|c| c.id.clone()).collect();
 
       if !blocked_hashes.is_empty() {
         let _ = progress.send(SyncEvent::CommitsBlocked {

@@ -1,10 +1,10 @@
-use super::test_helpers::{setup_test_repos, sync_branches_core_with_strategy, verify_detection_cache_works};
+use super::test_helpers::{options_with_strategy, setup_test_repos, verify_detection_cache_works};
 use branch_integration::archive::get_archived_branch_commits;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
 use pretty_assertions::assert_eq;
-use sync_core::sync::sync_branches_core;
+use sync_core::sync::{SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_log::test;
@@ -33,7 +33,16 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
 
   // Step 5: Run sync to create virtual branches
   let progress_reporter = TestReporter::new();
-  let result = rt.block_on(async { sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter, DetectionStrategy::All).await });
+  let result = rt.block_on(async {
+    sync_branches(
+      &git_executor,
+      local_repo.path().to_str().unwrap(),
+      "user",
+      progress_reporter,
+      options_with_strategy(DetectionStrategy::All),
+    )
+    .await
+  });
   assert!(result.is_ok(), "Initial sync should succeed");
 
   // Verify branches were created
@@ -131,12 +140,12 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   // Step 9: Run sync again - should detect integrated branches
   let progress_reporter2 = TestReporter::new();
   let result = rt.block_on(async {
-    sync_branches_core_with_strategy(
+    sync_branches(
       &git_executor,
       local_repo.path().to_str().unwrap(),
       "user",
       progress_reporter2.clone(),
-      DetectionStrategy::All,
+      options_with_strategy(DetectionStrategy::All),
     )
     .await
   });
@@ -296,7 +305,7 @@ fn test_integration_timestamp_accuracy() {
 
   // Run initial sync to create virtual branch
   let progress_reporter = TestReporter::new();
-  let result = rt.block_on(async { sync_branches_core(&git_executor, repo.path().to_str().unwrap(), "user", progress_reporter).await });
+  let result = rt.block_on(async { sync_branches(&git_executor, repo.path().to_str().unwrap(), "user", progress_reporter, SyncOptions::default()).await });
   assert!(result.is_ok(), "Initial sync should succeed");
 
   // Merge the virtual branch back to main with a newer timestamp
@@ -314,7 +323,7 @@ fn test_integration_timestamp_accuracy() {
 
   // Run sync again - should detect integration with correct timestamp
   let progress_reporter2 = TestReporter::new();
-  let result = rt.block_on(async { sync_branches_core(&git_executor, repo.path().to_str().unwrap(), "user", progress_reporter2.clone()).await });
+  let result = rt.block_on(async { sync_branches(&git_executor, repo.path().to_str().unwrap(), "user", progress_reporter2.clone(), SyncOptions::default()).await });
   assert!(result.is_ok(), "Second sync should succeed");
 
   // Check integrated branch detection

@@ -15,6 +15,7 @@ tracing.workspace = true
 
 # Git and file operations
 dashmap.workspace = true
+memchr = "2.8"
 
 specta = { workspace = true, optional = true }
 

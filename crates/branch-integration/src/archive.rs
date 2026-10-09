@@ -7,6 +7,9 @@ use std::fmt::Write;
 use std::sync::{LazyLock, Mutex, PoisonError};
 use tracing::{debug, info, instrument, warn};
 
+/// Days an archived branch is kept after it is known to be fully integrated
+pub const ARCHIVE_RETENTION_DAYS: u64 = 7;
+
 /// Process-wide lock serializing branch renames into the archive and unapplied namespaces,
 /// so that picking a free name and renaming to it happen atomically.
 pub static REF_RENAME_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
