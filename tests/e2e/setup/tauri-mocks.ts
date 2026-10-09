@@ -113,7 +113,7 @@ export const tauriMockScript = () => {
 
       // For backwards compatibility, return raw data (bindings will wrap it)
       return data
-    } catch (networkError) {
+    } catch (networkError: any) {
       // Re-throw TauriErrors so they reach the bindings layer
       if (networkError.name === "TauriError") {
         throw networkError
@@ -378,6 +378,9 @@ export const tauriMockScript = () => {
     return expectJson ? await response.json() : null
   }
 
+  // Returned by handleAppCommand for commands it does not handle (handled commands may legitimately return null)
+  const NOT_HANDLED = Symbol("not handled")
+
   async function handleAppCommand(cmd: string, payload: any): Promise<any> {
     switch (cmd) {
       case "validate_repository_path":
@@ -419,11 +422,13 @@ export const tauriMockScript = () => {
         return proxyCommandWithRepoId("cancel_model_download", false)  // Returns null, not JSON
         
       default:
-        return null // Not handled here
+        return NOT_HANDLED
     }
   }
 
   // === Command Registry ===
+
+  const NO_UPDATE = { current_version: "0.0.0-test", available_version: "", is_update_available: false, status: "Idle" }
   
   const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
     // Plugin commands
@@ -457,6 +462,11 @@ export const tauriMockScript = () => {
       return proxyToTestServer("sync_branches", payload)
     },
     
+    // Updater commands: the test server has no updater, the app is always up to date
+    // (the main window runs a silent check a few seconds after startup)
+    "check_for_updates": () => NO_UPDATE,
+    "get_update_status": () => NO_UPDATE,
+
     // AI streaming commands
     "suggest_branch_name_stream": async (_cmd: string, payload: any) => {
       if (payload && payload.progress) {
@@ -476,7 +486,7 @@ export const tauriMockScript = () => {
 
     // Check app-specific commands first
     const appResult = await handleAppCommand(cmd, payload)
-    if (appResult !== null) {
+    if (appResult !== NOT_HANDLED) {
       return appResult
     }
 
@@ -620,61 +630,72 @@ export const tauriMockScript = () => {
       // Efficient formatter that normalizes and formats without cloning
       return formatElementWithNormalization(element)
     },
-    iconName,
   }
 
-  // FNV-1a, must match `hashIconBody` in tests/e2e/helpers/icon-index.ts
-  function hashIconBody(text: string): string {
-    let hash = 0x811C9DC5
-    for (let i = 0; i < text.length; i++) {
-      hash ^= text.charCodeAt(i)
-      hash = Math.imul(hash, 0x01000193) >>> 0
-    }
-    return hash.toString(16)
-  }
-
-  // Name of an icon rendered by @iconify/vue as inline SVG (the name itself is not in the DOM)
+  // Name of a lucide-react icon. lucide-react renders `<svg class="lucide lucide-NAME [lucide-ALIAS...] ...">`,
+  // the canonical name is the first `lucide-*` class token (aliases of deprecated names follow it)
   function iconName(element: Element): string {
-    const index = (window as any).__ICON_NAME_INDEX__ as Record<string, string> | undefined
-    return index?.[hashIconBody(element.innerHTML)] ?? "unknown"
+    for (const token of element.classList) {
+      if (token.startsWith("lucide-")) {
+        return token.slice("lucide-".length)
+      }
+    }
+    return "unknown"
   }
 
-  // Icons are printed in a stable, name-bearing form (the form used before icons became inline SVG):
-  // <span aria-hidden="true" class="iconify i-lucide:NAME ..." />, without SVG sizing and namespace attributes
-  const ICON_SVG_ATTRIBUTES = new Set(["height", "width", "role", "viewBox", "xmlns", "xmlns:xlink"])
+  // Icons are printed as one stable line: `<svg class="lucide lucide-NAME <own classes>" ... />`.
+  // Paths, alias classes and SVG presentation attributes are dropped, own classes (size, colour, animation)
+  // and data/aria attributes are kept
+  const ICON_SVG_ATTRIBUTES = new Set([
+    "fill", "height", "stroke", "stroke-linecap", "stroke-linejoin", "stroke-width", "viewBox", "width", "xmlns", "xmlns:xlink",
+  ])
   function formatIcon(element: Element, spaces: string): string {
     const name = iconName(element)
     const attrs: Array<[string, string]> = []
     for (const attr of element.attributes) {
-      if (ICON_SVG_ATTRIBUTES.has(attr.name) || NORMALIZATION_RULES.vueScoped.some(rule => rule.remove && rule.pattern.test(attr.name))) {
+      if (ICON_SVG_ATTRIBUTES.has(attr.name)) {
         continue
       }
-      const value = attr.name === "class"
-        ? attr.value.split(/\s+/).map(token => token === "iconify--lucide" ? `i-lucide:${name}` : token).join(" ")
-        : attr.value
+      let value = attr.value
+      if (attr.name === "class") {
+        const ownClasses = attr.value.split(/\s+/).filter(token => token && token !== "lucide" && !token.startsWith("lucide-"))
+        value = ["lucide", `lucide-${name}`, ...ownClasses].join(" ")
+      }
+      else if (attr.name !== "style") {
+        value = applyNormalizationRules(value, NORMALIZATION_RULES.ids)
+      }
       attrs.push([attr.name, value])
     }
     attrs.sort((a, b) => a[0].localeCompare(b[0]))
-    return `${spaces}<span${attrs.map(([n, v]) => ` ${n}="${v}"`).join("")} />`
+    return `${spaces}<svg${attrs.map(([n, v]) => ` ${n}="${v}"`).join("")} />`
   }
 
   // Normalization configuration for consistent snapshot formatting
   const NORMALIZATION_RULES = {
-    // All HTML attributes that contain Vue component IDs - applied in order, most specific first
-    attributes: [
-      { pattern: /reka-(\w+(?:-\w+)*)-v-\d+(-\d+)?/g, replacement: 'reka-$1-v-[N]' },
-      { pattern: /diff-root(-\w+)?--\d+/g, replacement: 'diff-root$1--[DYNAMIC]' },
-      { pattern: /v-\d+(-\d+)?/g, replacement: 'v-[N]' }
+    // Generated ids, applied to every attribute value except `class` and `style`
+    // (`id`, `for`, `aria-labelledby`, `aria-describedby`, `aria-controls`, hidden input `id`/`name`, ...)
+    ids: [
+      // React `useId`: `_r_1f_` (React 19.2+), `«r1»` (React 19.0-19.1), `:r1:` (React 18).
+      // Base UI prefixes them: `base-ui-_r_2_`, `base-ui-_r_2_-hidden-input`
+      { pattern: /_[rR]_[0-9a-z]+_/g, replacement: "[ID]" },
+      { pattern: /«[rR][0-9a-z]+»/g, replacement: "[ID]" },
+      { pattern: /:[rR][0-9a-z]+:/g, replacement: "[ID]" },
+      // Base UI fallback counter ids and @git-diff-view roots
+      { pattern: /\bbase-ui-\d+\b/g, replacement: "base-ui-[ID]" },
+      { pattern: /diff-root(-\w+)?--\d+/g, replacement: "diff-root$1--[DYNAMIC]" },
     ],
-    
-    // Vue scoped CSS attributes - these should be completely removed from snapshots
-    vueScoped: [
-      { pattern: /^data-v-[a-f0-9]+$/, remove: true }
+
+    // Per-run values: applied to text nodes and to attribute values
+    // (e.g. the hidden input of the repository Select holds the repository path in `value`)
+    paths: [
+      // KSUIDs are 27 chars; not a part of a longer token (a 40 char commit SHA in `data-row-id`), may follow `NO_REPO_`
+      { pattern: /(?<![A-Za-z0-9])[0-9][A-Za-z0-9]{26}(?![A-Za-z0-9])/g, replacement: "[REPO_ID]" },
+      { pattern: /\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, replacement: "[TEMP_PATH]" },
     ],
-    
+
     // Inline styles - filters for consistency
     style: {
-      excludeRules: ['pointer-events', 'animation-duration', 'animation-name']
+      excludeRules: ["pointer-events", "animation-duration", "animation-name"]
     }
   }
 
@@ -701,11 +722,15 @@ export const tauriMockScript = () => {
     return filteredStyle || null // Return null for empty styles
   }
 
+  function isLucideIcon(element: Element): boolean {
+    return element.tagName.toLowerCase() === "svg" && element.classList.contains("lucide")
+  }
+
   // Format and normalize HTML element in a single pass
   function formatElementWithNormalization(element: Element, indent = 0): string {
     const spaces = "  ".repeat(indent)
     const tagName = element.tagName.toLowerCase()
-    if (tagName === "svg" && element.classList.contains("iconify--lucide")) {
+    if (isLucideIcon(element)) {
       return formatIcon(element, spaces)
     }
     let result = `${spaces}<${tagName}`
@@ -717,21 +742,15 @@ export const tauriMockScript = () => {
       let value = attr.value
       const name = attr.name
       
-      // Check if this is a Vue scoped CSS attribute that should be removed
-      const shouldRemoveVueScoped = NORMALIZATION_RULES.vueScoped.some(rule => rule.remove && rule.pattern.test(name))
-      if (shouldRemoveVueScoped) {
-        continue // Skip Vue scoped CSS attributes
-      }
-      
       // Apply normalization rules based on attribute type
-      if (name === 'style') {
+      if (name === "style") {
         const normalizedStyle = normalizeStyleAttribute(value)
         if (!normalizedStyle) continue // Skip empty styles
         value = normalizedStyle
       }
-      else if (name === 'id' || name === 'aria-describedby' || name === 'aria-labelledby' || name === 'aria-controls' || name === 'for') {
-        // All attributes that can contain Vue component IDs use the same normalization rules
-        value = applyNormalizationRules(value, NORMALIZATION_RULES.attributes)
+      else if (name !== "class") {
+        value = applyNormalizationRules(value, NORMALIZATION_RULES.ids)
+        value = applyNormalizationRules(value, NORMALIZATION_RULES.paths)
       }
       
       normalizedAttrs.push([name, value])
@@ -745,12 +764,19 @@ export const tauriMockScript = () => {
       result += ` ${name}="${value}"`
     }
 
-    // Handle empty elements
-    const hasChildren = element.childNodes.length > 0
-    const hasTextContent = element.textContent?.trim()
-    
-    if (!hasChildren || !hasTextContent) {
-      result += " />"
+    // Elements without text are printed self-closed, except that the icons inside them are kept
+    // (icon-only buttons and triggers would otherwise lose their identity)
+    if (!element.textContent?.trim()) {
+      const iconChildren = Array.from(element.children).filter(child => isLucideIcon(child) || child.querySelector("svg.lucide") !== null)
+      if (iconChildren.length === 0) {
+        result += " />"
+        return result
+      }
+      result += ">\n"
+      for (const child of iconChildren) {
+        result += formatElementWithNormalization(child, indent + 1) + "\n"
+      }
+      result += `${spaces}</${tagName}>`
       return result
     }
 
@@ -758,8 +784,7 @@ export const tauriMockScript = () => {
 
     // Text content normalization patterns
     const TEXT_NORMALIZATION_RULES = [
-      { pattern: /[0-9][A-Za-z0-9]{26}/g, replacement: '[REPO_ID]' }, // KSUIDs are 27 chars
-      { pattern: /\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, replacement: '[TEMP_PATH]' },
+      ...NORMALIZATION_RULES.paths,
       { pattern: /\b[a-f0-9]{8}\b/g, replacement: '[SHA]' } // 8 character short SHAs
     ]
 
@@ -770,17 +795,24 @@ export const tauriMockScript = () => {
       }, text)
     }
 
-    // Process children with optimized text normalization
+    // Adjacent text nodes are printed as one line: React renders `{count} files` as several text nodes
+    let pendingText = ""
+    function flushText() {
+      const text = pendingText.trim()
+      pendingText = ""
+      if (text) {
+        result += `${"  ".repeat(indent + 1)}${normalizeTextContent(text)}\n`
+      }
+    }
+
     for (const child of element.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        let text = child.textContent?.trim()
-        if (text) {
-          text = normalizeTextContent(text)
-          result += `${"  ".repeat(indent + 1)}${text}\n`
-        }
+        pendingText += child.textContent ?? ""
+        continue
       }
-      else if (child.nodeType === Node.COMMENT_NODE) {
-        // Skip empty Vue comments (<!---->)
+      flushText()
+      if (child.nodeType === Node.COMMENT_NODE) {
+        // Skip empty comments (<!---->)
         const commentContent = child.textContent?.trim()
         if (commentContent && commentContent.length > 0) {
           result += `${"  ".repeat(indent + 1)}<!--${child.textContent}-->\n`
@@ -790,6 +822,7 @@ export const tauriMockScript = () => {
         result += formatElementWithNormalization(child as Element, indent + 1) + "\n"
       }
     }
+    flushText()
 
     result += `${spaces}</${tagName}>`
     return result

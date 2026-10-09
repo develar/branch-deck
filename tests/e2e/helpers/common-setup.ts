@@ -122,7 +122,7 @@ export async function setupTestRepository(
   // because networkidle might timeout with SSE connections
   await page.waitForLoadState("domcontentloaded")
 
-  // Wait for Vue app to mount and render content
+  // Wait for the React app to mount and render content
   // The ConfigurationHeader contains the sync button we need
   // Skip this wait if prepopulateStore is false since no repository is loaded
   if (shouldPopulateStore) {

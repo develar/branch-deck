@@ -16,12 +16,30 @@ export async function captureAriaSnapshot(
 }
 
 /**
+ * Wait until enter/exit transitions are over, so that a snapshot reflects the settled DOM.
+ *
+ * Base UI marks transitions with `data-starting-style`/`data-ending-style`, keeps a closing popup mounted
+ * (`data-closed`, in a portal) until its exit transition ends, and sets measured sizes
+ * (e.g. `--collapsible-panel-height`) while a panel animates. Infinite animations (spinners, pulse) are ignored.
+ */
+async function waitForTransitionsSettled(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    if (document.querySelector("[data-starting-style], [data-ending-style], [data-base-ui-portal] [data-closed]")) {
+      return false
+    }
+    return document.getAnimations().every(animation => animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity)
+  }, undefined, { polling: 50 })
+}
+
+/**
  * Capture HTML snapshot with normalization and pretty formatting
  */
 export async function captureHtmlSnapshot(
   element: Locator,
   snapshotName: string,
 ): Promise<void> {
+  await waitForTransitionsSettled(element.page())
+
   // Use the global HTML formatter function
   const formattedHtml = await element.evaluate((el) => {
     // Check if the formatter is available
