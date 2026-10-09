@@ -31,7 +31,7 @@ export function useAmendChanges() {
         diffData.value = result.data
       }
       else {
-        diffError.value = result.error
+        diffError.value = result.error.message
       }
     }
     catch (error) {
@@ -76,7 +76,7 @@ export function useAmendChanges() {
         })
 
         if (result.status !== "ok") {
-          throw new Error(result.error)
+          throw new Error(result.error.message)
         }
 
         // Handle the new AmendCommandResult structure

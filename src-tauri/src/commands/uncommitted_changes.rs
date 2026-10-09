@@ -1,4 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::command_error::CommandError;
 use git_ops::conflict_analysis::FileDiff;
 use sync_core::uncommitted_changes::{
   GetFileContentForDiffParams, GetUncommittedChangesParams, UncommittedChangesResult, get_file_content_for_diff as core_get_file_content_for_diff,
@@ -11,22 +12,24 @@ use tracing::instrument;
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor))]
-pub async fn get_uncommitted_changes(git_executor: State<'_, GitCommandExecutor>, params: GetUncommittedChangesParams) -> Result<UncommittedChangesResult, String> {
+pub async fn get_uncommitted_changes(git_executor: State<'_, GitCommandExecutor>, params: GetUncommittedChangesParams) -> Result<UncommittedChangesResult, CommandError> {
   let git = (*git_executor).clone();
 
   tokio::task::spawn_blocking(move || core_get_uncommitted_changes(&git, params))
     .await
-    .map_err(|e| format!("Task failed: {e}"))?
+    .map_err(|e| CommandError::new(format!("Task failed: {e}")))?
+    .map_err(CommandError::from)
 }
 
 /// Get file content for diff display when user expands a file in the UI
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor))]
-pub async fn get_file_content_for_diff(git_executor: State<'_, GitCommandExecutor>, params: GetFileContentForDiffParams) -> Result<FileDiff, String> {
+pub async fn get_file_content_for_diff(git_executor: State<'_, GitCommandExecutor>, params: GetFileContentForDiffParams) -> Result<FileDiff, CommandError> {
   let git = (*git_executor).clone();
 
   tokio::task::spawn_blocking(move || core_get_file_content_for_diff(&git, params))
     .await
-    .map_err(|e| format!("Task failed: {e}"))?
+    .map_err(|e| CommandError::new(format!("Task failed: {e}")))?
+    .map_err(CommandError::from)
 }

@@ -1,4 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::command_error::CommandError;
 use model_ai::types::{SuggestBranchNameParams, SuggestionProgress};
 use model_tauri::{generator::ModelGeneratorState, path_provider::TauriModelPathProvider};
 use tauri::{AppHandle, State};
@@ -13,7 +14,7 @@ pub async fn suggest_branch_name_stream(
   app: AppHandle,
   params: SuggestBranchNameParams,
   progress: tauri::ipc::Channel<SuggestionProgress>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
   // Get the generation ID counter and increment it
   let generation_id_counter = {
     let guard = model_state.generator.lock().await;
@@ -25,7 +26,7 @@ pub async fn suggest_branch_name_stream(
   // Send started event
   progress
     .send(SuggestionProgress::Started { total: 2 })
-    .map_err(|e| format!("Failed to send progress: {e}"))?;
+    .map_err(|e| CommandError::new(format!("Failed to send progress: {e}")))?;
 
   // Acquire lock - will wait if another request is running
   let mut model_gen = model_state.generator.lock().await;
@@ -56,11 +57,11 @@ pub async fn suggest_branch_name_stream(
     } else if error_str.contains("Model loading previously failed") {
       let error_message = format!("Model loading failed. Please check your internet connection and try again. ({e})");
       progress.send(SuggestionProgress::Error { message: error_message.clone() }).ok();
-      return Err(error_message);
+      return Err(CommandError::new(error_message));
     }
     let error_message = format!("Failed to load model: {e}");
     progress.send(SuggestionProgress::Error { message: error_message.clone() }).ok();
-    return Err(error_message);
+    return Err(CommandError::new(error_message));
   }
 
   // Generate branch names with streaming - fail if generation fails
@@ -69,13 +70,15 @@ pub async fn suggest_branch_name_stream(
     .await
   {
     Ok(()) => {
-      progress.send(SuggestionProgress::Completed).map_err(|e| format!("Failed to send completion: {e}"))?;
+      progress
+        .send(SuggestionProgress::Completed)
+        .map_err(|e| CommandError::new(format!("Failed to send completion: {e}")))?;
       Ok(())
     }
     Err(e) => {
       let error_msg = format!("Failed to generate branch names: {e}");
       progress.send(SuggestionProgress::Error { message: error_msg.clone() }).ok();
-      Err(error_msg)
+      Err(CommandError::new(error_msg))
     }
   }
 }

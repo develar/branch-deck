@@ -23,7 +23,7 @@ export function createRepositoryState() {
   // State
   const pathValidation = ref<PathValidation>({ valid: true })
   const isValidatingPath = ref(false)
-  const gitProvidedBranchPrefix = ref<BranchPrefixResult>({ status: "error", error: "Not loaded" })
+  const gitProvidedBranchPrefix = ref<BranchPrefixResult>({ status: "error", error: { message: "Not loaded" } })
   const isLoadingBranchPrefix = ref(true)
   const loadingPromise = shallowRef<Promise<void> | null>(null)
 
@@ -106,7 +106,7 @@ export function createRepositoryState() {
       else {
         // Internal error (Result::Err from Rust)
         notifyInternalError(result.error, "Browse repository")
-        pathValidation.value = { valid: false, error: `Internal error: ${result.error}` }
+        pathValidation.value = { valid: false, error: `Internal error: ${result.error.message}` }
       }
     }
     catch (error) {
@@ -145,8 +145,8 @@ export function createRepositoryState() {
         pathValidation.value = {
           valid: false,
           path: currentPath,
-          error: result.error,
-          errorDetails: result.error,
+          error: result.error.message,
+          errorDetails: result.error.message,
         }
 
         // Set empty prefix - error is already in pathValidation for UI display

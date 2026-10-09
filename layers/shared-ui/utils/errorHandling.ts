@@ -4,9 +4,11 @@ export function getErrorDetails(error: unknown) {
   if (error instanceof Error) {
     return error.toString()
   }
-  else {
-    return String(error)
+  // CommandError returned by Tauri commands
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message
   }
+  return String(error)
 }
 
 // Main function with optional toast parameter

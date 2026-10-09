@@ -177,7 +177,7 @@ export function useBranchSuggestions(options: UseBranchSuggestionsOptions) {
       const result = await commands.suggestBranchNameStream(params, channel)
 
       if (result.status === "error") {
-        throw new Error(result.error)
+        throw new Error(result.error.message)
       }
     }
     catch (err) {

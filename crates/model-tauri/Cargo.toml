@@ -23,7 +23,7 @@ specta.workspace = true
 # Our crates
 model-core = { path = "../model-core" }
 model-ai = { path = "../model-ai" }
-git-ops = { path = "../git-ops" }
+git-ops = { path = "../git-ops", features = ["specta"] }
 git-executor = { path = "../git-executor" }
 
 [dev-dependencies]

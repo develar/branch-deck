@@ -1,3 +1,4 @@
+use git_ops::command_error::CommandError;
 use model_ai::path_provider::ModelPathProvider;
 use model_core::config::ModelConfig;
 use model_tauri::generator::ModelGeneratorState;
@@ -23,7 +24,7 @@ pub struct CacheClearResult {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state, app))]
-pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app: AppHandle, params: ClearModelCacheParams) -> Result<CacheClearResult, String> {
+pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app: AppHandle, params: ClearModelCacheParams) -> Result<CacheClearResult, CommandError> {
   let keep_current = params.keep_current;
   let model_gen = model_state.generator.lock().await;
   let current_config = model_gen.get_model_config();

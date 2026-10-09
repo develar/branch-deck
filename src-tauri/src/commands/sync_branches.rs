@@ -1,6 +1,7 @@
 use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::sync::sync_branches_core_with_cache;
 use sync_types::SyncEvent;
@@ -25,7 +26,7 @@ pub async fn sync_branches(
   cache: State<'_, RepositoryStateCache>,
   params: SyncBranchesParams,
   progress: Channel<SyncEvent>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
   let repository_path = &params.repository_path;
   let branch_prefix = &params.branch_prefix;
 
@@ -33,8 +34,8 @@ pub async fn sync_branches(
   let cached_issue_config = match cache.get_or_create(repository_path, &git_executor).await {
     Ok(state) => state.issue_config.clone(),
     Err(e) => {
-      error!("Failed to initialize repository cache: {}.", e);
-      return Err(format!("{e}"));
+      error!("Failed to initialize repository cache: {e:#}");
+      return Err(CommandError::from(e));
     }
   };
 
@@ -46,6 +47,6 @@ pub async fn sync_branches(
     .await
     .map_err(|e| {
       error!(error = ?e, "Branch synchronization failed");
-      format!("{e:?}")
+      CommandError::from(e)
     })
 }

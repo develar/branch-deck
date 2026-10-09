@@ -1,4 +1,6 @@
+use anyhow::Context;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::command_error::CommandError;
 use git_ops::model::to_final_branch_name;
 use serde::Deserialize;
 use sync_core::remote_status::compute_remote_status_for_branch;
@@ -19,7 +21,7 @@ pub struct PushBranchParams {
 /// Pushes a specific branch to the remote repository and returns updated remote status
 #[tauri::command]
 #[specta::specta]
-pub async fn push_branch(git_executor: State<'_, GitCommandExecutor>, params: PushBranchParams) -> Result<RemoteStatusUpdate, String> {
+pub async fn push_branch(git_executor: State<'_, GitCommandExecutor>, params: PushBranchParams) -> Result<RemoteStatusUpdate, CommandError> {
   // Clone the executor since spawn_blocking requires 'static lifetime
   let git = (*git_executor).clone();
 
@@ -27,25 +29,23 @@ pub async fn push_branch(git_executor: State<'_, GitCommandExecutor>, params: Pu
     let repository_path = &params.repository_path;
     let branch_prefix = &params.branch_prefix;
     let branch_name = &params.branch_name;
-    let final_branch_name = to_final_branch_name(branch_prefix, branch_name).map_err(|e| format!("{e:?}"))?;
+    let final_branch_name = to_final_branch_name(branch_prefix, branch_name)?;
 
     // Perform the push
-    git
-      .execute_command(
-        &[
-          "-c",
-          "credential.helper=",
-          "-c",
-          "log.showSignature=false",
-          "push",
-          "--porcelain",
-          "--force",
-          "origin",
-          &format!("refs/heads/{final_branch_name}:{final_branch_name}"),
-        ],
-        repository_path,
-      )
-      .map_err(|e| e.to_string())?;
+    git.execute_command(
+      &[
+        "-c",
+        "credential.helper=",
+        "-c",
+        "log.showSignature=false",
+        "push",
+        "--porcelain",
+        "--force",
+        "origin",
+        &format!("refs/heads/{final_branch_name}:{final_branch_name}"),
+      ],
+      repository_path,
+    )?;
 
     // Compute and return updated remote status
     let remote_status = compute_remote_status_for_branch(
@@ -57,10 +57,11 @@ pub async fn push_branch(git_executor: State<'_, GitCommandExecutor>, params: Pu
       params.total_commits,
       &params.baseline_branch,
     )
-    .map_err(|e| format!("Failed to compute remote status: {e}"))?;
+    .context("Failed to compute remote status")?;
 
-    Ok(remote_status)
+    Ok::<_, anyhow::Error>(remote_status)
   })
   .await
-  .map_err(|e| format!("Task failed: {e}"))?
+  .map_err(|e| CommandError::new(format!("Task failed: {e}")))?
+  .map_err(CommandError::from)
 }

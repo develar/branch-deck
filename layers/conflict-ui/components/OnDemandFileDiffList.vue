@@ -139,7 +139,7 @@ async function loadFileContent(filePath: string) {
       loadedDiffs.value.set(filePath, result.data)
     }
     else {
-      throw new Error(result.error)
+      throw new Error(result.error.message)
     }
   }
   catch (error) {

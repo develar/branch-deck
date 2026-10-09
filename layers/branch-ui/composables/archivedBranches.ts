@@ -165,7 +165,7 @@ export function createArchivedBranchesState(repository: ReturnType<typeof create
         reactiveBranch.hasLoadedCommits = true
       }
       else {
-        reactiveBranch.loadError = result.error
+        reactiveBranch.loadError = result.error.message
       }
     }
     catch (error) {

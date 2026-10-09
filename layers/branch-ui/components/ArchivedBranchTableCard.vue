@@ -159,7 +159,7 @@ async function confirmDelete(branchName: string) {
         branchPrefix: effectiveBranchPrefix.value,
       })
       if (result.status !== "ok") {
-        throw new Error(result.error)
+        throw new Error(result.error.message)
       }
       return true
     },

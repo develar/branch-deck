@@ -75,11 +75,11 @@ pub struct GetBranchPrefixRequest {
 
 pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> Json<serde_json::Value> {
   // Handle NO_REPO case - return error result to simulate non-existent directory
-  // This matches how Tauri commands work: they return Result<String, String> not HTTP status codes
+  // This matches how Tauri commands work: they return Result<String, CommandError> not HTTP status codes
   if request.repository_path.starts_with("NO_REPO_") {
     let error_response = serde_json::json!({
       "status": "error",
-      "error": format!("Repository not accessible: {}", request.repository_path)
+      "error": { "message": format!("Repository not accessible: {}", request.repository_path) }
     });
     return Json(error_response);
   }
@@ -103,7 +103,7 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
   if ensure_repository_exists(&state, &request.repository_path).is_err() {
     let error_response = serde_json::json!({
       "status": "error",
-      "error": format!("Repository not found: {}", request.repository_path)
+      "error": { "message": format!("Repository not found: {}", request.repository_path) }
     });
     return Json(error_response);
   }
@@ -116,7 +116,7 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
     Ok((output, exit_code)) => match exit_code {
       0 => Json(serde_json::json!({ "status": "ok", "data": output.trim() })),
       1 => Json(serde_json::json!({ "status": "ok", "data": "" })),
-      128 => Json(serde_json::json!({ "status": "error", "error": format!("Repository not accessible: {}", repo_path) })),
+      128 => Json(serde_json::json!({ "status": "error", "error": { "message": format!("Repository not accessible: {}", repo_path) } })),
       code => {
         tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
         Json(serde_json::json!({ "status": "ok", "data": "" }))
@@ -124,7 +124,7 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
     },
     Err(e) => {
       tracing::error!(error = %e, repo_path, "Failed to execute git config --local");
-      Json(serde_json::json!({ "status": "error", "error": format!("Failed to access repository {}: {}", repo_path, e) }))
+      Json(serde_json::json!({ "status": "error", "error": { "message": format!("Failed to access repository {}: {}", repo_path, e) } }))
     }
   }
 }

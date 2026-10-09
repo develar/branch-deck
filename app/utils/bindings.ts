@@ -7,49 +7,49 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**  Pushes a specific branch to the remote repository and returns updated remote status */
-	pushBranch: (params: PushBranchParams) => typedError<RemoteStatusUpdate, string>(__TAURI_INVOKE("push_branch", { params })),
+	pushBranch: (params: PushBranchParams) => typedError<RemoteStatusUpdate, CommandError>(__TAURI_INVOKE("push_branch", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
-	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, string>(__TAURI_INVOKE("sync_branches", { params, progress })),
-	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, string>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
+	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
+	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
 	/**  Opens a native file dialog to browse for a git repository */
-	browseRepository: () => typedError<BrowseResult, string>(__TAURI_INVOKE("browse_repository")),
+	browseRepository: () => typedError<BrowseResult, CommandError>(__TAURI_INVOKE("browse_repository")),
 	/**
 	 *  Validates that a repository path exists and is a git repository
 	 *  Returns empty string if valid, error message if invalid
 	 */
-	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, string>(__TAURI_INVOKE("validate_repository_path", { params })),
-	checkForUpdates: () => typedError<UpdateInfo, string>(__TAURI_INVOKE("check_for_updates")),
-	getUpdateStatus: () => typedError<UpdateInfo, string>(__TAURI_INVOKE("get_update_status")),
-	installUpdate: () => typedError<null, string>(__TAURI_INVOKE("install_update")),
-	openSubWindow: (params: OpenSubWindowParams) => typedError<null, WindowError>(__TAURI_INVOKE("open_sub_window", { params })),
+	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, CommandError>(__TAURI_INVOKE("validate_repository_path", { params })),
+	checkForUpdates: () => typedError<UpdateInfo, CommandError>(__TAURI_INVOKE("check_for_updates")),
+	getUpdateStatus: () => typedError<UpdateInfo, CommandError>(__TAURI_INVOKE("get_update_status")),
+	installUpdate: () => typedError<null, CommandError>(__TAURI_INVOKE("install_update")),
+	openSubWindow: (params: OpenSubWindowParams) => typedError<null, CommandError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
 	 *  Assigns commits to a branch by prepending a branch prefix to their messages.
 	 *  Uses git plumbing commands to efficiently rewrite commit messages without touching the working directory.
 	 */
-	createBranchFromCommits: (params: CreateBranchFromCommitsParams) => typedError<RewordResult, string>(__TAURI_INVOKE("create_branch_from_commits", { params })),
+	createBranchFromCommits: (params: CreateBranchFromCommitsParams) => typedError<RewordResult, CommandError>(__TAURI_INVOKE("create_branch_from_commits", { params })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
 	 */
-	addIssueReferenceToCommits: (params: AddIssueReferenceParams) => typedError<AddIssueReferenceResult, string>(__TAURI_INVOKE("add_issue_reference_to_commits", { params })),
+	addIssueReferenceToCommits: (params: AddIssueReferenceParams) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
-	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams) => typedError<AmendCommandResult, string>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params })),
-	suggestBranchNameStream: (params: SuggestBranchNameParams, progress: Channel<SuggestionProgress>) => typedError<null, string>(__TAURI_INVOKE("suggest_branch_name_stream", { params, progress })),
-	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], string>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
-	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, string>(__TAURI_INVOKE("delete_archived_branch", { params })),
-	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, string>(__TAURI_INVOKE("unapply_branch", { params })),
+	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams) => typedError<AmendCommandResult, CommandError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params })),
+	suggestBranchNameStream: (params: SuggestBranchNameParams, progress: Channel<SuggestionProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("suggest_branch_name_stream", { params, progress })),
+	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
+	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
+	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
-	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, string>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
+	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  Get file content for diff display when user expands a file in the UI */
-	getFileContentForDiff: (params: GetFileContentForDiffParams) => typedError<FileDiff, string>(__TAURI_INVOKE("get_file_content_for_diff", { params })),
-	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, string>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
-	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, string>(__TAURI_INVOKE("download_model", { progress })),
-	checkModelStatus: () => typedError<ModelStatus, string>(__TAURI_INVOKE("check_model_status")),
-	cancelModelDownload: () => typedError<null, string>(__TAURI_INVOKE("cancel_model_download")),
-	clearModelCache: (params: ClearModelCacheParams) => typedError<CacheClearResult, string>(__TAURI_INVOKE("clear_model_cache", { params })),
+	getFileContentForDiff: (params: GetFileContentForDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_file_content_for_diff", { params })),
+	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
+	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("download_model", { progress })),
+	checkModelStatus: () => typedError<ModelStatus, CommandError>(__TAURI_INVOKE("check_model_status")),
+	cancelModelDownload: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_model_download")),
+	clearModelCache: (params: ClearModelCacheParams) => typedError<CacheClearResult, CommandError>(__TAURI_INVOKE("clear_model_cache", { params })),
 };
 
 /* Types */
@@ -118,6 +118,11 @@ export type CacheClearResult = {
 
 export type ClearModelCacheParams = {
 	keepCurrent: boolean,
+};
+
+/**  Error returned by Tauri commands, serialized as `{ message }`. */
+export type CommandError = {
+	message: string,
 };
 
 /**  Struct to hold commit data returned by git CLI */
@@ -417,7 +422,7 @@ export type SyncEvent =
 	status: BranchSyncStatus,
 	error: BranchError | null,
 } } | 
-/**  Unified per-branch detection event for any status (Integrated, Orphaned, NotIntegrated, Partial) */
+/**  Unified per-branch detection event for any status (Integrated, Orphaned, `NotIntegrated`, Partial) */
 { type: "branchIntegrationDetected"; data: {
 	info: BranchIntegrationInfo,
 } } | 
@@ -464,10 +469,6 @@ export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | 
 
 export type ValidateRepositoryPathParams = {
 	path: string,
-};
-
-export type WindowError = {
-	message: string,
 };
 
 /* Tauri Specta runtime */

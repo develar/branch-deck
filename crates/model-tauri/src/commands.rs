@@ -1,5 +1,7 @@
 use crate::generator::ModelGeneratorState;
 use crate::path_provider::TauriModelPathProvider;
+use anyhow::Context;
+use git_ops::command_error::CommandError;
 use model_ai::types::DownloadProgress;
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -26,7 +28,7 @@ pub struct ModelFilesStatus {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state, app, progress))]
-pub async fn download_model(model_state: State<'_, ModelGeneratorState>, app: AppHandle, progress: tauri::ipc::Channel<DownloadProgress>) -> Result<(), String> {
+pub async fn download_model(model_state: State<'_, ModelGeneratorState>, app: AppHandle, progress: tauri::ipc::Channel<DownloadProgress>) -> Result<(), CommandError> {
   use crate::download::TauriProgressReporter;
   use std::sync::atomic::Ordering;
 
@@ -51,9 +53,9 @@ pub async fn download_model(model_state: State<'_, ModelGeneratorState>, app: Ap
       // Check if this was a cancellation
       if model_state.download_cancelled.load(Ordering::SeqCst) {
         let _ = progress.send(DownloadProgress::Cancelled);
-        Err("Download cancelled".to_string())
+        Err(CommandError::new("Download cancelled"))
       } else {
-        Err(e.to_string())
+        Err(CommandError::from(e))
       }
     }
   }
@@ -62,10 +64,10 @@ pub async fn download_model(model_state: State<'_, ModelGeneratorState>, app: Ap
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state, app))]
-pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app: AppHandle) -> Result<ModelStatus, String> {
+pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app: AppHandle) -> Result<ModelStatus, CommandError> {
   let mut model_gen = model_state.generator.lock().await;
   let provider = TauriModelPathProvider::new(app);
-  let model_path = model_gen.get_model_path(&provider).map_err(|e| format!("Failed to get model path: {e}"))?;
+  let model_path = model_gen.get_model_path(&provider).context("Failed to get model path")?;
   let model_config = model_gen.get_model_config();
 
   // Check which files exist
@@ -115,7 +117,7 @@ pub(crate) fn check_model_files_exist(model_config: model_core::config::ModelCon
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(model_state))]
-pub async fn cancel_model_download(model_state: State<'_, ModelGeneratorState>) -> Result<(), String> {
+pub async fn cancel_model_download(model_state: State<'_, ModelGeneratorState>) -> Result<(), CommandError> {
   use std::sync::atomic::Ordering;
 
   // Set the cancellation flag

@@ -30,6 +30,9 @@ use menu::{configure_app_menu, handle_menu_event};
 use menu_state::MenuState;
 use repository_state::RepositoryStateCache;
 use tauri::Manager;
+// The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
+#[cfg(feature = "devtools")]
+use tauri_plugin_log as _;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

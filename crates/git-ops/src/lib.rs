@@ -1,6 +1,7 @@
 pub mod amend_operations;
 pub mod cache;
 pub mod cherry_pick;
+pub mod command_error;
 pub mod commit_list;
 pub mod commit_utils;
 pub mod conflict_analysis;

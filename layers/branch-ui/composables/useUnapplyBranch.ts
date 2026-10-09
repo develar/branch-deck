@@ -36,7 +36,7 @@ export function useUnapplyBranch() {
         })
 
         if (result.status !== "ok") {
-          throw new Error(result.error)
+          throw new Error(result.error.message)
         }
 
         return result.data

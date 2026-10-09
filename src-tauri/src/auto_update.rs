@@ -1,3 +1,4 @@
+use git_ops::command_error::CommandError;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 #[cfg(feature = "auto-update")]
@@ -152,29 +153,29 @@ pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
 #[specta::specta]
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, String> {
+pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
   #[cfg(feature = "auto-update")]
   {
     info!("Checking for updates");
 
     // Set status to checking
     {
-      let mut state = update_state.lock().map_err(|e| format!("Failed to lock state: {e}"))?;
+      let mut state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
       state.info.status = UpdateStatus::Checking;
     }
 
     match auto_update_impl::perform_update_check(&app_handle, &update_state).await {
       Ok(update_info) => {
-        let mut state = update_state.lock().map_err(|e| format!("Failed to lock state: {e}"))?;
+        let mut state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
         state.info = update_info.clone();
         Ok(update_info)
       }
       Err(e) => {
         error!("Update check failed: {e:?}");
-        let m = format!("Update check failed: {e:?}");
-        let mut state = update_state.lock().map_err(|_| "Failed to lock state".to_string())?;
+        let m = format!("Update check failed: {e:#}");
+        let mut state = update_state.lock().map_err(|_| CommandError::new("Failed to lock state"))?;
         state.info.status = UpdateStatus::Error(m.clone());
-        Err(m)
+        Err(CommandError::new(m))
       }
     }
   }
@@ -182,7 +183,7 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
   #[cfg(not(feature = "auto-update"))]
   {
     error!("Auto-update feature is not enabled");
-    Err("Auto-update feature is not enabled in this build".to_string())
+    Err(CommandError::new("Auto-update feature is not enabled in this build"))
   }
 }
 
@@ -190,17 +191,17 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
 #[specta::specta]
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), String> {
+pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), CommandError> {
   #[cfg(feature = "auto-update")]
   {
     // Get the pending update and downloaded bytes
     let (update, bytes) = {
-      let mut state = update_state.lock().map_err(|e| format!("Failed to lock state: {e}"))?;
+      let mut state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
 
       if state.pending_update.is_none() || state.downloaded_bytes.is_none() {
         let error = "No update available to install".to_string();
         state.info.status = UpdateStatus::Error(error.clone());
-        return Err(error);
+        return Err(CommandError::new(error));
       }
 
       state.info.status = UpdateStatus::Installing;
@@ -213,7 +214,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
       error!("Failed to install update: {e}");
       let error_msg = format!("Failed to install update: {e}");
       update_state.lock().unwrap().info.status = UpdateStatus::Error(error_msg.clone());
-      error_msg
+      CommandError::new(error_msg)
     })?;
 
     // Restart the app after installation (never returns)
@@ -224,7 +225,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
   #[cfg(not(feature = "auto-update"))]
   {
     error!("Auto-update feature is not enabled");
-    Err("Auto-update feature is not enabled in this build".to_string())
+    Err(CommandError::new("Auto-update feature is not enabled in this build"))
   }
 }
 
@@ -232,16 +233,16 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
 #[specta::specta]
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, String> {
+pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
   #[cfg(feature = "auto-update")]
   {
-    let state = update_state.lock().map_err(|e| format!("Failed to lock state: {e:?}"))?;
+    let state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
     Ok(state.info.clone())
   }
 
   #[cfg(not(feature = "auto-update"))]
   {
     error!("Auto-update feature is not enabled");
-    Err("Auto-update feature is not enabled in this build".to_string())
+    Err(CommandError::new("Auto-update feature is not enabled in this build"))
   }
 }

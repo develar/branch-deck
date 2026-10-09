@@ -1,4 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::command_error::CommandError;
 use tauri::State;
 use tracing::instrument;
 
@@ -9,10 +10,11 @@ use sync_core::create_branch::{CreateBranchFromCommitsParams, RewordResult};
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor))]
-pub async fn create_branch_from_commits(git_executor: State<'_, GitCommandExecutor>, params: CreateBranchFromCommitsParams) -> Result<RewordResult, String> {
+pub async fn create_branch_from_commits(git_executor: State<'_, GitCommandExecutor>, params: CreateBranchFromCommitsParams) -> Result<RewordResult, CommandError> {
   // Clone the executor since spawn_blocking requires 'static lifetime
   let git = (*git_executor).clone();
   tokio::task::spawn_blocking(move || sync_core::create_branch::do_create_branch_from_commits(&git, params))
     .await
-    .map_err(|e| format!("Task failed: {e}"))?
+    .map_err(|e| CommandError::new(format!("Task failed: {e}")))?
+    .map_err(CommandError::from)
 }

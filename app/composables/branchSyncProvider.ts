@@ -103,7 +103,7 @@ export function createBranchSyncState(repository: ReturnType<typeof createReposi
 
       // Check if the command returned an error via Result type
       if (result.status === "error") {
-        syncError.value = result.error || "Failed to sync branches"
+        syncError.value = result.error.message || "Failed to sync branches"
         console.error("Sync error:", result.error)
         return
       }

@@ -20,7 +20,7 @@ export function useBranchCreation() {
         })
 
         if (result.status !== "ok") {
-          throw new Error(result.error || `Unable to create branch "${params.branchName}" with selected commits`)
+          throw new Error(result.error.message || `Unable to create branch "${params.branchName}" with selected commits`)
         }
 
         return result.data

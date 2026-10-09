@@ -102,7 +102,8 @@ export const tauriMockScript = () => {
       if (data && typeof data === "object" && "status" in data) {
         if (data.status === "error") {
           // Throw a proper Error object so the bindings layer catches it and wraps it properly
-          const error = new Error(data.error)
+          // Commands return CommandError ({ message }) as the error payload
+          const error = new Error(typeof data.error === "object" && data.error !== null ? data.error.message : String(data.error))
           error.name = "TauriError" // Mark it as a Tauri error, not a network error
           throw error
         }

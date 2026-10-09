@@ -1,29 +1,7 @@
-use serde::{Deserialize, Serialize};
+use git_ops::command_error::CommandError;
+use serde::Deserialize;
 use specta::Type;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-
-#[derive(Debug, Clone, Serialize, Type)]
-pub struct WindowError {
-  message: String,
-}
-
-impl WindowError {
-  fn new(message: String) -> Self {
-    Self { message }
-  }
-}
-
-impl From<tauri::Error> for WindowError {
-  fn from(err: tauri::Error) -> Self {
-    WindowError::new(format!("Failed to create window: {err}"))
-  }
-}
-
-impl From<serde_json::Error> for WindowError {
-  fn from(err: serde_json::Error) -> Self {
-    WindowError::new(format!("Failed to serialize data: {err}"))
-  }
-}
 
 #[derive(Debug, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +17,7 @@ pub struct OpenSubWindowParams {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindowParams) -> Result<(), WindowError> {
+pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindowParams) -> Result<(), CommandError> {
   // Check if window already exists
   if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
     // Window exists, bring it to front

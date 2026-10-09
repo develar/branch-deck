@@ -1,4 +1,5 @@
 use anyhow::Result;
+use git_ops::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;
@@ -7,7 +8,7 @@ use tracing::instrument;
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app_handle))]
-pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseResult, String> {
+pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseResult, CommandError> {
   use tauri_plugin_dialog::DialogExt;
 
   let file_response = app_handle.dialog().file().set_title("Select Project Repository").blocking_pick_folder();
@@ -36,7 +37,7 @@ pub struct ValidateRepositoryPathParams {
 #[tauri::command]
 #[specta::specta]
 #[instrument]
-pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, String> {
+pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, CommandError> {
   match sync_core::repository_validation::validate_path(&params.path) {
     Ok(()) => Ok(String::new()),
     Err(e) => Ok(e.to_string()),

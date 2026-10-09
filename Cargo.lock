@@ -2697,6 +2697,7 @@ dependencies = [
  "git-executor",
  "pretty_assertions",
  "serde",
+ "serde_json",
  "specta",
  "tauri",
  "tempfile",
