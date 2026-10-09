@@ -2,7 +2,7 @@
 name = "branch-deck"
 version.workspace = true
 description = "Branch Deck"
-authors = ["you"]
+authors = ["Vladimir Krivosheev"]
 edition.workspace = true
 default-run = "branch-deck"
 

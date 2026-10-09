@@ -22,12 +22,16 @@ pnpm setup:e2e            # First-time setup: Install Playwright browsers
 pnpm e2e                  # Run Playwright E2E tests (auto-installs browsers if needed)
 pnpm e2e-up               # Run E2E tests and update snapshots
 DEBUG_E2E=1 pnpm e2e      # Run E2E tests with verbose debug output
+pnpm test-server:dev      # Run the E2E mock server with auto-restart (requires watchexec: `brew install watchexec`)
 
 # Linting & Formatting
 pnpm lint                 # Run all linting and formatting
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
 pnpm lint:frontend        # Lint and type-check TypeScript/Vue
 ```
+
+If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
+the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.
 
 ## ⚠️ Critical Testing Rule
 **NEVER use `cargo test` - ALWAYS use `cargo nextest run`**
@@ -112,11 +116,14 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 ## Architecture
 
 ### Design Documents
-- [Async Patterns and spawn_blocking](docs/architecture/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
-- [Distributed Settings Architecture](docs/architecture/distributed-settings.md) - Settings synchronization across windows
-- [E2E Testing Architecture](docs/architecture/e2e-testing.md) - E2E test infrastructure with mock Tauri API
-- [Integration Detection and Caching](docs/architecture/integration-detection-caching.md) - How branch integration detection works with git notes caching
-- [Import Guidelines](docs/architecture/import-guidelines.md) - No re-exports policy and proper import patterns
+- [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
+- [Distributed Settings Architecture](docs/design/distributed-settings.md) - Settings synchronization across windows
+- [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
+- [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
+- [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
+- [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
+- [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
+- [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
 
 ### Layer Structure
 - **shared-ui**: Basic UI components and utilities
