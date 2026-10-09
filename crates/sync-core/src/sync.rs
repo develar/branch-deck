@@ -16,10 +16,18 @@ use sync_utils::issue_pattern::{find_issue_range, has_issue_reference};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument, warn};
 
+/// Where the sync takes the issue navigation configuration from
+pub enum IssueConfigSource {
+  /// Read `.idea/vcs.xml` from the repository
+  Load,
+  /// Use an already loaded configuration; `None` means the repository has none
+  Cached(Option<IssueNavigationConfig>),
+}
+
 /// Options for configuring sync behavior
 pub struct SyncOptions {
-  /// Optional cached issue navigation configuration
-  pub cached_issue_config: Option<IssueNavigationConfig>,
+  /// Issue navigation configuration source
+  pub issue_config: IssueConfigSource,
   /// Detection strategy for integration detection
   pub detection_strategy: DetectionStrategy,
   /// Archive cleanup retention in days (older archived branches will be deleted)
@@ -30,7 +38,7 @@ pub struct SyncOptions {
 impl Default for SyncOptions {
   fn default() -> Self {
     Self {
-      cached_issue_config: None,
+      issue_config: IssueConfigSource::Load,
       detection_strategy: branch_integration::strategy::get_detection_strategy(),
       // Keep in sync with branch_integration::archive::ARCHIVE_RETENTION_DAYS (currently 7)
       archive_retention_days: 7,
@@ -121,17 +129,17 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
 #[instrument(skip(git_executor, progress), fields(repository_path = %repository_path, branch_prefix = %branch_prefix))]
 pub async fn sync_branches_core<P: ProgressReporter + Clone + 'static>(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, progress: P) -> Result<()> {
   // Delegate to the version with cache support, passing None for cached state
-  sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, None).await
+  sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, IssueConfigSource::Load).await
 }
 
-/// Core sync branches logic with optional cached issue config
-#[instrument(skip(git_executor, progress, cached_issue_config), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = cached_issue_config.is_some()))]
+/// Core sync branches logic with an explicit issue config source
+#[instrument(skip(git_executor, progress, issue_config), fields(repository_path = %repository_path, branch_prefix = %branch_prefix))]
 pub async fn sync_branches_core_with_cache<P: ProgressReporter + Clone + 'static>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   branch_prefix: &str,
   progress: P,
-  cached_issue_config: Option<IssueNavigationConfig>,
+  issue_config: IssueConfigSource,
 ) -> Result<()> {
   sync_branches(
     git_executor,
@@ -139,7 +147,7 @@ pub async fn sync_branches_core_with_cache<P: ProgressReporter + Clone + 'static
     branch_prefix,
     progress,
     SyncOptions {
-      cached_issue_config,
+      issue_config,
       ..Default::default()
     },
   )
@@ -271,7 +279,7 @@ fn get_parent_commit_hash(git_executor: &GitCommandExecutor, repository_path: &s
 }
 
 /// Core sync branches logic
-#[instrument(skip(git_executor, progress, options), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = options.cached_issue_config.is_some()))]
+#[instrument(skip(git_executor, progress, options), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = matches!(options.issue_config, IssueConfigSource::Cached(_))))]
 pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -279,13 +287,16 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   progress: P,
   options: SyncOptions,
 ) -> Result<()> {
-  // Use cached issue config if available, otherwise load it
-  let issue_config = if let Some(cached) = options.cached_issue_config {
-    debug!("Using cached issue navigation config");
-    Some(cached)
-  } else {
-    debug!("Loading issue navigation config");
-    load_issue_navigation_config(repository_path)
+  // Use cached issue config if available (including a cached "none"), otherwise load it
+  let issue_config = match options.issue_config {
+    IssueConfigSource::Cached(cached) => {
+      debug!("Using cached issue navigation config");
+      cached
+    }
+    IssueConfigSource::Load => {
+      debug!("Loading issue navigation config");
+      load_issue_navigation_config(repository_path)
+    }
   };
 
   // Send issue navigation config at the beginning
@@ -305,6 +316,14 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   // Check if we have any commits
   if grouper.commit_count == 0 {
     info!(commit_count = 0, "No commits ahead of baseline, checking for integrated branches");
+
+    // Send empty unassigned commits and an empty branch set to clear stale data from a previous sync
+    progress.send(SyncEvent::UnassignedCommits { commits: Vec::new() })?;
+    progress.send(SyncEvent::BranchesGrouped {
+      branches: Vec::new(),
+      baseline_branch: baseline_branch.clone(),
+    })?;
+
     detect_integrated_branches(
       git_executor,
       repository_path,
@@ -318,9 +337,6 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       },
     )
     .await?;
-
-    // Send empty unassigned commits to clear any stale data from previous sync
-    progress.send(SyncEvent::UnassignedCommits { commits: Vec::new() })?;
 
     return Ok(());
   }

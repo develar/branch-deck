@@ -4,7 +4,7 @@ use anyhow::Result;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::time::Instant;
-use sync_core::sync::{SyncOptions, sync_branches};
+use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;
 use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_types::{ProgressReporter, SyncEvent};
@@ -43,7 +43,7 @@ pub async fn sync_branches_core_with_strategy<P: ProgressReporter + Clone + 'sta
     branch_prefix,
     progress,
     SyncOptions {
-      cached_issue_config: None,
+      issue_config: IssueConfigSource::Load,
       detection_strategy: strategy,
       ..Default::default()
     },
@@ -66,7 +66,7 @@ pub async fn sync_branches_core_with_strategy_and_retention<P: ProgressReporter 
     branch_prefix,
     progress,
     SyncOptions {
-      cached_issue_config: None,
+      issue_config: IssueConfigSource::Load,
       detection_strategy: strategy,
       archive_retention_days: retention_days,
     },

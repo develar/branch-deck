@@ -14,7 +14,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
-use sync_core::sync::sync_branches_core_with_cache;
+use sync_core::sync::{IssueConfigSource, sync_branches_core_with_cache};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
@@ -165,7 +165,7 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   let repository_path = &request.repository_path;
   let branch_prefix = &request.branch_prefix;
   let progress = reporter.clone();
-  match sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, None).await {
+  match sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, IssueConfigSource::Load).await {
     Ok(()) => {
       // Core function completed successfully
     }

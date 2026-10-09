@@ -470,6 +470,30 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   Ok(())
 }
 
+#[tokio::test]
+async fn test_zero_commit_sync_clears_branch_set() -> anyhow::Result<()> {
+  use crate::sync::sync_branches_core;
+  use sync_types::SyncEvent;
+
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test Project");
+
+  let progress = TestReporter::new();
+  sync_branches_core(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone()).await?;
+
+  let events = progress.get_events();
+  let grouped: Vec<_> = events
+    .iter()
+    .filter_map(|e| match e {
+      SyncEvent::BranchesGrouped { branches, .. } => Some(branches.len()),
+      _ => None,
+    })
+    .collect();
+  assert_eq!(grouped, vec![0], "zero-commit sync must send exactly one empty BranchesGrouped event");
+  Ok(())
+}
+
 #[test]
 fn test_detect_baseline_branch_scenarios() {
   let test_repo = TestRepo::new();

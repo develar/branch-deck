@@ -47,13 +47,13 @@ pub fn do_create_branch_from_commits(git_executor: &GitCommandExecutor, params: 
     let args = vec!["log", "-1", "--pretty=format:%s", commit_id];
     let original_message = git_executor
       .execute_command(&args, &params.repository_path)
-      .map_err(|e| format!("Failed to get commit message for {}: {}", &commit_id[..7], e))?;
+      .map_err(|e| format!("Failed to get commit message for {}: {}", short_hash(commit_id), e))?;
 
     // Check if message already has a prefix
     if original_message.trim_start().starts_with('(') {
       return Err(format!(
         "Commit {} already has a prefix: {}",
-        &commit_id[..7],
+        short_hash(commit_id),
         original_message.lines().next().unwrap_or(&original_message)
       ));
     }
@@ -66,7 +66,7 @@ pub fn do_create_branch_from_commits(git_executor: &GitCommandExecutor, params: 
     let args = vec!["log", "-1", "--pretty=format:%B", &commit_id];
     let original_message = git_executor
       .execute_command(&args, &params.repository_path)
-      .map_err(|e| format!("Failed to get full commit message for {}: {}", &commit_id[..7], e))?;
+      .map_err(|e| format!("Failed to get full commit message for {}: {}", short_hash(&commit_id), e))?;
 
     let new_message = format!("{}{}", prefix, original_message.trim());
     rewrites.push(RewordCommitParams { commit_id, new_message });
@@ -92,4 +92,9 @@ pub fn do_create_branch_from_commits(git_executor: &GitCommandExecutor, params: 
     }
     Err(e) => Err(format!("Failed to assign commits to branch: {e}")),
   }
+}
+
+/// Abbreviates a commit hash for messages without panicking on short or non-ASCII input.
+fn short_hash(commit_id: &str) -> &str {
+  commit_id.get(..7).unwrap_or(commit_id)
 }

@@ -46,6 +46,23 @@ fn test_create_branch_from_commits_basic() {
 }
 
 #[test]
+fn test_create_branch_with_short_unknown_commit_id_does_not_panic() {
+  let test_repo = TestRepo::new();
+  let repo_path = test_repo.path().to_str().unwrap();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+
+  let git_executor = GitCommandExecutor::new();
+  let params = CreateBranchFromCommitsParams {
+    repository_path: repo_path.to_string(),
+    branch_name: "feature".to_string(),
+    commit_ids: vec!["abc".to_string()],
+  };
+
+  let error = do_create_branch_from_commits(&git_executor, params).unwrap_err();
+  assert!(error.contains("abc"), "error should name the commit: {error}");
+}
+
+#[test]
 fn test_create_branch_with_invalid_name() {
   let test_repo = TestRepo::new();
   let repo_path = test_repo.path().to_str().unwrap();

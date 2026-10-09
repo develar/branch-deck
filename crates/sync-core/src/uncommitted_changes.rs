@@ -46,7 +46,8 @@ pub fn parse_git_status_output(status_output: &str) -> Vec<UncommittedFileChange
   let approx_entries = status_output.matches('\0').count();
   let mut files = Vec::with_capacity(approx_entries);
 
-  for entry in bytes.split(|&b| b == 0) {
+  let mut entries = bytes.split(|&b| b == 0);
+  while let Some(entry) = entries.next() {
     if entry.len() < 3 {
       continue;
     }
@@ -54,6 +55,11 @@ pub fn parse_git_status_output(status_output: &str) -> Vec<UncommittedFileChange
     // First two bytes are the staged/unstaged status codes, then a space, then the path
     let staged_status = entry[0] as char;
     let unstaged_status = entry[1] as char;
+
+    // With `-z`, rename and copy entries are `XY new\0old\0`: the original path is a separate field
+    if matches!(staged_status, 'R' | 'C') || matches!(unstaged_status, 'R' | 'C') {
+      entries.next();
+    }
 
     // Expect a space at index 2 in porcelain format; if not present, fall back conservatively
     let path_start = if entry.len() > 3 && entry[2] == b' ' { 3 } else { 2 };
@@ -113,8 +119,6 @@ pub fn get_uncommitted_changes(git_executor: &GitCommandExecutor, params: GetUnc
   Ok(UncommittedChangesResult { has_changes: true, files })
 }
 
-// Helper functions removed - no longer needed with lazy loading approach
-
 /// Get file content for diff display when user expands a file in the UI
 #[instrument(skip(git_executor), fields(repository_path = %params.repository_path, file_path = %params.file_path))]
 pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetFileContentForDiffParams) -> Result<FileDiff, String> {
@@ -124,9 +128,9 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
   // Determine file language from extension
   let file_lang = std::path::Path::new(&file_path).extension().and_then(|ext| ext.to_str()).unwrap_or("txt").to_string();
 
-  // Get unified diff with 15 lines of context
+  // Get unified diff with 3 lines of context
   let diff_output = git_executor
-    .execute_command(&["diff", "HEAD", "-U3", &file_path], &repo_path)
+    .execute_command(&["diff", "HEAD", "-U3", "--", &file_path], &repo_path)
     .map_err(|e| format!("Failed to get diff for file {file_path}: {e}"))?;
 
   // Create FileDiff with unified diff in hunks - git-diff-view will parse it

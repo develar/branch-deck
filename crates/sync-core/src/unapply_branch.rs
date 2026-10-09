@@ -1,13 +1,10 @@
 use anyhow::{Result, anyhow};
+use branch_integration::archive::rename_branch_unique;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::amend_operations::drop_commits_from_head;
 use git_ops::model::{extract_branch_name_from_final, to_unapplied_branch_name};
 use serde::{Deserialize, Serialize};
-use std::sync::{LazyLock, Mutex};
-use tracing::{debug, instrument, warn};
-
-// Global mutex to prevent race conditions when creating unapplied directories
-pub static UNAPPLY_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+use tracing::{debug, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -57,45 +54,7 @@ fn move_branch_to_unapplied(git_executor: &GitCommandExecutor, repo: &str, from_
   let simple_name = extract_branch_name_from_final(from_branch, branch_prefix).ok_or_else(|| anyhow!("Could not extract simple name from branch: {from_branch}"))?;
 
   let base_unapplied_name = to_unapplied_branch_name(branch_prefix, &simple_name)?;
-  let mut target = base_unapplied_name.clone();
-  let mut suffix: u32 = 1;
-
-  // Find an available name
-  loop {
-    let full_ref = format!("refs/heads/{target}");
-    let exists = git_executor.execute_command(&["show-ref", "--verify", &full_ref], repo).is_ok();
-    if !exists {
-      break;
-    }
-    target = format!("{base_unapplied_name}-{suffix}");
-    suffix += 1;
-    if suffix > 1000 {
-      warn!("move_branch_to_unapplied: excessive collisions for {}", base_unapplied_name);
-      break;
-    }
-  }
-
-  // Lock to prevent race conditions when multiple tasks try to create branches in same directory
-  let _guard = UNAPPLY_MUTEX.lock().map_err(|e| anyhow!("Failed to acquire unapply mutex: {e}"))?;
-
-  // Create directory structure for unapplied branches if needed
-  // The unapplied path (e.g., user/unapplied) requires directory structure in .git/refs.
-  if target.matches('/').count() > 0
-    && let Some((parent_path, _)) = target.rsplit_once('/')
-  {
-    // Create temporary branch to establish the directory structure
-    let temp_branch = format!("{parent_path}/.unapply-temp");
-
-    // Try to create the temp branch (ignore errors if it already exists)
-    let _ = git_executor.execute_command(&["branch", &temp_branch, "HEAD"], repo);
-
-    // Immediately delete it (the directory structure remains in git)
-    let _ = git_executor.execute_command(&["branch", "-D", &temp_branch], repo);
-  }
-
-  // Now rename the branch to its unapplied location
-  git_executor.execute_command(&["branch", "-m", from_branch, &target], repo)?;
-  Ok(target)
+  rename_branch_unique(git_executor, repo, from_branch, &base_unapplied_name)
 }
 
 /// Core function to unapply a virtual branch

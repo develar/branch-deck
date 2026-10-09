@@ -15,12 +15,8 @@ pub async fn suggest_branch_name_stream(
   params: SuggestBranchNameParams,
   progress: tauri::ipc::Channel<SuggestionProgress>,
 ) -> Result<(), CommandError> {
-  // Get the generation ID counter and increment it
-  let generation_id_counter = {
-    let guard = model_state.generator.lock().await;
-    guard.get_current_generation_id()
-  };
-
+  // Bump the generation ID without taking the generator lock, so a running generation sees it is superseded
+  let generation_id_counter = &model_state.current_generation_id;
   let my_generation_id = generation_id_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
 
   // Send started event
@@ -66,7 +62,7 @@ pub async fn suggest_branch_name_stream(
 
   // Generate branch names with streaming - fail if generation fails
   match model_gen
-    .generate_branch_names_stream(&git_executor, &params.commits, &params.repository_path, &progress, my_generation_id)
+    .generate_branch_names_stream(&git_executor, &params.commits, &params.repository_path, &progress, generation_id_counter, my_generation_id)
     .await
   {
     Ok(()) => {

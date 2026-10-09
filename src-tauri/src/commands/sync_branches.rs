@@ -3,7 +3,7 @@ use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::command_error::CommandError;
 use serde::Deserialize;
-use sync_core::sync::sync_branches_core_with_cache;
+use sync_core::sync::{IssueConfigSource, sync_branches_core_with_cache};
 use sync_types::SyncEvent;
 use tauri::State;
 use tauri::ipc::Channel;
@@ -31,8 +31,8 @@ pub async fn sync_branches(
   let branch_prefix = &params.branch_prefix;
 
   // Get or create cached repository state (includes Git version validation)
-  let cached_issue_config = match cache.get_or_create(repository_path, &git_executor).await {
-    Ok(state) => state.issue_config.clone(),
+  let issue_config = match cache.get_or_create(repository_path, &git_executor).await {
+    Ok(state) => IssueConfigSource::Cached(state.issue_config.clone()),
     Err(e) => {
       error!("Failed to initialize repository cache: {e:#}");
       return Err(CommandError::from(e));
@@ -43,7 +43,7 @@ pub async fn sync_branches(
   let progress_adapter = TauriProgressReporter::new(progress);
 
   // Use the version with cache support
-  sync_branches_core_with_cache(&git_executor, repository_path, branch_prefix, progress_adapter, cached_issue_config)
+  sync_branches_core_with_cache(&git_executor, repository_path, branch_prefix, progress_adapter, issue_config)
     .await
     .map_err(|e| {
       error!(error = ?e, "Branch synchronization failed");

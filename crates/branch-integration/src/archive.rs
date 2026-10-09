@@ -4,55 +4,37 @@ use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::model::extract_branch_name_from_final;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, PoisonError};
 use tracing::{debug, info, instrument, warn};
 
-// Global mutex to prevent race conditions when creating archive directories
-pub static ARCHIVE_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+/// Process-wide lock serializing branch renames into the archive and unapplied namespaces,
+/// so that picking a free name and renaming to it happen atomically.
+pub static REF_RENAME_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+/// Rename `from_branch` to `to_base`, appending a numeric suffix (`-1`, `-2`, ...) if that name is taken.
+/// The probe loop and the rename run under `REF_RENAME_MUTEX`. Returns the final branch name.
+pub fn rename_branch_unique(git: &GitCommandExecutor, repo: &str, from_branch: &str, to_base: &str) -> Result<String> {
+  let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
+
+  let mut target = to_base.to_string();
+  let mut suffix: u32 = 1;
+  while git.execute_command(&["show-ref", "--verify", &format!("refs/heads/{target}")], repo).is_ok() {
+    if suffix > 1000 {
+      return Err(anyhow::anyhow!("Too many existing branches named like {to_base}"));
+    }
+    target = format!("{to_base}-{suffix}");
+    suffix += 1;
+  }
+
+  // git creates the intermediate ref directories itself
+  git.execute_command(&["branch", "-m", from_branch, &target], repo)?;
+  Ok(target)
+}
 
 /// Rename a branch into an archive namespace, ensuring no collisions by appending a numeric suffix if needed.
 /// Returns the final archive ref name.
 pub fn archive_ref_unique(git: &GitCommandExecutor, repo: &str, from_branch: &str, to_prefix: &str, name: &str) -> Result<String> {
-  let base = format!("{to_prefix}/{name}");
-  let mut target = base.clone();
-  let mut suffix: u32 = 1;
-  loop {
-    let full_ref = format!("refs/heads/{target}");
-    let exists = git.execute_command(&["show-ref", "--verify", &full_ref], repo).is_ok();
-    if !exists {
-      break;
-    }
-    target = format!("{base}-{suffix}");
-    suffix += 1;
-    if suffix > 1000 {
-      warn!("archive_ref_unique: excessive collisions for {}", base);
-      break;
-    }
-  }
-
-  // Lock to prevent race conditions when multiple tasks try to create branches in same directory
-  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {e}"))?;
-
-  // The archive path (e.g., user/archived/2025-08-11) requires directory structure in .git/refs.
-  // Since virtual branches don't contain '/', only the archive prefix creates nested paths.
-  // Create a temporary branch to establish the directory structure.
-  if target.matches('/').count() > 1
-    && let Some((parent_path, _)) = target.rsplit_once('/')
-  {
-    // Create temporary branch to establish the directory structure
-    // This uses git's own mechanisms rather than manipulating .git directly
-    let temp_branch = format!("{parent_path}/.archive-temp");
-
-    // Try to create the temp branch (ignore errors if it already exists)
-    let _ = git.execute_command(&["branch", &temp_branch, "HEAD"], repo);
-
-    // Immediately delete it (the directory structure remains in git)
-    let _ = git.execute_command(&["branch", "-D", &temp_branch], repo);
-  }
-
-  // Now rename the branch to its archive location
-  git.execute_command(&["branch", "-m", from_branch, &target], repo)?;
-  Ok(target)
+  rename_branch_unique(git, repo, from_branch, &format!("{to_prefix}/{name}"))
 }
 
 /// Archive a branch by moving it to the archive namespace
@@ -87,7 +69,7 @@ pub fn batch_archive_inactive_branches(
   let archive_prefix = format!("{branch_prefix}/archived/{date}");
 
   // Lock to prevent race conditions
-  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {e}"))?;
+  let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
 
   // Build mappings with conflict resolution
   let mut used_names = existing_today_names.clone();
@@ -113,11 +95,6 @@ pub fn batch_archive_inactive_branches(
     let archived_name = format!("{archive_prefix}/{target_name}");
     archive_mappings.push((branch_name.clone(), archived_name));
   }
-
-  // Create archive directory structure
-  let temp_branch = format!("{archive_prefix}/archive-temp");
-  let _ = git_executor.execute_command(&["branch", &temp_branch, "HEAD"], repo_path);
-  let _ = git_executor.execute_command(&["branch", "-D", &temp_branch], repo_path);
 
   // Build batch commands efficiently
   let mut batch_commands = String::with_capacity(archive_mappings.len() * 150 + 20);
@@ -207,7 +184,7 @@ pub fn batch_delete_archived_branches(git_executor: &GitCommandExecutor, repo_pa
   }
 
   // Lock to prevent race conditions during deletion
-  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {e}"))?;
+  let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
 
   // Build args for a single git call: `git branch -D <branches...>`
   let mut args: Vec<&str> = Vec::with_capacity(2 + branches.len());

@@ -13,30 +13,21 @@ use tracing::info;
 #[derive(Debug)]
 pub struct ModelBasedBranchGenerator {
   core: CoreGenerator,
-  current_generation_id: Arc<AtomicU64>,
 }
 
 impl ModelBasedBranchGenerator {
   pub fn new() -> Result<Self> {
-    Ok(Self {
-      core: CoreGenerator::new()?,
-      current_generation_id: Arc::new(AtomicU64::new(0)),
-    })
+    Ok(Self { core: CoreGenerator::new()? })
   }
 
   pub fn with_config(model_config: ModelConfig) -> Result<Self> {
     Ok(Self {
       core: CoreGenerator::with_config(model_config)?,
-      current_generation_id: Arc::new(AtomicU64::new(0)),
     })
   }
 
   pub fn get_model_path(&mut self, provider: &dyn ModelPathProvider) -> Result<std::path::PathBuf> {
     self.core.get_model_path(provider)
-  }
-
-  pub fn get_current_generation_id(&self) -> Arc<AtomicU64> {
-    Arc::clone(&self.current_generation_id)
   }
 
   pub fn get_model_config(&self) -> ModelConfig {
@@ -47,13 +38,13 @@ impl ModelBasedBranchGenerator {
     self.core.set_model_config(config).await
   }
 
-  pub(crate) fn get_git_output_for_commits(git_executor: &GitCommandExecutor, commits: &[CommitInfo], repo_path: &str) -> Result<String> {
-    if commits.is_empty() {
+  pub(crate) fn get_git_output_for_commits<'a>(git_executor: &GitCommandExecutor, commits: impl IntoIterator<Item = &'a CommitInfo>, repo_path: &str) -> Result<String> {
+    // Collect all commit hashes for batch processing
+    let commit_hashes: Vec<&str> = commits.into_iter().map(|c| c.hash.as_str()).collect();
+    if commit_hashes.is_empty() {
       return Ok(String::new());
     }
-
-    // Collect all commit hashes for batch processing
-    let commit_hashes: Vec<&str> = commits.iter().map(|c| c.hash.as_str()).collect();
+    let commit_count = commit_hashes.len();
 
     // Single git command for all commits
     let mut args = vec![
@@ -71,7 +62,7 @@ impl ModelBasedBranchGenerator {
     info!(
       "Generated git output with {} characters from {} commits in single batch git command",
       git_output.len(),
-      commits.len()
+      commit_count
     );
 
     Ok(git_output)
@@ -85,14 +76,13 @@ impl ModelBasedBranchGenerator {
     self.core.is_loaded()
   }
 
-  // Removed old complex loading methods - now using model-core directly
-
   pub async fn generate_branch_names_stream(
     &mut self,
     git_executor: &GitCommandExecutor,
     commits: &[CommitInfo],
     repository_path: &str,
     progress: &tauri::ipc::Channel<model_ai::types::SuggestionProgress>,
+    current_generation_id: &AtomicU64,
     my_generation_id: u64,
   ) -> Result<()> {
     use model_ai::types::{BranchSuggestion, SuggestionProgress};
@@ -109,10 +99,10 @@ impl ModelBasedBranchGenerator {
     }
 
     // Get git output once and reuse it
-    let git_output = Self::get_git_output_for_commits(git_executor, commits, repository_path)?;
+    let git_output = Self::get_git_output_for_commits(git_executor, valid_commits, repository_path)?;
 
     // Check if we should continue with this generation
-    if my_generation_id != self.current_generation_id.load(std::sync::atomic::Ordering::SeqCst) {
+    if my_generation_id != current_generation_id.load(std::sync::atomic::Ordering::SeqCst) {
       info!("Generation {} cancelled, newer generation exists", my_generation_id);
       progress.send(SuggestionProgress::Cancelled).ok();
       return Ok(());
@@ -137,7 +127,7 @@ impl ModelBasedBranchGenerator {
     // Generate alternative suggestion if primary was successful
     if !cleaned_name.is_empty() {
       // Check again before generating alternative
-      if my_generation_id != self.current_generation_id.load(std::sync::atomic::Ordering::SeqCst) {
+      if my_generation_id != current_generation_id.load(std::sync::atomic::Ordering::SeqCst) {
         info!("Generation {} cancelled before alternative, newer generation exists", my_generation_id);
         return Ok(());
       }
@@ -169,6 +159,9 @@ impl ModelBasedBranchGenerator {
 // State wrapper for Tauri
 pub struct ModelGeneratorState {
   pub generator: Mutex<ModelBasedBranchGenerator>,
+  /// Id of the latest suggestion request. Kept outside the generator mutex so a new request can
+  /// supersede a running generation without waiting for its lock.
+  pub current_generation_id: AtomicU64,
   pub download_cancelled: Arc<AtomicBool>,
 }
 
@@ -176,6 +169,7 @@ impl ModelGeneratorState {
   pub fn new(generator: ModelBasedBranchGenerator) -> Self {
     Self {
       generator: Mutex::new(generator),
+      current_generation_id: AtomicU64::new(0),
       download_cancelled: Arc::new(AtomicBool::new(false)),
     }
   }

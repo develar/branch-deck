@@ -247,7 +247,7 @@ fn archive_inactive_branches(
 #[instrument(skip(git_executor, config), fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, grouped_count = config.grouped_commits.len(), strategy = ?config.strategy))]
 pub async fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, baseline_branch: &str, config: DetectConfig<'_>) -> Result<()> {
   // Step 0: Get ALL branch data including parsed cached notes in a single git call
-  let branch_data = common::get_all_branch_data(git_executor, repo_path, branch_prefix)?;
+  let mut branch_data = common::get_all_branch_data(git_executor, repo_path, branch_prefix)?;
 
   // Step 0.5: Clean up old archived branches, but only those fully integrated
   // Compute cutoff date based on retention
@@ -286,6 +286,11 @@ pub async fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_
         "Cleaned up old fully integrated archived branches"
       );
     }
+
+    // Deleted branches must not be reported or re-detected
+    let deleted_set: HashSet<&str> = branches_to_delete.iter().map(String::as_str).collect();
+    branch_data.archived_all.retain(|branch| !deleted_set.contains(branch.as_str()));
+    branch_data.all_branch_commits.retain(|branch, _| !deleted_set.contains(branch.as_str()));
   }
 
   // Step 2: Archive inactive branches using the pre-fetched data

@@ -95,5 +95,19 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   assert!(remaining.contains(&old_uncached), "old-uncached (no cache) should remain");
   assert!(remaining.contains(&recent_integrated), "recent-integrated should remain (not old enough)");
 
+  // Deleted branches must not be reported to the UI
+  let reported: Vec<String> = progress
+    .get_events()
+    .into_iter()
+    .filter_map(|event| match event {
+      sync_types::SyncEvent::ArchivedBranchesFound { branch_names } => Some(branch_names),
+      _ => None,
+    })
+    .flatten()
+    .collect();
+  assert!(!reported.contains(&old_integrated), "deleted old-integrated must not be reported: {reported:?}");
+  assert!(reported.contains(&old_orphaned), "old-orphaned should be reported: {reported:?}");
+  assert!(reported.contains(&recent_integrated), "recent-integrated should be reported: {reported:?}");
+
   Ok(())
 }

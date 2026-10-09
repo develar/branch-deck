@@ -57,7 +57,8 @@ pub fn clean_branch_name(raw_name: &str) -> Result<String> {
 
   // Handle length limit
   let final_name = if trimmed.len() > MAX_BRANCH_NAME_LENGTH {
-    let truncated = &trimmed[..MAX_BRANCH_NAME_LENGTH];
+    // Kept characters may be multi-byte (Unicode alphanumerics), so cut at a char boundary
+    let truncated = &trimmed[..trimmed.floor_char_boundary(MAX_BRANCH_NAME_LENGTH)];
     // Trim any trailing special chars from truncation
     truncated.trim_end_matches(&['-', '_'][..])
   } else {
@@ -139,6 +140,9 @@ mod tests {
       "very-long-branch-name-that-should-be-truncated-bec"
     ); // Truncated at MAX_BRANCH_NAME_LENGTH chars, trailing hyphen trimmed
     assert_eq!(clean_branch_name("main").unwrap(), "main"); // main is a valid branch name
+    // Multi-byte characters straddling the length limit must not panic
+    let cyrillic = "ф".repeat(40);
+    assert_eq!(clean_branch_name(&cyrillic).unwrap(), "ф".repeat(25));
 
     // Test thinking tag removal
     assert_eq!(clean_branch_name("\n\n</think>\n\nuser-service-secure-hash").unwrap(), "user-service-secure-hash");

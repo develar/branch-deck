@@ -84,6 +84,9 @@ impl QuantizedQwen3BranchGenerator {
 
     debug!("Generating branch name with {} tokens max", max_tokens);
 
+    // Clear KV cache for fresh context on each generation
+    model.clear_kv_cache();
+
     // Format prompt with /no_think and explicit instruction for brevity
     // Tokenize prompt
     let mut tokens = tokenizer.encode(prompt, true).map_err(E::msg)?.get_ids().to_vec();

@@ -101,16 +101,19 @@ mod tests {
 
   #[test]
   fn test_git_status_rename_and_copy_status() {
-    // Test R (rename) and C (copy) status codes
-    let mock_git_output = "R  old.txt -> new.txt\0C  original.txt -> copy.txt\0";
+    // Test R (rename) and C (copy) status codes in the real `-z` layout: `XY new\0old\0`
+    let mock_git_output = "R  new.txt\0old.txt\0C  copy.txt\0original.txt\0 M after.txt\0";
 
     let files = parse_git_status_output(mock_git_output);
 
-    assert_eq!(files.len(), 2);
+    assert_eq!(files.len(), 3);
     assert_eq!(files[0].status, "renamed");
-    assert_eq!(files[0].file_path, "old.txt -> new.txt");
+    assert_eq!(files[0].file_path, "new.txt");
+    assert!(files[0].staged);
     assert_eq!(files[1].status, "copied");
-    assert_eq!(files[1].file_path, "original.txt -> copy.txt");
+    assert_eq!(files[1].file_path, "copy.txt");
+    assert_eq!(files[2].status, "modified");
+    assert_eq!(files[2].file_path, "after.txt");
   }
 
   #[test]
