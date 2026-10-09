@@ -1,5 +1,5 @@
+use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
-use crate::sync::detect_baseline_branch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use pretty_assertions::assert_eq;

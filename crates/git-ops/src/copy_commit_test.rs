@@ -55,7 +55,7 @@ fn test_perform_merge_displays_conflict_diffs() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -102,7 +102,7 @@ fn test_perform_merge_with_context_lines() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -133,7 +133,7 @@ fn test_perform_merge_success_no_conflicts() {
 
   // Attempt the fast cherry-pick, which should succeed
   let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_hash, &base_hash, None, &cache);
+  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_hash, &base_hash, &|_| {}, &cache);
 
   // Should succeed without conflicts
   assert!(result.is_ok());
@@ -182,7 +182,7 @@ fn test_perform_merge_isolates_specific_commit_changes() {
 
   // Perform the fast cherry-pick
   let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &commit_258_hash, &initial_hash, None, &cache);
+  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &commit_258_hash, &initial_hash, &|_| {}, &cache);
 
   // Should succeed without conflicts
   assert!(result.is_ok(), "Merge should succeed without conflicts");

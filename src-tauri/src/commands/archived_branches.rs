@@ -2,8 +2,8 @@ use branch_integration::archive::get_archived_branch_commits as get_commits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use model_tauri::command_error::CommandError;
+use sync_core::baseline::detect_baseline_branch;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
-use sync_core::sync::detect_baseline_branch;
 
 #[tauri::command]
 #[specta::specta]

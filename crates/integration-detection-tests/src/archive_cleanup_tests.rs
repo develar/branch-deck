@@ -9,7 +9,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   use branch_integration::cache::CacheOps;
   use branch_integration::detector::{DetectConfig, detect_integrated_branches};
   use branch_integration::strategy::DetectionStrategy;
-  use sync_core::sync::detect_baseline_branch;
+  use sync_core::baseline::detect_baseline_branch;
   use sync_test_utils::TestReporter;
   use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 

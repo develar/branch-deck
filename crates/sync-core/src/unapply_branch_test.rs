@@ -1,4 +1,4 @@
-use crate::sync::detect_baseline_branch;
+use crate::baseline::detect_baseline_branch;
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use anyhow::Result;
 use git_ops::model::to_final_branch_name;

@@ -8,7 +8,7 @@ use test_log::test;
 /// This tests what CLAUDE.md describes as orphaned: "Virtual branch exists but original commits are gone"
 #[test(tokio::test)]
 async fn test_true_orphan_case_when_original_commits_removed_from_head() {
-  use sync_core::sync::detect_baseline_branch;
+  use sync_core::baseline::detect_baseline_branch;
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
 
   // Step 1: Create some commits on main branch (simulating commits in baseline..HEAD range)

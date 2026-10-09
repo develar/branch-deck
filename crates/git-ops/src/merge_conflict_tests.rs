@@ -26,7 +26,7 @@ fn test_conflict_hunks_extraction() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -95,7 +95,7 @@ fn test_delete_modify_conflict() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -152,7 +152,7 @@ fn test_no_conflict_no_hunks() {
 
   // Attempt cherry-pick - should succeed without conflicts
   let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_commit_hash, &target_commit_hash, None, &cache);
+  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_commit_hash, &target_commit_hash, &|_| {}, &cache);
 
   // Should succeed
   assert!(result.is_ok(), "Cherry-pick should succeed without conflicts");
@@ -177,7 +177,7 @@ fn test_get_merge_conflict_content_with_markers() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -243,7 +243,7 @@ fn test_conflict_detail_file_diff_structure() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -328,7 +328,7 @@ fn test_multiple_conflicting_files_with_markers() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -383,7 +383,7 @@ fn test_conflict_with_empty_file() {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -490,7 +490,7 @@ init {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -594,7 +594,7 @@ return result;
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 
@@ -719,7 +719,7 @@ init {
     test_repo.path().to_str().unwrap(),
     &scenario.cherry_commit,
     &scenario.target_commit,
-    None,
+    &|_| {},
     &cache,
   );
 

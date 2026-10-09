@@ -1,6 +1,6 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use model_tauri::command_error::CommandError;
-use sync_core::sync::detect_baseline_branch;
+use sync_core::baseline::detect_baseline_branch;
 use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, unapply_branch_core};
 use tauri::State;
 use tokio::task;

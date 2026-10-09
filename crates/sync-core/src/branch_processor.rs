@@ -6,7 +6,6 @@ use git_ops::commit_list::Commit;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::write_commit_notes;
-use git_ops::progress::ProgressCallback;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use sync_types::{ProgressReporter, SyncEvent};
@@ -43,23 +42,6 @@ enum CommitProcessingResult {
     mapping_info: Option<(String, String)>,
   },
   BranchError,
-}
-
-/// Progress adapter that implements `ProgressCallback` for the `ProgressReporter` trait
-pub(crate) struct ProgressReporterAdapter<'a, P: ProgressReporter> {
-  reporter: &'a P,
-}
-
-impl<'a, P: ProgressReporter> ProgressReporterAdapter<'a, P> {
-  pub fn new(reporter: &'a P) -> Self {
-    Self { reporter }
-  }
-}
-
-impl<P: ProgressReporter> ProgressCallback for ProgressReporterAdapter<'_, P> {
-  fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> Result<()> {
-    self.reporter.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })
-  }
 }
 
 #[instrument(
@@ -120,7 +102,13 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
 
   // recreate each commit on top of the last one
   let total_commits_in_branch = commits.len();
-  let progress_adapter = ProgressReporterAdapter::new(progress);
+  let on_status = |status: BranchSyncStatus| {
+    let _ = progress.send(SyncEvent::BranchStatusUpdate {
+      branch_name: branch_name.clone(),
+      status,
+      error: None,
+    });
+  };
 
   for (current_commit_idx, commit) in commits.iter().enumerate() {
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
@@ -140,7 +128,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
       new_parent_oid: &current_parent_hash,
       reuse_if_possible,
       repo_path: repository_path,
-      progress: &progress_adapter,
+      on_status: &on_status,
       progress_info: &progress_info,
       git_executor,
       tree_id_cache,

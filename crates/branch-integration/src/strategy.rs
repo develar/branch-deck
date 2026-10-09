@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 /// Detection strategy configuration
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum DetectionStrategy {
@@ -12,11 +14,15 @@ pub enum DetectionStrategy {
   All,
 }
 
-/// Get the detection strategy based on runtime configuration
+/// Get the detection strategy based on runtime configuration.
+/// The environment is read once per process, not on every sync.
 pub fn get_detection_strategy() -> DetectionStrategy {
-  if std::env::var("BRANCH_DECK_FULL_DETECTION").is_ok() {
-    DetectionStrategy::All
-  } else {
-    DetectionStrategy::Rebase
-  }
+  static STRATEGY: LazyLock<DetectionStrategy> = LazyLock::new(|| {
+    if std::env::var_os("BRANCH_DECK_FULL_DETECTION").is_some() {
+      DetectionStrategy::All
+    } else {
+      DetectionStrategy::Rebase
+    }
+  });
+  *STRATEGY
 }

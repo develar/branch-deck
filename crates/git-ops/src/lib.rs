@@ -8,7 +8,6 @@ pub mod copy_commit;
 pub mod merge_conflict;
 pub mod model;
 pub mod notes;
-pub mod progress;
 pub mod reword_commits;
 
 #[cfg(test)]

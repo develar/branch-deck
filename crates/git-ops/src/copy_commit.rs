@@ -1,7 +1,6 @@
 use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
-use crate::model::{BranchError, CommitSyncStatus};
-use crate::progress::ProgressCallback;
+use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
@@ -48,7 +47,8 @@ pub struct CreateCommitParams<'a> {
   pub new_parent_oid: &'a str,
   pub reuse_if_possible: bool,
   pub repo_path: &'a str,
-  pub progress: &'a dyn ProgressCallback,
+  /// Receives intermediate branch statuses (e.g. `AnalyzingConflict`)
+  pub on_status: &'a dyn Fn(BranchSyncStatus),
   pub progress_info: &'a ProgressInfo<'a>,
   pub git_executor: &'a GitCommandExecutor,
   pub tree_id_cache: &'a TreeIdCache,
@@ -68,14 +68,13 @@ pub struct CopiedCommit {
 #[instrument(skip(params), fields(commit_id = %params.commit.id, branch = %params.progress_info.branch_name))]
 pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedCommit, CopyCommitError> {
   use crate::cherry_pick::perform_fast_cherry_pick_with_context;
-  use crate::progress::CherryPickProgress;
   let CreateCommitParams {
     commit,
     new_parent_oid,
     reuse_if_possible,
     repo_path,
-    progress,
-    progress_info,
+    on_status,
+    progress_info: _, // only read by the span
     git_executor,
     tree_id_cache,
     existing_virtual_commits,
@@ -121,8 +120,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
   } else {
     debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     // Use cherry-pick for efficient 3-way merge with conflict handling
-    let cherry_progress = CherryPickProgress::new(progress, progress_info.branch_name);
-    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, new_parent_oid, Some(&cherry_progress), tree_id_cache)?
+    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, new_parent_oid, on_status, tree_id_cache)?
   };
 
   // Reconstruct message with stripped subject for the actual git commit

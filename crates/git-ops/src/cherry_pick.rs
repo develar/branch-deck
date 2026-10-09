@@ -3,7 +3,6 @@ use crate::commit_list::Commit;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictDetailsParams, extract_conflict_details, get_commit_info_batch};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
-use crate::progress::CherryPickProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeSet;
@@ -13,13 +12,13 @@ use tracing::{debug, instrument};
 /// Cherry-pick implementation using Git CLI commands (git merge-tree)
 /// This performs the cherry-pick without touching the working directory
 /// This version uses git CLI exclusively for better performance
-#[instrument(skip(git_executor, progress, tree_id_cache), fields(cherry_id = %cherry_commit_id, target_id = %target_commit_id))]
+#[instrument(skip(git_executor, on_status, tree_id_cache), fields(cherry_id = %cherry_commit_id, target_id = %target_commit_id))]
 pub fn perform_fast_cherry_pick_with_context(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   cherry_commit_id: &str,
   target_commit_id: &str,
-  progress: Option<&CherryPickProgress>,
+  on_status: &dyn Fn(BranchSyncStatus),
   tree_id_cache: &TreeIdCache,
 ) -> Result<String, CopyCommitError> {
   // Get commit information using git CLI
@@ -90,10 +89,8 @@ pub fn perform_fast_cherry_pick_with_context(
     let conflict_files: Vec<PathBuf> = conflict_paths.into_iter().collect();
 
     if !conflict_files.is_empty() {
-      // Send branch status event for conflict analysis if progress is available
-      if let Some(progress) = &progress {
-        let _ = progress.send_status(BranchSyncStatus::AnalyzingConflict, None);
-      }
+      // Conflict analysis takes a while; let the UI show it
+      on_status(BranchSyncStatus::AnalyzingConflict);
 
       // Get detailed conflict information with diffs
       let (detailed_conflicts, conflict_marker_commits) = extract_conflict_details(ConflictDetailsParams {
