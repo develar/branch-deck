@@ -59,7 +59,7 @@ impl<P: ProgressReporter> ProgressReporter for OrderedProgressReporter<P> {
         }
       }
       _ => {
-        // Non-branch events (IssueNavigationConfig, UnassignedCommits, Completed) pass through
+        // Non-branch events (IssueNavigationConfig, UnassignedCommits, archive/integration events) pass through
         self.inner.send(event)
       }
     }

@@ -3250,7 +3250,6 @@ dependencies = [
  "git-ops",
  "indexmap 2.14.2",
  "pretty_assertions",
- "serde_json",
  "sync-core",
  "sync-test-utils",
  "sync-types",

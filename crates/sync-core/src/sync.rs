@@ -1,5 +1,5 @@
 use crate::branch_processor::{BranchProcessingParams, process_single_branch};
-use crate::commit_grouper::CommitGrouper;
+use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::issue_navigation::load_issue_navigation_config;
 use anyhow::{Result, anyhow};
 use branch_integration::{detector::detect_integrated_branches, strategy::DetectionStrategy};
@@ -30,8 +30,7 @@ pub struct SyncOptions {
   pub issue_config: IssueConfigSource,
   /// Detection strategy for integration detection
   pub detection_strategy: DetectionStrategy,
-  /// Archive cleanup retention in days (older archived branches will be deleted)
-  /// Defaults to the current retention used by branch-integration (7 days).
+  /// Archive cleanup retention in days (older fully integrated archived branches are deleted)
   pub archive_retention_days: u64,
 }
 
@@ -40,7 +39,6 @@ impl Default for SyncOptions {
     Self {
       issue_config: IssueConfigSource::Load,
       detection_strategy: branch_integration::strategy::get_detection_strategy(),
-      // Keep in sync with branch_integration::archive::ARCHIVE_RETENTION_DAYS (currently 7)
       archive_retention_days: 7,
     }
   }
@@ -270,14 +268,6 @@ pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Com
   grouped_branches_for_ui
 }
 
-/// Get the parent commit hash of the oldest commit
-fn get_parent_commit_hash(git_executor: &GitCommandExecutor, repository_path: &str, oldest_commit: Option<&Commit>) -> Result<String> {
-  let oldest_head_commit = oldest_commit.ok_or_else(|| anyhow::anyhow!("No oldest commit found despite having commits"))?;
-
-  let parent_ref = format!("{}^", oldest_head_commit.id);
-  Ok(git_executor.execute_command(&["rev-parse", &parent_ref], repository_path)?.trim().to_string())
-}
-
 /// Core sync branches logic
 #[instrument(skip(git_executor, progress, options), fields(repository_path = %repository_path, branch_prefix = %branch_prefix, cached_issue_config = matches!(options.issue_config, IssueConfigSource::Cached(_))))]
 pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
@@ -341,11 +331,15 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     return Ok(());
   }
 
-  // Extract oldest commit before consuming grouper
-  let oldest_commit = grouper.oldest_commit.clone();
+  // The virtual branches are rebuilt on top of the parent of the oldest commit
+  let first_parent_id = grouper.first_parent_id.clone();
 
   // group commits by prefix first to get all branch names
-  let (grouped_commits, unassigned_commits, branch_emails) = grouper.finish();
+  let GroupedCommits {
+    branches: grouped_commits,
+    unassigned: unassigned_commits,
+    branch_emails,
+  } = grouper.finish();
 
   let total_branches = grouped_commits.len();
 
@@ -386,7 +380,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   let branch_processing_handle = tokio::spawn({
     let repository_path = repository_path.to_string();
     let branch_prefix = branch_prefix.to_string();
-    let oldest_commit = oldest_commit.clone();
+    let first_parent_id = first_parent_id.clone();
     let ordered_progress = ordered_progress.clone();
     let git_executor = git_executor.clone();
     let grouped_commits = grouped_commits.clone();
@@ -394,8 +388,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let branch_emails = branch_emails.clone();
 
     async move {
-      // Compute parent commit hash inside the spawned task
-      let parent_commit_hash = get_parent_commit_hash(&git_executor, &repository_path, oldest_commit.as_ref())?;
+      let parent_commit_hash = first_parent_id.ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
 
       // Create git notes mutex inside the spawned task
       let git_notes_mutex = Arc::new(Mutex::new(()));

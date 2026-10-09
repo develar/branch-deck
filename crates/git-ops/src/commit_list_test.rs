@@ -4,6 +4,16 @@ use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
+/// Collects the commits ahead of `baseline_branch` into a Vec
+fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<Vec<Commit>> {
+  let mut commits = Vec::new();
+  get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
+    commits.push(commit);
+    Ok(())
+  })?;
+  Ok(commits)
+}
+
 #[test]
 fn test_get_commit_list_local_repository() {
   let test_repo = TestRepo::new();
@@ -119,21 +129,6 @@ fn test_get_commit_list_empty_range() {
   // Get commits - should be empty
   let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
   assert_eq!(commits.len(), 0);
-}
-
-#[test]
-fn test_has_branch_prefix() {
-  // Valid prefixes
-  assert!(has_branch_prefix("(feature) Add feature"));
-  assert!(has_branch_prefix("(bugfix-123) Fix bug"));
-  assert!(has_branch_prefix("(a) Short prefix"));
-
-  // Invalid prefixes
-  assert!(!has_branch_prefix("() Empty prefix"));
-  assert!(!has_branch_prefix("("));
-  assert!(!has_branch_prefix("No prefix here"));
-  assert!(!has_branch_prefix(""));
-  assert!(!has_branch_prefix("Almost (but not)"));
 }
 
 #[test]

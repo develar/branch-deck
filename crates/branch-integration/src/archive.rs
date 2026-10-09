@@ -31,25 +31,6 @@ pub fn rename_branch_unique(git: &GitCommandExecutor, repo: &str, from_branch: &
   Ok(target)
 }
 
-/// Rename a branch into an archive namespace, ensuring no collisions by appending a numeric suffix if needed.
-/// Returns the final archive ref name.
-pub fn archive_ref_unique(git: &GitCommandExecutor, repo: &str, from_branch: &str, to_prefix: &str, name: &str) -> Result<String> {
-  rename_branch_unique(git, repo, from_branch, &format!("{to_prefix}/{name}"))
-}
-
-/// Archive a branch by moving it to the archive namespace
-/// Returns the full archived branch name
-#[instrument(skip(git_executor), fields(from = %branch_name, prefix = %branch_prefix))]
-pub fn archive_branch(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, branch_prefix: &str) -> anyhow::Result<String> {
-  let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-  let simple_name = extract_branch_name_from_final(branch_name, branch_prefix).unwrap_or_else(|| branch_name.to_string());
-  let archive_prefix = format!("{branch_prefix}/archived/{date}");
-
-  let target = archive_ref_unique(git_executor, repo_path, branch_name, &archive_prefix, &simple_name)?;
-  info!(to = %target, "Successfully archived branch");
-  Ok(target)
-}
-
 /// Archive inactive branches using pre-fetched data
 /// Returns a map of archived branch name -> commit SHA
 #[instrument(skip(git_executor, branch_commits, existing_today_names), fields(branch_count = inactive_branches.len()))]

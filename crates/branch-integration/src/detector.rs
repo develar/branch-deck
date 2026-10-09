@@ -73,9 +73,8 @@ async fn process_branches_parallel(params: BranchProcessingParams<'_>) -> Result
     let cache_entry = cached_notes.get(&branch_tip).cloned();
 
     // Check cache BEFORE spawning blocking task - major optimization
-    if let Some(cache) = cache_entry.clone()
-      && handle_cache_hit(progress, &archived_branch, cache)?
-    {
+    if let Some(cache) = cache_entry {
+      handle_cache_hit(progress, &archived_branch, cache)?;
       continue;
     }
 
@@ -112,8 +111,6 @@ async fn process_branches_parallel(params: BranchProcessingParams<'_>) -> Result
   Ok(all_caches_to_write)
 }
 
-// ===== Helpers extracted to simplify process_branches_parallel =====
-
 #[derive(Debug)]
 struct BranchWorkInputs {
   archived_branch: String,
@@ -124,10 +121,7 @@ struct BranchWorkInputs {
   baseline: String,
 }
 
-fn compute_summary_blocking(git: &GitCommandExecutor, repo: &str, branch_tip: &str, should_compute: bool) -> String {
-  if !should_compute {
-    return String::new();
-  }
+fn compute_summary_blocking(git: &GitCommandExecutor, repo: &str, branch_tip: &str) -> String {
   git
     .execute_command(["--no-pager", "log", "-1", "--format=%s", branch_tip].as_slice(), repo)
     .ok()
@@ -141,11 +135,10 @@ fn compute_summary_blocking(git: &GitCommandExecutor, repo: &str, branch_tip: &s
     })
 }
 
-fn handle_cache_hit(progress: &dyn ProgressReporter, archived_branch: &str, mut info: BranchIntegrationInfo) -> Result<bool> {
+fn handle_cache_hit(progress: &dyn ProgressReporter, archived_branch: &str, mut info: BranchIntegrationInfo) -> Result<()> {
   // Ensure the branch name is set correctly
   info.name = archived_branch.to_string();
-  progress.send(SyncEvent::BranchIntegrationDetected { info })?;
-  Ok(true)
+  progress.send(SyncEvent::BranchIntegrationDetected { info })
 }
 
 #[instrument(skip(git), fields(branch = %inputs.archived_branch, baseline = %inputs.baseline, merged = inputs.is_merged, strategy = ?inputs.strategy, tip = %inputs.branch_tip))]
@@ -166,9 +159,7 @@ async fn run_branch_task(inputs: BranchWorkInputs, git: GitCommandExecutor) -> s
     let git_for_sum = git.clone();
     let repo_for_sum = inputs.repo.clone();
     let tip_for_sum = inputs.branch_tip.clone();
-    Some(tokio::task::spawn_blocking(move || {
-      compute_summary_blocking(&git_for_sum, &repo_for_sum, &tip_for_sum, should_compute_summary)
-    }))
+    Some(tokio::task::spawn_blocking(move || compute_summary_blocking(&git_for_sum, &repo_for_sum, &tip_for_sum)))
   } else {
     None
   };
@@ -401,7 +392,6 @@ fn create_detection_result(status: BranchIntegrationStatus, branch_name: String,
 }
 
 /// Perform fresh detection using the specified strategy
-/// Returns (`integrated_info`, `not_integrated_info`) based on detection results
 fn perform_fresh_detection(
   git: &GitCommandExecutor,
   repo: &str,
@@ -413,7 +403,7 @@ fn perform_fresh_detection(
   // 1) Merge detection first if enabled and branch is known merged
   if (strategy == DetectionStrategy::Merge || strategy == DetectionStrategy::All)
     && is_merged
-    && let Some(merge_integrated) = merge::detect_merge_status(git, repo, branch_name, baseline, is_merged)?
+    && let Some(merge_integrated) = merge::detect_merge_status(git, repo, branch_name, baseline)?
   {
     return Ok(merge_integrated);
   }

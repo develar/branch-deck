@@ -1,12 +1,12 @@
 use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::{ConflictDetailsParams, ConflictFileInfo, extract_conflict_details, get_commit_info_batch};
+use crate::merge_conflict::{ConflictDetailsParams, extract_conflict_details, get_commit_info_batch};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use crate::progress::CherryPickProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::HashMap;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
@@ -76,38 +76,17 @@ pub fn perform_fast_cherry_pick_with_context(
 
   // Check if there were conflicts by looking for file entries
   if parts.len() > 1 {
-    let mut conflict_files: HashMap<PathBuf, ConflictFileInfo> = HashMap::new();
-
-    // Parse file entries (mode object stage\tfilename)
+    // Parse file entries (one per conflict stage) and collect the unique conflicted paths
+    let mut conflict_paths: BTreeSet<PathBuf> = BTreeSet::new();
     for part in parts.iter().skip(1).take_while(|p| !p.is_empty()) {
       // File entries have format: "<mode> <object> <stage>\t<filename>"
-      if let Some(tab_pos) = part.find('\t') {
-        let (prefix, filename) = part.split_at(tab_pos);
-        let filename = &filename[1..]; // Skip the tab
-        let path = PathBuf::from(filename);
-
-        // Parse mode, object, stage
-        let prefix_parts: Vec<&str> = prefix.split_whitespace().collect();
-        if prefix_parts.len() == 3 {
-          let object_id = prefix_parts[1].to_string();
-          let stage = prefix_parts[2];
-
-          let entry = conflict_files.entry(path.clone()).or_insert(ConflictFileInfo {
-            path,
-            base_oid: None,
-            ours_oid: None,
-            theirs_oid: None,
-          });
-
-          match stage {
-            "1" => entry.base_oid = Some(object_id),
-            "2" => entry.ours_oid = Some(object_id),
-            "3" => entry.theirs_oid = Some(object_id),
-            _ => {}
-          }
-        }
+      if let Some((prefix, filename)) = part.split_once('\t')
+        && prefix.split_whitespace().count() == 3
+      {
+        conflict_paths.insert(PathBuf::from(filename));
       }
     }
+    let conflict_files: Vec<PathBuf> = conflict_paths.into_iter().collect();
 
     if !conflict_files.is_empty() {
       // Send branch status event for conflict analysis if progress is available
@@ -127,8 +106,7 @@ pub fn perform_fast_cherry_pick_with_context(
       })?;
 
       // Analyze the conflict to find missing commits
-      let conflicting_paths: Vec<PathBuf> = conflict_files.keys().cloned().collect();
-      let conflict_analysis = match crate::conflict_analysis::analyze_conflict(git_executor, repo_path, &cherry_parent_id, target_commit_id, &conflicting_paths) {
+      let conflict_analysis = match crate::conflict_analysis::analyze_conflict(git_executor, repo_path, &cherry_parent_id, target_commit_id, &conflict_files) {
         Ok(analysis) => analysis,
         Err(e) => {
           // If conflict analysis fails, create a default analysis with empty data

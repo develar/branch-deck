@@ -50,11 +50,6 @@ impl TreeIdCache {
 
     Ok(tree_id)
   }
-
-  /// Get cache statistics for debugging
-  pub fn stats(&self) -> (usize, usize) {
-    (self.cache.len(), self.cache.capacity())
-  }
 }
 
 impl Default for TreeIdCache {

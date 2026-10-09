@@ -26,8 +26,7 @@ mod tests {
     // Verify cache stats - Moka cache uses eventual consistency
     // May need to wait or use run_pending_tasks
     cache.cache.run_pending_tasks();
-    let stats = cache.stats();
-    assert_eq!(stats.entry_count, 1, "Cache should have 1 entry");
+    assert_eq!(cache.cache.entry_count(), 1, "Cache should have 1 entry");
   }
 
   #[tokio::test]
@@ -52,39 +51,6 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn test_cache_clear_all() {
-    let cache = RepositoryStateCache::new();
-    let git_executor = GitCommandExecutor::new();
-    let temp_dir1 = TempDir::new().unwrap();
-    let temp_dir2 = TempDir::new().unwrap();
-    let repo_path1 = temp_dir1.path().to_str().unwrap();
-    let repo_path2 = temp_dir2.path().to_str().unwrap();
-
-    // Initialize git repositories
-    git_executor.execute_command(&["init"], repo_path1).expect("Failed to init git repo");
-    git_executor.execute_command(&["init"], repo_path2).expect("Failed to init git repo");
-
-    // Cache multiple states
-    cache.get_or_create(repo_path1, &git_executor).await.unwrap();
-    cache.get_or_create(repo_path2, &git_executor).await.unwrap();
-
-    // Ensure cache writes are processed
-    cache.cache.run_pending_tasks();
-
-    // Verify we have 2 entries
-    assert_eq!(cache.stats().entry_count, 2, "Cache should have 2 entries");
-
-    // Clear all
-    cache.clear_all();
-
-    // Ensure invalidation is processed
-    cache.cache.run_pending_tasks();
-
-    // Verify cache is empty
-    assert_eq!(cache.stats().entry_count, 0, "Cache should be empty after clear_all");
-  }
-
-  #[tokio::test]
   async fn test_cache_handles_nonexistent_path() {
     let cache = RepositoryStateCache::new();
     let git_executor = GitCommandExecutor::new();
@@ -101,6 +67,6 @@ mod tests {
     cache.cache.run_pending_tasks();
 
     // Verify cache stores the state
-    assert_eq!(cache.stats().entry_count, 1, "Cache should store the state");
+    assert_eq!(cache.cache.entry_count(), 1, "Cache should store the state");
   }
 }

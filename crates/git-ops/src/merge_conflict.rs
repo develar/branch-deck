@@ -8,15 +8,6 @@ use std::fmt::Write;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
-// Store conflict file info with object IDs for each stage
-#[derive(Debug)]
-pub struct ConflictFileInfo {
-  pub path: PathBuf,
-  pub base_oid: Option<String>,   // stage 1 - common ancestor
-  pub ours_oid: Option<String>,   // stage 2 - target branch
-  pub theirs_oid: Option<String>, // stage 3 - cherry-picked commit
-}
-
 /// Generate diff hunks between two versions of a file
 #[expect(clippy::too_many_arguments)]
 #[instrument(skip(git_executor, from_content, to_content), fields(file = %file_path))]
@@ -277,7 +268,8 @@ fn parse_diff_hunks(diff_output: &str, file_path: &str) -> Vec<String> {
 pub struct ConflictDetailsParams<'a> {
   pub git_executor: &'a GitCommandExecutor,
   pub repo_path: &'a str,
-  pub conflict_files: &'a HashMap<PathBuf, ConflictFileInfo>,
+  /// Conflicted file paths, without duplicates
+  pub conflict_files: &'a [PathBuf],
   pub merge_tree_oid: &'a str,
   pub parent_commit_id: &'a str,
   pub target_commit_id: &'a str,
@@ -305,7 +297,7 @@ pub fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Co
   let commit_info_map: HashMap<String, ConflictMarkerCommitInfo> = get_commit_info_batch(params.git_executor, params.repo_path, &commits_to_fetch)?;
 
   // Collect all files we need to fetch content for
-  let all_file_paths: Vec<String> = params.conflict_files.keys().map(|p| p.display().to_string()).collect();
+  let all_file_paths: Vec<String> = params.conflict_files.iter().map(|p| p.display().to_string()).collect();
 
   // Batch fetch all file contents for all commits at once
   let mut all_file_contents: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -328,8 +320,8 @@ pub fn extract_conflict_details(params: ConflictDetailsParams) -> Result<(Vec<Co
     get_files_content_at_commit(params.git_executor, params.repo_path, params.cherry_commit_id, &all_file_paths).unwrap_or_default(),
   );
 
-  for info in params.conflict_files.values() {
-    let file_path = info.path.display().to_string();
+  for path in params.conflict_files {
+    let file_path = path.display().to_string();
 
     // Get the actual merge conflict content with conflict markers from the merge tree
 

@@ -1,8 +1,6 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use tracing::{instrument, warn};
 
-// No complex types needed - just return the prefix string directly!
-
 /// Get the branch prefix from git config
 /// Reads from "branchdeck.branchPrefix" config key (case-insensitive)
 /// Uses git's built-in config precedence: local → global → system

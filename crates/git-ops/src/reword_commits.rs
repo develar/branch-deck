@@ -170,8 +170,6 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commi
   })
 }
 
-// create_commit_with_info replaced by commit_utils::create_commit_with_metadata
-
 pub fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str) -> Result<()> {
   let ref_name = format!("refs/heads/{branch_name}");
   let args = vec!["update-ref", &ref_name, new_commit_id];

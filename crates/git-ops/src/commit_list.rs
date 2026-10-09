@@ -34,20 +34,6 @@ pub struct Commit {
   pub mapped_commit_id: Option<String>, // Extracted from note if it has v-commit-v1: prefix
 }
 
-/// Get list of commits between baseline branch and HEAD
-/// This uses streaming to be memory efficient for repositories with many commits
-#[instrument(skip(git_executor))]
-pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Vec<Commit>> {
-  let mut commits = Vec::new();
-
-  get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
-    commits.push(commit);
-    Ok(())
-  })?;
-
-  Ok(commits)
-}
-
 /// Get list of commits between baseline branch and HEAD with a custom handler
 /// This is the most memory efficient approach as it processes commits one by one
 #[instrument(skip(git_executor, commit_handler))]
@@ -201,17 +187,6 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     note,
     mapped_commit_id,
   })
-}
-
-/// Check if a commit subject has a branch prefix pattern
-#[instrument]
-pub fn has_branch_prefix(subject: &str) -> bool {
-  if subject.starts_with('(')
-    && let Some(close_paren) = subject.find(')')
-  {
-    return close_paren > 1; // Ensure content between parentheses
-  }
-  false
 }
 
 #[cfg(test)]

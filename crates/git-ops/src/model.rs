@@ -135,13 +135,6 @@ pub fn to_unapplied_branch_name(branch_prefix: &str, branch_name: &str) -> anyho
   Ok(format!("{prefix}/unapplied/{name}"))
 }
 
-/// Extract the simple branch name from an unapplied branch name
-/// e.g., "user/unapplied/feature-auth" -> "feature-auth"
-pub fn extract_branch_name_from_unapplied(full_branch_name: &str, branch_prefix: &str) -> Option<String> {
-  let prefix = format!("{}/unapplied/", branch_prefix.trim_end_matches('/'));
-  full_branch_name.strip_prefix(&prefix).map(std::string::ToString::to_string)
-}
-
 /// Sanitizes a branch name to make it valid for Git references
 /// Git reference names cannot contain spaces, certain special characters, etc.
 pub fn sanitize_branch_name(name: &str) -> String {

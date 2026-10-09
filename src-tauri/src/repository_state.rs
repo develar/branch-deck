@@ -92,27 +92,6 @@ impl RepositoryStateCache {
     debug!(repo_path = %repository_path, "Invalidating repository cache");
     self.cache.invalidate(repository_path);
   }
-
-  /// Clear all cached entries
-  pub fn clear_all(&self) {
-    debug!("Clearing all repository cache entries");
-    self.cache.invalidate_all();
-  }
-
-  /// Get cache statistics
-  pub fn stats(&self) -> CacheStats {
-    CacheStats {
-      entry_count: self.cache.entry_count(),
-      weighted_size: self.cache.weighted_size(),
-    }
-  }
-}
-
-/// Statistics about the cache
-#[derive(Debug, Clone)]
-pub struct CacheStats {
-  pub entry_count: u64,
-  pub weighted_size: u64,
 }
 
 impl Default for RepositoryStateCache {

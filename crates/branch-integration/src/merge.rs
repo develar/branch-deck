@@ -21,11 +21,8 @@ pub fn find_integration_commit(git_executor: &GitCommandExecutor, repo_path: &st
 }
 
 /// Detect integration via merge commit detection
-pub fn detect_merge_status(git: &GitCommandExecutor, repo: &str, branch_name: &str, baseline: &str, is_merged: bool) -> Result<Option<BranchIntegrationStatus>> {
-  if !is_merged {
-    return Ok(None);
-  }
-
+/// The caller must already know that `branch_name` is merged into `baseline`.
+pub fn detect_merge_status(git: &GitCommandExecutor, repo: &str, branch_name: &str, baseline: &str) -> Result<Option<BranchIntegrationStatus>> {
   let commit_count = git
     .execute_command(&["rev-list", "--count", &format!("{baseline}...{branch_name}")], repo)
     .ok()

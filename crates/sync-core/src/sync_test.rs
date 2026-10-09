@@ -1,4 +1,4 @@
-use crate::commit_grouper::{CommitGrouper, GroupedCommitsResult};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::sync::detect_baseline_branch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
@@ -6,8 +6,18 @@ use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
+/// Collects the commits ahead of `baseline_branch` into a Vec
+fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<Vec<git_ops::commit_list::Commit>> {
+  let mut commits = Vec::new();
+  git_ops::commit_list::get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
+    commits.push(commit);
+    Ok(())
+  })?;
+  Ok(commits)
+}
+
 // Helper function for tests
-fn group_commits_by_prefix_new(commits: &[Commit]) -> GroupedCommitsResult {
+fn group_commits_by_prefix_new(commits: &[Commit]) -> GroupedCommits {
   let mut grouper = CommitGrouper::new();
   for commit in commits {
     grouper.add_commit(commit.clone());
@@ -63,12 +73,12 @@ fn test_sync_branches_with_conflicting_commits() {
 
   // Test that we can get the commit list ahead of baseline
   let git_executor = GitCommandExecutor::new();
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
+  let commits_vec = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
   assert!(!commits_vec.is_empty());
   assert_eq!(commits_vec.len(), 5); // 3 bugfix + 2 feature commits
 
   // Test that grouping works correctly with conflict-prone commits
-  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
+  let GroupedCommits { branches: grouped, .. } = group_commits_by_prefix_new(&commits_vec);
   assert_eq!(grouped.len(), 2);
   assert!(grouped.contains_key("bugfix-session"));
   assert!(grouped.contains_key("feature-auth"));
@@ -127,11 +137,11 @@ fn test_conflict_prone_commit_sequences() {
   // Test that our core functions can handle this scenario
   // Use the baseline branch to get commits ahead of it
   let git_executor = GitCommandExecutor::new();
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
+  let commits_vec = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
   assert_eq!(commits_vec.len(), 3); // 3 conflict-test commits ahead of baseline
 
   // Test grouping of conflict-prone commits
-  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
+  let GroupedCommits { branches: grouped, .. } = group_commits_by_prefix_new(&commits_vec);
   assert_eq!(grouped.len(), 1);
   assert!(grouped.contains_key("conflict-test"));
 
@@ -182,9 +192,9 @@ fn test_reproduce_bugfix_txt_conflict_scenario() {
 
   // Get the commits and test the grouping
   let git_executor = GitCommandExecutor::new();
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
+  let commits_vec = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
   assert_eq!(commits_vec.len(), 3);
-  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
+  let GroupedCommits { branches: grouped, .. } = group_commits_by_prefix_new(&commits_vec);
   assert_eq!(grouped.len(), 1);
   assert!(grouped.contains_key("bugfix-session"));
 
@@ -231,8 +241,8 @@ fn test_rename_commit() {
 
   // Test grouping with the rename prefix
   let git_executor = GitCommandExecutor::new();
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
-  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
+  let commits_vec = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+  let GroupedCommits { branches: grouped, .. } = group_commits_by_prefix_new(&commits_vec);
 
   assert_eq!(grouped.len(), 1);
   assert!(grouped.contains_key("test-rename"));
@@ -261,8 +271,8 @@ fn test_complex_rename_scenario() {
 
   // Test grouping with rename prefix
   let git_executor = GitCommandExecutor::new();
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
-  let (grouped, _unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
+  let commits_vec = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
+  let GroupedCommits { branches: grouped, .. } = group_commits_by_prefix_new(&commits_vec);
 
   assert!(grouped.contains_key("test-rename"), "Should find test-rename group");
   let rename_group = grouped.get("test-rename").unwrap();
@@ -286,7 +296,7 @@ fn test_conflict_unassigned_template() {
 
   // Get commits ahead of origin/master
   let git_executor = GitCommandExecutor::new();
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, temp_dir.path().to_str().unwrap(), "origin/master").unwrap();
+  let commits_vec = get_commit_list(&git_executor, temp_dir.path().to_str().unwrap(), "origin/master").unwrap();
 
   // The template creates these commits after the initial commit:
   // 1. Add UserService - unassigned
@@ -299,7 +309,9 @@ fn test_conflict_unassigned_template() {
   assert_eq!(commits_vec.len(), 7, "Should have 7 commits ahead of origin/master");
 
   // Group the commits
-  let (grouped, unassigned, _branch_emails) = group_commits_by_prefix_new(&commits_vec);
+  let GroupedCommits {
+    branches: grouped, unassigned, ..
+  } = group_commits_by_prefix_new(&commits_vec);
 
   // Verify we have 2 groups (feature-auth and feature-cache) and 3 unassigned commits
   assert_eq!(grouped.len(), 2, "Should have 2 groups (feature-auth and feature-cache)");

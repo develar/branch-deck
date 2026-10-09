@@ -26,10 +26,6 @@ fn test_write_single_commit_note() {
   let notes = vec![CommitNoteInfo {
     original_oid: commit1_hash.clone(),
     new_oid: commit2_hash.clone(),
-    author: "Test Author".to_string(),
-    author_email: "test@example.com".to_string(),
-    tree_id: String::new(),
-    subject: "Test commit".to_string(),
   }];
 
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
@@ -61,10 +57,6 @@ fn test_write_multiple_commit_notes() {
     notes.push(CommitNoteInfo {
       original_oid: original,
       new_oid: new,
-      author: format!("Author {i}"),
-      author_email: format!("author{i}@example.com"),
-      tree_id: String::new(),
-      subject: format!("Commit {i}"),
     });
   }
 
@@ -100,10 +92,6 @@ fn test_write_commit_notes_with_special_characters() {
   let notes = vec![CommitNoteInfo {
     original_oid: commit1.clone(),
     new_oid: commit2.clone(),
-    author: "Author with 'quotes' and spaces".to_string(),
-    author_email: "special.chars+test@example.com".to_string(),
-    tree_id: String::new(),
-    subject: "Special commit".to_string(),
   }];
 
   let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
@@ -137,10 +125,6 @@ fn test_concurrent_note_writing() {
     all_notes.push(CommitNoteInfo {
       original_oid: original.clone(),
       new_oid: new.clone(),
-      author: format!("Batch {i}"),
-      author_email: format!("batch{i}@example.com"),
-      tree_id: String::new(),
-      subject: format!("Batch commit {i}"),
     });
 
     expected_mappings.push((original, new));
@@ -172,10 +156,6 @@ fn test_write_commit_notes_overwrites_existing() {
   let notes = vec![CommitNoteInfo {
     original_oid: commit1.clone(),
     new_oid: commit2.clone(),
-    author: "Author".to_string(),
-    author_email: "test@example.com".to_string(),
-    tree_id: String::new(),
-    subject: "Initial note".to_string(),
   }];
 
   write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex).unwrap();
@@ -188,10 +168,6 @@ fn test_write_commit_notes_overwrites_existing() {
   let notes = vec![CommitNoteInfo {
     original_oid: commit1.clone(),
     new_oid: commit3.clone(),
-    author: "Author".to_string(),
-    author_email: "test@example.com".to_string(),
-    tree_id: String::new(),
-    subject: "Overwritten note".to_string(),
   }];
 
   write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex).unwrap();
@@ -220,10 +196,6 @@ fn test_write_notes_batch_mode_edge_cases() {
     notes.push(CommitNoteInfo {
       original_oid: original,
       new_oid: new,
-      author: "Test".to_string(),
-      author_email: "test@example.com".to_string(),
-      tree_id: String::new(),
-      subject: format!("Edge case {i}"),
     });
   }
 

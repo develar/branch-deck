@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde_json::{Value, json};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument};
 
 // Git notes ref for detection cache - this is the namespace where notes are stored
 pub const NOTES_REF: &str = "refs/notes/branch-deck/detection";
@@ -152,18 +152,6 @@ impl<'a> CacheOps<'a> {
     Self { git, repo }
   }
 
-  /// Read cache from git note (returns info with empty name - caller must set it)
-  #[instrument(skip(self), fields(commit = %commit))]
-  pub fn read(&self, commit: &str) -> Option<BranchIntegrationInfo> {
-    if let Ok(json) = self.git.execute_command(&["notes", "--ref", NOTES_REF, "show", commit], self.repo) {
-      trace!("Found cache for {}", commit);
-      deserialize_from_cache(&json).ok()
-    } else {
-      trace!("No cache for {}", commit);
-      None
-    }
-  }
-
   /// Write cache to git note
   #[instrument(skip(self, info), fields(commit = %commit))]
   pub fn write(&self, commit: &str, info: &BranchIntegrationInfo) -> Result<()> {
@@ -176,9 +164,4 @@ impl<'a> CacheOps<'a> {
     debug!("Successfully cached detection for {}", commit);
     Ok(())
   }
-}
-
-/// Parse cached note from JSON string (returns info with empty name - caller must set it)
-pub fn parse_cached_note(json: &str) -> Option<BranchIntegrationInfo> {
-  deserialize_from_cache(json).ok()
 }

@@ -1,6 +1,6 @@
 //! Cache-specific unit tests for integration detection
 
-use branch_integration::cache::{DETECTION_CACHE_VERSION, parse_cached_note, serialize_for_cache};
+use branch_integration::cache::{DETECTION_CACHE_VERSION, deserialize_from_cache, serialize_for_cache};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use test_log::test;
 
@@ -27,7 +27,7 @@ fn test_cache_serialization() {
   assert!(json.contains("\"c\":\"h\"")); // confidence: high
 
   // Test parsing with the actual parse function
-  let mut parsed = parse_cached_note(&json).unwrap();
+  let mut parsed = deserialize_from_cache(&json).unwrap();
   if let BranchIntegrationStatus::Integrated {
     commit_count,
     integrated_at,
@@ -73,7 +73,7 @@ fn test_cache_omits_zero_values() {
   assert!(!json.contains("\"sum\"")); // summary omitted
 
   // Test round-trip with zeros
-  let parsed = parse_cached_note(&json).unwrap();
+  let parsed = deserialize_from_cache(&json).unwrap();
   if let BranchIntegrationStatus::NotIntegrated {
     total_commit_count,
     integrated_count,
@@ -105,7 +105,7 @@ fn test_cache_omits_zero_values() {
   assert!(!zero_json.contains("\"cc\":")); // commit_count omitted
   assert!(!zero_json.contains("\"ia\":")); // integrated_at omitted
 
-  let zero_parsed = parse_cached_note(&zero_json).unwrap();
+  let zero_parsed = deserialize_from_cache(&zero_json).unwrap();
   if let BranchIntegrationStatus::Integrated { commit_count, integrated_at, .. } = zero_parsed.status {
     assert_eq!(commit_count, 0);
     assert_eq!(integrated_at, None);
@@ -130,7 +130,7 @@ fn test_cache_exact_confidence() {
   let json = serialize_for_cache(&info).unwrap();
   assert!(json.contains("\"c\":\"e\"")); // confidence: exact
 
-  let parsed = parse_cached_note(&json).unwrap();
+  let parsed = deserialize_from_cache(&json).unwrap();
   if let BranchIntegrationStatus::Integrated { confidence, .. } = parsed.status {
     assert_eq!(confidence, IntegrationConfidence::Exact);
   } else {
@@ -158,7 +158,7 @@ fn test_not_integrated_cache() {
   assert!(json.contains("\"ic\":7")); // integrated count
   assert!(json.contains("\"oc\":3")); // orphaned count
 
-  let parsed = parse_cached_note(&json).unwrap();
+  let parsed = deserialize_from_cache(&json).unwrap();
   if let BranchIntegrationStatus::NotIntegrated {
     total_commit_count,
     integrated_count,
@@ -188,7 +188,7 @@ fn test_partial_cache() {
   assert!(json.contains("\"k\":\"p\"")); // partial
   assert!(json.contains("\"m\":2")); // missing count
 
-  let parsed = parse_cached_note(&json).unwrap();
+  let parsed = deserialize_from_cache(&json).unwrap();
   if let BranchIntegrationStatus::Partial { missing } = parsed.status {
     assert_eq!(missing, 2);
   } else {

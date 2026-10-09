@@ -342,48 +342,6 @@ impl GitCommandExecutor {
     }
   }
 
-  /// Execute a git command and return the raw output bytes
-  /// Useful for binary data or when you need to handle the encoding yourself
-  #[instrument(
-    skip(self),
-    fields(
-      git_command = args.join(" "),
-      repository_path = repository_path,
-      success = tracing::field::Empty,
-    )
-  )]
-  pub fn execute_command_bytes(&self, args: &[&str], repository_path: &str) -> Result<Vec<u8>> {
-    let (output, _exit_code) = self.execute_command_internal(args, repository_path)?;
-
-    if output.status.success() {
-      tracing::Span::current().record("success", true);
-      Ok(output.stdout)
-    } else {
-      self.handle_error(&output, args)
-    }
-  }
-
-  /// Execute a git command and parse output as space or tab-separated counts
-  /// Commonly used for commands like `git rev-list --count`
-  #[instrument(
-    skip(self),
-    fields(
-      git_command = args.join(" "),
-      repository_path = repository_path,
-      success = tracing::field::Empty,
-    )
-  )]
-  pub fn execute_command_counts(&self, args: &[&str], repository_path: &str) -> Result<Vec<u32>> {
-    let output = self.execute_command(args, repository_path)?;
-    let counts = output
-      .trim()
-      .split(|c: char| c.is_whitespace())
-      .filter(|s| !s.is_empty())
-      .map(|s| s.parse::<u32>().map_err(|e| anyhow!("Failed to parse count '{s}': {e}")))
-      .collect::<Result<Vec<_>>>()?;
-    Ok(counts)
-  }
-
   /// Resolve the tree object ID for a given revision (commit, ref, or symbolic like HEAD).
   /// This does not cache; callers can cache based on their own rules if needed.
   #[instrument(skip(self))]

@@ -18,10 +18,10 @@ use crate::cache::TreeIdCache;
 use crate::cherry_pick::get_commit_parent;
 use crate::commit_utils::{create_commit_with_metadata, prefetch_commit_infos_map};
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::{ConflictDetailsParams, ConflictFileInfo, extract_conflict_details};
+use crate::merge_conflict::{ConflictDetailsParams, extract_conflict_details};
 use crate::model::{BranchError, MergeConflictInfo};
 use crate::reword_commits::{get_commit_info, update_branch_ref as update_ref_plumbing};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -175,8 +175,6 @@ where
 
   Ok(current_parent)
 }
-
-// prefetch_commit_infos_map is defined in commit_utils
 
 /// Drop specified commits from HEAD while preserving working directory changes
 /// Uses the generic `rewrite_commits` function
@@ -456,7 +454,7 @@ pub fn check_amend_conflicts(git_executor: &GitCommandExecutor, repo_path: &str,
 fn extract_amend_conflict_info(git_executor: &GitCommandExecutor, repo_path: &str, original_commit_id: &str) -> Result<MergeConflictInfo, CopyCommitError> {
   // Step 1: Use efficient git status to detect conflicted files
   let status_output = git_executor.execute_command(&["status", "--porcelain=v1"], repo_path)?;
-  let mut conflict_files: HashMap<PathBuf, ConflictFileInfo> = HashMap::new();
+  let mut conflict_paths: BTreeSet<PathBuf> = BTreeSet::new();
 
   // Parse status output to find conflicted files (UU, AA, etc.)
   for line in status_output.lines() {
@@ -467,47 +465,15 @@ fn extract_amend_conflict_info(git_executor: &GitCommandExecutor, repo_path: &st
 
       // Check for conflict markers in status
       if status_chars.contains('U') || status_chars == "AA" || status_chars == "DD" {
-        conflict_files.insert(
-          PathBuf::from(file_path),
-          ConflictFileInfo {
-            path: PathBuf::from(file_path),
-            base_oid: None,
-            ours_oid: None,
-            theirs_oid: None,
-          },
-        );
+        conflict_paths.insert(PathBuf::from(file_path));
       }
     }
   }
 
-  if conflict_files.is_empty() {
+  if conflict_paths.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No conflicts found in rebase state")));
   }
-
-  // Step 2: Use efficient git ls-files to get staged file info with object IDs
-  let ls_files_output = git_executor.execute_command(&["ls-files", "--stage"], repo_path)?;
-
-  // Parse ls-files output to populate object IDs for conflict stages
-  for line in ls_files_output.lines() {
-    let line = line.trim();
-    if let Some((prefix, file_path)) = line.split_once('\t') {
-      let parts: Vec<&str> = prefix.split_whitespace().collect();
-      if parts.len() >= 3 {
-        let object_id = parts[1].to_string();
-        let stage = parts[2];
-        let path = PathBuf::from(file_path);
-
-        if let Some(conflict_info) = conflict_files.get_mut(&path) {
-          match stage {
-            "1" => conflict_info.base_oid = Some(object_id),
-            "2" => conflict_info.ours_oid = Some(object_id),
-            "3" => conflict_info.theirs_oid = Some(object_id),
-            _ => {}
-          }
-        }
-      }
-    }
-  }
+  let conflict_files: Vec<PathBuf> = conflict_paths.into_iter().collect();
 
   // Step 3: Get current HEAD during rebase (this is the fixup commit)
   let current_head = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?;
@@ -525,8 +491,7 @@ fn extract_amend_conflict_info(git_executor: &GitCommandExecutor, repo_path: &st
   })?;
 
   // Step 5: Analyze conflicts to find missing commits (commits between original and current HEAD)
-  let conflicting_paths: Vec<PathBuf> = conflict_files.keys().cloned().collect();
-  let conflict_analysis = match crate::conflict_analysis::analyze_conflict(git_executor, repo_path, original_commit_id, &current_head, &conflicting_paths) {
+  let conflict_analysis = match crate::conflict_analysis::analyze_conflict(git_executor, repo_path, original_commit_id, &current_head, &conflict_files) {
     Ok(analysis) => analysis,
     Err(e) => {
       debug!(error = %e, "failed to analyze amend conflicts");

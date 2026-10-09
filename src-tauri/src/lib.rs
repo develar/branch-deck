@@ -118,16 +118,7 @@ pub fn run() {
 
       let current_version = app.package_info().version.to_string();
       // Initialize update state
-      #[cfg(feature = "auto-update")]
-      {
-        let update_state = UpdateState::new(current_version);
-        app.manage(SharedUpdateState::new(update_state));
-      }
-      #[cfg(not(feature = "auto-update"))]
-      {
-        let update_state = UpdateState::new(current_version.clone());
-        app.manage(SharedUpdateState::new(update_state));
-      }
+      app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 
       configure_app_menu(app)?;
 

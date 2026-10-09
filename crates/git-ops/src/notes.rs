@@ -9,10 +9,6 @@ pub const PREFIX: &str = "v-commit-v1:";
 pub struct CommitNoteInfo {
   pub original_oid: String,
   pub new_oid: String,
-  pub author: String,
-  pub author_email: String,
-  pub tree_id: String,
-  pub subject: String,
 }
 
 /// Write git notes for all commits in a batch using git CLI for better performance

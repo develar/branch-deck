@@ -88,7 +88,6 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
     baseline_branch,
   } = params;
 
-  let task_index = i16::try_from(current_branch_idx).unwrap_or(i16::MAX);
   let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
 
   let is_existing_branch = branch_exists(&git_executor, &repository_path, &full_branch_name);
@@ -143,7 +142,6 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
       repo_path: &repository_path,
       progress: &progress_adapter,
       progress_info: &progress_info,
-      task_index,
       git_executor: &git_executor,
       tree_id_cache: &tree_id_cache,
       existing_virtual_commits: existing_virtual_commits.as_ref(),

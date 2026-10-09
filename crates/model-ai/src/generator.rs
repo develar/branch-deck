@@ -11,10 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
 
-// Generation constants - standard parameters: Temperature=0.7, TopP=0.8, TopK=20, MinP=0
 pub const MAX_NEW_TOKENS: usize = 1000; // Increased to allow for thinking tags and complete generation
-
-// Confidence scores for suggestions
 
 /// Model loading state to prevent race conditions
 #[derive(Debug, Clone)]
@@ -24,8 +21,6 @@ enum ModelLoadingState {
   Loaded,
   Failed(String),
 }
-
-// QwenGenerator is replaced by GeneratorType from model_core
 
 /// Core model-based branch name generator without git dependencies
 #[derive(Debug)]
@@ -42,8 +37,6 @@ impl ModelBasedBranchGenerator {
   }
 
   pub fn with_config(model_config: ModelConfig) -> Result<Self> {
-    // All models in the simplified ModelConfig are Qwen models
-
     Ok(Self {
       generator: None,
       model_path: None,

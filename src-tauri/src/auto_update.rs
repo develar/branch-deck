@@ -25,37 +25,45 @@ pub enum UpdateStatus {
   Error(String),
 }
 
-#[cfg(feature = "auto-update")]
-mod auto_update_impl {
-  use super::{UpdateInfo, UpdateStatus};
-  use anyhow::anyhow;
-  use std::sync::Mutex;
-  use tauri::AppHandle;
-  use tauri_plugin_updater::{Update, UpdaterExt};
-  use tracing::{debug, info, instrument};
+pub struct UpdateState {
+  pub info: UpdateInfo,
+  #[cfg(feature = "auto-update")]
+  pub pending_update: Option<tauri_plugin_updater::Update>,
+  #[cfg(feature = "auto-update")]
+  pub downloaded_bytes: Option<Vec<u8>>,
+}
 
-  pub struct UpdateState {
-    pub info: UpdateInfo,
-    pub pending_update: Option<Update>,
-    pub downloaded_bytes: Option<Vec<u8>>,
-  }
-
-  impl UpdateState {
-    pub fn new(current_version: String) -> Self {
-      Self {
-        info: UpdateInfo {
-          current_version,
-          available_version: String::new(),
-          is_update_available: false,
-          status: UpdateStatus::Idle,
-        },
-        pending_update: None,
-        downloaded_bytes: None,
-      }
+impl UpdateState {
+  pub fn new(current_version: String) -> Self {
+    let status = if cfg!(feature = "auto-update") {
+      UpdateStatus::Idle
+    } else {
+      UpdateStatus::Error("Auto-update not available".to_string())
+    };
+    Self {
+      info: UpdateInfo {
+        current_version,
+        available_version: String::new(),
+        is_update_available: false,
+        status,
+      },
+      #[cfg(feature = "auto-update")]
+      pending_update: None,
+      #[cfg(feature = "auto-update")]
+      downloaded_bytes: None,
     }
   }
+}
 
-  pub type SharedUpdateState = Mutex<UpdateState>;
+pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
+
+#[cfg(feature = "auto-update")]
+mod auto_update_impl {
+  use super::{SharedUpdateState, UpdateInfo, UpdateStatus};
+  use anyhow::anyhow;
+  use tauri::AppHandle;
+  use tauri_plugin_updater::UpdaterExt;
+  use tracing::{debug, info, instrument};
 
   #[instrument(skip(app_handle, update_state))]
   pub async fn perform_update_check(app_handle: &AppHandle, update_state: &tauri::State<'_, SharedUpdateState>) -> anyhow::Result<UpdateInfo> {
@@ -121,32 +129,6 @@ mod auto_update_impl {
     }
   }
 }
-
-#[cfg(feature = "auto-update")]
-pub use auto_update_impl::*;
-
-// Stub implementations when auto-update feature is disabled
-#[cfg(not(feature = "auto-update"))]
-pub struct UpdateState {
-  pub info: UpdateInfo,
-}
-
-#[cfg(not(feature = "auto-update"))]
-impl UpdateState {
-  pub fn new(current_version: String) -> Self {
-    Self {
-      info: UpdateInfo {
-        current_version,
-        available_version: String::new(),
-        is_update_available: false,
-        status: UpdateStatus::Error("Auto-update not available".to_string()),
-      },
-    }
-  }
-}
-
-#[cfg(not(feature = "auto-update"))]
-pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
 
 // Always export these commands regardless of feature flags
 #[tauri::command]

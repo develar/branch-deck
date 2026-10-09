@@ -1,59 +1,9 @@
-use super::cache::parse_cached_note;
+use super::cache::deserialize_from_cache;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationInfo;
 use tracing::{debug, instrument, warn};
-
-/// Get the committer timestamp of a commit
-pub fn get_commit_timestamp(git_executor: &GitCommandExecutor, repo_path: &str, commit: &str) -> Option<u32> {
-  git_executor
-    .execute_command(&["show", "-s", "--format=%ct", commit], repo_path)
-    .ok()
-    .and_then(|s| s.trim().parse::<u32>().ok())
-}
-
-/// Return true if `ancestor` is an ancestor of `descendant` (merge-base --is-ancestor)
-pub fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, descendant: &str) -> bool {
-  git.execute_command(&["merge-base", "--is-ancestor", ancestor, descendant], repo).is_ok()
-}
-
-/// List virtual branches that are not currently active (not in `grouped_commits`)
-/// Returns only branches that should be checked for integration detection
-#[instrument(skip(git, grouped_commits), fields(repo = %repo, branch_prefix = %branch_prefix), ret)]
-pub fn list_inactive_virtual_branches(
-  git: &GitCommandExecutor,
-  repo: &str,
-  branch_prefix: &str,
-  grouped_commits: &indexmap::IndexMap<String, Vec<git_ops::commit_list::Commit>>,
-) -> Result<Vec<String>> {
-  // Pre-compute the virtual prefix once
-  let branch_prefix = branch_prefix.trim_end_matches('/');
-  let branch_pattern = format!("{branch_prefix}/virtual/*");
-
-  // Get all virtual branches
-  let lines = git.execute_command_lines(&["branch", "--list", &branch_pattern, "--format=%(refname:short)"], repo)?;
-
-  if lines.is_empty() {
-    return Ok(Vec::new());
-  }
-
-  let virtual_prefix = format!("{branch_prefix}/virtual/");
-
-  // Single-pass filtering: skip empty lines and active branches
-  let inactive_branches: Vec<String> = lines
-    .into_iter()
-    .filter(|name| !name.is_empty())
-    .filter(|branch_name| {
-      // Extract simple name efficiently (no clone if extraction fails)
-      let simple_name = branch_name.strip_prefix(&virtual_prefix).unwrap_or(branch_name.as_str());
-
-      !grouped_commits.contains_key(simple_name)
-    })
-    .collect();
-
-  Ok(inactive_branches)
-}
 
 /// Structure to hold all branch data from a single git query
 pub struct BranchData {
@@ -154,8 +104,8 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
           } else {
             debug!(commit = %commit, "Found note for commit");
             // Parse the JSON note into DetectionCache immediately
-            match parse_cached_note(note) {
-              Some(mut cache_info) => {
+            match deserialize_from_cache(note) {
+              Ok(mut cache_info) => {
                 // Find the branch name for this commit using all_branch_commits
                 if let Some((branch_name, _)) = all_branch_commits.iter().find(|(_, c)| c == &commit) {
                   cache_info.name.clone_from(branch_name);
@@ -163,8 +113,8 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
                 debug!(commit = %commit, "Successfully parsed detection cache");
                 branch_notes.insert(commit.to_string(), cache_info);
               }
-              None => {
-                warn!(commit = %commit, note = %note, "Failed to parse detection cache JSON");
+              Err(e) => {
+                warn!(commit = %commit, note = %note, error = %e, "Failed to parse detection cache JSON");
               }
             }
           }

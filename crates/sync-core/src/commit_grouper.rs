@@ -34,15 +34,23 @@ impl BranchData {
   }
 }
 
-// Type alias for grouped commits result with author emails
-pub type GroupedCommitsResult = (IndexMap<String, Vec<Commit>>, Vec<Commit>, HashMap<String, Option<String>>);
+/// Result of grouping commits by prefix
+pub struct GroupedCommits {
+  /// Branch name -> commits (oldest first), in first-seen order
+  pub branches: IndexMap<String, Vec<Commit>>,
+  /// Commits without a prefix (oldest first)
+  pub unassigned: Vec<Commit>,
+  /// Branch name -> most frequent author email
+  pub branch_emails: HashMap<String, Option<String>>,
+}
 
 /// Struct to incrementally group commits by prefix
 pub struct CommitGrouper {
   /// Unified structure combining commits and author frequencies per branch
   branch_data: IndexMap<String, BranchData>,
   unassigned_commits: Vec<Commit>,
-  pub oldest_commit: Option<Commit>,
+  /// First parent of the oldest commit seen (the commit the virtual branches are rebuilt on)
+  pub first_parent_id: Option<String>,
   pub commit_count: usize,
 }
 
@@ -57,15 +65,15 @@ impl CommitGrouper {
     Self {
       branch_data: IndexMap::new(),
       unassigned_commits: Vec::new(),
-      oldest_commit: None,
+      first_parent_id: None,
       commit_count: 0,
     }
   }
 
   pub fn add_commit(&mut self, mut commit: Commit) {
-    // Track the oldest commit (first one we see)
-    if self.oldest_commit.is_none() {
-      self.oldest_commit = Some(commit.clone());
+    // The oldest commit is the first one we see
+    if self.commit_count == 0 {
+      self.first_parent_id.clone_from(&commit.parent_id);
     }
     self.commit_count += 1;
 
@@ -122,7 +130,7 @@ impl CommitGrouper {
     self.unassigned_commits.push(commit);
   }
 
-  pub fn finish(self) -> GroupedCommitsResult {
+  pub fn finish(self) -> GroupedCommits {
     // Extract commits and author emails from unified structure
     let mut grouped_commits = IndexMap::new();
     let mut branch_emails = HashMap::new();
@@ -142,7 +150,11 @@ impl CommitGrouper {
       "Commit grouping completed"
     );
 
-    (grouped_commits, self.unassigned_commits, branch_emails)
+    GroupedCommits {
+      branches: grouped_commits,
+      unassigned: self.unassigned_commits,
+      branch_emails,
+    }
   }
 }
 

@@ -35,6 +35,7 @@ serde.workspace = true
 sync-core = { path = "../crates/sync-core", features = ["specta"] }
 sync-types = { path = "../crates/sync-types", features = ["specta"] }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }
+# Referenced by the `tauri::generate_context!` expansion, not by source code
 #noinspection CargoUnusedDependency
 serde_json.workspace = true
 specta = { workspace = true, optional = true }
@@ -74,8 +75,8 @@ model-tauri = { path = "../crates/model-tauri" }
 tempfile = "3"
 
 [package.metadata.cargo-machete]
-# Build dependencies used in build.rs
-ignored = ["tauri-build"]
+# tauri-build: build dependency used in build.rs; serde_json: used by `tauri::generate_context!`
+ignored = ["tauri-build", "serde_json"]
 
 
 [lints]

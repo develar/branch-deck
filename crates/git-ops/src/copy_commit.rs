@@ -21,12 +21,6 @@ impl From<anyhow::Error> for CopyCommitError {
   }
 }
 
-impl From<tauri::Error> for CopyCommitError {
-  fn from(err: tauri::Error) -> Self {
-    CopyCommitError::Other(anyhow!("Tauri error: {err}"))
-  }
-}
-
 impl std::fmt::Display for CopyCommitError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
@@ -56,7 +50,6 @@ pub struct CreateCommitParams<'a> {
   pub repo_path: &'a str,
   pub progress: &'a dyn ProgressCallback,
   pub progress_info: &'a ProgressInfo<'a>,
-  pub task_index: i16,
   pub git_executor: &'a GitCommandExecutor,
   pub tree_id_cache: &'a TreeIdCache,
   pub existing_virtual_commits: Option<&'a HashSet<String>>, // For efficient batch verification
@@ -75,7 +68,6 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
     repo_path,
     progress,
     progress_info,
-    task_index,
     git_executor,
     tree_id_cache,
     existing_virtual_commits,
@@ -97,10 +89,6 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
         let note_info = CommitNoteInfo {
           original_oid: commit.id.clone(),
           new_oid: mapped_id.clone(),
-          author: commit.author_name.clone(),
-          author_email: commit.author_email.clone(),
-          tree_id: commit.tree_id.clone(),
-          subject: commit.stripped_subject.clone(),
         };
         return Ok((
           mapped_id.clone(),
@@ -129,7 +117,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
   } else {
     debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     // Use cherry-pick for efficient 3-way merge with conflict handling
-    let cherry_progress = CherryPickProgress::new(progress, progress_info.branch_name, task_index);
+    let cherry_progress = CherryPickProgress::new(progress, progress_info.branch_name);
     perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, &new_parent_oid, Some(&cherry_progress), tree_id_cache)?
   };
 
@@ -164,18 +152,9 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
   let new_commit_hash = output.trim().to_string();
 
   // Prepare note info for later batch writing
-  // Use stripped_subject if available (without branch prefix), otherwise use original subject
   let note_info = CommitNoteInfo {
     original_oid: commit.id.clone(),
     new_oid: new_commit_hash.clone(),
-    author: commit.author_name.clone(),
-    author_email: commit.author_email.clone(),
-    tree_id: commit.tree_id.clone(),
-    subject: if commit.stripped_subject.is_empty() {
-      commit.subject.clone()
-    } else {
-      commit.stripped_subject.clone()
-    },
   };
 
   Ok((new_commit_hash, CommitSyncStatus::Created, Some(note_info)))

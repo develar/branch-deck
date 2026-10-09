@@ -4,6 +4,16 @@ use pretty_assertions::{assert_eq, assert_ne};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
+/// Collects the commits ahead of `baseline_branch` into a Vec
+fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<Vec<git_ops::commit_list::Commit>> {
+  let mut commits = Vec::new();
+  git_ops::commit_list::get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
+    commits.push(commit);
+    Ok(())
+  })?;
+  Ok(commits)
+}
+
 #[test]
 fn test_create_branch_from_commits_basic() {
   let test_repo = TestRepo::new();
@@ -378,7 +388,7 @@ fn test_create_branch_with_missing_commits_scenario() {
   git_executor.execute_command(&["commit", "-m", "Implement secure password hashing"], repo_path).unwrap();
 
   // Get commits ahead of origin/master
-  let commits_vec = git_ops::commit_list::get_commit_list(&git_executor, repo_path, "origin/master").unwrap();
+  let commits_vec = get_commit_list(&git_executor, repo_path, "origin/master").unwrap();
 
   // Find the "Implement secure password hashing" commit
   let password_hashing_commit = commits_vec
