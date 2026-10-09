@@ -157,8 +157,10 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied!\")")
     await expect(copiedTooltip).not.toBeVisible()
 
-    // Move mouse away from button first
+    // Move mouse away from button first and let the tooltip finish its exit animation
+    // (reka-ui closes a tooltip that is reopened while its previous content is still mounted)
     await page.mouse.move(0, 0)
+    await expect(page.locator("[role=\"tooltip\"]")).toHaveCount(0)
 
     // Then hover again to verify original tooltip shows
     await copyButton.hover()

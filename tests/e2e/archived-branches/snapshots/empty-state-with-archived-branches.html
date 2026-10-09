@@ -1,10 +1,10 @@
-<div class="relative overflow-hidden w-full rounded-lg p-4 flex gap-2.5 items-start text-highlighted bg-elevated/50 ring ring-inset ring-accented" data-orientation="vertical" data-testid="empty-state-alert">
-  <span aria-hidden="true" class="iconify i-lucide:git-branch shrink-0 size-5" />
-  <div class="min-w-0 flex-1 flex flex-col">
-    <div class="text-sm font-medium">
+<div class="relative overflow-hidden w-full rounded-lg p-4 flex gap-2.5 items-start text-highlighted bg-elevated/50 ring ring-inset ring-accented" data-orientation="vertical" data-slot="root" data-testid="empty-state-alert">
+  <span aria-hidden="true" class="iconify i-lucide:git-branch shrink-0 size-5" data-slot="icon" />
+  <div class="min-w-0 flex-1 flex flex-col" data-slot="wrapper">
+    <div class="text-sm font-medium" data-slot="title">
       No active branches
     </div>
-    <div class="text-sm opacity-90 mt-1">
+    <div class="text-sm opacity-90 mt-1" data-slot="description">
       <div class="space-y-3">
         <p>
           Commit to your main branch using prefixes like:

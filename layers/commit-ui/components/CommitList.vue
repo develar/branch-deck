@@ -34,11 +34,8 @@
               />
 
               <!-- Row content -->
-              <div v-for="cell in row.getVisibleCells()" :key="cell.id">
-                <component
-                  :is="cell.column.columnDef.cell"
-                  v-bind="cell.getContext()"
-                />
+              <div v-for="cell in row.getAllCells()" :key="cell.id">
+                <FlexRender :cell="cell" />
               </div>
 
               <!-- Slot for additional content after commit -->
@@ -55,12 +52,7 @@
 import type { Commit, CommitSyncStatus, BranchError, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
 import type { Row } from "@tanstack/vue-table"
-import {
-  createColumnHelper,
-  getCoreRowModel,
-  getExpandedRowModel,
-  useVueTable,
-} from "@tanstack/vue-table"
+import { createColumnHelper, FlexRender, useTable } from "@tanstack/vue-table"
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit
@@ -121,7 +113,7 @@ function getCommitHash(commit: CommitUnion): string {
 const containerRef = useTemplateRef<HTMLTableElement>("containerRef")
 
 // Column definitions
-const columnHelper = createColumnHelper<CommitUnion>()
+const columnHelper = createColumnHelper<SelectableTableFeatures, CommitUnion>()
 
 const columns = computed(() => [
   columnHelper.display({
@@ -217,15 +209,12 @@ const columns = computed(() => [
 ])
 
 // Create table instance
-const table = useVueTable<CommitUnion>({
+const table = useTable<SelectableTableFeatures, CommitUnion>({
+  features: selectableTableFeatures,
   data: toRef(props, "commits"),
-  get columns() {
-    return columns.value
-  },
-  getCoreRowModel: getCoreRowModel(),
-  getExpandedRowModel: getExpandedRowModel(),
-  enableRowSelection: props.selectable,
-  enableMultiRowSelection: props.selectable,
+  columns,
+  enableRowSelection: toRef(props, "selectable"),
+  enableMultiRowSelection: toRef(props, "selectable"),
   getRowId: row => getCommitHash(row),
 })
 
@@ -262,7 +251,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 // Get context menu items for a specific row
-function getContextMenuItemsForRow(row: Row<CommitUnion>) {
+function getContextMenuItemsForRow(row: Row<SelectableTableFeatures, CommitUnion>) {
   if (!props.contextMenuItems || !props.selectable) {
     return []
   }

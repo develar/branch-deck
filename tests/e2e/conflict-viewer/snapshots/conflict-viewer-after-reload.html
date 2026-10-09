@@ -14,7 +14,7 @@
                           Implement secure password hashing
                         </span>
                       </div>
-                      <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-error/10 text-error ring ring-inset ring-error/25">
+                      <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-error/10 text-error ring ring-inset ring-error/25" data-slot="base">
                         Error
                       </span>
                     </div>
@@ -37,8 +37,8 @@
                     </div>
                     <div class="mt-2">
                       <div class="space-y-4">
-                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
-                          <div class="p-4 sm:px-6">
+                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden" data-slot="root">
+                          <div class="p-4 sm:px-6" data-slot="header">
                             <div class="flex items-start gap-3">
                               <span aria-hidden="true" class="iconify i-lucide:git-merge size-5 text-error mt-0.5 flex-shrink-0" />
                               <div class="flex-1 min-w-0">
@@ -59,7 +59,7 @@
                               </div>
                             </div>
                           </div>
-                          <div class="p-0 sm:p-0">
+                          <div class="p-0 sm:p-0" data-slot="body">
                             <div class="bd-padding-card">
                               <div class="bg-elevated rounded-lg bd-padding-card border border-warning">
                                 <div class="flex items-center gap-2">
@@ -84,36 +84,36 @@
                             </div>
                           </div>
                         </div>
-                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
-                          <div class="p-4 sm:px-6">
+                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden" data-slot="root">
+                          <div class="p-4 sm:px-6" data-slot="header">
                             <div class="flex items-center justify-between">
                               <div class="flex items-center gap-3">
                                 <h2 class="text-sm font-semibold text-highlighted">
                                   Missing Commits Details
                                 </h2>
-                                <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25">
+                                <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25" data-slot="base">
                                   2 commits
                                 </span>
                               </div>
                               <div class="flex items-center gap-3">
                                 <div class="relative inline-flex -space-x-px" data-orientation="horizontal">
-                                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" type="button">
-                                    <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
+                                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent outline-primary/25 focus-visible:outline-3 focus-visible:ring-primary" data-slot="base" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" data-slot="leadingIcon" />
                                     Unified
                                   </button>
-                                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-accented text-default bg-default hover:bg-elevated active:bg-elevated disabled:bg-default aria-disabled:bg-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inverted" type="button">
-                                    <span aria-hidden="true" class="iconify i-lucide:columns-2 shrink-0 size-4" />
+                                  <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-accented text-default bg-default hover:bg-elevated active:bg-elevated disabled:bg-default aria-disabled:bg-default outline-inverted/25 focus-visible:outline-3 focus-visible:ring-inverted" data-slot="base" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:columns-2 shrink-0 size-4" data-slot="leadingIcon" />
                                     Split
                                   </button>
                                 </div>
-                                <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" type="button">
-                                  <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" />
+                                <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 outline-primary/25 focus-visible:outline-3 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" data-slot="base" type="button">
+                                  <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" data-slot="leadingIcon" />
                                   Open in Window
                                 </button>
                               </div>
                             </div>
                           </div>
-                          <div class="p-0 sm:p-0">
+                          <div class="p-0 sm:p-0" data-slot="body">
                             <div>
                               <table class="w-full rounded-lg focus:outline-none" tabindex="-1">
                                 <tbody class="divide-y divide-default">
@@ -225,7 +225,7 @@
                               </table>
                             </div>
                           </div>
-                          <div class="p-4 sm:px-6">
+                          <div class="p-4 sm:px-6" data-slot="footer">
                             <div class="bg-elevated rounded-lg bd-padding-card">
                               <div class="flex items-center gap-2 mb-3">
                                 <span aria-hidden="true" class="iconify i-lucide:lightbulb size-4 flex-shrink-0 text-warning" />
@@ -267,61 +267,61 @@
                             </div>
                           </div>
                         </div>
-                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden">
-                          <div class="p-4 sm:px-6">
+                        <div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden" data-slot="root">
+                          <div class="p-4 sm:px-6" data-slot="header">
                             <div class="flex items-center justify-between">
                               <div class="flex items-center gap-3">
                                 <h2 class="text-sm font-semibold text-highlighted">
                                   Conflicting Files
                                 </h2>
-                                <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25">
+                                <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm bg-warning/10 text-warning ring ring-inset ring-warning/25" data-slot="base">
                                   1 file
                                 </span>
                               </div>
                               <div class="flex items-center gap-3">
-                                <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" type="button">
-                                  <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" />
+                                <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 outline-primary/25 focus-visible:outline-3 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent" data-slot="base" type="button">
+                                  <span aria-hidden="true" class="iconify i-lucide:external-link shrink-0 size-4" data-slot="leadingIcon" />
                                   Open in Window
                                 </button>
                               </div>
                             </div>
                           </div>
-                          <div class="p-4 sm:p-6">
+                          <div class="p-4 sm:p-6" data-slot="body">
                             <div class="space-y-3">
-                              <div class="flex items-center gap-2 flex-col" data-orientation="horizontal" dir="ltr">
-                                <div aria-orientation="horizontal" class="relative flex p-1 group border-default w-full border-b -mb-px" data-orientation="horizontal" dir="ltr" role="tablist" style="outline: none" tabindex="0">
-                                  <div class="absolute transition-[translate,width] duration-200 rounded-full left-0 w-(--reka-tabs-indicator-size) translate-x-(--reka-tabs-indicator-position) -bottom-px h-px bg-inverted" style="--reka-tabs-indicator-size: 94px;  --reka-tabs-indicator-position: 4px" />
-                                  <button aria-controls="reka-tabs-v-[N]-content-diff" aria-selected="true" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors focus:outline-none justify-center px-2.5 py-1.5 text-xs gap-1.5 data-[state=active]:text-highlighted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-inverted" data-active="" data-orientation="horizontal" data-reka-collection-item="" data-state="active" id="reka-tabs-v-[N]-trigger-diff" role="tab" tabindex="-1" type="button">
-                                    <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
-                                    <span class="truncate">
+                              <div class="flex items-center gap-2 flex-col" data-orientation="horizontal" data-slot="root" dir="ltr">
+                                <div aria-orientation="horizontal" class="relative flex p-1 group border-default w-full border-b -mb-px" data-orientation="horizontal" data-slot="list" dir="ltr" role="tablist" style="outline: none" tabindex="0">
+                                  <div class="absolute transition-[translate,width] duration-200 ease-out motion-reduce:transition-none rounded-full left-0 w-(--reka-tabs-indicator-size) translate-x-(--reka-tabs-indicator-position) -bottom-px h-px bg-inverted" data-slot="indicator" style="--reka-tabs-indicator-size: 94px;  --reka-tabs-indicator-thickness: 28px;  --reka-tabs-indicator-position: 4px" />
+                                  <button aria-controls="reka-tabs-v-[N]-content-diff" aria-selected="true" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:content-[''] in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:absolute in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:rounded-full justify-center px-2.5 py-1.5 text-xs gap-1.5 in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:inset-x-0 in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:-bottom-[calc(var(--spacing)+1px)] in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:h-px data-[state=active]:text-highlighted outline-inverted/25 focus-visible:outline-3 in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:bg-inverted" data-active="" data-orientation="horizontal" data-reka-collection-item="" data-slot="trigger" data-state="active" id="reka-tabs-v-[N]-trigger-diff" role="tab" tabindex="-1" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" data-slot="leadingIcon" />
+                                    <span class="truncate" data-slot="label">
                                       Diff View
                                     </span>
                                   </button>
-                                  <button aria-controls="reka-tabs-v-[N]-content-3way" aria-selected="false" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors focus:outline-none justify-center px-2.5 py-1.5 text-xs gap-1.5 data-[state=active]:text-highlighted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-inverted" data-orientation="horizontal" data-reka-collection-item="" data-state="inactive" id="reka-tabs-v-[N]-trigger-3way" role="tab" tabindex="-1" type="button">
-                                    <span aria-hidden="true" class="iconify i-lucide:columns-3 shrink-0 size-4" />
-                                    <span class="truncate">
+                                  <button aria-controls="reka-tabs-v-[N]-content-3way" aria-selected="false" class="group relative inline-flex items-center min-w-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:content-[''] in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:absolute in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:rounded-full justify-center px-2.5 py-1.5 text-xs gap-1.5 in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:inset-x-0 in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:-bottom-[calc(var(--spacing)+1px)] in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:h-px data-[state=active]:text-highlighted outline-inverted/25 focus-visible:outline-3 in-[[data-slot=list]:not(:has([data-slot=indicator]))]:data-[state=active]:after:bg-inverted" data-orientation="horizontal" data-reka-collection-item="" data-slot="trigger" data-state="inactive" id="reka-tabs-v-[N]-trigger-3way" role="tab" tabindex="-1" type="button">
+                                    <span aria-hidden="true" class="iconify i-lucide:columns-3 shrink-0 size-4" data-slot="leadingIcon" />
+                                    <span class="truncate" data-slot="label">
                                       3-way Merge
                                     </span>
                                   </button>
                                 </div>
-                                <div aria-labelledby="reka-tabs-v-[N]-trigger-diff" class="focus:outline-none w-full" data-orientation="horizontal" data-state="active" id="reka-tabs-v-[N]-content-diff" role="tabpanel" tabindex="0">
+                                <div aria-labelledby="reka-tabs-v-[N]-trigger-diff" class="w-full rounded-md focus-visible:outline-3 outline-inverted/25" data-orientation="horizontal" data-slot="content" data-state="active" id="reka-tabs-v-[N]-content-diff" role="tabpanel" tabindex="0">
                                   <div class="space-y-3 mt-4">
                                     <div class="flex justify-between items-center px-1">
-                                      <div class="relative flex items-start">
-                                        <div class="flex items-center h-4" />
-                                        <div class="ms-2 text-xs">
-                                          <label class="block font-medium text-default" for="v-[N]">
+                                      <div class="relative flex items-start" data-slot="root">
+                                        <div class="flex items-center h-4" data-slot="container" />
+                                        <div class="ms-2 text-xs" data-slot="wrapper">
+                                          <label class="block font-medium text-default" data-slot="label" for="v-[N]">
                                             Conflicts only
                                           </label>
                                         </div>
                                       </div>
                                       <div class="relative inline-flex -space-x-px" data-orientation="horizontal">
-                                        <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" type="button">
-                                          <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" />
+                                        <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent outline-primary/25 focus-visible:outline-3 focus-visible:ring-primary" data-slot="base" type="button">
+                                          <span aria-hidden="true" class="iconify i-lucide:align-left shrink-0 size-4" data-slot="leadingIcon" />
                                           Unified
                                         </button>
-                                        <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-accented text-default bg-default hover:bg-elevated active:bg-elevated disabled:bg-default aria-disabled:bg-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inverted" type="button">
-                                          <span aria-hidden="true" class="iconify i-lucide:columns-2 shrink-0 size-4" />
+                                        <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors not-only:first:rounded-e-none not-only:last:rounded-s-none not-last:not-first:rounded-none focus-visible:z-[1] px-2 py-1 text-xs gap-1 ring ring-inset ring-accented text-default bg-default hover:bg-elevated active:bg-elevated disabled:bg-default aria-disabled:bg-default outline-inverted/25 focus-visible:outline-3 focus-visible:ring-inverted" data-slot="base" type="button">
+                                          <span aria-hidden="true" class="iconify i-lucide:columns-2 shrink-0 size-4" data-slot="leadingIcon" />
                                           Split
                                         </button>
                                       </div>
@@ -329,11 +329,11 @@
                                     <div class="space-y-2" />
                                   </div>
                                 </div>
-                                <div aria-labelledby="reka-tabs-v-[N]-trigger-3way" class="focus:outline-none w-full" data-orientation="horizontal" data-state="inactive" hidden="" id="reka-tabs-v-[N]-content-3way" role="tabpanel" tabindex="0" />
+                                <div aria-labelledby="reka-tabs-v-[N]-trigger-3way" class="w-full rounded-md focus-visible:outline-3 outline-inverted/25" data-orientation="horizontal" data-slot="content" data-state="inactive" hidden="" id="reka-tabs-v-[N]-content-3way" role="tabpanel" tabindex="0" />
                               </div>
                             </div>
                           </div>
-                          <div class="p-4 sm:px-6">
+                          <div class="p-4 sm:px-6" data-slot="footer">
                             <div class="bg-elevated rounded-lg bd-padding-card">
                               <div class="flex items-center gap-2 mb-3">
                                 <span aria-hidden="true" class="iconify i-lucide:info size-4 flex-shrink-0 text-info" />

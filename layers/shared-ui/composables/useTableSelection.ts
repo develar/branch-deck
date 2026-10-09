@@ -1,8 +1,13 @@
-import type { Table } from "@tanstack/vue-table"
-import { computed } from "vue"
+import type { RowData, RowSelectionState, Table } from "@tanstack/vue-table"
+import { rowSelectionFeature, tableFeatures } from "@tanstack/vue-table"
 import type { ComputedRef } from "vue"
 
-export function useTableSelection<TData>(table: ComputedRef<Table<TData>>) {
+// TanStack Table v9 only exposes APIs of explicitly registered features
+export const selectableTableFeatures = tableFeatures({ rowSelectionFeature })
+
+export type SelectableTableFeatures = typeof selectableTableFeatures
+
+export function useTableSelection<TData extends RowData>(table: ComputedRef<Table<SelectableTableFeatures, TData>>) {
   // Selection count - using table's built-in method
   const selectedCount = computed(() => {
     return table.value.getSelectedRowModel().rows.length
@@ -49,13 +54,12 @@ export function useTableSelection<TData>(table: ComputedRef<Table<TData>>) {
         const start = Math.min(lastRow.index, row.index)
         const end = Math.max(lastRow.index, row.index)
 
-        const newSelection: Record<string, boolean> = {}
+        const newSelection: RowSelectionState = {}
 
         // If Cmd/Ctrl is also pressed, add to existing selection
         if (event.metaKey || event.ctrlKey) {
           // Start with current selection
-          const currentSelection = table.value.getState().rowSelection
-          Object.assign(newSelection, currentSelection)
+          Object.assign(newSelection, table.value.atoms.rowSelection.get())
         }
 
         // Select all rows in range

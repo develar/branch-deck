@@ -1,10 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  // Enable Nuxt 4 features
-  future: {
-    compatibilityVersion: 4,
-  },
-
   vite: {
     optimizeDeps: {
       // avoid "optimized dependencies changed. reloading"
@@ -35,7 +30,7 @@ export default defineNuxtConfig({
   },
 
   // Compatibility date for Nitro
-  compatibilityDate: "2025-07-09",
+  compatibilityDate: "2026-10-09",
 
   // Disable SSR for Tauri desktop app
   ssr: false,

@@ -1,8 +1,13 @@
 <template>
   <div :class="['copy-button transition-opacity', !alwaysVisible && 'opacity-0']">
+    <!-- Keep the tooltip open on click so its text switches to "Copied!" in place
+         (closing and reopening it during the exit animation makes reka-ui close it again).
+         Explicit ariaLabel: reka-ui otherwise snapshots the accessible text on mount -->
     <UTooltip
       v-model:open="tooltipOpen"
       :text="tooltipText"
+      :content="{ ariaLabel: tooltipText }"
+      disable-closing-trigger
     >
       <UButton
         :icon="isCopied ? 'i-lucide-copy-check' : 'i-lucide-copy'"

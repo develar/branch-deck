@@ -1,5 +1,5 @@
-<div class="rounded-lg overflow-hidden bg-default ring ring-default divide-y divide-default" data-testid="welcome-card">
-  <div class="p-4 sm:px-6">
+<div class="rounded-lg overflow-hidden bg-default ring ring-default divide-y divide-default" data-slot="root" data-testid="welcome-card">
+  <div class="p-4 sm:px-6" data-slot="header">
     <div class="flex items-center gap-2">
       <span aria-hidden="true" class="iconify i-lucide:git-branch size-5 text-primary" />
       <h3 class="text-lg font-semibold">
@@ -7,7 +7,7 @@
       </h3>
     </div>
   </div>
-  <div class="p-4 sm:p-6">
+  <div class="p-4 sm:p-6" data-slot="body">
     <div class="space-y-4">
       <p class="text-muted">
         Let's get you started with managing your Git branches. Follow these simple steps:
@@ -49,8 +49,8 @@
               <code class="bg-muted/20 px-2 py-1 rounded text-xs">
                 git config --global branchdeck.branchPrefix "your-prefix"
               </code>
-              <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:text-primary/75 active:text-primary/75 disabled:text-primary aria-disabled:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" type="button">
-                <span aria-hidden="true" class="iconify i-lucide:help-circle shrink-0 size-4" />
+              <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary hover:text-primary/75 active:text-primary/75 disabled:text-primary aria-disabled:text-primary outline-primary/25 focus-visible:outline-3" data-slot="base" type="button">
+                <span aria-hidden="true" class="iconify i-lucide:help-circle shrink-0 size-4" data-slot="leadingIcon" />
                 View guide
               </button>
             </div>

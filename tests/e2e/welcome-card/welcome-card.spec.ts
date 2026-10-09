@@ -63,7 +63,7 @@ test.describe("Welcome Card", () => {
     // Re-query the card to avoid staleness if DOM re-rendered
     const welcomeCardAfter = page.locator("[data-testid=\"welcome-card\"]")
     await expect(welcomeCardAfter).toBeVisible()
-    await expect(welcomeCardAfter.getByText("Configure your branch prefix")).toBeVisible()
+    await expect(welcomeCardAfter.getByRole("heading", { name: "Configure your branch prefix" })).toBeVisible()
 
     // Step 1 should no longer be shown inside the welcome card (avoid matching tooltip text elsewhere)
     await expect(welcomeCardAfter.getByText("Select a Git repository")).toHaveCount(0)

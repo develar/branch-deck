@@ -626,7 +626,7 @@ export const tauriMockScript = () => {
     // All HTML attributes that contain Vue component IDs - applied in order, most specific first
     attributes: [
       { pattern: /reka-(\w+(?:-\w+)*)-v-\d+(-\d+)?/g, replacement: 'reka-$1-v-[N]' },
-      { pattern: /diff-root--\d+/g, replacement: 'diff-root--[DYNAMIC]' },
+      { pattern: /diff-root(-\w+)?--\d+/g, replacement: 'diff-root$1--[DYNAMIC]' },
       { pattern: /v-\d+(-\d+)?/g, replacement: 'v-[N]' }
     ],
     

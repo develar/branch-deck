@@ -19,7 +19,7 @@
     <tr class="branch-row hover:bg-muted transition-all cursor-pointer group" data-branch-name="test-branch" data-state="closed" data-testid="branch-row">
       <td class="px-6 py-4 max-w-xs">
         <div class="flex items-center gap-2 min-w-0">
-          <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 focus:outline-none focus-visible:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent p-1 shrink-0" type="button" />
+          <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors text-xs gap-1 text-primary hover:bg-primary/10 active:bg-primary/10 outline-primary/25 focus-visible:outline-3 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent p-1 shrink-0" data-slot="base" type="button" />
           <span class="text-sm font-medium shrink-0">
             test-branch
           </span>
@@ -32,7 +32,7 @@
       </td>
       <td class="px-6 py-4 hidden sm:table-cell">
         <div class="w-40">
-          <span class="font-medium inline-flex items-center text-xs px-2 py-1 gap-1 rounded-md bg-primary/10 text-primary lowercase whitespace-nowrap truncate max-w-[10rem]" data-grace-area-trigger="" data-state="closed">
+          <span class="font-medium inline-flex items-center text-xs px-2 py-1 gap-1 rounded-md bg-primary/10 text-primary lowercase whitespace-nowrap truncate max-w-[10rem]" data-grace-area-trigger="" data-slot="base" data-state="closed">
             not pushed
           </span>
         </div>
@@ -40,8 +40,8 @@
       <td class="px-6 py-4">
         <div class="flex items-center gap-2">
           <div class="copy-button transition-opacity" />
-          <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-grace-area-trigger="" data-state="closed" type="button">
-            <span aria-hidden="true" class="iconify i-lucide:upload shrink-0 size-4" />
+          <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 ring ring-inset ring-primary/50 text-primary hover:bg-primary/10 active:bg-primary/10 disabled:bg-transparent aria-disabled:bg-transparent dark:disabled:bg-transparent dark:aria-disabled:bg-transparent outline-primary/25 focus-visible:outline-3 focus-visible:ring-primary" data-grace-area-trigger="" data-slot="base" data-state="closed" type="button">
+            <span aria-hidden="true" class="iconify i-lucide:upload shrink-0 size-4" data-slot="leadingIcon" />
             Create Remote
           </button>
         </div>
