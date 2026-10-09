@@ -1,39 +1,47 @@
-<div class="mb-4 relative overflow-hidden" id="inline-branch-creator-portal">
-  <div aria-describedby="reka-dialog-description-v-[N]" aria-labelledby="reka-dialog-title-v-[N]" data-dismissable-layer="" data-state="open" id="" role="dialog" tabindex="-1">
-    <span style="position: absolute;  border: 0px;  width: 1px;  height: 1px;  padding: 0px;  margin: -1px;  overflow: hidden;  clip: rect(0px, 0px, 0px, 0px);  clip-path: inset(50%);  white-space: nowrap;  overflow-wrap: normal;  top: -1px;  left: -1px">
-      <h2 id="reka-dialog-title-v-[N]">
-        Create Branch
-      </h2>
-      <p id="reka-dialog-description-v-[N]">
-        Create a new branch from selected commits
-      </p>
-    </span>
-    <div class="bd-padding-content border-b border-default bg-elevated/50">
-      <div class="space-y-2">
+<div class="relative mb-4 overflow-hidden" id="inline-branch-creator-portal">
+  <div aria-describedby="[ID]" aria-labelledby="[ID]" class="outline-none" data-inline-form="" role="dialog" tabindex="-1">
+    <h2 class="sr-only" id="[ID]">
+      Create Branch
+    </h2>
+    <p class="sr-only" id="[ID]">
+      Create a new branch from selected commits
+    </p>
+    <div class="border-b border-border bg-muted/50 bd-padding-content">
+      <div class="flex flex-col gap-2">
         <div class="flex items-center gap-2">
-          <div class="relative flex-1" />
-          <div class="flex items-center gap-3" />
+          <div class="relative flex-1">
+            <div class="group/input-group relative flex h-8 w-full min-w-0 items-center rounded-lg border border-input transition-colors outline-none in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-disabled:bg-input/50 has-disabled:opacity-50 has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-3 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/50 has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:ring-3 has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto dark:bg-input/30 dark:has-disabled:bg-input/80 dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5" data-slot="input-group" role="group">
+              <div class="flex h-auto cursor-text items-center justify-center gap-2 py-1.5 text-sm font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-[calc(var(--radius)-5px)] [&>svg:not([class*='size-'])]:size-4 order-first pl-2 has-[>button]:ml-[-0.3rem] has-[>kbd]:ml-[-0.15rem]" data-align="inline-start" data-slot="input-group-addon" role="group">
+                <svg aria-hidden="true" class="lucide lucide-git-branch size-4 text-muted-foreground" />
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <span aria-expanded="false" aria-haspopup="dialog" class="inline-flex" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
+              <svg aria-hidden="true" class="lucide lucide-sparkles size-3.5 cursor-pointer transition-all text-muted-foreground hover:text-primary" data-testid="ai-status-icon" />
+            </span>
+          </div>
           <div class="flex items-center gap-2">
-            <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-default hover:bg-elevated active:bg-elevated outline-inverted/25 focus-visible:outline-3 hover:disabled:bg-transparent dark:hover:disabled:bg-transparent hover:aria-disabled:bg-transparent dark:hover:aria-disabled:bg-transparent" data-slot="base" type="button">
+            <button class="group/button inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
               Cancel
             </button>
-            <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-inverted bg-primary hover:bg-primary/75 active:bg-primary/75 disabled:bg-primary aria-disabled:bg-primary outline-primary/25 focus-visible:outline-3" data-slot="base" disabled="" type="button">
+            <button class="group/button inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/80 h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3" data-disabled="" data-slot="button" disabled="" tabindex="0" type="button">
               Create
             </button>
           </div>
         </div>
-        <div class="space-y-2" data-testid="branch-name-suggestions">
+        <div class="flex flex-col gap-2" data-testid="branch-name-suggestions">
           <div class="flex items-center justify-between">
-            <p class="text-xs text-muted flex items-center gap-1">
-              <span aria-hidden="true" class="iconify i-lucide:sparkles size-3" />
+            <p class="flex items-center gap-1 text-xs text-muted-foreground">
+              <svg aria-hidden="true" class="lucide lucide-sparkles size-3" />
               Suggestions:
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
-            <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-default bg-elevated hover:bg-accented/75 active:bg-accented/75 outline-inverted/25 focus-visible:outline-3 disabled:bg-elevated aria-disabled:bg-elevated" data-slot="base" type="button">
+            <button class="group/button inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
               Not now
             </button>
-            <button class="rounded-md font-medium inline-flex items-center disabled:cursor-not-allowed aria-disabled:cursor-not-allowed disabled:opacity-75 aria-disabled:opacity-75 transition-colors px-2 py-1 text-xs gap-1 text-primary bg-primary/10 hover:bg-primary/15 active:bg-primary/15 outline-primary/25 focus-visible:outline-3 disabled:bg-primary/10 aria-disabled:bg-primary/10" data-slot="base" type="button">
+            <button class="group/button inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary" data-slot="button" tabindex="0" type="button">
               Enable AI
             </button>
           </div>

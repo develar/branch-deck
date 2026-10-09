@@ -136,27 +136,21 @@ test.describe("Issue Navigation Links", () => {
   })
 
   test("should render issue links in unassigned commits", async ({ page }) => {
-    // Look for the unassigned commits section
-    const unassignedSection = page.locator("[data-testid=\"unassigned-commits\"]")
+    // The issue_links template ends with an unassigned commit "Emergency fix for CRITICAL-111"
+    const unassignedSection = page.locator("[data-testid=\"unassigned-commits-section\"]")
+    await expect(unassignedSection).toBeVisible()
 
-    // Check if unassigned commits exist
-    const hasUnassigned = await unassignedSection.count() > 0
+    // Capture snapshot of unassigned commits with issue links
+    await captureHtmlSnapshot(unassignedSection, "issue-links-unassigned")
 
-    if (hasUnassigned) {
-      await expect(unassignedSection).toBeVisible()
-
-      // Capture snapshot of unassigned commits with issue links
-      await captureHtmlSnapshot(unassignedSection, "issue-links-unassigned")
-
-      // Verify CRITICAL-111 is rendered as a link in unassigned commit
-      const criticalLink = unassignedSection.locator("a:has-text('CRITICAL-111')")
-      await expect(criticalLink).toBeVisible()
-      await expect(criticalLink).toHaveAttribute("href", "https://jira.example.com/browse/CRITICAL-111")
-    }
+    // Verify CRITICAL-111 is rendered as a link in unassigned commit
+    const criticalLink = unassignedSection.locator("a:has-text('CRITICAL-111')")
+    await expect(criticalLink).toBeVisible()
+    await expect(criticalLink).toHaveAttribute("href", "https://jira.example.com/browse/CRITICAL-111")
   })
 
   test("should render issue links in branch names", async ({ page }) => {
-    // Find the branch card (UCard component that contains the branches table)
+    // Find the branch card (the Card that contains the branches table)
     // This will show both issue-based branches with summaries and feature branches without summaries
     const branchCard = page.locator("[data-testid=\"branch-row\"]").first().locator("..").locator("..")
     await expect(branchCard).toBeVisible()

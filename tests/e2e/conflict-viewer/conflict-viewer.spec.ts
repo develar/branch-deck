@@ -1,7 +1,7 @@
 import { testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { syncBranches } from "../helpers/sync-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
-import { waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
+import { waitForConflictViewer, waitForStorePersistence, waitForTabSwitchSettled } from "../helpers/wait-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 const test = testWithConflicts
@@ -38,9 +38,8 @@ test.describe("Conflict Viewer Feature", () => {
       const threeWayTab = conflictSection.locator("button[role=\"tab\"]:has-text(\"3-way Merge\")")
       await threeWayTab.click()
 
-      // Wait for 3-way content to be visible
-      const threeWayPanel = bugFixDetails.locator("[role=\"tabpanel\"][data-state=\"active\"]").first()
-      await expect(threeWayPanel).toBeVisible()
+      // Wait for 3-way content to be visible and the Diff panel to finish its exit transition
+      await waitForTabSwitchSettled(bugFixDetails)
 
       // Capture snapshot with 3-way Merge tab
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-3way-tab")
@@ -109,9 +108,8 @@ test.describe("Conflict Viewer Feature", () => {
       const threeWayTab = conflictSection.locator("button[role=\"tab\"]:has-text(\"3-way Merge\")")
       await threeWayTab.click()
 
-      // Wait for 3-way content to be visible
-      const threeWayPanel = bugFixDetails.locator("[role=\"tabpanel\"][data-state=\"active\"]").first()
-      await expect(threeWayPanel).toBeVisible()
+      // Wait for 3-way content to be visible and the Diff panel to finish its exit transition
+      await waitForTabSwitchSettled(bugFixDetails)
 
       // Capture state before reload
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-before-reload")

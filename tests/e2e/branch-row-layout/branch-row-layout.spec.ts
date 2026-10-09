@@ -130,16 +130,16 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(copyButton).toBeVisible()
     await expect(copyButton).toHaveClass(/text-muted/)
 
-    // Verify initial icon is copy icon (icons are inline SVG, the name is resolved by the snapshot formatter)
-    const iconElement = copyButton.locator("svg.iconify")
-    const iconName = () => iconElement.evaluate(el => (window as Window & { __htmlFormatter: { iconName: (el: Element) => string } }).__htmlFormatter.iconName(el))
-    await expect.poll(iconName).toBe("copy")
+    // Verify initial icon is copy icon (lucide-react icons carry their name as a `lucide-<name>` class)
+    const iconElement = copyButton.locator("svg.lucide")
+    const copyIcon = /(^|\s)lucide-copy(\s|$)/
+    await expect(iconElement).toHaveClass(copyIcon)
 
     // Click the button to trigger copy
     await copyButton.click()
 
     // Verify icon changes to check mark
-    await expect.poll(iconName).toBe("copy-check")
+    await expect(iconElement).toHaveClass(/(^|\s)lucide-copy-check(\s|$)/)
 
     // Verify clipboard content was copied
     const clipboardText = await readClipboard(page)
@@ -149,14 +149,14 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await page.waitForTimeout(250)
 
     // Verify button reverts to initial state after timeout
-    await expect.poll(iconName).toBe("copy")
+    await expect(iconElement).toHaveClass(copyIcon)
 
     // First verify the "Copied!" tooltip is no longer visible
     const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied!\")")
     await expect(copiedTooltip).not.toBeVisible()
 
     // Move mouse away from button first and let the tooltip finish its exit animation
-    // (reka-ui closes a tooltip that is reopened while its previous content is still mounted)
+    // (a tooltip reopened while its previous popup is still mounted may close again)
     await page.mouse.move(0, 0)
     await expect(page.locator("[role=\"tooltip\"]")).toHaveCount(0)
 

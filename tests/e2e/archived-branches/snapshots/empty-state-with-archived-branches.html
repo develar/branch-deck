@@ -1,29 +1,25 @@
-<div class="relative overflow-hidden w-full rounded-lg p-4 flex gap-2.5 items-start text-highlighted bg-elevated/50 ring ring-inset ring-accented" data-orientation="vertical" data-slot="root" data-testid="empty-state-alert">
-  <span aria-hidden="true" class="iconify i-lucide:git-branch shrink-0 size-5" data-slot="icon" />
-  <div class="min-w-0 flex-1 flex flex-col" data-slot="wrapper">
-    <div class="text-sm font-medium" data-slot="title">
-      No active branches
-    </div>
-    <div class="text-sm opacity-90 mt-1" data-slot="description">
-      <div class="space-y-3">
-        <p>
-          Commit to your main branch using prefixes like:
-        </p>
-        <ul class="list-disc list-inside font-mono">
-          <li>
-            (auth) Add login form
-          </li>
-          <li>
-            YT-123 Fix bug
-          </li>
-        </ul>
-        <p>
-          BranchDeck will automatically group your commits into virtual branches.
-        </p>
-        <p class="text-muted text-sm">
-          Your archived branches are shown below.
-        </p>
-      </div>
-    </div>
+<div class="alert group/alert relative grid w-full gap-0.5 rounded-lg border px-2.5 py-2 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 text-card-foreground bg-muted/50" data-slot="alert" data-testid="empty-state-alert" role="alert">
+  <svg aria-hidden="true" class="lucide lucide-git-branch" />
+  <div class="font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground" data-slot="alert-title">
+    No active branches
+  </div>
+  <div class="text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4 flex flex-col gap-3" data-slot="alert-description">
+    <p>
+      Commit to your main branch using prefixes like:
+    </p>
+    <ul class="list-inside list-disc font-mono">
+      <li>
+        (auth) Add login form
+      </li>
+      <li>
+        YT-123 Fix bug
+      </li>
+    </ul>
+    <p>
+      BranchDeck will automatically group your commits into virtual branches.
+    </p>
+    <p class="text-sm text-muted-foreground">
+      Your archived branches are shown below.
+    </p>
   </div>
 </div>

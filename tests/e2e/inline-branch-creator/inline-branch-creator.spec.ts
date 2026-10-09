@@ -107,7 +107,7 @@ test.describe("Inline Branch Creator Feature", () => {
     await selectCommit(page, firstCommit)
 
     // Ensure the commit list container has focus for keyboard events
-    const commitListContainer = page.locator("[tabindex=\"0\"]").first()
+    const commitListContainer = page.locator("table[tabindex=\"0\"]").first()
     await commitListContainer.focus()
 
     // Press Enter to open branch creator

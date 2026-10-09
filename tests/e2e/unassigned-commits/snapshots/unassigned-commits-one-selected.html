@@ -1,152 +1,145 @@
-<div class="rounded-lg bg-default ring ring-default divide-y divide-default overflow-hidden" data-slot="root" data-testid="unassigned-commits-section">
-  <div class="p-4 sm:px-6" data-slot="header">
+<div class="group/card flex flex-col rounded-xl bg-card text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl gap-0 overflow-hidden py-0" data-size="default" data-slot="card" data-testid="unassigned-commits-section">
+  <div class="border-b border-border p-4 sm:px-6">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <h2 class="text-sm font-semibold text-highlighted">
+        <h2 class="text-sm font-semibold text-foreground">
           Unassigned Commits
         </h2>
-        <span class="font-medium inline-flex items-center text-[10px]/3 px-1.5 py-1 gap-1 rounded-sm ring ring-inset ring-accented text-default bg-elevated" data-slot="base">
+        <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
           4 commits
         </span>
       </div>
-      <div class="flex items-center gap-3" />
+      <div class="flex items-center gap-3">
+        <span aria-expanded="false" aria-haspopup="dialog" class="inline-flex" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
+          <svg aria-hidden="true" class="lucide lucide-info size-3 cursor-help text-muted-foreground transition-colors hover:text-foreground" data-testid="unassigned-commits-help-icon" />
+        </span>
+      </div>
     </div>
   </div>
-  <div class="p-0 sm:p-0" data-slot="body">
-    <div />
-    <div>
-      <table class="w-full rounded-lg focus:outline-none" tabindex="0">
-        <tbody class="divide-y divide-default">
-          <tr class="cursor-pointer relative select-none hover:bg-muted" data-row-id="341683b90cb088a228a0ab162e80426cdb2d7df2" data-selected="false" data-state="closed">
-            <td class="bd-padding-list-item">
-              <div>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm text-highlighted line-clamp-2">
-                        Refactor: Extract configuration constants
-                      </span>
-                    </div>
-                  </div>
-                  <div class="mt-1 flex items-center gap-2 text-xs text-muted">
-                    <span class="font-mono">
-                      [SHA]
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Test User
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Yesterday 6:00 PM
-                    </span>
-                  </div>
+  <div>
+    <table class="w-full rounded-lg focus:outline-none" tabindex="0">
+      <tbody class="divide-y divide-border">
+        <tr class="relative cursor-pointer select-none hover:bg-muted select-none" data-row-id="341683b90cb088a228a0ab162e80426cdb2d7df2" data-selected="false" data-slot="context-menu-trigger">
+          <td class="bd-padding-list-item">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm text-foreground">
+                    Refactor: Extract configuration constants
+                  </span>
                 </div>
               </div>
-            </td>
-          </tr>
-          <tr class="cursor-pointer relative select-none hover:bg-muted bg-primary/10 hover:bg-primary/15" data-row-id="7c8faa93e062070740b2180fb03b5e4ba3eddb8c" data-selected="true" data-state="closed">
-            <td class="bd-padding-list-item">
-              <div>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm text-highlighted line-clamp-2">
-                        Implement secure password hashing
-                      </span>
-                    </div>
-                  </div>
-                  <div class="mt-1 flex items-center gap-2 text-xs text-muted">
-                    <span class="font-mono">
-                      [SHA]
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Test User
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Yesterday 5:30 PM
-                    </span>
-                  </div>
+              <div class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                <span class="font-mono">
+                  [SHA]
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Test User
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Yesterday 6:00 PM
+                </span>
+              </div>
+            </div>
+          </td>
+        </tr>
+        <tr class="relative cursor-pointer select-none bg-primary/10 hover:bg-primary/15 select-none" data-row-id="7c8faa93e062070740b2180fb03b5e4ba3eddb8c" data-selected="true" data-slot="context-menu-trigger">
+          <td class="bd-padding-list-item">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm text-foreground">
+                    Implement secure password hashing
+                  </span>
                 </div>
               </div>
-            </td>
-          </tr>
-          <tr class="cursor-pointer relative select-none hover:bg-muted" data-row-id="03da2835949a129f90b861e7b6396ba765419fd7" data-selected="false" data-state="closed">
-            <td class="bd-padding-list-item">
-              <div>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm text-highlighted line-clamp-2">
-                        Add bcrypt dependency
-                      </span>
-                    </div>
-                  </div>
-                  <div class="mt-1 flex items-center gap-2 text-xs text-muted">
-                    <span class="font-mono">
-                      [SHA]
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Test User
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Yesterday 5:00 PM
-                    </span>
-                  </div>
+              <div class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                <span class="font-mono">
+                  [SHA]
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Test User
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Yesterday 5:30 PM
+                </span>
+              </div>
+            </div>
+          </td>
+        </tr>
+        <tr class="relative cursor-pointer select-none hover:bg-muted select-none" data-row-id="03da2835949a129f90b861e7b6396ba765419fd7" data-selected="false" data-slot="context-menu-trigger">
+          <td class="bd-padding-list-item">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm text-foreground">
+                    Add bcrypt dependency
+                  </span>
                 </div>
               </div>
-            </td>
-          </tr>
-          <tr class="cursor-pointer relative select-none hover:bg-muted" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false" data-state="closed">
-            <td class="bd-padding-list-item">
-              <div>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm text-highlighted line-clamp-2">
-                        Add UserService
-                      </span>
-                    </div>
-                  </div>
-                  <div class="mt-1 flex items-center gap-2 text-xs text-muted">
-                    <span class="font-mono">
-                      [SHA]
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Test User
-                    </span>
-                    <span>
-                      •
-                    </span>
-                    <span>
-                      Yesterday 3:30 PM
-                    </span>
-                  </div>
+              <div class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                <span class="font-mono">
+                  [SHA]
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Test User
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Yesterday 5:00 PM
+                </span>
+              </div>
+            </div>
+          </td>
+        </tr>
+        <tr class="relative cursor-pointer select-none hover:bg-muted select-none" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false" data-slot="context-menu-trigger">
+          <td class="bd-padding-list-item">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm text-foreground">
+                    Add UserService
+                  </span>
                 </div>
               </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              <div class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                <span class="font-mono">
+                  [SHA]
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Test User
+                </span>
+                <span>
+                  •
+                </span>
+                <span>
+                  Yesterday 3:30 PM
+                </span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>

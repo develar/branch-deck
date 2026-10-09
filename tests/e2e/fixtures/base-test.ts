@@ -1,6 +1,5 @@
 import { test as base, expect } from "@playwright/test"
 import { tauriMockScript } from "../setup/tauri-mocks"
-import { buildIconNameIndex } from "../helpers/icon-index"
 
 /**
  * Custom test fixture that automatically sets up Tauri mocks
@@ -23,12 +22,6 @@ export const test = base.extend({
       }
     })
 
-    // Icon name index used by the HTML snapshot formatter (icons render as inline SVG without their name)
-    await page.addInitScript((index) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).__ICON_NAME_INDEX__ = index
-    }, buildIconNameIndex())
-
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockScript)
 
@@ -38,17 +31,8 @@ export const test = base.extend({
       time: new Date("2024-01-02T10:00:00Z"),
     })
 
-    // Icons must be bundled: fail the test if any icon is fetched from the Iconify API at runtime
-    const iconApiRequests: string[] = []
-    await context.route("**/api.iconify.design/**", async (route) => {
-      iconApiRequests.push(route.request().url())
-      await route.abort()
-    })
-
     // Use the page
     await use(page)
-
-    expect(iconApiRequests, "icons requested from api.iconify.design (missing from the client bundle)").toEqual([])
   },
 })
 

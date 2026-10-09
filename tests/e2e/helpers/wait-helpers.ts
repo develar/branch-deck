@@ -182,3 +182,14 @@ export async function waitForFloatingToolbar(
   await expect(toolbar).toBeVisible({ timeout })
   return toolbar
 }
+
+/**
+ * Wait until a tab switch has settled: only the selected tab panel is rendered.
+ *
+ * Base UI keeps the outgoing `Tabs.Panel` mounted until its exit transition ends,
+ * so a snapshot taken right after clicking a tab may still contain the previous panel.
+ */
+export async function waitForTabSwitchSettled(container: Locator): Promise<void> {
+  await expect(container.locator("[role=\"tabpanel\"][data-state=\"active\"]").first()).toBeVisible()
+  await expect(container.locator("[role=\"tabpanel\"][data-state=\"inactive\"]:not([hidden])")).toHaveCount(0)
+}

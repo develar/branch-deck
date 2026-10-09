@@ -23,6 +23,9 @@ async function testBrowseRepository(
   const browseButton = page.getByTestId("browse-repository-button")
   await expect(browseButton).toBeVisible()
 
+  // First run (no repository, no recent projects): the welcome card is shown, it renders shortly after the header
+  await expect(page.getByTestId("welcome-card")).toBeVisible()
+
   // Capture initial state (before clicking browse) - same for both tests
   await captureHtmlSnapshot(page.locator("body"), "browse-repository-initial")
 
@@ -32,6 +35,9 @@ async function testBrowseRepository(
   if (expectedValid) {
     // For valid repository, wait for sync button to be enabled
     await expect(page.locator("[data-testid=\"sync-button\"]")).toBeEnabled()
+
+    // The template configures a branch prefix: once it is loaded, the welcome card is gone
+    await expect(page.getByTestId("welcome-card")).toHaveCount(0)
 
     // Capture final state (valid repository selected)
     await captureHtmlSnapshot(page.locator("body"), `browse-repository-${snapshotSuffix}`)
