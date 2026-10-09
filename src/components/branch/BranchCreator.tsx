@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
+import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
@@ -20,7 +21,6 @@ const debouncedAutoSync = pDebounce(async () => {
   }
 }, 100)
 
-const WelcomeCard = lazy(() => import("@/components/repository/WelcomeCard").then(it => ({ default: it.WelcomeCard })))
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
 /** Root of the main window: configuration header, onboarding, errors and the branch tables. */
@@ -61,11 +61,7 @@ export function BranchCreator() {
     <div className="flex flex-col gap-6" data-testid="branch-creator-root">
       <ConfigurationHeader />
 
-      {showWelcomeCard && (
-        <Suspense fallback={null}>
-          <WelcomeCard hasRepository={hasRepository} hasBranchPrefix={hasBranchPrefix} />
-        </Suspense>
-      )}
+      {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} hasBranchPrefix={hasBranchPrefix} />}
 
       {errorTitle && !isSyncing
         ? (

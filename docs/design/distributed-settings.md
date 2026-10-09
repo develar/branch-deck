@@ -1,130 +1,140 @@
 # Distributed Settings Architecture
 
 **Status:** Implemented  
-**Updated:** 2025-08-23  
-**Tags:** [settings, reactivity, tauri]
+**Updated:** 2026-10-11  
+**Tags:** [settings, zustand, tauri]
 
 ## Problem
 
-Multi-window desktop applications need synchronized settings across all windows while maintaining Vue's reactivity. Each window needs immediate access to settings without async loading delays, and changes in one window must instantly reflect in others.
+Branch Deck opens sub-windows (conflicting files, missing commits) next to the main window. Every window renders settings
+(theme, conflict viewer options, AI settings, recent projects) and some can change them. Each window must have the settings
+synchronously on its first render, and a change made in any window must reach all others without loops or lost updates.
 
-The challenge: How to maintain a single source of truth for settings while keeping reactive objects working correctly in each window's Vue instance?
+Only one process can safely own `settings.json`. Several windows writing it independently would race and overwrite
+each other, and a naive "write, then apply the change notification" loop echoes values back and can roll the state
+back to a stale value while several writes are in flight.
 
 ## Solution Overview
 
-The main window owns the settings file and acts as the authoritative source. Sub-windows proxy their writes through the main window and receive change broadcasts. Settings are preloaded during window creation for instant access, and reactive objects are updated in-place to preserve Vue reactivity.
+Each setting group is a zustand vanilla store created by `createPersistentStore`. It is initialized synchronously from
+`window.__TAURI_STORE__`, a snapshot injected by the backend before the page loads. Every value read from disk or
+received from another window passes through the store's Zod schema.
+
+The main window owns `settings.json` through the Tauri store plugin (`LazyStore`). It persists local changes (debounced),
+applies writes requested by sub-windows and broadcasts every change. Sub-windows never touch the file: they send their
+changes to the main window and receive the result back like every other window.
 
 ## Design
 
 ### Architecture
+
 ```mermaid
 flowchart TD
-    subgraph "Main Window"
-        A[MainAppStore]
-        B[settings.json]
-        C[Reactive Snapshot]
+    subgraph Main["Main window"]
+        MS[zustand stores] -->|subscribe, debounced 500 ms| MSync[MainStoreSync]
+        MSync <-->|set / delete / onChange| File[(settings.json via LazyStore)]
     end
-    
-    subgraph "Sub Window 1"
-        D[SubWindowAppStore]
-        E[Reactive Snapshot]
+
+    subgraph Sub["Sub-window"]
+        SS[zustand stores] -->|subscribe| SSync[SubWindowStoreSync]
     end
-    
-    subgraph "Sub Window 2"
-        F[SubWindowAppStore]
-        G[Reactive Snapshot]
-    end
-    
-    A <--> B
-    A --> C
-    D --> E
-    F --> G
-    
-    D -->|Write Request| A
-    F -->|Write Request| A
-    A -->|Change Event| D
-    A -->|Change Event| F
+
+    SSync -->|store-set-request| MSync
+    MSync -->|store-response| SSync
+    MSync -->|store-snapshot-update| SSync
 ```
 
 ### Data Flow
+
 ```mermaid
 sequenceDiagram
-    participant User
-    participant SubWindow
-    participant MainWindow
-    participant Disk
-    participant OtherWindows
+    participant Sub as Sub-window store
+    participant Main as Main window
+    participant Disk as settings.json
+    participant Others as Other sub-windows
 
-    User->>SubWindow: Modify setting
-    SubWindow->>SubWindow: Update local reactive
-    SubWindow->>MainWindow: Send write request
-    MainWindow->>Disk: Persist to settings.json
-    Disk->>MainWindow: onChange event
-    MainWindow->>MainWindow: Update local reactive
-    MainWindow->>OtherWindows: Broadcast change
-    OtherWindows->>OtherWindows: Update local reactive
+    Sub->>Sub: setState (local change)
+    Sub->>Main: store-set-request (echo recorded)
+    Main->>Main: parse, setState(value, true) without re-persisting
+    Main->>Disk: write non-default fields (echo recorded)
+    Main-->>Sub: store-response
+    Disk->>Main: onChange (own echo, not re-applied)
+    Main->>Sub: store-snapshot-update (echo, ignored)
+    Main->>Others: store-snapshot-update
+    Others->>Others: setState(value, true) under the echo guard
 ```
+
+A change made in the main window takes the same path from the `subscribe` listener: debounced persist, `onChange`,
+broadcast to all sub-windows.
 
 ### Key Decisions
 
-1. **Decision**: Main window as single source of truth
-   **Rationale**: Avoids distributed state conflicts, simpler than consensus protocols
+1. **Decision**: The main window is the single owner of `settings.json`.
+   **Rationale**: Avoids file races and merging. Sub-windows are short-lived and depend on the main window anyway.
 
-2. **Decision**: In-place reactive object updates
-   **Rationale**: Preserves Vue reactivity, maintains component references
+2. **Decision**: Synchronous initialization from an injected snapshot.
+   **Rationale**: Settings are available on the first render, without loading states. The main window gets the file
+   content through an initialization script (`src-tauri/src/lib.rs`). The opener passes `getStoreSnapshot()` as
+   `storeCache` when it opens a sub-window, so the sub-window starts from the opener's current state.
 
-3. **Decision**: Preload settings during window creation
-   **Rationale**: Instant access without async loading, better UX
+3. **Decision**: External values replace the whole state with `setState(value, true)` while an `applyingExternal` flag is set.
+   **Rationale**: The local `subscribe` listener filters out these updates, so a received value is never persisted or
+   sent back. Values equal to the current state (compared with `stableStringify`) are not applied at all, so subscribed
+   components do not re-render.
 
-4. **Decision**: Reactive objects live in snapshot, not separately
-   **Rationale**: Single storage location, no duplication, cleaner architecture
+4. **Decision**: An `EchoTracker` per window remembers the values it wrote.
+   **Rationale**: The `onChange` in the main window and the `store-snapshot-update` in a sub-window that come back for a
+   value this window wrote are recognized and dropped. Applying the echo of an older write would roll the state back
+   while a newer write is in flight.
 
-5. **Decision**: Lazy reactive object creation
-   **Rationale**: Only create reactive wrappers when accessed, saves memory
+5. **Decision**: Only non-default fields are persisted; an empty array or an all-default object deletes the key.
+   **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting. A sub-window
+   compares the echo after parsing, because the broadcast value lacks the default fields.
+
+6. **Decision**: Array stores (recent projects) wrap the array as `{ items }`.
+   **Rationale**: zustand state must be an object. The sync layer and the file see the plain array.
 
 ### Implementation Notes
 
-Core components:
-- **AppStore**: Main window storage layer (see `app/utils/appStore.ts`)
-- **SubWindowAppStore**: Proxy for sub-windows
-- **createPersistentStore**: Creates reactive stores with Zod validation
-- **Settings injection**: Via `window.__TAURI_STORE__` during window creation
-
-Reactive lifecycle:
-1. Raw data loaded from disk
-2. First access converts to reactive object
-3. Changes watched and persisted (debounced 500ms)
-4. Updates propagated via Tauri events
+- Store factory: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`.
+  It registers a `StoreRegistration` (`src/stores/settings/sync-utils.ts`), so the sync layer never touches the zustand store directly.
+- Main window: `MainStoreSync` in `src/stores/settings/app-store.ts`. Writes from sub-windows are applied to the local store
+  immediately, then saved in the same non-default form. Changes of unregistered keys only update the raw snapshot.
+  Stores with `isMainOnly` are not broadcast (no store uses it at the moment).
+- Sub-windows: `SubWindowStoreSync` in `src/stores/settings/sub-window-app-store.ts`. Request ids include the window label
+  because every sub-window receives every `store-response`. A request without a response fails after 10 s.
+- Initialization: `initializeStoreHandlers()` is called at module level in `src/main.tsx`. It starts serving
+  `store-set-request` in the main window and is a no-op in sub-windows.
+- Stores: `appSettings.ts`, `aiSettings.ts`, `conflictViewer.ts`, `repositorySettings.ts` in `src/stores/settings/`. They are
+  module-level singletons. Components read them with `useStore` selectors, non-React code with `getState()`.
 
 ## Alternatives Considered
 
-- **Each Window Manages Own File**:
-  - Why not: File conflicts, race conditions, complex merging
+- **Each window manages its own file**:
+  - Why not: File conflicts, race conditions, complex merging.
 
-- **Shared Memory/IPC State**:
-  - Why not: Platform-specific, complex lifecycle management
+- **zustand `persist` middleware**:
+  - Why not: It has no cross-window ownership. Every window would write the file, and it loads asynchronously.
 
-- **Database with Transactions**:
-  - Why not: Overkill for settings, deployment complexity
+- **Keeping settings in the Rust backend**:
+  - Why not: Every read would be an async IPC call. The UI needs synchronous access on the first render.
 
-- **CRDT for Conflict-Free Updates**:
-  - Why not: Unnecessary complexity for settings use case
+- **CRDT for conflict-free updates**:
+  - Why not: Unnecessary complexity for settings that change rarely and one at a time.
 
 ## Performance Considerations
 
-- **Constraint**: Settings must be immediately available on window open
-- **Solution**: Preload and inject before Vue app initialization
-- **Measurement**: Zero-delay access to settings, <10ms update propagation
+- **Constraint**: Settings must be available on window open.
+- **Solution**: Synchronous initialization from the injected snapshot, before the React root renders.
 
 Optimizations:
-- Synchronous snapshot access (no await needed)
-- Debounced persistence (500ms) reduces disk writes
-- Minimal data transmission (only raw values, not reactive objects)
-- In-place updates avoid object recreation
+- Debounced persistence (500 ms) in the main window coalesces rapid changes into one disk write.
+- Equal incoming values are not applied, so selectors do not re-run.
+- Only plain values are transmitted between windows.
 
 ## References
 
-- Implementation: `layers/core/utils/app-store.ts` (main window), `layers/core/utils/SubWindowAppStore.ts` (sub-windows)
-- Store creation: `layers/core/utils/persistent-store.ts`; stores in `layers/core/stores/` and `layers/ai/stores/` are module-level singletons
-- Initialization: `initializeStoreHandlers()` in `app/app.vue`
+- Implementation: `src/stores/settings/app-store.ts` (main window), `src/stores/settings/sub-window-app-store.ts` (sub-windows)
+- Store creation: `src/stores/settings/persistent-store.ts`
+- Sub-window opening: `src/lib/window-management.ts`, `src-tauri/src/commands/window_management.rs`
 - Related: [virtual-branches.md](virtual-branches.md)

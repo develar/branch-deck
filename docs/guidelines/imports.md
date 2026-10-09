@@ -1,16 +1,16 @@
 # Import Guidelines and No Re-exports Policy
 
 **Status:** Active  
-**Updated:** 2026-10-09  
-**Tags:** [imports, rust, vue]
+**Updated:** 2026-10-11  
+**Tags:** [imports, rust, react]
 
 ## Summary
 
-Maintain clear, explicit dependencies by preferring direct imports over re-exports. Never use `pub use` statements except for internal module organization. The frontend has no auto-imports: every Vue API, Nuxt UI component, composable and project module is imported explicitly.
+Maintain clear, explicit dependencies by preferring direct imports over re-exports. Never use `pub use` statements except for internal module organization. In the frontend, every React API, shadcn/ui component, hook, store and project module is imported explicitly from its own module.
 
 ## Context
 
-This simplifies navigation and refactoring by making dependencies explicit. Applies to Rust backend crates and the Vue 3 + Vite frontend.
+This simplifies navigation and refactoring by making dependencies explicit. Applies to Rust backend crates and the React 19 + Vite frontend.
 
 ## Principles
 
@@ -19,7 +19,7 @@ This simplifies navigation and refactoring by making dependencies explicit. Appl
 - Do not re-export external types at crate roots (e.g., error types).
 - Keep imports self-documenting; import from the exact module path.
 - Limit exceptions to private, internal organization cases only.
-- Frontend: import everything explicitly, including Vue APIs, Nuxt UI components and composables, project modules and components (see [Frontend Imports](#frontend-imports)).
+- Frontend: import every module from the file that defines it, through the `@/` alias (see [Frontend Imports](#frontend-imports)).
 
 ## The No Re-exports Rule
 
@@ -141,20 +141,21 @@ use test_utils::progress_reporter::TestProgressReporter;
 
 ## Frontend Imports
 
-The frontend is a Vite + Vue 3 SPA without auto-imports. Every identifier a file uses is imported in its header,
-so dependencies are visible in the file and `vue-tsc` (with `strictTemplates`) reports unknown components and names.
-ESLint `vue/no-undef-components` also flags components used in templates without an import.
+The frontend is a Vite + React 19 SPA. Every identifier a file uses is imported in its header, and `tsc` (strict mode)
+reports anything missing. The same no-re-exports rule applies: there are no barrel `index.ts` files.
 
-- Vue: `import { ref, computed } from "vue"`, types via `import type { Ref } from "vue"`.
-- Nuxt UI components: `import UButton from "@nuxt/ui/components/Button.vue"`.
-- Nuxt UI composables and utilities: `import { useToast, useOverlay } from "@nuxt/ui/composables"`, `import { omit } from "@nuxt/ui/utils"`.
-- Within a layer, use relative paths (`./CommitInfo.vue`, `../composables/useAmendChanges`).
-- Across layers, use `@layers/<layer>/<dir>/<file>` (`@layers/shared-ui/utils/errorHandling`). Never reach into another layer with `../../`.
-- Modules in `app/` are imported with `~/` (`~/composables/repositoryProvider`).
-- Generated bindings: `import type { Commit } from "~/utils/bindings"` (and `import { commands } from "~/utils/bindings"`).
-- Lazy components: `const LazyX = defineAsyncComponent(() => import("./X.vue"))`.
-- Order imports: `vue`, third-party packages, `@nuxt/ui`, `@layers/` and `~/`, relative paths.
-- In Vue templates, refs are automatically unwrapped (no `.value`).
+- Project modules: always the `@/` alias, which maps to `src/` (`@/stores/branch-sync`, `@/hooks/useRowSelection`).
+  Do not use relative paths across folders. The only relative imports are between the modules of `src/stores/settings/`.
+- shadcn/ui components: `import { Button } from "@/components/ui/button"`. Each file in `src/components/ui/` exports
+  the component and its parts (`ContextMenu`, `ContextMenuContent`, ...).
+- React: named imports, `import { useState, useEffect } from "react"`, types via `import type { ReactNode } from "react"`.
+- Icons: lucide-react components, `import { GitBranchIcon } from "lucide-react"`.
+- Class names: `import { cn } from "cn"`. `src/lib/utils.ts` only exists for the shadcn CLI.
+- Types: `import type` on its own line (`@typescript-eslint/consistent-type-imports`).
+- Generated bindings: `import { commands } from "@/lib/bindings"`, `import type { Commit } from "@/lib/bindings"`.
+- Components and hooks are named exports. Lazy components use `React.lazy` with the named export:
+  `const X = lazy(() => import("@/components/conflict/X").then(it => ({ default: it.X })))`.
+- Order imports: `react`, third-party packages, `@/components/ui`, other `@/` modules.
 
 ## Migrating Rust Re-exports
 
@@ -187,7 +188,7 @@ use model_core::config::ModelConfig;
 ## Tools and Enforcement
 
 - Use `pnpm lint:backend` to catch unused imports and run clippy
-- Use `pnpm lint:frontend` to lint and type-check TypeScript/Vue, including components used without an import
+- Use `pnpm lint:frontend` to run ESLint and `tsc` on the TypeScript/React code
 - IDE warnings for unused re-exports
 - Code reviews should flag any new `pub use` statements
 - Automated tests ensure all imports work correctly

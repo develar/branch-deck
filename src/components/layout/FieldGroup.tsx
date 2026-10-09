@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react"
 import { cn } from "cn"
 
-/** Joins adjacent controls (select/input + button) into one segmented control, like Nuxt UI `UFieldGroup`. */
+/** Joins adjacent controls (select/input + button) into one segmented control. */
 export function FieldGroup({ className, ...props }: ComponentProps<"div">) {
   return (
     <div

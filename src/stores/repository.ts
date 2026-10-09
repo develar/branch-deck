@@ -253,6 +253,8 @@ export function initRepository(): void {
       return
     }
 
+    // set synchronously so the UI does not render the "loaded" state of the new selection while the timer is pending
+    repositoryStore.setState({ isLoadingBranchPrefix: true })
     clearTimeout(timer)
     timer = setTimeout(() => {
       timer = undefined

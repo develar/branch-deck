@@ -1,7 +1,7 @@
 # Branch Deck Development Context
 
 ## Project Overview
-Desktop Git branch management tool using Vue 3 + Vite + Tauri v2. Use `pnpm` only.
+Desktop Git branch management tool using React 19 + Vite + Tauri v2. Use `pnpm` only.
 
 ## Quick Commands
 See `package.json` for the full list of scripts.
@@ -27,7 +27,7 @@ pnpm test-server:dev      # Run the E2E mock server with auto-restart (requires 
 # Linting & Formatting
 pnpm lint                 # Run all linting and formatting
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
-pnpm lint:frontend        # Lint and type-check TypeScript/Vue
+pnpm lint:frontend        # ESLint + tsc type-check of the React/TypeScript code
 ```
 
 If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
@@ -46,20 +46,20 @@ Using `cargo test` may lead to incorrect results or miss failures.
 
 ## Technology Stack
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
-- **Vite 8 + Vue 3 SPA**: vue-router, explicit imports (no auto-imports), feature folders in `layers/`.
-- **Nuxt UI 4**: Used through its Vite plugin (`@nuxt/ui/vite`), components imported from `@nuxt/ui/components/*.vue`.
-- **Tauri v2**: For the desktop application shell.
-- **Vue 3**: Using the Composition API and `<script setup>`.
-- **TypeScript 6**: With strict mode enabled.
-- **Tailwind CSS v4**: Using the new, faster Rust-based engine.
-- **Vite**: As the build tool for the frontend.
-- **Nextest**: As the test runner for all Rust tests.
-- **Playwright**: For End-to-End (E2E) testing.
+- **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
+- **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
+- **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-nova`).
+- **Tailwind CSS v4**: via `@tailwindcss/vite`; theme tokens in `src/index.css`.
+- **lucide-react**: icon components.
+- **TypeScript 6**: strict mode, checked with `tsc`.
+- **Tauri v2**: desktop application shell.
+- **Nextest**: test runner for all Rust tests.
+- **Playwright**: End-to-End (E2E) tests.
 
 ## Recent Features
 - **Integration Status**: Auto-detection and archiving of merged, rebased, or squashed branches.
 - **AI Branch Naming**: On-device ML model to generate branch names from unassigned commits.
-- **Context Menus**: Right-click operations (`UContextMenu`) for common actions on branches and commits.
+- **Context Menus**: Right-click operations (shadcn `ContextMenu`) for common actions on branches and commits.
 
 ## Development Rules
 
@@ -75,10 +75,18 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Clarity**: Every import should clearly show where types and functions originate from.
 
 ### Code Style
-- **UI**: Use semantic colors only (e.g., `text-muted`, `bg-default`). **Never** use `dark:` variants; the theme is handled automatically.
-- **Icons**: Use Lucide icons only (`i-lucide-*`) with semantic sizes (e.g., `size-3`).
-- **Spacing**: Prefer parent `space-y-*` for vertical spacing over individual child `mt-*`.
-- **Components**: Use `UTooltip` for simple text tooltips and `UPopover` for rich content. Use `UKbd` for keyboard shortcuts.
+- **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
+  `text-destructive`) plus the custom `success`, `warning`, `info` (`text-success`, `bg-warning/10`). **Never** use `dark:`
+  variants; the theme is handled by the tokens.
+- **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
+- **Icons**: lucide-react components (`<GitBranchIcon />`). Inside `Button`, add `data-icon="inline-start"` (or `inline-end`)
+  and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).
+- **Components**: `Tooltip` for simple text tooltips, `Popover` for rich content, `Kbd` for keyboard shortcuts,
+  `toast.add({ type, title, description })` from `@/components/ui/toast` for notifications.
+- **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
+  `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
+- **shadcn workflow**: add components with `pnpm dlx shadcn@latest add <component>`, then adapt them. The `docs`
+  subcommand currently crashes in this environment.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
 - **Rust**: Use `snake_case` for all variables and functions.
 - **Imports**: Always use explicit, full module paths. Never use `pub use` re-exports. Examples:
@@ -87,22 +95,23 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   - ❌ `pub use config::ModelConfig` (in lib.rs)
 
 ### Naming Conventions
-- **Components**: PascalCase (e.g., `BranchTableCard.vue`).
-- **Composables**: camelCase with `use` prefix (e.g., `useRepository.ts`).
-- **Stores**: camelCase (e.g., `repositoryStore.ts`).
+- **Components**: PascalCase `.tsx` files with a named export (e.g., `BranchTableCard.tsx`).
+- **Hooks**: camelCase with `use` prefix in `src/hooks` (e.g., `useRowSelection.ts`).
+- **Stores**: zustand stores in `src/stores/*.ts` (e.g., `branch-sync.ts`), persisted settings in `src/stores/settings/`.
+- **Rust-bound props**: `snake_case`, as in the generated bindings.
 - **Rust modules**: snake_case (e.g., `git_ops.rs`).
 
 ### Frontend Imports (IMPORTANT!)
-- There are **no auto-imports**. Import every Vue API, component, composable, store, utility and type explicitly.
-- Vue: `import { ref, computed } from "vue"`; Nuxt UI: `import UButton from "@nuxt/ui/components/Button.vue"`, `import { useToast } from "@nuxt/ui/composables"`.
-- Within a layer use relative paths; across layers use `@layers/<layer>/...`; modules in `app/` use `~/...`.
-- Lazy components: `const LazyX = defineAsyncComponent(() => import("./X.vue"))`.
-- See [Import Guidelines](docs/guidelines/imports.md). In Vue templates, refs are automatically unwrapped (no `.value` needed).
+- Import every React API, component, hook, store, utility and type explicitly; types with `import type`.
+- Project modules only through the `@/` alias (`@/stores/branch-sync`), never `../`. shadcn: `import { Button } from "@/components/ui/button"`.
+- Generated Rust bindings: `import { commands } from "@/lib/bindings"` (written by Specta from `src-tauri/src/lib.rs`).
+- Heavy or rarely shown components: `React.lazy` with the named export, rendered inside `Suspense`.
+- See [Import Guidelines](docs/guidelines/imports.md).
 
 ## Performance & Debugging
 
 ### Performance Guidelines
-- **Frontend**: Use virtual scrolling for large lists. Debounce user inputs where appropriate (e.g., using `p-debounce`).
+- **Frontend**: Select narrow slices from zustand stores and `memo` list rows. Debounce user inputs where appropriate (e.g., using `p-debounce`).
 - **Backend**: Batch Git operations using `--stdin` where possible. Always use `--no-pager`.
 - **AI/ML**: Always build with `--release` for ML inference (it's 8-10x faster). In dev mode, only ML dependencies are optimized to keep rebuilds fast.
 
@@ -113,7 +122,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 
 ## Error Handling Patterns
-- **Frontend**: Use toast notifications for user-facing errors. Log detailed errors to the Tauri log plugin.
+- **Frontend**: Use toast notifications for user-facing errors (`notifyError` in `src/lib/errors.ts`). Log detailed errors to the Tauri log plugin.
 - **Backend (Rust)**: Use the `tracing` crate for structured logging. Use `#[instrument]` to automatically trace function entry/exit and arguments. Return proper `Result` types, not strings.
 
 ## Architecture
@@ -128,34 +137,37 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
 
-### Layer Structure
-- **shared-ui**: Basic UI components and utilities
-- **commit-ui**: Commit display and interaction components
-- **conflict-ui**: Conflict visualization components
-- **app**: Application-specific features
-
 ### File Structure
 ```
-layers/
-├── shared-ui/       # Basic UI components and utilities
-├── commit-ui/       # Commit display components
-├── conflict-ui/     # Conflict visualization
-├── ai/              # AI features and model integration
-app/
-├── components/      # App-specific components
+src/
+├── components/
+│   ├── ui/          # shadcn/ui components (generated)
+│   ├── layout/      # Layout primitives (Container, FieldGroup)
+│   ├── shared/      # Shared app components (cards, inline forms, copy button)
+│   ├── repository/  # Header, repository selector, welcome card
+│   ├── branch/      # Branch tables, rows, inline actions
+│   ├── commit/      # Commit list, commit info, floating selection bar
+│   ├── unassigned/  # Unassigned commits card and inline branch creator
+│   ├── conflict/    # Conflict and missing-commits views
+│   ├── ai/          # AI suggestions and model download
+│   └── settings/    # Settings dialogs
+├── hooks/           # React hooks (useX.ts)
+├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
+├── lib/             # Utilities and generated bindings.ts
 ├── pages/           # Route components (index, conflicting-files, missing-commits)
-├── main.ts          # App entry (Nuxt UI plugin, router)
-├── router.ts        # vue-router routes
-├── utils/           # App utilities (appStore, etc.)
+├── router.ts        # react-router routes
+└── main.tsx         # App entry (store handlers, router)
 src-tauri/
 ├── commands/        # Tauri commands
 ├── ...
 crates/
+├── git-executor/    # Git CLI executor
 ├── git-ops/         # Git operations library
+├── sync-core/       # Branch sync logic
 ├── model-ai/        # AI model inference & domain logic
 ├── model-core/      # Core AI types (e.g. candle, tokenizers)
 ├── model-tauri/     # Tauri integration for AI models
-├── branch-sync/     # Branch sync logic
+├── test-server/     # E2E mock server
 └── ...
 ```
 

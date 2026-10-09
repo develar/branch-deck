@@ -14,7 +14,7 @@ export interface BranchNameSuggestionsProps {
   onSelect: (name: string, isAuto?: boolean) => void
 }
 
-/** Soft primary button (Nuxt UI `variant="soft" color="primary"`) */
+/** Soft primary button: tinted primary background, primary text */
 const primarySoftClassName = "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
 
 /** Assumed number of suggestions for the loading placeholders */
