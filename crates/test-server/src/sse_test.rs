@@ -89,15 +89,15 @@ async fn test_sync_branches_sse_stream() {
       buffer = buffer[event_end + 2..].to_string();
 
       for line in event_data.lines() {
-        if let Some(data) = line.strip_prefix("data: ") {
-          if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
-            println!(
-              "Received event: type={}, data={:?}",
-              event.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
-              event.get("data")
-            );
-            events.push(event);
-          }
+        if let Some(data) = line.strip_prefix("data: ")
+          && let Ok(event) = serde_json::from_str::<serde_json::Value>(data)
+        {
+          println!(
+            "Received event: type={}, data={:?}",
+            event.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
+            event.get("data")
+          );
+          events.push(event);
         }
       }
     }
@@ -216,10 +216,10 @@ data: {"type":"completed"}
   let mut events = Vec::new();
   for chunk in sse_data.split("\n\n") {
     for line in chunk.lines() {
-      if let Some(data) = line.strip_prefix("data: ") {
-        if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
-          events.push(event);
-        }
+      if let Some(data) = line.strip_prefix("data: ")
+        && let Ok(event) = serde_json::from_str::<serde_json::Value>(data)
+      {
+        events.push(event);
       }
     }
   }

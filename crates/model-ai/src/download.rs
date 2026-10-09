@@ -188,7 +188,7 @@ async fn download_file(
     let mut downloaded = resume_from;
     let mut last_progress_update = std::time::Instant::now();
     let download_start = std::time::Instant::now();
-    let mut last_percentage = if total_size > 0 { (resume_from * 100 / total_size) as u32 } else { 0 };
+    let mut last_percentage = (resume_from * 100).checked_div(total_size).unwrap_or(0) as u32;
 
     // Send initial progress if resuming
     if resume_from > 0 {
@@ -225,7 +225,7 @@ async fn download_file(
       downloaded += chunk.len() as u64;
 
       // Calculate current percentage
-      let current_percentage = if total_size > 0 { (downloaded * 100 / total_size) as u32 } else { 0 };
+      let current_percentage = (downloaded * 100).checked_div(total_size).unwrap_or(0) as u32;
 
       // Send progress update every 1000ms and when percentage changes by at least 1%
       if last_progress_update.elapsed() > Duration::from_millis(1000) && (current_percentage > last_percentage || current_percentage == 100) {

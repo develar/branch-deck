@@ -8,9 +8,9 @@ pub struct MenuState {
 }
 
 impl Default for MenuState {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl MenuState {

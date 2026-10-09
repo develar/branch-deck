@@ -132,7 +132,7 @@ fn test_batch_archive_inactive_branches() {
   assert_eq!(newly_archived.len(), 3, "Should have archived 3 branches");
 
   // Check that all archived branches are correct
-  for (archived_name, _commit) in &newly_archived {
+  for archived_name in newly_archived.keys() {
     assert!(archived_name.contains("/archived/"), "Archived should be in archive namespace");
     assert!(archived_name.contains("feature-"), "Archived should contain feature name");
   }

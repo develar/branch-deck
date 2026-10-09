@@ -20,15 +20,15 @@ struct RemoteStatusResult {
 /// Helper function to extract remote status for a specific branch from sync events
 fn extract_remote_status_for_branch(events: &[SyncEvent], branch_name: &str) -> Option<RemoteStatusResult> {
   for event in events {
-    if let SyncEvent::RemoteStatusUpdate(status_update) = event {
-      if status_update.branch_name == branch_name {
-        return Some(RemoteStatusResult {
-          my_commits_count: status_update.my_unpushed_count,
-          total_commits_count: status_update.unpushed_commits.len() as u32,
-          commits_behind: status_update.commits_behind,
-          remote_exists: status_update.remote_exists,
-        });
-      }
+    if let SyncEvent::RemoteStatusUpdate(status_update) = event
+      && status_update.branch_name == branch_name
+    {
+      return Some(RemoteStatusResult {
+        my_commits_count: status_update.my_unpushed_count,
+        total_commits_count: status_update.unpushed_commits.len() as u32,
+        commits_behind: status_update.commits_behind,
+        remote_exists: status_update.remote_exists,
+      });
     }
   }
   None
@@ -117,7 +117,7 @@ fn print_remote_status(branch_name: &str, status: &RemoteStatusResult) {
 
 /// Helper function to assert remote status with detailed messaging
 fn assert_remote_status(events: &[SyncEvent], branch_name: &str, expected_my_commits: u32, expected_total_commits: u32, expected_commits_behind: u32, test_description: &str) {
-  let status = extract_remote_status_for_branch(events, branch_name).expect(&format!("Should have received remote status update for {}", branch_name));
+  let status = extract_remote_status_for_branch(events, branch_name).unwrap_or_else(|| panic!("Should have received remote status update for {}", branch_name));
 
   print_remote_status(branch_name, &status);
   println!("Test: {}", test_description);

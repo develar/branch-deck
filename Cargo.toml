@@ -1,4 +1,4 @@
-cargo-features = ["profile-rustflags", "trim-paths"]
+cargo-features = ["profile-rustflags"]
 
 [workspace]
 members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor"]
@@ -6,7 +6,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.99"
 version = "0.1.0"
 
 [workspace.dependencies]
@@ -33,7 +33,6 @@ test-log = { version = "0.2", features = ["trace"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "registry"] }
 
 # Common utilities
-regex = "1.12.2"
 indexmap = "2.12.0"
 dashmap = "6.1.0"
 futures = "0.3"
@@ -48,7 +47,6 @@ specta = { version = "=2.0.0-rc.22", features = ["derive", "function"] }
 # CLI and additional tokio utilities
 clap = { version = "4.5", features = ["derive"] }
 tokio-stream = "0.1"
-tokio-test = "0.4"
 
 # Optimize ML dependencies for better performance
 [profile.dev.package."candle-core"]

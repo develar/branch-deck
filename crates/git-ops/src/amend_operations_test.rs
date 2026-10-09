@@ -138,7 +138,7 @@ fn test_amend_preserves_commit_metadata() -> Result<()> {
   // Verify original author information was preserved in amended commit
   // The original commit was created by "Test User" so that should be preserved
   let author_info = repo.git.execute_command(&["log", "-1", "--format=%an %ae", &result.amended_commit_id], &repo.path)?;
-  let parts: Vec<&str> = author_info.trim().split_whitespace().collect();
+  let parts: Vec<&str> = author_info.split_whitespace().collect();
 
   assert_eq!(parts[0], "Test");
   assert_eq!(parts[1], "User");

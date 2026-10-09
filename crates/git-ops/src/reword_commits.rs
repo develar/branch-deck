@@ -88,7 +88,10 @@ fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
   Ok(branch)
 }
 
-fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, rewrite_map: &HashMap<String, String>) -> Result<(Vec<(String, Option<String>)>, String, String)> {
+/// Commit ID with its first parent (None for a root commit)
+type CommitWithParent = (String, Option<String>);
+
+fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, rewrite_map: &HashMap<String, String>) -> Result<(Vec<CommitWithParent>, String, String)> {
   // Get all commits on first-parent to HEAD to find the oldest one chronologically among rewrites
   let all_commits = git_executor.execute_command_lines(&["rev-list", "--first-parent", "HEAD"], repo_path)?;
 
