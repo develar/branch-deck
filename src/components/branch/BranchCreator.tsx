@@ -5,11 +5,12 @@ import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTable
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
-import { useBranchSync } from "@/stores/branch-sync"
+import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 const WelcomeCard = lazy(() => import("@/components/repository/WelcomeCard").then(it => ({ default: it.WelcomeCard })))
+const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
 /** Root of the main window: configuration header, onboarding, errors and the branch tables. */
 export function BranchCreator() {
@@ -23,7 +24,8 @@ export function BranchCreator() {
   const syncError = useBranchSync(state => state.syncError)
   const hasCompletedSync = useBranchSync(state => state.hasCompletedSync)
   const branchCount = useBranchSync(state => state.branchOrder.length)
-  const unassignedCommitCount = useBranchSync(state => state.unassignedCommits.length)
+  const unassignedCommits = useUnassignedCommits()
+  const unassignedCommitCount = unassignedCommits.length
   const archivedBranchCount = useArchivedBranchCount()
 
   const pathValidation = useRepository(state => state.pathValidation)
@@ -78,7 +80,11 @@ export function BranchCreator() {
           </Alert>
         )}
 
-      {/* TODO(Phase 6): <UnassignedCommitListCard /> (lazy) when there are unassigned commits */}
+      {unassignedCommitCount > 0 && (
+        <Suspense fallback={null}>
+          <UnassignedCommitListCard commits={unassignedCommits} />
+        </Suspense>
+      )}
 
       <BranchTableCard />
 

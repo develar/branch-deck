@@ -1,8 +1,8 @@
 import { CircleCheckIcon, FileDiffIcon } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
+import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { formatShortHash } from "@/lib/hash"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
 export function MissingCommitsPage() {
@@ -42,8 +42,13 @@ export function MissingCommitsPage() {
                       <p className="text-sm text-muted-foreground">
                         Common ancestor:
                         {" "}
-                        {/* TODO(Phase 6): <CommitHashPopover hash subject message author authorTime /> */}
-                        <code className="font-mono">{formatShortHash(missingCommitsData.mergeBase.hash)}</code>
+                        <CommitHashPopover
+                          hash={missingCommitsData.mergeBase.hash}
+                          subject={missingCommitsData.mergeBase.subject}
+                          message={missingCommitsData.mergeBase.message}
+                          author={missingCommitsData.mergeBase.author}
+                          authorTime={missingCommitsData.mergeBase.time}
+                        />
                         {" "}
                         <span className="text-muted-foreground">
                           (
