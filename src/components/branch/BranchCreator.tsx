@@ -1,33 +1,15 @@
 import { lazy, Suspense, useEffect } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
+import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
+import { useArchivedBranchCount } from "@/stores/archived-branches"
+import { useBranchSync } from "@/stores/branch-sync"
 import { initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 const WelcomeCard = lazy(() => import("@/components/repository/WelcomeCard").then(it => ({ default: it.WelcomeCard })))
-
-/** Subset of the branch-sync state BranchCreator renders. */
-interface BranchSyncView {
-  isSyncing: boolean
-  syncError: string | null
-  hasCompletedSync: boolean
-  branchCount: number
-  unassignedCommitCount: number
-  archivedBranchCount: number
-  syncBranches: () => void
-}
-
-// TODO(Phase 5): replace with selectors on the branch-sync store (src/stores/branch-sync.ts)
-const placeholderBranchSync: BranchSyncView = {
-  isSyncing: false,
-  syncError: null,
-  hasCompletedSync: false,
-  branchCount: 0,
-  unassignedCommitCount: 0,
-  archivedBranchCount: 0,
-  syncBranches: () => {},
-}
 
 /** Root of the main window: configuration header, onboarding, errors and the branch tables. */
 export function BranchCreator() {
@@ -37,7 +19,12 @@ export function BranchCreator() {
   // TODO(Phase 8): model state for AI features (provideModelState)
   // TODO(Phase 9): menu checkbox sync (useMenuSync) and debounced auto-sync on window focus
 
-  const { isSyncing, syncError, hasCompletedSync, branchCount, unassignedCommitCount, archivedBranchCount, syncBranches } = placeholderBranchSync
+  const isSyncing = useBranchSync(state => state.isSyncing)
+  const syncError = useBranchSync(state => state.syncError)
+  const hasCompletedSync = useBranchSync(state => state.hasCompletedSync)
+  const branchCount = useBranchSync(state => state.branchOrder.length)
+  const unassignedCommitCount = useBranchSync(state => state.unassignedCommits.length)
+  const archivedBranchCount = useArchivedBranchCount()
 
   const pathValidation = useRepository(state => state.pathValidation)
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
@@ -57,7 +44,7 @@ export function BranchCreator() {
   const errorTitle = syncError || pathValidation.error
   return (
     <div className="flex flex-col gap-6" data-testid="branch-creator-root">
-      <ConfigurationHeader isSyncing={isSyncing} syncError={syncError} branchCount={branchCount} onSync={syncBranches} />
+      <ConfigurationHeader />
 
       {showWelcomeCard && (
         <Suspense fallback={null}>
@@ -91,9 +78,11 @@ export function BranchCreator() {
           </Alert>
         )}
 
-      {/* TODO Phase 5: <UnassignedCommitListCard /> (lazy) when there are unassigned commits */}
-      {/* TODO Phase 5: <BranchTableCard /> */}
-      {/* TODO Phase 5: <ArchivedBranchTableCard /> */}
+      {/* TODO(Phase 6): <UnassignedCommitListCard /> (lazy) when there are unassigned commits */}
+
+      <BranchTableCard />
+
+      <ArchivedBranchTableCard />
     </div>
   )
 }

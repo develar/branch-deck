@@ -1,0 +1,43 @@
+import { useState } from "react"
+import type { ReactNode } from "react"
+import { cn } from "cn"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+
+export interface CollapsibleCardProps {
+  "header": ReactNode
+  "children": ReactNode
+  "defaultOpen"?: boolean
+  "data-testid"?: string
+}
+
+/**
+ * Outlined card whose header toggles the body. The body is rendered only while open.
+ * `data-state="open|closed"` is set explicitly on the root and the body (Base UI emits `data-open`/`data-closed`).
+ * Inside the header, `group-data-[state=open]:` targets the open state.
+ */
+export function CollapsibleCard({ header, children, defaultOpen = false, "data-testid": testId }: CollapsibleCardProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  const state = open ? "open" : "closed"
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      data-state={state}
+      data-testid={testId}
+      className={cn("overflow-hidden rounded-lg bg-background ring-1 ring-border", open && "divide-y divide-border")}
+    >
+      <div className="p-4 sm:px-6">
+        <CollapsibleTrigger data-state={state} className="group w-full cursor-pointer text-left">
+          {header}
+        </CollapsibleTrigger>
+      </div>
+
+      {open && (
+        <CollapsibleContent data-state={state} className="overflow-x-auto">
+          {children}
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  )
+}
