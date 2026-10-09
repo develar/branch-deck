@@ -1,0 +1,218 @@
+import { emit, listen } from "@tauri-apps/api/event"
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
+import { LazyStore } from "@tauri-apps/plugin-store"
+import pDebounce from "p-debounce"
+import { logError } from "@/lib/errors"
+import { SubWindowStoreSync } from "./sub-window-app-store"
+import { applyIncomingValue, EchoTracker, stableStringify } from "./sync-utils"
+import type { StoreRegistration } from "./sync-utils"
+
+/*
+ * Distributed settings (see docs/design/distributed-settings.md).
+ *
+ * The main window owns `settings.json` (LazyStore): it persists local changes (debounced, non-default fields only),
+ * applies writes requested by sub-windows, and broadcasts every change as `store-snapshot-update`.
+ * Sub-windows start from the snapshot injected as `window.__TAURI_STORE__` and proxy writes to the main window.
+ */
+
+interface StoreSetRequest {
+  requestId: string
+  key: string
+  value: unknown
+}
+
+function detectWindowLabel(): string {
+  try {
+    return WebviewWindow.getCurrent().label
+  }
+  catch {
+    // if we can't determine the window, assume we're in main
+    return "main"
+  }
+}
+
+const windowLabel = detectWindowLabel()
+export const isMainWindow = windowLabel === "main"
+
+const registry = new Map<string, StoreRegistration>()
+
+// raw values of all keys as injected by the backend (or updated since); registered stores override their keys
+const rawSnapshot = new Map<string, unknown>(
+  typeof window !== "undefined" && window.__TAURI_STORE__ ? Object.entries(window.__TAURI_STORE__) : [],
+)
+
+/**
+ * The value to write to disk: `null` (delete the key) for empty arrays and all-default objects,
+ * otherwise the array or only the fields that differ from the defaults.
+ */
+function toPersistedValue(registration: StoreRegistration, validated: unknown): unknown {
+  if (registration.isArray) {
+    return (validated as unknown[]).length === 0 ? null : validated
+  }
+
+  const defaults = registration.defaults
+  if (defaults === null) {
+    return validated
+  }
+
+  const toSave: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(validated as Record<string, unknown>)) {
+    if (value !== defaults[key]) {
+      toSave[key] = value
+    }
+  }
+  return Object.keys(toSave).length === 0 ? null : toSave
+}
+
+class MainStoreSync {
+  readonly store = new LazyStore("settings.json")
+  private readonly echoTracker = new EchoTracker()
+  private handlersInitialized = false
+
+  constructor() {
+    this.store.onChange((key, value) => {
+      this.handleDiskChange(key, value)
+    }).catch((error: unknown) => {
+      logError("Failed to listen to settings changes", error)
+    })
+  }
+
+  attach(registration: StoreRegistration): void {
+    const debouncedPersist = pDebounce(() => this.persist(registration), 500)
+    registration.subscribeLocal(() => {
+      void debouncedPersist()
+    })
+  }
+
+  /** Writes to disk and remembers the value, so that the resulting `onChange` is not applied back to the store. */
+  private async write(key: string, value: unknown): Promise<void> {
+    this.echoTracker.record(key, stableStringify(value))
+    if (value === null || value === undefined) {
+      await this.store.delete(key)
+    }
+    else {
+      await this.store.set(key, value)
+    }
+  }
+
+  private async persist(registration: StoreRegistration): Promise<void> {
+    const key = registration.key
+    try {
+      // validate and normalize the data through Zod
+      let validated: unknown
+      try {
+        validated = registration.parse(registration.getValue())
+      }
+      catch (error) {
+        logError(`Invalid data for ${key}, skipping save`, error)
+        return
+      }
+
+      await this.write(key, toPersistedValue(registration, validated))
+    }
+    catch (error) {
+      logError(`Failed to save ${key} settings`, error)
+    }
+  }
+
+  private handleDiskChange(key: string, value: unknown): void {
+    const normalizedValue = value ?? null
+    const registration = registry.get(key)
+    if (registration === undefined) {
+      if (normalizedValue === null) {
+        rawSnapshot.delete(key)
+      }
+      else {
+        rawSnapshot.set(key, normalizedValue)
+      }
+    }
+    else if (!this.echoTracker.consume(key, stableStringify(normalizedValue))) {
+      applyIncomingValue(registration, normalizedValue)
+    }
+
+    // broadcast to sub-windows (skip main-only stores), including echoes of our own writes
+    if (registration?.isMainOnly !== true) {
+      emit("store-snapshot-update", { key, value: normalizedValue })
+        .catch((error: unknown) => {
+          logError(`Failed to broadcast ${key} settings`, error)
+        })
+    }
+  }
+
+  /**
+   * Handles writes requested by sub-windows. Registered keys are applied to the local store immediately
+   * (without re-triggering the debounced persist) and saved in the same non-default form as local changes;
+   * the resulting `onChange` broadcasts the value to all sub-windows.
+   */
+  initializeHandlers(): void {
+    if (this.handlersInitialized) {
+      return
+    }
+    this.handlersInitialized = true
+
+    listen<StoreSetRequest>("store-set-request", async (event) => {
+      const { requestId, key, value } = event.payload
+      try {
+        const registration = registry.get(key)
+        if (registration === undefined) {
+          await this.write(key, value)
+        }
+        else {
+          const validated = registration.parse(value)
+          applyIncomingValue(registration, validated)
+          await this.write(key, toPersistedValue(registration, validated))
+        }
+        await emit("store-response", { requestId, success: true })
+      }
+      catch (error) {
+        logError(`Failed to apply ${key} settings from sub-window`, error)
+        await emit("store-response", {
+          requestId,
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        })
+      }
+    }).catch((error: unknown) => {
+      logError("Failed to listen to store-set-request", error)
+    })
+  }
+}
+
+const sync: MainStoreSync | SubWindowStoreSync = isMainWindow
+  ? new MainStoreSync()
+  : new SubWindowStoreSync(windowLabel, registry, rawSnapshot)
+
+/** Raw value of `key` from the injected snapshot (or a later update), used as the initial state of a store. */
+export function getRawStoreValue(key: string): unknown {
+  return rawSnapshot.get(key)
+}
+
+/**
+ * Registers a persistent store with the sync layer. A key registered again (e.g. after HMR) replaces the previous one.
+ */
+export function registerStore(registration: StoreRegistration): void {
+  registry.set(registration.key, registration)
+  sync.attach(registration)
+}
+
+/**
+ * Current settings for sub-window initialization (`storeCache` of `open_sub_window`):
+ * parsed state of registered stores (arrays as plain arrays) plus raw values of unregistered keys.
+ */
+export function getStoreSnapshot(): Record<string, unknown> {
+  const snapshot = Object.fromEntries(rawSnapshot)
+  for (const [key, registration] of registry) {
+    snapshot[key] = registration.getValue()
+  }
+  return snapshot
+}
+
+/**
+ * Starts serving `store-set-request` from sub-windows. No-op in sub-windows; idempotent.
+ * Call once at module level of the entry point, not from an effect.
+ */
+export function initializeStoreHandlers(): void {
+  if (sync instanceof MainStoreSync) {
+    sync.initializeHandlers()
+  }
+}
