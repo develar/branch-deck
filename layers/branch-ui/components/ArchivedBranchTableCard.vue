@@ -105,6 +105,8 @@
 
 <script lang="ts" setup>
 import { defineAsyncComponent, computed } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UContextMenu from "@nuxt/ui/components/ContextMenu.vue"
 import { useGenericTableExpansion } from "~/composables/useGenericTableExpansion"
 import TableHeader from "~/components/shared/TableHeader.vue"
 import CollapsibleCard from "@layers/shared-ui/components/CollapsibleCard.vue"

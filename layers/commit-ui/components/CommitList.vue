@@ -49,9 +49,13 @@
 </template>
 
 <script lang="ts" setup>
-import { defineAsyncComponent, useTemplateRef, computed, h, resolveComponent, toRef, watch } from "vue"
+import { defineAsyncComponent, useTemplateRef, computed, h, toRef, watch } from "vue"
 import type { Row } from "@tanstack/vue-table"
 import { createColumnHelper, FlexRender, useTable } from "@tanstack/vue-table"
+import UAlert from "@nuxt/ui/components/Alert.vue"
+import UBadge from "@nuxt/ui/components/Badge.vue"
+import UContextMenu from "@nuxt/ui/components/ContextMenu.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { Commit, CommitSyncStatus, BranchError, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
 import { type SelectableTableFeatures, selectableTableFeatures, useTableSelection } from "@layers/shared-ui/composables/useTableSelection"
@@ -142,22 +146,22 @@ const columns = computed(() => [
 
           // Status badge for exceptional states (only in status variant)
           props.variant === "status" && "status" in commit && isExceptionalStatus(commit.status) && [
-            commit.status === "Pending" && h(resolveComponent("UBadge"), {
+            commit.status === "Pending" && h(UBadge, {
               size: "sm",
               variant: "subtle",
             }, () => [
-              h(resolveComponent("UIcon"), {
+              h(UIcon, {
                 name: "i-lucide-loader-circle",
                 class: "animate-spin mr-1 size-3",
               }),
               "Pending",
             ]),
-            commit.status === "Error" && h(resolveComponent("UBadge"), {
+            commit.status === "Error" && h(UBadge, {
               color: "error",
               size: "sm",
               variant: "subtle",
             }, () => "Error"),
-            commit.status === "Blocked" && h(resolveComponent("UBadge"), {
+            commit.status === "Blocked" && h(UBadge, {
               color: "warning",
               size: "sm",
               variant: "subtle",
@@ -202,7 +206,7 @@ const columns = computed(() => [
                 conflict: commit.error.MergeConflict,
                 branchName: props.branchName,
               })
-            : "error" in commit && commit.error && "Generic" in commit.error && h(resolveComponent("UAlert"), {
+            : "error" in commit && commit.error && "Generic" in commit.error && h(UAlert, {
               color: "error",
               variant: "soft",
               size: "xs",

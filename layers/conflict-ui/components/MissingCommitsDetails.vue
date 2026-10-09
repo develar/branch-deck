@@ -71,6 +71,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import type { MissingCommit, MergeConflictInfo } from "~/utils/bindings"
 import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
 import DiffViewToggle from "@layers/shared-ui/components/DiffViewToggle.vue"

@@ -105,6 +105,9 @@
 </template>
 
 <script setup lang="ts">
+import UProgress from "@nuxt/ui/components/Progress.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { DownloadProgress } from "~/utils/bindings"
 
 defineProps<{

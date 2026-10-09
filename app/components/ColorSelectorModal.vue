@@ -94,7 +94,9 @@
 <script lang="ts" setup>
 import { computed } from "vue"
 import colors from "tailwindcss/colors"
-import { omit } from "#ui/utils"
+import { omit } from "@nuxt/ui/utils"
+import UModal from "@nuxt/ui/components/Modal.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 
 interface Props {
   currentColor?: string

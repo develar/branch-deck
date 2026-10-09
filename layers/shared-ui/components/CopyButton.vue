@@ -23,6 +23,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UTooltip from "@nuxt/ui/components/Tooltip.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import { useCopyToClipboard } from "../composables/useCopyToClipboard"
 
 // useCopyToClipboard is auto-imported

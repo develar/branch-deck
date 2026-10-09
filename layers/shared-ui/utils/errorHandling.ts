@@ -1,4 +1,5 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
+import { useToast } from "@nuxt/ui/composables"
 
 export function getErrorDetails(error: unknown) {
   if (error instanceof Error) {

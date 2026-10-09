@@ -60,6 +60,7 @@
 
 <script lang="ts" setup>
 import { useTemplateRef, ref, computed, watch, nextTick } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
 import type { Commit, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
 import CardHeader from "@layers/shared-ui/components/CardHeader.vue"

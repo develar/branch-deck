@@ -1,4 +1,5 @@
 import { ref, computed, readonly } from "vue"
+import { useToast } from "@nuxt/ui/composables"
 import { useModelState } from "./modelProvider"
 import type { AIMode } from "../stores/aiSettings"
 import { useAISettingsStore } from "../stores/aiSettings"

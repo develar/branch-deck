@@ -39,6 +39,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { MergeConflictInfo, ConflictMarkerCommitInfo } from "~/utils/bindings"
 import ConflictCommitContext from "@layers/conflict-ui/components/ConflictCommitContext.vue"
 import ConflictingFileListCard from "@layers/conflict-ui/components/ConflictingFileListCard.vue"

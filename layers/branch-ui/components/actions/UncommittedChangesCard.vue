@@ -77,6 +77,9 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
 import type { UncommittedChangesResult } from "~/utils/bindings"
 import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
 import DiffViewToggle from "@layers/shared-ui/components/DiffViewToggle.vue"

@@ -28,6 +28,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UAlert from "@nuxt/ui/components/Alert.vue"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import CommitList from "@layers/commit-ui/components/CommitList.vue"
 

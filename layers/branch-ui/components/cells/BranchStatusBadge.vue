@@ -17,6 +17,8 @@
 
 <script lang="ts" setup>
 import { toRef } from "vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UBadge from "@nuxt/ui/components/Badge.vue"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import { useStatusBadge } from "../../composables/useStatusBadge"
 

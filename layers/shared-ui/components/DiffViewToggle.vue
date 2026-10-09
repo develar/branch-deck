@@ -20,6 +20,8 @@
 </template>
 
 <script lang="ts" setup>
+import UFieldGroup from "@nuxt/ui/components/FieldGroup.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import { useConflictViewerStore } from "@layers/core/stores/conflictViewer"
 
 // Get conflict viewer settings from store

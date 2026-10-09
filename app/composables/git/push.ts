@@ -1,4 +1,5 @@
 import type { Ref } from "vue"
+import { useToast } from "@nuxt/ui/composables"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import { commands } from "~/utils/bindings"
 import { notifyError } from "@layers/shared-ui/utils/errorHandling"

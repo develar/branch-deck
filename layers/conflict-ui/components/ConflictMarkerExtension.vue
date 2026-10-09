@@ -55,6 +55,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"
 
 // Props from the extend slot

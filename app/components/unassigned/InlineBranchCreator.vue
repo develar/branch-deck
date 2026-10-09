@@ -41,6 +41,7 @@
 
 <script lang="ts" setup>
 import { ref, useTemplateRef, computed, watch, nextTick } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { Commit } from "~/utils/bindings"
 import InlineInputDialog from "@layers/shared-ui/components/InlineInputDialog.vue"
 import AIStatusIndicator from "@layers/ai/components/AIStatusIndicator.vue"

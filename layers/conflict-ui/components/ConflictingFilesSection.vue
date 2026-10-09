@@ -41,6 +41,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import USwitch from "@nuxt/ui/components/Switch.vue"
+import UTabs from "@nuxt/ui/components/Tabs.vue"
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
 import DiffViewToggle from "@layers/shared-ui/components/DiffViewToggle.vue"
 import { useConflictViewerStore } from "@layers/core/stores/conflictViewer"

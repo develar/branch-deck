@@ -31,5 +31,8 @@
 </template>
 
 <script lang="ts" setup>
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+
 // No props or logic needed for this simple help popover
 </script>

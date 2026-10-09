@@ -18,6 +18,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import LinkedText from "./LinkedText.vue"
 
 interface Props {

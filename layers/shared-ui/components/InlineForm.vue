@@ -75,6 +75,8 @@
 <script lang="ts" setup>
 import { computed } from "vue"
 import { DialogRoot, DialogPortal, DialogContent, DialogTitle, DialogDescription, VisuallyHidden } from "reka-ui"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import { useInlineRowAction } from "@layers/branch-ui/composables/useInlineRowAction"
 
 // Get activeInline directly for processing state

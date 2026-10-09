@@ -19,6 +19,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
 import CommitInfo from "./CommitInfo.vue"
 import { formatShortHash } from "../utils/hash"
 

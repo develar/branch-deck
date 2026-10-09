@@ -5,6 +5,7 @@
 </template>
 
 <script lang="ts" setup>
+import UApp from "@nuxt/ui/components/App.vue"
 import { useColorSelector } from "~/composables/colorSelector"
 import { initializeStoreHandlers } from "@layers/core/utils/app-store"
 

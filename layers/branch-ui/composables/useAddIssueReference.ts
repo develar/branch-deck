@@ -1,3 +1,4 @@
+import { useToast } from "@nuxt/ui/composables"
 import { commands } from "~/utils/bindings"
 import { useRepository } from "~/composables/repositoryProvider"
 import { useBranchSync, type ReactiveBranch } from "~/composables/branchSyncProvider"

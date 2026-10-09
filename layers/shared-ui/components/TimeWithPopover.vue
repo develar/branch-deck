@@ -24,6 +24,7 @@
 </template>
 
 <script lang="ts" setup>
+import UPopover from "@nuxt/ui/components/Popover.vue"
 import { formatTimestamp } from "../utils/time"
 
 defineProps<{

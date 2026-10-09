@@ -33,6 +33,9 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UTooltip from "@nuxt/ui/components/Tooltip.vue"
+import UBadge from "@nuxt/ui/components/Badge.vue"
 import type { ReactiveArchivedBranch } from "../../composables/archivedBranches"
 
 interface Props {

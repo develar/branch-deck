@@ -187,6 +187,8 @@
 import { ref, onMounted, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { SplitterGroup, SplitterPanel, SplitterResizeHandle, AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
+import UAlert from "@nuxt/ui/components/Alert.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
 import CollapsibleFileHeader from "@layers/shared-ui/components/CollapsibleFileHeader.vue"
 import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"

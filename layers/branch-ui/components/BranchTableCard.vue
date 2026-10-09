@@ -112,6 +112,10 @@
 
 <script lang="ts" setup>
 import { defineAsyncComponent } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
+import UContextMenu from "@nuxt/ui/components/ContextMenu.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import { useGenericTableExpansion } from "~/composables/useGenericTableExpansion"
 import TableHeader from "~/components/shared/TableHeader.vue"
 import { useBranchSync, type ReactiveBranch } from "~/composables/branchSyncProvider"

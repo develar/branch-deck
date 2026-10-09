@@ -97,6 +97,10 @@
 </template>
 
 <script lang="ts" setup>
+import UModal from "@nuxt/ui/components/Modal.vue"
+import UTooltip from "@nuxt/ui/components/Tooltip.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
+
 defineProps<{
   disabled: boolean
   configured: boolean

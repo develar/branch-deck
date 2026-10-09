@@ -23,6 +23,7 @@
 
 <script lang="ts" setup>
 import { AccordionHeader, AccordionTrigger } from "reka-ui"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import CopyButton from "./CopyButton.vue"
 
 defineProps<{

@@ -1,4 +1,5 @@
 import { type Ref, ref, nextTick } from "vue"
+import { useToast } from "@nuxt/ui/composables"
 
 export type InlineActionType = "issue-reference" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply"
 

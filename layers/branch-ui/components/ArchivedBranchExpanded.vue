@@ -31,6 +31,7 @@
 
 <script lang="ts" setup>
 import { onMounted } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import CommitList from "@layers/commit-ui/components/CommitList.vue"
 import { useBranchSync } from "~/composables/branchSyncProvider"
 import type { ReactiveArchivedBranch } from "../composables/archivedBranches"

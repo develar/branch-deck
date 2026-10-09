@@ -20,6 +20,7 @@
 </template>
 
 <script lang="ts" setup>
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import CommitInfo from "@layers/commit-ui/components/CommitInfo.vue"
 
 defineProps<{

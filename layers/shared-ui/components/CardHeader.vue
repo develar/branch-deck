@@ -20,6 +20,8 @@
 </template>
 
 <script lang="ts" setup>
+import UBadge from "@nuxt/ui/components/Badge.vue"
+
 interface Props {
   title: string
   count?: number

@@ -31,6 +31,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import InlineForm from "@layers/shared-ui/components/InlineForm.vue"
 import { useBranchSync } from "~/composables/branchSyncProvider"
 import { useUnapplyBranch } from "../../composables/useUnapplyBranch"

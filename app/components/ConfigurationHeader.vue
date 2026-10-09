@@ -60,6 +60,11 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
+import USwitch from "@nuxt/ui/components/Switch.vue"
+import UTooltip from "@nuxt/ui/components/Tooltip.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import RepositorySelector from "~/components/RepositorySelector.vue"
 import BranchPrefixField from "~/components/BranchPrefixField.vue"
 import { formatRelativeTime } from "@layers/shared-ui/utils/time"

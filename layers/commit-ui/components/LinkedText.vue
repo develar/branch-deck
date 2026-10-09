@@ -21,6 +21,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import ULink from "@nuxt/ui/components/Link.vue"
 import { useIssueLinks } from "../composables/useIssueLinks"
 
 interface Props {

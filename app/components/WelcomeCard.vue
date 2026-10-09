@@ -79,6 +79,10 @@
 
 <script lang="ts" setup>
 import { toRefs } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
+import { useOverlay } from "@nuxt/ui/composables"
 import BranchPrefixHelp from "~/components/BranchPrefixHelp.vue"
 
 const props = defineProps<{

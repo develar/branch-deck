@@ -1,4 +1,5 @@
 import { computed } from "vue"
+import { useOverlay } from "@nuxt/ui/composables"
 import ColorSelectorModal from "~/components/ColorSelectorModal.vue"
 import { useAppSettingsStore } from "@layers/core/stores/appSettings"
 import { scopedListen } from "~/utils/listen"

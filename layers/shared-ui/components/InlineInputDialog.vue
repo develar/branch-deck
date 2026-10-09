@@ -87,6 +87,8 @@
 
 <script lang="ts" setup>
 import { useTemplateRef, ref, watch } from "vue"
+import UButton from "@nuxt/ui/components/Button.vue"
+import UInput from "@nuxt/ui/components/Input.vue"
 import InlineForm from "./InlineForm.vue"
 
 interface Props {

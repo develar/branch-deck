@@ -71,6 +71,8 @@
 </template>
 
 <script lang="ts" setup>
+import UCard from "@nuxt/ui/components/Card.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { MissingCommit } from "~/utils/bindings"
 import ConflictCommitContext from "@layers/conflict-ui/components/ConflictCommitContext.vue"
 import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"

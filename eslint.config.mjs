@@ -26,8 +26,8 @@ export default withNuxt()
         multiline: { max: 1 },
       }],
       "vue/multi-word-component-names": "off",
-      // Components must be imported explicitly (Nuxt UI and NuxtPage are still auto-imported)
-      "vue/no-undef-components": ["error", { ignorePatterns: ["^U[A-Z]", "^NuxtPage$"] }],
+      // Components must be imported explicitly (NuxtPage is still provided by Nuxt)
+      "vue/no-undef-components": ["error", { ignorePatterns: ["^NuxtPage$"] }],
       "@stylistic/eol-last": "off",
       // Enforce braces for all control statements
       "curly": ["error", "all"],

@@ -19,6 +19,9 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UTooltip from "@nuxt/ui/components/Tooltip.vue"
+import UFieldGroup from "@nuxt/ui/components/FieldGroup.vue"
+import UInput from "@nuxt/ui/components/Input.vue"
 import BranchPrefixHelp from "~/components/BranchPrefixHelp.vue"
 import { useRepository } from "~/composables/repositoryProvider"
 import { useAppSettingsStore } from "@layers/core/stores/appSettings"

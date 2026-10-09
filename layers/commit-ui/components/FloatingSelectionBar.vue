@@ -31,6 +31,7 @@
 import { computed, ref, watch } from "vue"
 import { PopoverRoot, PopoverAnchor, PopoverPortal, PopoverContent } from "reka-ui"
 import { useTimeoutFn } from "@vueuse/core"
+import UButton from "@nuxt/ui/components/Button.vue"
 
 const props = defineProps<{
   selectedCount: number

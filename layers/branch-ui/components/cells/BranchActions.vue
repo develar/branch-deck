@@ -33,6 +33,8 @@
 
 <script lang="ts" setup>
 import { toRef } from "vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import { usePushButton } from "~/composables/usePushButton"
 import { usePush } from "~/composables/git/push"

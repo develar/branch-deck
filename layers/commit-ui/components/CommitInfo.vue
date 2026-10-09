@@ -12,6 +12,7 @@
 </template>
 
 <script lang="ts" setup>
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import TimeWithPopover from "@layers/shared-ui/components/TimeWithPopover.vue"
 import { formatShortHash } from "../utils/hash"
 

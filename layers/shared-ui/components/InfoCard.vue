@@ -13,6 +13,8 @@
 </template>
 
 <script lang="ts" setup>
+import UIcon from "@nuxt/ui/components/Icon.vue"
+
 withDefaults(defineProps<{
   title: string
   icon: string

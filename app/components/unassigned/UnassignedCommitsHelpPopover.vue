@@ -64,6 +64,9 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UKbd from "@nuxt/ui/components/Kbd.vue"
 
 // Platform detection
 const isMac = computed(() => navigator.userAgent.toLowerCase().includes("mac"))

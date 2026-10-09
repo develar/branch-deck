@@ -64,6 +64,8 @@
 
 <script lang="ts" setup>
 import { computed, watch } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import type { Commit } from "~/utils/bindings"
 import { useAIToggle } from "../composables/useAIToggle"
 import { useBranchSuggestions } from "../composables/useBranchSuggestions"

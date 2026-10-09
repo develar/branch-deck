@@ -1,6 +1,7 @@
 import { type Ref, h, ref, shallowRef, watch, readonly, provide, inject } from "vue"
 import { Channel } from "@tauri-apps/api/core"
 import { useThrottleFn } from "@vueuse/core"
+import { useToast } from "@nuxt/ui/composables"
 import type { DownloadProgress } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
 import ModelDownloadProgress from "@layers/ai/components/ModelDownloadProgress.vue"

@@ -41,6 +41,10 @@
 
 <script lang="ts" setup>
 import { type ComputedRef, computed, ref, onMounted } from "vue"
+import UTooltip from "@nuxt/ui/components/Tooltip.vue"
+import UFieldGroup from "@nuxt/ui/components/FieldGroup.vue"
+import USelect from "@nuxt/ui/components/Select.vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import { formatRelativeTime } from "@layers/shared-ui/utils/time"
 import { useRepository } from "~/composables/repositoryProvider"
 import type { ProjectMetadata } from "@layers/core/stores/repositorySettings"

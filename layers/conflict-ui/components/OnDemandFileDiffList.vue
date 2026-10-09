@@ -71,6 +71,8 @@
 import { ref, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
+import UBadge from "@nuxt/ui/components/Badge.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { UncommittedFileChange, FileDiff } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
 import CollapsibleFileHeader from "@layers/shared-ui/components/CollapsibleFileHeader.vue"

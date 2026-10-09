@@ -73,6 +73,8 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UCard from "@nuxt/ui/components/Card.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import CommitInfo from "@layers/commit-ui/components/CommitInfo.vue"
 import type { MergeConflictInfo } from "~/utils/bindings"
 import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"

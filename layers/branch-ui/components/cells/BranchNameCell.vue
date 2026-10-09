@@ -25,6 +25,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UButton from "@nuxt/ui/components/Button.vue"
 import LinkedText from "@layers/commit-ui/components/LinkedText.vue"
 import { getSimpleBranchName } from "~/utils/branch"
 

@@ -103,6 +103,8 @@
 </template>
 
 <script lang="ts" setup>
+import UPopover from "@nuxt/ui/components/Popover.vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import ModelDownloadProgress from "./ModelDownloadProgress.vue"
 import { useAIToggle } from "../composables/useAIToggle"
 import { useModelState } from "../composables/modelProvider"

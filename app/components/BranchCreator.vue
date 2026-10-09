@@ -65,6 +65,7 @@
 import { defineAsyncComponent, provide, computed } from "vue"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import pDebounce from "p-debounce"
+import UAlert from "@nuxt/ui/components/Alert.vue"
 import { scopedCustomListen } from "~/utils/listen"
 import ConfigurationHeader from "~/components/ConfigurationHeader.vue"
 import BranchTableCard from "@layers/branch-ui/components/BranchTableCard.vue"

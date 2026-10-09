@@ -16,6 +16,7 @@
 
 <script lang="ts" setup>
 import { computed } from "vue"
+import UIcon from "@nuxt/ui/components/Icon.vue"
 import { formatTimestamp } from "@layers/shared-ui/utils/time"
 import type { ReactiveArchivedBranch } from "../../composables/archivedBranches"
 
