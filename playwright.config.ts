@@ -40,7 +40,6 @@ export default defineConfig({
       env: {
         RUST_LOG: "test_server=debug,tower_http=debug",
         RUST_BACKTRACE: "1",
-        NUXT_PUBLIC_TEST_MODE: "true",
       },
     },
   ],

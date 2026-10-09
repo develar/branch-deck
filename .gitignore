@@ -12,12 +12,8 @@ pnpm-debug.log*
 node_modules
 *.local
 
-# Nuxt build output
-.nuxt
-.nitro
+# Build caches
 .cache
-.output
-.nuxt-*
 
 # Editor directories and files
 .vscode/*

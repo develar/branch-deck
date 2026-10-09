@@ -35,5 +35,5 @@
   
 }
 
-/* TW doesn't support Nuxt layers by default, so we need to import them manually */
+/* Explicit source for layer components outside app/ (automatic detection usually finds them too; kept to be safe) */
 @source "../../../layers/**/*.vue";

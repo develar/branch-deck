@@ -620,6 +620,42 @@ export const tauriMockScript = () => {
       // Efficient formatter that normalizes and formats without cloning
       return formatElementWithNormalization(element)
     },
+    iconName,
+  }
+
+  // FNV-1a, must match `hashIconBody` in tests/e2e/helpers/icon-index.ts
+  function hashIconBody(text: string): string {
+    let hash = 0x811C9DC5
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i)
+      hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    return hash.toString(16)
+  }
+
+  // Name of an icon rendered by @iconify/vue as inline SVG (the name itself is not in the DOM)
+  function iconName(element: Element): string {
+    const index = (window as any).__ICON_NAME_INDEX__ as Record<string, string> | undefined
+    return index?.[hashIconBody(element.innerHTML)] ?? "unknown"
+  }
+
+  // Icons are printed in a stable, name-bearing form (the form used before icons became inline SVG):
+  // <span aria-hidden="true" class="iconify i-lucide:NAME ..." />, without SVG sizing and namespace attributes
+  const ICON_SVG_ATTRIBUTES = new Set(["height", "width", "role", "viewBox", "xmlns", "xmlns:xlink"])
+  function formatIcon(element: Element, spaces: string): string {
+    const name = iconName(element)
+    const attrs: Array<[string, string]> = []
+    for (const attr of element.attributes) {
+      if (ICON_SVG_ATTRIBUTES.has(attr.name) || NORMALIZATION_RULES.vueScoped.some(rule => rule.remove && rule.pattern.test(attr.name))) {
+        continue
+      }
+      const value = attr.name === "class"
+        ? attr.value.split(/\s+/).map(token => token === "iconify--lucide" ? `i-lucide:${name}` : token).join(" ")
+        : attr.value
+      attrs.push([attr.name, value])
+    }
+    attrs.sort((a, b) => a[0].localeCompare(b[0]))
+    return `${spaces}<span${attrs.map(([n, v]) => ` ${n}="${v}"`).join("")} />`
   }
 
   // Normalization configuration for consistent snapshot formatting
@@ -669,6 +705,9 @@ export const tauriMockScript = () => {
   function formatElementWithNormalization(element: Element, indent = 0): string {
     const spaces = "  ".repeat(indent)
     const tagName = element.tagName.toLowerCase()
+    if (tagName === "svg" && element.classList.contains("iconify--lucide")) {
+      return formatIcon(element, spaces)
+    }
     let result = `${spaces}<${tagName}`
 
     // Collect and normalize attributes in one pass
@@ -721,10 +760,7 @@ export const tauriMockScript = () => {
     const TEXT_NORMALIZATION_RULES = [
       { pattern: /[0-9][A-Za-z0-9]{26}/g, replacement: '[REPO_ID]' }, // KSUIDs are 27 chars
       { pattern: /\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, replacement: '[TEMP_PATH]' },
-      { pattern: /\b[a-f0-9]{8}\b/g, replacement: '[SHA]' }, // 8 character short SHAs
-      { pattern: /(\[{"prerenderedAt":\d+,"serverRendered":\d+},)\d+,/g, replacement: '$1[TIMESTAMP],' },
-      { pattern: /buildId:"[a-f0-9-]{36}"/g, replacement: 'buildId:"[BUILD_ID]"' },
-      { pattern: /buildId:"\[SHA]-[a-f0-9-]+"/g, replacement: 'buildId:"[BUILD_ID]"' }
+      { pattern: /\b[a-f0-9]{8}\b/g, replacement: '[SHA]' } // 8 character short SHAs
     ]
 
     // Helper function to normalize text content

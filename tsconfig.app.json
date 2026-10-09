@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "preserve",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "vue",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "allowArbitraryExtensions": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    "paths": {
+      "~/*": ["./app/*"],
+      "@layers/*": ["./layers/*"]
+    }
+  },
+  "vueCompilerOptions": {
+    "strictTemplates": true,
+    "dataAttributes": ["data-*", "autocapitalize", "autocorrect", "spellcheck"]
+  },
+  "include": ["app/**/*", "app/**/*.vue", "layers/**/*", "layers/**/*.vue"]
+}

@@ -6,7 +6,6 @@ import { commands } from "~/utils/bindings"
 import { notifyError } from "@layers/shared-ui/utils/errorHandling"
 import { useModelState } from "./modelProvider"
 import { useAIToggle } from "./useAIToggle"
-// notifyError is auto-imported from shared-ui layer
 
 interface UseBranchSuggestionsOptions {
   repositoryPath: string

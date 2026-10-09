@@ -80,7 +80,7 @@
                     :diff-view-wrap="true"
                     :diff-view-highlight="true"
                     :diff-view-font-size="12"
-                    :diff-view-theme="colorMode.preference === 'dark' ? 'dark' : 'light'"
+                    :diff-view-theme="isDark ? 'dark' : 'light'"
                   />
                 </div>
               </div>
@@ -122,7 +122,7 @@
                     :diff-view-wrap="true"
                     :diff-view-highlight="true"
                     :diff-view-font-size="12"
-                    :diff-view-theme="colorMode.preference === 'dark' ? 'dark' : 'light'"
+                    :diff-view-theme="isDark ? 'dark' : 'light'"
                   />
                 </div>
               </div>
@@ -164,7 +164,7 @@
                     :diff-view-wrap="true"
                     :diff-view-highlight="true"
                     :diff-view-font-size="12"
-                    :diff-view-theme="colorMode.preference === 'dark' ? 'dark' : 'light'"
+                    :diff-view-theme="isDark ? 'dark' : 'light'"
                   />
                 </div>
               </div>
@@ -187,6 +187,7 @@
 import { ref, onMounted, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { SplitterGroup, SplitterPanel, SplitterResizeHandle, AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
+import { useDark } from "@vueuse/core"
 import UAlert from "@nuxt/ui/components/Alert.vue"
 import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
@@ -245,7 +246,7 @@ const cherryInfo = computed(() => {
   return null
 })
 
-const colorMode = useColorMode()
+const isDark = useDark()
 
 // Get actual file content for 3-way merge
 function getFileContent(conflict: ConflictDetail) {

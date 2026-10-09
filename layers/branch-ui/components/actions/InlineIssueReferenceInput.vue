@@ -33,8 +33,6 @@ import { useBranchSync } from "~/composables/branchSyncProvider"
 import { useAddIssueReference } from "../../composables/useAddIssueReference"
 import { useInlineRowAction } from "../../composables/useInlineRowAction"
 
-// InlineInputDialog is auto-imported from shared-ui layer
-
 // Access context and composables
 const { branches } = useBranchSync()
 const { addIssueReference } = useAddIssueReference()

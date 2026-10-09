@@ -1,11 +1,13 @@
 import { computed } from "vue"
 import { useOverlay } from "@nuxt/ui/composables"
+import { useAppConfig } from "@nuxt/ui/runtime/vue/composables/useAppConfig.js"
 import ColorSelectorModal from "~/components/ColorSelectorModal.vue"
 import { useAppSettingsStore } from "@layers/core/stores/appSettings"
 import { scopedListen } from "~/utils/listen"
 
 export function useColorSelector() {
-  const appConfig = useAppConfig()
+  // reactive Nuxt UI app config; the colors plugin recomputes the `--ui-color-*` variables from it
+  const appConfig = useAppConfig() as { ui: { colors: Record<string, string> } }
 
   const appSettingsStore = useAppSettingsStore()
   appConfig.ui.colors.primary = appSettingsStore.primaryColor

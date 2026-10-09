@@ -4,7 +4,6 @@ import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import { commands } from "~/utils/bindings"
 import { notifyError } from "@layers/shared-ui/utils/errorHandling"
 import type { VcsRequestFactory } from "./vcsRequest"
-// notifyError is auto-imported from shared-ui layer
 
 export function usePush(vcsRequestFactory: VcsRequestFactory, branches: Ref<ReactiveBranch[]>, baselineBranch: Ref<string | null>) {
   const toast = useToast()

@@ -84,7 +84,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/update_menu_checkbox", post(tauri_command_bridge::update_menu_checkbox))
     // Health check
     .route("/health", get(health_check))
-    // Serve static files from .output/public with SPA fallback
+    // Serve static files from dist with SPA fallback
     .fallback_service(serve_static_files())
     .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
     .layer(TraceLayer::new_for_http())

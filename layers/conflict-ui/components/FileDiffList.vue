@@ -21,7 +21,7 @@
             :diff-view-wrap="true"
             :diff-view-highlight="true"
             :diff-view-font-size="12"
-            :diff-view-theme="colorMode.preference === 'dark' ? 'dark' : 'light'"
+            :diff-view-theme="isDark ? 'dark' : 'light'"
             :extend-data="getConflictExtendData(diff)"
           >
             <template #extend="{ lineNumber, side, data, diffFile }">
@@ -43,6 +43,7 @@
 import { ref, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
+import { useDark } from "@vueuse/core"
 import type { FileDiff } from "~/utils/bindings"
 import CollapsibleFileHeader from "@layers/shared-ui/components/CollapsibleFileHeader.vue"
 import ConflictMarkerExtension from "./ConflictMarkerExtension.vue"
@@ -66,7 +67,7 @@ const internalDiffMode = ref<"unified" | "split">("unified")
 const currentDiffMode = computed(() => props.diffViewMode || internalDiffMode.value)
 
 // Color mode for theme
-const colorMode = useColorMode()
+const isDark = useDark()
 
 // Extract commit hashes from conflict markers for tooltips
 function extractConflictInfo(line: string) {

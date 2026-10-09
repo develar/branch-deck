@@ -1,10 +1,11 @@
 <template>
   <UApp>
-    <NuxtPage />
+    <RouterView />
   </UApp>
 </template>
 
 <script lang="ts" setup>
+import { RouterView } from "vue-router"
 import UApp from "@nuxt/ui/components/App.vue"
 import { useColorSelector } from "~/composables/colorSelector"
 import { initializeStoreHandlers } from "@layers/core/utils/app-store"

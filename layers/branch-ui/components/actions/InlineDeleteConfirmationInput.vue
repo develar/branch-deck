@@ -31,7 +31,6 @@ import UIcon from "@nuxt/ui/components/Icon.vue"
 import InlineInputDialog from "@layers/shared-ui/components/InlineInputDialog.vue"
 import { getSimpleBranchName } from "~/utils/branch"
 
-// InlineInputDialog is auto-imported from shared-ui layer
 const props = defineProps<{
   branchName: string
   dialogTitle?: string

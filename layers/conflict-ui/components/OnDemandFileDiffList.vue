@@ -59,7 +59,7 @@
             :diff-view-wrap="true"
             :diff-view-highlight="true"
             :diff-view-font-size="12"
-            :diff-view-theme="colorMode.preference === 'dark' ? 'dark' : 'light'"
+            :diff-view-theme="isDark ? 'dark' : 'light'"
           />
         </AccordionContent>
       </AccordionItem>
@@ -71,6 +71,7 @@
 import { ref, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
+import { useDark } from "@vueuse/core"
 import UBadge from "@nuxt/ui/components/Badge.vue"
 import UIcon from "@nuxt/ui/components/Icon.vue"
 import type { UncommittedFileChange, FileDiff } from "~/utils/bindings"
@@ -96,7 +97,7 @@ const internalDiffMode = ref<"unified" | "split">("unified")
 const currentDiffMode = computed(() => props.diffViewMode || internalDiffMode.value)
 
 // Color mode for theme
-const colorMode = useColorMode()
+const isDark = useDark()
 
 // Get VCS request factory for repository operations
 const { vcsRequestFactory } = useRepository()

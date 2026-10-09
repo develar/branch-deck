@@ -56,9 +56,6 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install
 
-      - name: nuxt prepare
-        run: pnpm nuxt prepare
-
       - name: Run frontend linting
         run: pnpm lint
 

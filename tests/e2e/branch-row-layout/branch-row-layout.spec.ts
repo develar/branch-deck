@@ -130,17 +130,16 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(copyButton).toBeVisible()
     await expect(copyButton).toHaveClass(/text-muted/)
 
-    // Verify initial icon is copy icon
-    const iconElement = copyButton.locator("span[class*='i-lucide']")
-    await expect(iconElement).toHaveClass(/i-lucide:copy/)
-    await expect(iconElement).not.toHaveClass(/i-lucide:copy-check/)
+    // Verify initial icon is copy icon (icons are inline SVG, the name is resolved by the snapshot formatter)
+    const iconElement = copyButton.locator("svg.iconify")
+    const iconName = () => iconElement.evaluate(el => (window as Window & { __htmlFormatter: { iconName: (el: Element) => string } }).__htmlFormatter.iconName(el))
+    await expect.poll(iconName).toBe("copy")
 
     // Click the button to trigger copy
     await copyButton.click()
 
     // Verify icon changes to check mark
-    await expect(iconElement).toHaveClass(/i-lucide:copy-check/)
-    await expect(iconElement).not.toHaveClass(/i-lucide:copy(?!-check)/)
+    await expect.poll(iconName).toBe("copy-check")
 
     // Verify clipboard content was copied
     const clipboardText = await readClipboard(page)
@@ -150,8 +149,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await page.waitForTimeout(250)
 
     // Verify button reverts to initial state after timeout
-    await expect(iconElement).toHaveClass(/i-lucide:copy/)
-    await expect(iconElement).not.toHaveClass(/i-lucide:copy-check/)
+    await expect.poll(iconName).toBe("copy")
 
     // First verify the "Copied!" tooltip is no longer visible
     const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied!\")")
