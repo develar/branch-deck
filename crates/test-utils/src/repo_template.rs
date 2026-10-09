@@ -5,7 +5,7 @@ use std::process::Command;
 
 /// A builder for creating test repository templates
 pub struct RepoTemplate {
-  #[allow(dead_code)]
+  #[expect(dead_code)]
   name: String,
   branch_prefix: Option<String>,
   commits: Vec<CommitSpec>,

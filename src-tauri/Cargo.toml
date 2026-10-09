@@ -1,5 +1,3 @@
-#cargo-features = ["profile-rustflags", "trim-paths"]
-
 [package]
 name = "branch-deck"
 version.workspace = true

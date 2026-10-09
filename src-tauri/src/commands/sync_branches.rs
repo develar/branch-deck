@@ -1,8 +1,9 @@
-use crate::progress::{SyncEvent, TauriProgressReporter};
+use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use sync_core::sync::sync_branches_core_with_cache;
+use sync_types::SyncEvent;
 use tauri::State;
 use tauri::ipc::Channel;
 use tracing::{error, instrument};

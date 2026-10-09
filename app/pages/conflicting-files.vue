@@ -38,7 +38,6 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue"
 import type { MergeConflictInfo, ConflictMarkerCommitInfo } from "~/utils/bindings"
 // useSubWindowData and useSubWindowFocusSync are auto-imported from shared-ui layer
 

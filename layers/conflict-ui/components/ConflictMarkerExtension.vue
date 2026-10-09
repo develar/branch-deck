@@ -54,7 +54,6 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue"
 
 // Props from the extend slot
 const props = defineProps<{

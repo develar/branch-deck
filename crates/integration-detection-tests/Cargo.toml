@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-[dependencies]
+[dev-dependencies]
 sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }
 branch-integration = { path = "../branch-integration" }

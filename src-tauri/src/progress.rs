@@ -3,7 +3,7 @@ use git_ops::model::{BranchError, BranchSyncStatus};
 use git_ops::progress::ProgressCallback;
 use tauri::ipc::Channel;
 
-pub use sync_types::{ProgressReporter, SyncEvent};
+use sync_types::{ProgressReporter, SyncEvent};
 
 // Implement ProgressReporter for Tauri Channel
 #[derive(Clone)]

@@ -1,4 +1,3 @@
-import { ref } from "vue"
 // notifyError is auto-imported
 
 interface TestConfig {

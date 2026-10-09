@@ -12,7 +12,7 @@ pub struct FileDiff {
   pub path: String,
   pub additions: i32,
   pub deletions: i32,
-  #[allow(dead_code)]
+  #[expect(dead_code)]
   pub patch: Option<String>,
 }
 

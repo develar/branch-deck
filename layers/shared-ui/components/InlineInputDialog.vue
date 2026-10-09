@@ -86,7 +86,6 @@
 </template>
 
 <script lang="ts" setup>
-import { useTemplateRef } from "vue"
 
 interface Props {
   // Dialog props

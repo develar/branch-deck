@@ -151,7 +151,7 @@ pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip_all)]
-#[allow(unused_variables)]
+#[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, String> {
   #[cfg(feature = "auto-update")]
   {
@@ -189,7 +189,7 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip_all)]
-#[allow(unused_variables)]
+#[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), String> {
   #[cfg(feature = "auto-update")]
   {
@@ -231,7 +231,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip_all)]
-#[allow(unused_variables)]
+#[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, String> {
   #[cfg(feature = "auto-update")]
   {

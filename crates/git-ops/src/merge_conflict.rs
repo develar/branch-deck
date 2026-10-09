@@ -17,7 +17,7 @@ pub struct ConflictFileInfo {
 }
 
 /// Generate diff hunks between two versions of a file
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 #[instrument(skip(git_executor, from_content, to_content), fields(file = %file_path))]
 pub fn generate_diff_hunks(
   git_executor: &GitCommandExecutor,

@@ -1,5 +1,3 @@
-import { nextTick } from "vue"
-
 export type InlineActionType = "issue-reference" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply"
 
 export interface ActiveInline {

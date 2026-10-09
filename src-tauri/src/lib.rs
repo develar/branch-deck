@@ -5,10 +5,6 @@ pub mod menu_state;
 pub mod progress;
 pub mod repository_state;
 
-// ONNX tests disabled since ONNX is disabled
-// #[cfg(test)]
-// mod onnx_branch_name_generator_test;
-
 #[cfg(test)]
 mod repository_state_test;
 

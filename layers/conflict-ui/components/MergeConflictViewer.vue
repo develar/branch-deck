@@ -73,7 +73,6 @@
 
 <script lang="ts" setup>
 import type { MergeConflictInfo } from "~/utils/bindings"
-import { computed } from "vue"
 
 const props = defineProps<{
   conflict: MergeConflictInfo

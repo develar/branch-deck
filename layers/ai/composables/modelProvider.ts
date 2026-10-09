@@ -1,5 +1,4 @@
 import { Channel } from "@tauri-apps/api/core"
-import { h } from "vue"
 import type { DownloadProgress } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
 import ModelDownloadProgress from "#layers/ai/components/ModelDownloadProgress.vue"

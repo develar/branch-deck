@@ -68,9 +68,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
-import "@git-diff-view/vue/styles/diff-view-pure.css"
 import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
 import type { UncommittedFileChange, FileDiff } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"

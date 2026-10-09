@@ -1,4 +1,3 @@
-import { onMounted, onScopeDispose } from "vue"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 
 /**
