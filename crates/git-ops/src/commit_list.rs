@@ -31,7 +31,7 @@ pub struct Commit {
   #[serde(skip)]
   pub note: Option<String>,
   #[serde(skip)]
-  pub mapped_commit_id: Option<String>, // Extracted from note if it has v-commit-v1: prefix
+  pub mapped_commit_id: Option<String>, // Extracted from note if it has the `notes::PREFIX` prefix
 }
 
 /// Get list of commits between baseline branch and HEAD with a custom handler
@@ -166,7 +166,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
       (None, None)
     } else {
       let trimmed = note_content.trim();
-      let mapped_id = trimmed.strip_prefix("v-commit-v1:").map(|stripped| stripped.trim().to_string());
+      let mapped_id = trimmed.strip_prefix(crate::notes::PREFIX).map(|stripped| stripped.trim().to_string());
       (Some(trimmed.to_string()), mapped_id)
     }
   } else {

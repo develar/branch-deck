@@ -1,7 +1,7 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
-use git_ops::model::extract_branch_name_from_final;
+use git_ops::model::{BranchKind, strip_branch_namespace};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -18,7 +18,7 @@ pub fn rename_branch_unique(git: &GitCommandExecutor, repo: &str, from_branch: &
 
   let mut target = to_base.to_string();
   let mut suffix: u32 = 1;
-  while git.execute_command(&["show-ref", "--verify", &format!("refs/heads/{target}")], repo).is_ok() {
+  while git.ref_exists(repo, &format!("refs/heads/{target}")) {
     if suffix > 1000 {
       return Err(anyhow::anyhow!("Too many existing branches named like {to_base}"));
     }
@@ -57,9 +57,9 @@ pub fn batch_archive_inactive_branches(
   let mut archive_mappings = Vec::with_capacity(inactive_branches.len());
 
   for branch_name in inactive_branches {
-    let simple_name = extract_branch_name_from_final(branch_name, branch_prefix).unwrap_or_else(|| branch_name.clone());
+    let simple_name = strip_branch_namespace(branch_name, branch_prefix, BranchKind::Virtual).unwrap_or(branch_name);
 
-    let mut target_name = simple_name.clone();
+    let mut target_name = simple_name.to_string();
     let mut suffix = 1u32;
 
     // Check for conflicts with existing archives and current batch
@@ -156,37 +156,21 @@ pub fn get_archived_branch_commits(git_executor: &GitCommandExecutor, repository
   Ok(commits)
 }
 
-/// Batch-delete archived branches using `git branch -D branch1 branch2 ...` with a mutex to avoid races
-/// Returns the number of branches deleted (best-effort; on fallback it counts successful deletions)
+/// Delete archived branches in one atomic `update-ref --stdin` transaction (no argv length limit).
+/// Returns the number of branches deleted.
 #[instrument(skip(git_executor, branches), fields(repo = %repo_path, branch_count = branches.len()))]
 pub fn batch_delete_archived_branches(git_executor: &GitCommandExecutor, repo_path: &str, branches: &[String]) -> Result<usize> {
   if branches.is_empty() {
     return Ok(0);
   }
 
-  // Lock to prevent race conditions during deletion
+  // Lock to prevent race conditions with concurrent archive renames
   let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
 
-  // Build args for a single git call: `git branch -D <branches...>`
-  let mut args: Vec<&str> = Vec::with_capacity(2 + branches.len());
-  args.push("branch");
-  args.push("-D");
+  let mut commands = String::with_capacity(branches.len() * 64);
   for name in branches {
-    args.push(name.as_str());
+    writeln!(&mut commands, "delete refs/heads/{name}")?;
   }
-
-  match git_executor.execute_command(&args, repo_path) {
-    Ok(_) => Ok(branches.len()),
-    Err(e) => {
-      // Fallback: attempt individual deletions to make best effort
-      tracing::warn!(error = %e, "Batch delete via git branch -D failed, attempting individual deletions");
-      let mut fallback_deleted = 0usize;
-      for name in branches {
-        if git_executor.execute_command(["branch", "-D", name.as_str()].as_slice(), repo_path).is_ok() {
-          fallback_deleted += 1;
-        }
-      }
-      Ok(fallback_deleted)
-    }
-  }
+  git_executor.execute_command_with_input(&["update-ref", "--stdin"], repo_path, &commands)?;
+  Ok(branches.len())
 }

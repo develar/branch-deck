@@ -13,7 +13,7 @@ pub struct CommitInfo {
 }
 
 /// Status of a branch synchronization operation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(Type))]
 pub enum BranchSyncStatus {
   Created,
@@ -25,7 +25,7 @@ pub enum BranchSyncStatus {
 }
 
 /// Status of a commit synchronization.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(Type))]
 pub enum CommitSyncStatus {
   Pending,
@@ -98,68 +98,74 @@ pub enum BranchError {
   MergeConflict(Box<MergeConflictInfo>),
 }
 
+/// Namespace of a Branch Deck managed branch under the user's branch prefix
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchKind {
+  /// `{prefix}/virtual/{name}`: branches rebuilt by sync
+  Virtual,
+  /// `{prefix}/unapplied/{name}`: branches removed from HEAD by unapply
+  Unapplied,
+}
+
+impl BranchKind {
+  fn segment(self) -> &'static str {
+    match self {
+      BranchKind::Virtual => "virtual",
+      BranchKind::Unapplied => "unapplied",
+    }
+  }
+}
+
+/// Build `{prefix}/{kind}/{name}`, e.g. "user", Virtual, "feature-auth" -> "user/virtual/feature-auth".
+/// The name must already be sanitized.
+pub fn qualified_branch_name(branch_prefix: &str, kind: BranchKind, branch_name: &str) -> anyhow::Result<String> {
+  let prefix = branch_prefix.trim_end_matches('/').trim();
+  ensure!(!prefix.is_empty(), "branch prefix cannot be blank");
+
+  let name = branch_name.trim_end_matches('/').trim();
+  ensure!(!name.is_empty(), "branch name cannot be blank");
+
+  // Validate that the branch name is already sanitized
+  let sanitized_name = sanitize_branch_name(name);
+  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{name}', expected '{sanitized_name}'");
+
+  Ok(format!("{prefix}/{}/{name}", kind.segment()))
+}
+
+/// Build the virtual branch name `{prefix}/virtual/{name}`
 pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::Result<String> {
-  let prefix = branch_prefix.trim_end_matches('/').trim();
-  ensure!(!prefix.is_empty(), "branch prefix cannot be blank");
-
-  let name = branch_name.trim_end_matches('/').trim();
-  ensure!(!name.is_empty(), "branch name cannot be blank");
-
-  // Validate that the branch name is already sanitized
-  let sanitized_name = sanitize_branch_name(name);
-  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{name}', expected '{sanitized_name}'");
-
-  Ok(format!("{prefix}/virtual/{name}"))
+  qualified_branch_name(branch_prefix, BranchKind::Virtual, branch_name)
 }
 
-/// Extract the simple branch name from a full virtual branch name
-/// e.g., "user/virtual/feature-auth" -> "feature-auth"
-pub fn extract_branch_name_from_final(full_branch_name: &str, branch_prefix: &str) -> Option<String> {
-  let prefix = format!("{}/virtual/", branch_prefix.trim_end_matches('/'));
-  full_branch_name.strip_prefix(&prefix).map(std::string::ToString::to_string)
-}
-
-/// Create an unapplied branch name from branch prefix and simple name
-/// e.g., "user", "feature-auth" -> "user/unapplied/feature-auth"
-pub fn to_unapplied_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::Result<String> {
-  let prefix = branch_prefix.trim_end_matches('/').trim();
-  ensure!(!prefix.is_empty(), "branch prefix cannot be blank");
-
-  let name = branch_name.trim_end_matches('/').trim();
-  ensure!(!name.is_empty(), "branch name cannot be blank");
-
-  // Validate that the branch name is already sanitized
-  let sanitized_name = sanitize_branch_name(name);
-  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{name}', expected '{sanitized_name}'");
-
-  Ok(format!("{prefix}/unapplied/{name}"))
+/// Strip `{prefix}/{kind}/` from a full branch name, e.g. "user/virtual/feature-auth" -> "feature-auth"
+pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str, kind: BranchKind) -> Option<&'a str> {
+  full_branch_name
+    .strip_prefix(branch_prefix.trim_end_matches('/'))?
+    .strip_prefix('/')?
+    .strip_prefix(kind.segment())?
+    .strip_prefix('/')
 }
 
 /// Sanitizes a branch name to make it valid for Git references
 /// Git reference names cannot contain spaces, certain special characters, etc.
 pub fn sanitize_branch_name(name: &str) -> String {
-  name
-    // Replace spaces with hyphens
-    .replace(' ', "-")
-    // Replace other problematic characters with hyphens
-    .replace(['~', '^', ':', '?', '*', '[', ']', '\\'], "-")
-    // Remove leading/trailing dots and slashes
-    .trim_matches('.')
-    .trim_matches('/')
-    // Replace multiple consecutive hyphens with a single hyphen
-    .chars()
-    .fold(String::new(), |mut acc, c| {
-      if c == '-' && acc.ends_with('-') {
-        // Skip consecutive hyphens
-        acc
-      } else {
-        acc.push(c);
-        acc
-      }
-    })
-    // Ensure it doesn't start or end with a hyphen
-    .trim_matches('-')
-    .to_string()
+  // Problematic characters become hyphens; neither they nor hyphens are dots or slashes,
+  // so trimming dots and slashes first gives the same result as trimming after the replacement.
+  let trimmed = name.trim_matches('.').trim_matches('/');
+  let mut result = String::with_capacity(trimmed.len());
+  for c in trimmed.chars() {
+    let c = if matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | ']' | '\\') { '-' } else { c };
+    // Collapse consecutive hyphens and never start with one
+    if c == '-' && (result.is_empty() || result.ends_with('-')) {
+      continue;
+    }
+    result.push(c);
+  }
+  // Never end with a hyphen (at most one trailing hyphen remains after collapsing)
+  if result.ends_with('-') {
+    result.pop();
+  }
+  result
 }
 
 #[cfg(test)]
@@ -248,6 +254,24 @@ mod tests {
     assert_eq!(sanitize_branch_name(".test."), "test");
     assert_eq!(sanitize_branch_name("/test/"), "test");
     assert_eq!(sanitize_branch_name("---test---"), "test");
+  }
+
+  #[test]
+  fn test_qualified_branch_name_and_strip_namespace() {
+    let unapplied = qualified_branch_name("user/", BranchKind::Unapplied, "feature-auth").unwrap();
+    assert_eq!(unapplied, "user/unapplied/feature-auth");
+    assert_eq!(strip_branch_namespace(&unapplied, "user", BranchKind::Unapplied), Some("feature-auth"));
+    assert_eq!(strip_branch_namespace(&unapplied, "user", BranchKind::Virtual), None);
+    assert_eq!(strip_branch_namespace("user/virtual/a/b", "user/", BranchKind::Virtual), Some("a/b"));
+    assert_eq!(strip_branch_namespace("username/virtual/a", "user", BranchKind::Virtual), None);
+  }
+
+  #[test]
+  fn test_sanitize_branch_name_trims_before_replacing() {
+    assert_eq!(sanitize_branch_name(" .test. "), ".test.");
+    assert_eq!(sanitize_branch_name("/.test"), ".test");
+    assert_eq!(sanitize_branch_name("a - b"), "a-b");
+    assert_eq!(sanitize_branch_name("~~~"), "");
   }
 
   #[test]

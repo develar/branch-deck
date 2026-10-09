@@ -54,8 +54,9 @@ pub fn perform_fast_cherry_pick_with_context(
     cherry_commit_id,
   ];
 
+  // Exit code 1 means the merge has conflicts; the output still holds the tree and the conflicted entries
   let output = git_executor
-    .execute_command(&args, repo_path)
+    .execute_command_accepting(&args, repo_path, &[1])
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
 
   debug!(output_length = output.len(), "git merge-tree completed");

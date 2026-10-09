@@ -1,7 +1,6 @@
 use crate::cache::TreeIdCache;
 use crate::commit_list::Commit;
 use crate::model::{BranchError, CommitSyncStatus};
-use crate::notes::CommitNoteInfo;
 use crate::progress::ProgressCallback;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -55,10 +54,18 @@ pub struct CreateCommitParams<'a> {
   pub existing_virtual_commits: Option<&'a HashSet<String>>, // For efficient batch verification
 }
 
+/// Result of copying one commit onto the virtual branch
+#[derive(Debug)]
+pub struct CopiedCommit {
+  pub hash: String,
+  pub status: CommitSyncStatus,
+  /// `(original, new)` mapping to record as a git note; only for newly created commits
+  pub note: Option<(String, String)>,
+}
+
 // Create or update a commit based on an original commit
-// Returns new commit hash, sync status, and note info for later writing
 #[instrument(skip(params), fields(commit_id = %params.commit.id, branch = %params.progress_info.branch_name))]
-pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String, CommitSyncStatus, Option<CommitNoteInfo>), CopyCommitError> {
+pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedCommit, CopyCommitError> {
   use crate::cherry_pick::perform_fast_cherry_pick_with_context;
   use crate::progress::CherryPickProgress;
   let CreateCommitParams {
@@ -80,21 +87,17 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
       let mapped_exists = if let Some(existing_commits) = existing_virtual_commits {
         existing_commits.contains(mapped_id)
       } else {
-        git_executor.execute_command(&["rev-parse", "--verify", mapped_id], repo_path).is_ok()
+        git_executor.commit_exists(repo_path, mapped_id)
       };
 
       if mapped_exists {
         debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
-        // Create note info even though we're reusing
-        let note_info = CommitNoteInfo {
-          original_oid: commit.id.clone(),
-          new_oid: mapped_id.clone(),
-        };
-        return Ok((
-          mapped_id.clone(),
-          CommitSyncStatus::Unchanged,
-          Some(note_info), // Return note info for database tracking
-        ));
+        // The note already maps to this commit, nothing to write
+        return Ok(CopiedCommit {
+          hash: mapped_id.clone(),
+          status: CommitSyncStatus::Unchanged,
+          note: None,
+        });
       }
       debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit no longer exists, will re-copy");
     }
@@ -151,11 +154,12 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
 
   let new_commit_hash = output.trim().to_string();
 
-  // Prepare note info for later batch writing
-  let note_info = CommitNoteInfo {
-    original_oid: commit.id.clone(),
-    new_oid: new_commit_hash.clone(),
-  };
+  // Note for later batch writing
+  let note = Some((commit.id.clone(), new_commit_hash.clone()));
 
-  Ok((new_commit_hash, CommitSyncStatus::Created, Some(note_info)))
+  Ok(CopiedCommit {
+    hash: new_commit_hash,
+    status: CommitSyncStatus::Created,
+    note,
+  })
 }

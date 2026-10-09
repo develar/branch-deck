@@ -3,9 +3,9 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
-use git_ops::copy_commit::{CopyCommitError, CreateCommitParams, create_or_update_commit};
+use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
-use git_ops::notes::{CommitNoteInfo, write_commit_notes};
+use git_ops::notes::write_commit_notes;
 use git_ops::progress::ProgressCallback;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -34,7 +34,7 @@ enum CommitProcessingResult {
   Success {
     new_commit_hash: String,
     sync_status: CommitSyncStatus,
-    mapping_info: Option<CommitNoteInfo>,
+    mapping_info: Option<(String, String)>,
   },
   BranchError,
 }
@@ -54,12 +54,6 @@ impl<P: ProgressReporter> ProgressCallback for ProgressReporterAdapter<'_, P> {
   fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> Result<()> {
     self.reporter.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })
   }
-}
-
-/// Check if a local branch exists (refs/heads/<name>) quickly via show-ref --verify --quiet
-fn branch_exists(git: &GitCommandExecutor, repo: &str, branch_name: &str) -> bool {
-  let branch_ref = format!("refs/heads/{branch_name}");
-  git.execute_command(&["show-ref", "--verify", "--quiet", &branch_ref], repo).is_ok()
 }
 
 #[instrument(
@@ -90,7 +84,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
 
   let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
 
-  let is_existing_branch = branch_exists(&git_executor, &repository_path, &full_branch_name);
+  let is_existing_branch = git_executor.ref_exists(&repository_path, &format!("refs/heads/{full_branch_name}"));
   debug!(name = %full_branch_name, exists = is_existing_branch, "Checking if branch exists");
 
   // If branch exists, get all its commits in one call for efficient reuse checking
@@ -113,7 +107,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   let mut current_parent_hash = parent_commit_hash;
   let mut last_commit_hash = String::new();
   let mut is_any_commit_changed = false;
-  let mut pending_notes: Vec<CommitNoteInfo> = Vec::new();
+  let mut pending_notes: Vec<(String, String)> = Vec::new();
 
   // recreate each commit on top of the last one
   let total_commits_in_branch = commits.len();
@@ -202,7 +196,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   // Write all commit notes after successful branch sync
   if !pending_notes.is_empty() {
     debug!(count = pending_notes.len(), name = %branch_name, "Writing commit notes for branch");
-    if let Err(e) = write_commit_notes(&git_executor, &repository_path, pending_notes, &git_notes_mutex) {
+    if let Err(e) = write_commit_notes(&git_executor, &repository_path, &pending_notes, &git_notes_mutex) {
       error!(name = %branch_name, error = %e, "Failed to write commit notes");
       // Send error status for git notes failure
       let _ = progress.send(SyncEvent::BranchStatusUpdate {
@@ -219,7 +213,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   debug!(name = %branch_name, status = ?branch_sync_status, "Sending final branch status");
   let _ = progress.send(SyncEvent::BranchStatusUpdate {
     branch_name: branch_name.clone(),
-    status: branch_sync_status.clone(),
+    status: branch_sync_status,
     error: None,
   });
 
@@ -260,13 +254,17 @@ fn process_single_commit<P: ProgressReporter>(
   let result = create_or_update_commit(commit_params);
 
   match result {
-    Ok((new_commit_hash, sync_status, mapping_info)) => {
+    Ok(CopiedCommit {
+      hash: new_commit_hash,
+      status: sync_status,
+      note: mapping_info,
+    }) => {
       // Send success event with status
       let _ = progress.send(SyncEvent::CommitSynced {
         branch_name: branch_name.to_string(),
         commit_hash: original_hash.to_string(),
         new_hash: new_commit_hash.clone(),
-        status: sync_status.clone(),
+        status: sync_status,
       });
 
       Ok(CommitProcessingResult::Success {

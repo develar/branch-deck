@@ -527,12 +527,14 @@ fn test_detect_baseline_branch_scenarios() {
   let baseline = detect_baseline_branch(&git_executor, test_repo2.path().to_str().unwrap(), "master").unwrap();
   assert_eq!(baseline, "main");
 
-  // Scenario 3: Repository with remote (simulated by creating origin/* branches)
+  // Scenario 3: Repository with remote (simulated by creating a remote-tracking ref)
   let test_repo3 = TestRepo::new();
   let initial = test_repo3.create_commit("Initial commit", "README.md", "# Test");
-  test_repo3.create_branch_at("origin/main", &initial).unwrap();
+  git_executor
+    .execute_command(&["update-ref", "refs/remotes/origin/main", &initial], test_repo3.path().to_str().unwrap())
+    .unwrap();
 
-  // Add a fake remote (git branch can simulate remote branches even without actual remotes)
+  // Add a fake remote so the repository is treated as having one
   test_repo3.add_remote("origin", "fake-url").unwrap();
 
   let baseline = detect_baseline_branch(&git_executor, test_repo3.path().to_str().unwrap(), "master").unwrap();

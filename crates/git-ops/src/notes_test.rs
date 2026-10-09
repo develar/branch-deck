@@ -1,4 +1,4 @@
-use crate::notes::{CommitNoteInfo, PREFIX, write_commit_notes};
+use crate::notes::{PREFIX, write_commit_notes};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::sync::Mutex;
@@ -8,7 +8,7 @@ use test_utils::git_test_utils::TestRepo;
 fn test_write_commit_notes_empty() {
   let git_executor = GitCommandExecutor::new();
   let mutex = Mutex::new(());
-  let result = write_commit_notes(&git_executor, "/fake/path", vec![], &mutex);
+  let result = write_commit_notes(&git_executor, "/fake/path", &[], &mutex);
   assert!(result.is_ok());
 }
 
@@ -23,12 +23,9 @@ fn test_write_single_commit_note() {
   let commit2_hash = test_repo.create_commit("Second commit", "test.txt", "updated content");
 
   // Write a note mapping commit1 to commit2
-  let notes = vec![CommitNoteInfo {
-    original_oid: commit1_hash.clone(),
-    new_oid: commit2_hash.clone(),
-  }];
+  let notes = vec![(commit1_hash.clone(), commit2_hash.clone())];
 
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
   assert!(result.is_ok());
 
   // Verify the note was written
@@ -54,14 +51,11 @@ fn test_write_multiple_commit_notes() {
     let new = test_repo.create_commit(&format!("New commit {i}"), &format!("file{i}.txt"), &format!("new content {i}"));
     new_commits.push(new.clone());
 
-    notes.push(CommitNoteInfo {
-      original_oid: original,
-      new_oid: new,
-    });
+    notes.push((original, new));
   }
 
   // Write all notes at once
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
   assert!(result.is_ok());
 
   // Verify all notes were written correctly
@@ -89,12 +83,9 @@ fn test_write_commit_notes_with_special_characters() {
   let commit2 = test_repo.create_commit("Another commit", "test.txt", "new content");
 
   // Write note with author containing special characters
-  let notes = vec![CommitNoteInfo {
-    original_oid: commit1.clone(),
-    new_oid: commit2.clone(),
-  }];
+  let notes = vec![(commit1.clone(), commit2.clone())];
 
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
   assert!(result.is_ok());
 
   // Verify the note
@@ -122,16 +113,13 @@ fn test_concurrent_note_writing() {
     let original = test_repo.create_commit(&format!("Original {i}"), &format!("file{i}.txt"), &format!("content {i}"));
     let new = test_repo.create_commit(&format!("New {i}"), &format!("file{i}.txt"), &format!("new content {i}"));
 
-    all_notes.push(CommitNoteInfo {
-      original_oid: original.clone(),
-      new_oid: new.clone(),
-    });
+    all_notes.push((original.clone(), new.clone()));
 
     expected_mappings.push((original, new));
   }
 
   // Write all notes - the mutex ensures they don't interfere
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), all_notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &all_notes, &mutex);
   assert!(result.is_ok());
 
   // Verify all notes were written correctly
@@ -153,24 +141,18 @@ fn test_write_commit_notes_overwrites_existing() {
   let commit3 = test_repo.create_commit("Third", "test.txt", "v3");
 
   // Write initial note
-  let notes = vec![CommitNoteInfo {
-    original_oid: commit1.clone(),
-    new_oid: commit2.clone(),
-  }];
+  let notes = vec![(commit1.clone(), commit2.clone())];
 
-  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex).unwrap();
+  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex).unwrap();
 
   // Verify initial note
   let note_content = test_repo.show_note(&commit1).unwrap();
   assert_eq!(note_content.trim(), format!("{PREFIX}{commit2}"));
 
   // Overwrite with new note
-  let notes = vec![CommitNoteInfo {
-    original_oid: commit1.clone(),
-    new_oid: commit3.clone(),
-  }];
+  let notes = vec![(commit1.clone(), commit3.clone())];
 
-  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex).unwrap();
+  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex).unwrap();
 
   // Verify note was overwritten
   let note_content = test_repo.show_note(&commit1).unwrap();
@@ -193,14 +175,11 @@ fn test_write_notes_batch_mode_edge_cases() {
     let new = test_repo.create_commit(&format!("New {i}"), &format!("test{i}.txt"), "updated");
 
     commits.push((original.clone(), new.clone()));
-    notes.push(CommitNoteInfo {
-      original_oid: original,
-      new_oid: new,
-    });
+    notes.push((original, new));
   }
 
   // Write notes
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
   assert!(result.is_ok());
 
   // Verify all notes

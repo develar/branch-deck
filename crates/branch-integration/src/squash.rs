@@ -41,7 +41,7 @@ pub fn detect_squash_status(git: &GitCommandExecutor, repo: &str, branch_name: &
   if let Ok(merge_base_output) = merge_base_result {
     let merge_base = merge_base_output.trim();
     if !merge_base.is_empty()
-      && let Ok(merge_tree_output) = git.execute_command(&["merge-tree", "--write-tree", &format!("--merge-base={merge_base}"), baseline, branch_name], repo)
+      && let Ok(merge_tree_output) = git.execute_command_accepting(&["merge-tree", "--write-tree", &format!("--merge-base={merge_base}"), baseline, branch_name], repo, &[1])
     {
       let merge_tree_hash = merge_tree_output.trim();
       if let Ok(baseline_tree) = get_tree_id(git, repo, baseline)

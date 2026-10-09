@@ -33,10 +33,7 @@ pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: De
   }
 
   // Verify branch exists before attempting deletion
-  let exists = git_executor
-    .execute_command(&["show-ref", "--verify", &format!("refs/heads/{branch_name}")], &repository_path)
-    .is_ok();
-  if !exists {
+  if !git_executor.ref_exists(&repository_path, &format!("refs/heads/{branch_name}")) {
     return Err(anyhow::anyhow!("Branch does not exist"));
   }
 

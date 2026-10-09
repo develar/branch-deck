@@ -26,18 +26,18 @@ impl GitInfo {
 
   /// Parse version string into (major, minor) tuple for comparison
   pub fn parse_version(&self) -> Result<(u32, u32), String> {
-    let version_parts: Vec<&str> = self.version.split('.').collect();
-    if version_parts.len() < 2 {
+    let mut parts = self.version.split('.');
+    let (Some(major), Some(minor)) = (parts.next(), parts.next()) else {
       return Err(format!("Invalid version format: {}", self.version));
-    }
+    };
 
-    let major = version_parts[0].parse::<u32>().map_err(|_| format!("Invalid major version: {}", version_parts[0]))?;
-    let minor = version_parts[1].parse::<u32>().map_err(|_| format!("Invalid minor version: {}", version_parts[1]))?;
+    let major = major.parse::<u32>().map_err(|_| format!("Invalid major version: {major}"))?;
+    let minor = minor.parse::<u32>().map_err(|_| format!("Invalid minor version: {minor}"))?;
 
     Ok((major, minor))
   }
 
-  /// Check if Git version meets minimum requirement (2.50.0)
+  /// Check if Git version meets minimum requirement (2.49)
   pub fn validate_minimum_version(&self) -> Result<(), String> {
     const MIN_MAJOR: u32 = 2;
     const MIN_MINOR: u32 = 49;

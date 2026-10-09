@@ -72,16 +72,9 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
   if !has_remotes {
     // Local repository without remotes
     // Check if the preferred branch exists locally
-    if git_executor
-      .execute_command(&["--no-pager", "rev-parse", "--verify", preferred_branch], repository_path)
-      .is_ok()
-    {
-      return Ok(preferred_branch.to_string());
-    }
-
-    // Try common branch names
-    for branch in &["master", "main"] {
-      if git_executor.execute_command(&["--no-pager", "rev-parse", "--verify", branch], repository_path).is_ok() {
+    // Check if the preferred branch, then a common branch name, exists locally
+    for branch in [preferred_branch, "master", "main"] {
+      if git_executor.ref_exists(repository_path, &format!("refs/heads/{branch}")) {
         return Ok(branch.to_string());
       }
     }
@@ -90,7 +83,7 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
   }
 
   // Try to get the upstream branch for the current branch
-  if let Ok(upstream) = git_executor.execute_command(&["--no-pager", "rev-parse", "--abbrev-ref", "@{u}"], repository_path) {
+  if let Ok((upstream, 0)) = git_executor.execute_command_with_status(&["--no-pager", "rev-parse", "--abbrev-ref", "@{u}"], repository_path) {
     return Ok(upstream);
   }
 
@@ -98,22 +91,10 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
   // Get the first remote (usually "origin")
   let first_remote = remotes_output.lines().next().unwrap_or("origin");
 
-  // Try the preferred branch with the remote
-  let remote_branch = format!("{first_remote}/{preferred_branch}");
-  if git_executor
-    .execute_command(&["--no-pager", "rev-parse", "--verify", &remote_branch], repository_path)
-    .is_ok()
-  {
-    return Ok(remote_branch);
-  }
-
-  // Try common branch names with the remote
-  for branch in &["master", "main"] {
+  // Try the preferred branch, then common branch names, with the remote
+  for branch in [preferred_branch, "master", "main"] {
     let remote_branch = format!("{first_remote}/{branch}");
-    if git_executor
-      .execute_command(&["--no-pager", "rev-parse", "--verify", &remote_branch], repository_path)
-      .is_ok()
-    {
+    if git_executor.ref_exists(repository_path, &format!("refs/remotes/{remote_branch}")) {
       return Ok(remote_branch);
     }
   }

@@ -55,3 +55,31 @@ fn test_execute_command_lines_performance() {
     assert!(commit.chars().all(|c| c.is_ascii_hexdigit()));
   }
 }
+
+#[test]
+fn test_large_stdin_and_stdout_do_not_deadlock() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("Commit", "file.txt", "content");
+  let git_executor = GitCommandExecutor::new();
+
+  // Input and output are both far larger than a pipe buffer: stdin must be written while stdout is drained
+  let input = format!("{head}\n").repeat(50_000);
+  let output = git_executor
+    .execute_command_with_input(&["cat-file", "--batch-check"], repo.path().to_str().unwrap(), &input)
+    .unwrap();
+  assert_eq!(output.lines().count(), 50_000);
+}
+
+#[test]
+fn test_probes_report_missing_refs_and_commits() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("Commit", "file.txt", "content");
+  let repo_path = repo.path().to_str().unwrap();
+  let git_executor = GitCommandExecutor::new();
+
+  let current_ref = git_executor.execute_command(&["symbolic-ref", "HEAD"], repo_path).unwrap();
+  assert!(git_executor.ref_exists(repo_path, &current_ref));
+  assert!(!git_executor.ref_exists(repo_path, "refs/heads/missing"));
+  assert!(git_executor.commit_exists(repo_path, &head));
+  assert!(!git_executor.commit_exists(repo_path, "0123456789012345678901234567890123456789"));
+}

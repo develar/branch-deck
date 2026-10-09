@@ -3,14 +3,6 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use sync_types::RemoteStatusUpdate;
 use tracing::instrument;
 
-/// Check if remote branch exists using show-ref (faster than reflog)
-#[inline]
-fn remote_branch_exists(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> bool {
-  git_executor
-    .execute_command_with_status(&["--no-pager", "show-ref", "--verify", "--quiet", &format!("refs/remotes/{remote_ref}")], repository_path)
-    .is_ok_and(|(_, exit_code)| exit_code == 0)
-}
-
 /// Get last push time from reflog if available
 #[inline]
 fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> u32 {
@@ -52,7 +44,7 @@ pub fn compute_remote_status_for_branch(
   let remote_ref = format!("origin/{local_ref}");
 
   // Fast check if remote exists
-  if !remote_branch_exists(git_executor, repository_path, &remote_ref) {
+  if !git_executor.ref_exists(repository_path, &format!("refs/remotes/{remote_ref}")) {
     return Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: false,

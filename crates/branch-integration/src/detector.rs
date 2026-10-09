@@ -269,19 +269,22 @@ pub async fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_
   }
 
   if !branches_to_delete.is_empty() {
-    let deleted = super::archive::batch_delete_archived_branches(git_executor, repo_path, &branches_to_delete)?;
-    if deleted > 0 {
-      info!(
-        deleted_count = deleted,
-        retention_days = config.retention_days,
-        "Cleaned up old fully integrated archived branches"
-      );
-    }
+    // Cleanup is best effort: a failure must not fail detection, and nothing is deleted then (one transaction)
+    match super::archive::batch_delete_archived_branches(git_executor, repo_path, &branches_to_delete) {
+      Ok(deleted) => {
+        info!(
+          deleted_count = deleted,
+          retention_days = config.retention_days,
+          "Cleaned up old fully integrated archived branches"
+        );
 
-    // Deleted branches must not be reported or re-detected
-    let deleted_set: HashSet<&str> = branches_to_delete.iter().map(String::as_str).collect();
-    branch_data.archived_all.retain(|branch| !deleted_set.contains(branch.as_str()));
-    branch_data.all_branch_commits.retain(|branch, _| !deleted_set.contains(branch.as_str()));
+        // Deleted branches must not be reported or re-detected
+        let deleted_set: HashSet<&str> = branches_to_delete.iter().map(String::as_str).collect();
+        branch_data.archived_all.retain(|branch| !deleted_set.contains(branch.as_str()));
+        branch_data.all_branch_commits.retain(|branch, _| !deleted_set.contains(branch.as_str()));
+      }
+      Err(e) => warn!(error = %e, "Failed to delete old archived branches"),
+    }
   }
 
   // Step 2: Archive inactive branches using the pre-fetched data

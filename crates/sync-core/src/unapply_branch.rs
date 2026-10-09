@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use branch_integration::archive::rename_branch_unique;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::amend_operations::drop_commits_from_head;
-use git_ops::model::{extract_branch_name_from_final, to_unapplied_branch_name};
+use git_ops::model::{BranchKind, qualified_branch_name, strip_branch_namespace};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};
 
@@ -51,9 +51,9 @@ fn validate_commits_in_head(git_executor: &GitCommandExecutor, repository_path: 
 /// Rename a branch to an unapplied namespace, ensuring no collisions by appending a numeric suffix if needed.
 /// Returns the final unapplied branch name.
 fn move_branch_to_unapplied(git_executor: &GitCommandExecutor, repo: &str, from_branch: &str, branch_prefix: &str) -> Result<String> {
-  let simple_name = extract_branch_name_from_final(from_branch, branch_prefix).ok_or_else(|| anyhow!("Could not extract simple name from branch: {from_branch}"))?;
+  let simple_name = strip_branch_namespace(from_branch, branch_prefix, BranchKind::Virtual).ok_or_else(|| anyhow!("Could not extract simple name from branch: {from_branch}"))?;
 
-  let base_unapplied_name = to_unapplied_branch_name(branch_prefix, &simple_name)?;
+  let base_unapplied_name = qualified_branch_name(branch_prefix, BranchKind::Unapplied, simple_name)?;
   rename_branch_unique(git_executor, repo, from_branch, &base_unapplied_name)
 }
 
@@ -77,9 +77,7 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   }
 
   // Verify branch exists
-  let branch_ref = format!("refs/heads/{branch_name}");
-  let exists = git_executor.execute_command(&["show-ref", "--verify", &branch_ref], &repository_path).is_ok();
-  if !exists {
+  if !git_executor.ref_exists(&repository_path, &format!("refs/heads/{branch_name}")) {
     return Err(anyhow!("Virtual branch does not exist: {branch_name}"));
   }
 
