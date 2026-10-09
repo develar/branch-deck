@@ -1,13 +1,14 @@
 // @ts-check
 import js from "@eslint/js"
 import tseslint from "typescript-eslint"
-import pluginVue from "eslint-plugin-vue"
+import reactHooks from "eslint-plugin-react-hooks"
+import { reactRefresh } from "eslint-plugin-react-refresh"
 import stylistic from "@stylistic/eslint-plugin"
 
 export default tseslint.config(
   {
     ignores: [
-      "**/app/utils/bindings.ts",
+      "**/src/lib/bindings.ts",
       "dist/**",
       "target/**",
       "src-tauri/target/**",
@@ -15,30 +16,36 @@ export default tseslint.config(
       "playwright-report/**",
       "**/migration-backup/**",
       "**/.tools/**",
+      // TODO: legacy Vue sources kept on disk as reference during the React rewrite; remove with them
+      "app/**",
+      "layers/**",
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  ...pluginVue.configs["flat/recommended"],
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ...reactHooks.configs.flat.recommended,
+  },
+  {
+    files: ["src/**/*.tsx"],
+    ...reactRefresh.configs.vite(),
+  },
+  {
+    // generated shadcn/ui components export variant helpers (cva) and the toast manager next to components
+    files: ["src/components/ui/**/*.tsx"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
   stylistic.configs.customize({
     indent: 2,
     quotes: "double",
     semi: false,
-    jsx: false,
+    jsx: true,
   }),
   {
-    files: ["**/*.vue"],
-    languageOptions: {
-      parserOptions: {
-        parser: tseslint.parser,
-        extraFileExtensions: [".vue"],
-      },
-    },
-    // same core-rule adjustments typescript-eslint applies to .ts files
-    rules: tseslint.configs.eslintRecommended.rules,
-  },
-  {
-    files: ["**/*.{js,mjs,cjs,ts,vue}"],
+    files: ["**/*.{js,mjs,cjs,ts,tsx}"],
     rules: {
       // TypeScript reports unknown identifiers
       "no-undef": "off",
@@ -59,29 +66,6 @@ export default tseslint.config(
       "@typescript-eslint/no-useless-constructor": "error",
       "@typescript-eslint/prefer-literal-enum-member": "error",
       "@typescript-eslint/unified-signatures": "error",
-      // Vue template formatting rules that the previous Nuxt preset kept off (enabling them would reformat templates)
-      "vue/html-closing-bracket-newline": "off",
-      "vue/html-closing-bracket-spacing": "off",
-      "vue/html-quotes": "off",
-      "vue/multiline-html-element-content-newline": "off",
-      "vue/mustache-interpolation-spacing": "off",
-      "vue/no-multi-spaces": "off",
-      "vue/no-spaces-around-equal-signs-in-attribute": "off",
-      "vue/singleline-html-element-content-newline": "off",
-      // Components must be imported explicitly
-      "vue/no-undef-components": "error",
-      "vue/html-indent": ["error", 2, {
-        attribute: 1,
-        baseIndent: 1,
-        closeBracket: 0,
-        alignAttributesVertically: true,
-        ignores: [],
-      }],
-      "vue/max-attributes-per-line": ["error", {
-        singleline: { max: 3 },
-        multiline: { max: 1 },
-      }],
-      "vue/multi-word-component-names": "off",
       "@stylistic/eol-last": "off",
       // Enforce braces for all control statements
       "curly": ["error", "all"],

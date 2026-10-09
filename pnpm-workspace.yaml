@@ -3,7 +3,6 @@ allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
   unrs-resolver: true
-  vue-demi: true
 
 overrides:
   zod: ^4.6.5
