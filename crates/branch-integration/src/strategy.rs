@@ -1,5 +1,5 @@
 /// Detection strategy configuration
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum DetectionStrategy {
   /// Default - fast rebase/cherry-pick detection only
   #[default]

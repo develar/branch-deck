@@ -16,14 +16,12 @@ mod tests {
     // Create a file and commit
     let commit_hash = test_repo.create_commit("feat: Add authentication module", "auth.js", "console.log('auth');");
 
-    // Create generator and test
-    let generator = ModelBasedBranchGenerator::new().unwrap();
     let commits = vec![CommitInfo {
       hash: commit_hash.clone(),
       message: "feat: Add authentication module".to_string(),
     }];
 
-    let git_output = generator.get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
+    let git_output = ModelBasedBranchGenerator::get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
 
     // Verify output contains both commit message and file status
     assert!(git_output.contains("feat: Add authentication module"));
@@ -32,6 +30,7 @@ mod tests {
 
   #[test]
   fn test_get_git_output_for_multiple_commits() {
+    use std::process::Command;
     let test_repo = TestRepo::new();
     let repo_path = test_repo.path();
     let executor = GitCommandExecutor::new();
@@ -44,7 +43,6 @@ mod tests {
     fs::write(repo_path.join("api.js"), "// API module").unwrap();
 
     // Use Command for git operations when TestRepo methods aren't sufficient
-    use std::process::Command;
     Command::new("git").args(["add", "."]).current_dir(repo_path).output().unwrap();
     Command::new("git")
       .args(["commit", "-m", "feat: Add API module and update config"])
@@ -68,8 +66,6 @@ mod tests {
       .trim()
       .to_string();
 
-    // Create generator and test
-    let generator = ModelBasedBranchGenerator::new().unwrap();
     let commits = vec![
       CommitInfo {
         hash: commit1_hash,
@@ -85,7 +81,7 @@ mod tests {
       },
     ];
 
-    let git_output = generator.get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
+    let git_output = ModelBasedBranchGenerator::get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
 
     // Verify all commits and their file changes are in output
     assert!(git_output.contains("chore: Add config file"));
@@ -104,12 +100,12 @@ mod tests {
 
   #[test]
   fn test_get_git_output_for_empty_commit() {
+    use std::process::Command;
     let test_repo = TestRepo::new();
     let repo_path = test_repo.path();
     let executor = GitCommandExecutor::new();
 
     // Create an empty commit
-    use std::process::Command;
     Command::new("git")
       .args(["commit", "--allow-empty", "-m", "chore: Empty commit for testing"])
       .current_dir(repo_path)
@@ -120,14 +116,12 @@ mod tests {
       .trim()
       .to_string();
 
-    // Create generator and test
-    let generator = ModelBasedBranchGenerator::new().unwrap();
     let commits = vec![CommitInfo {
       hash: commit_hash,
       message: "chore: Empty commit for testing".to_string(),
     }];
 
-    let git_output = generator.get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
+    let git_output = ModelBasedBranchGenerator::get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
 
     // Verify output contains commit message but no file changes
     assert!(git_output.contains("chore: Empty commit for testing"));
@@ -143,11 +137,9 @@ mod tests {
     let repo_path = test_repo.path();
     let executor = GitCommandExecutor::new();
 
-    // Create generator and test with empty commits
-    let generator = ModelBasedBranchGenerator::new().unwrap();
     let commits = vec![];
 
-    let git_output = generator.get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
+    let git_output = ModelBasedBranchGenerator::get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
 
     // Should return empty string for no commits
     assert_eq!(git_output, "");
@@ -166,14 +158,12 @@ mod tests {
       "// Password hashing",
     );
 
-    // Create generator and test
-    let generator = ModelBasedBranchGenerator::new().unwrap();
     let commits = vec![CommitInfo {
       hash: commit_hash,
       message: "Refactor: Extract configuration constants".to_string(), // Note: Only subject line
     }];
 
-    let git_output = generator.get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
+    let git_output = ModelBasedBranchGenerator::get_git_output_for_commits(&executor, &commits, repo_path.to_str().unwrap()).unwrap();
 
     // The output should show the full commit message including body
     println!("Git output for debugging:\n{git_output}");

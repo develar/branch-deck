@@ -14,7 +14,7 @@ use std::time::Instant;
 const MAX_NEW_TOKENS: usize = 1000; // Increased to allow for thinking tags and complete generation
 
 /// Helper to get or download test model paths
-async fn get_test_model_paths(model: &ModelConfig) -> Result<PathBuf> {
+fn get_test_model_paths(model: ModelConfig) -> Result<PathBuf> {
   // Build the model path using the home directory
   let home_dir = std::env::var("HOME")
     .or_else(|_| std::env::var("USERPROFILE")) // Windows fallback
@@ -461,7 +461,7 @@ async fn test_model_generation_with_snapshots() {
   let mut generators: HashMap<ModelConfig, BranchGenerator> = HashMap::new();
 
   for model in &enabled_models {
-    match get_test_model_paths(model).await {
+    match get_test_model_paths(*model) {
       Ok(model_path) => {
         let generator = match model {
           ModelConfig::Qwen25Coder15B | ModelConfig::Qwen25Coder3B => {
@@ -554,7 +554,7 @@ async fn test_model_generation_with_snapshots() {
         let start = Instant::now();
         match generator.generate_branch_name(&model_prompt, MAX_NEW_TOKENS, false).await {
           Ok(generation_result) => {
-            let generation_time = start.elapsed().as_millis() as u64;
+            let generation_time = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
             println!("    Generated: '{}'", generation_result.name);
             println!("    Time: {generation_time}ms");
@@ -576,7 +576,7 @@ async fn test_model_generation_with_snapshots() {
             });
 
             // Test prompt characteristics
-            verify_prompt_characteristics(model_config, &model_prompt, *use_files_only, scenario_name);
+            verify_prompt_characteristics(*model_config, &model_prompt, *use_files_only, scenario_name);
           }
           Err(e) => {
             tracing::warn!(?model_config, error = %e, "Failed to generate branch name");
@@ -615,7 +615,7 @@ async fn test_model_generation_with_snapshots() {
 }
 
 /// Helper function to verify prompt characteristics
-fn verify_prompt_characteristics(model: &ModelConfig, prompt: &str, use_files_only: bool, scenario: &str) {
+fn verify_prompt_characteristics(model: ModelConfig, prompt: &str, use_files_only: bool, scenario: &str) {
   println!("Verifying {} prompt for scenario '{}' (files_only: {})", model.model_name(), scenario, use_files_only);
 
   // Length constraints (common for all models)
@@ -623,23 +623,20 @@ fn verify_prompt_characteristics(model: &ModelConfig, prompt: &str, use_files_on
   assert!(prompt.len() < 10000, "Prompt should be reasonably sized for model context");
 
   // Model-specific prompt format assertions
-  match model {
-    ModelConfig::Qwen3_17B => {
-      // ChatML format assertions (specifically for quantized Qwen3)
-      assert!(prompt.contains("<|im_start|>system"), "ChatML format should have system section");
-      assert!(prompt.contains("<|im_start|>user"), "ChatML format should have user section");
-      assert!(prompt.contains("/no_think"), "ChatML format should have assistant section with think tags");
-      assert!(prompt.contains("Maximum 50 characters"), "Should specify length constraint");
-    }
-    _ => {
-      // Generic format assertions (for Qwen2.5 and other models)
-      assert!(prompt.contains("Create one branch name"), "Generic prompt should ask for branch name creation");
-      assert!(prompt.contains("Your turn:"), "Generic prompt should have user prompt section");
-    }
+  if model == ModelConfig::Qwen3_17B {
+    // ChatML format assertions (specifically for quantized Qwen3)
+    assert!(prompt.contains("<|im_start|>system"), "ChatML format should have system section");
+    assert!(prompt.contains("<|im_start|>user"), "ChatML format should have user section");
+    assert!(prompt.contains("/no_think"), "ChatML format should have assistant section with think tags");
+    assert!(prompt.contains("Maximum 50 characters"), "Should specify length constraint");
+  } else {
+    // Generic format assertions (for Qwen2.5 and other models)
+    assert!(prompt.contains("Create one branch name"), "Generic prompt should ask for branch name creation");
+    assert!(prompt.contains("Your turn:"), "Generic prompt should have user prompt section");
   }
 
   // Model-specific validations
-  if model == &ModelConfig::Qwen25Coder15B {
+  if model == ModelConfig::Qwen25Coder15B {
     // Qwen models are optimized for code understanding
     assert!(prompt.contains("max 50 characters"), "Should specify branch name length limit");
   }
@@ -649,22 +646,22 @@ fn verify_prompt_characteristics(model: &ModelConfig, prompt: &str, use_files_on
 }
 
 // Test data patches
-const JWT_AUTH_MIDDLEWARE_PATCH: &str = r#"@@ -15,12 +15,87 @@
+const JWT_AUTH_MIDDLEWARE_PATCH: &str = r"@@ -15,12 +15,87 @@
  pub struct AuthMiddleware {
      secret: String,
 +    validation: Validation,
 +    encoding_key: EncodingKey,
 +    decoding_key: DecodingKey,
- }"#;
+ }";
 
-const JWT_AUTH_MOD_PATCH: &str = r#"@@ -3,3 +3,5 @@
+const JWT_AUTH_MOD_PATCH: &str = r"@@ -3,3 +3,5 @@
  pub mod cors;
  pub mod logging;
 +pub mod auth;
 +
-+pub use auth::AuthMiddleware;"#;
++pub use auth::AuthMiddleware;";
 
-const JWT_AUTH_TESTS_PATCH: &str = r#"@@ -0,0 +156,156 @@
+const JWT_AUTH_TESTS_PATCH: &str = r"@@ -0,0 +156,156 @@
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
@@ -673,16 +670,16 @@ const JWT_AUTH_TESTS_PATCH: &str = r#"@@ -0,0 +156,156 @@
 +    fn test_jwt_validation() {
 +        // Test implementation
 +    }
-+}"#;
++}";
 
-const REDIS_POOL_FIX_PATCH: &str = r#"@@ -23,28 +23,45 @@
+const REDIS_POOL_FIX_PATCH: &str = r"@@ -23,28 +23,45 @@
 -        let conn = self.pool.get().await?;
 -        Ok(conn)
 +        // Fix: Add timeout to prevent indefinite waiting
 +        let conn = timeout(Duration::from_secs(5), self.pool.get())
 +            .await
 +            .map_err(|_| CacheError::ConnectionTimeout)?
-+            .map_err(|e| CacheError::PoolError(e))?;"#;
++            .map_err(|e| CacheError::PoolError(e))?;";
 
 const USER_HANDLER_REFACTOR_PATCH: &str = r#"@@ -10,48 +10,15 @@
 -    // Validate email format
@@ -692,7 +689,7 @@ const USER_HANDLER_REFACTOR_PATCH: &str = r#"@@ -10,48 +10,15 @@
 +    // Refactored: Use centralized validator
 +    UserValidator::validate_create_request(&payload)?;"#;
 
-const USER_VALIDATOR_PATCH: &str = r#"@@ -0,0 +52,52 @@
+const USER_VALIDATOR_PATCH: &str = r"@@ -0,0 +52,52 @@
 +pub struct UserValidator;
 +
 +impl UserValidator {
@@ -702,10 +699,10 @@ const USER_VALIDATOR_PATCH: &str = r#"@@ -0,0 +52,52 @@
 +        Self::validate_username(&req.username)?;
 +        Ok(())
 +    }
-+}"#;
++}";
 
-const VALIDATORS_MOD_PATCH: &str = r#"@@ -1,2 +1,5 @@
+const VALIDATORS_MOD_PATCH: &str = r"@@ -1,2 +1,5 @@
  pub mod common;
 +pub mod user;
 +
-+pub use user::UserValidator;"#;
++pub use user::UserValidator;";

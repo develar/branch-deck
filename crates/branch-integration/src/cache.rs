@@ -10,7 +10,7 @@ pub const NOTES_REF: &str = "refs/notes/branch-deck/detection";
 // Current detection cache version
 pub const DETECTION_CACHE_VERSION: u8 = 1;
 
-/// Serialize BranchIntegrationInfo to compact JSON for git notes storage
+/// Serialize `BranchIntegrationInfo` to compact JSON for git notes storage
 pub fn serialize_for_cache(info: &BranchIntegrationInfo) -> Result<String> {
   let status_json = match &info.status {
     BranchIntegrationStatus::Integrated {
@@ -79,7 +79,12 @@ pub fn serialize_for_cache(info: &BranchIntegrationInfo) -> Result<String> {
   Ok(serde_json::to_string(&cache_entry)?)
 }
 
-/// Deserialize compact JSON from git notes to BranchIntegrationInfo (with empty name)
+/// Reads a numeric field as `u32`, saturating values that do not fit.
+fn read_u32(value: &serde_json::Value, key: &str) -> Option<u32> {
+  value.get(key).and_then(serde_json::Value::as_u64).map(|v| u32::try_from(v).unwrap_or(u32::MAX))
+}
+
+/// Deserialize compact JSON from git notes to `BranchIntegrationInfo` (with empty name)
 pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
   let value: Value = serde_json::from_str(json)?;
 
@@ -89,13 +94,13 @@ pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
 
   let status = match status_value.get("k").and_then(|v| v.as_str()) {
     Some("i") => {
-      let commit_count = status_value.get("cc").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+      let commit_count = read_u32(status_value, "cc").unwrap_or(0);
 
-      let integrated_at = status_value.get("ia").and_then(|v| v.as_u64()).map(|v| v as u32);
+      let integrated_at = read_u32(status_value, "ia");
 
       let confidence = match status_value.get("c").and_then(|v| v.as_str()) {
         Some("e") => IntegrationConfidence::Exact,
-        Some("h") | None => IntegrationConfidence::High, // Default to High for backward compatibility
+        // "h", missing, or unknown: default to High for backward compatibility
         _ => IntegrationConfidence::High,
       };
 
@@ -106,13 +111,13 @@ pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
       }
     }
     Some("n") => {
-      let total_commit_count = status_value.get("tc").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+      let total_commit_count = read_u32(status_value, "tc").unwrap_or(0);
 
-      let integrated_count = status_value.get("ic").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+      let integrated_count = read_u32(status_value, "ic").unwrap_or(0);
 
-      let orphaned_count = status_value.get("oc").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+      let orphaned_count = read_u32(status_value, "oc").unwrap_or(0);
 
-      let integrated_at = status_value.get("ia").and_then(|v| v.as_u64()).map(|v| v as u32);
+      let integrated_at = read_u32(status_value, "ia");
 
       BranchIntegrationStatus::NotIntegrated {
         total_commit_count,
@@ -122,7 +127,7 @@ pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
       }
     }
     Some("p") => {
-      let missing = status_value.get("m").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+      let missing = read_u32(status_value, "m").unwrap_or(0);
 
       BranchIntegrationStatus::Partial { missing }
     }
@@ -150,15 +155,12 @@ impl<'a> CacheOps<'a> {
   /// Read cache from git note (returns info with empty name - caller must set it)
   #[instrument(skip(self), fields(commit = %commit))]
   pub fn read(&self, commit: &str) -> Option<BranchIntegrationInfo> {
-    match self.git.execute_command(&["notes", "--ref", NOTES_REF, "show", commit], self.repo) {
-      Ok(json) => {
-        trace!("Found cache for {}", commit);
-        deserialize_from_cache(&json).ok()
-      }
-      Err(_) => {
-        trace!("No cache for {}", commit);
-        None
-      }
+    if let Ok(json) = self.git.execute_command(&["notes", "--ref", NOTES_REF, "show", commit], self.repo) {
+      trace!("Found cache for {}", commit);
+      deserialize_from_cache(&json).ok()
+    } else {
+      trace!("No cache for {}", commit);
+      None
     }
   }
 

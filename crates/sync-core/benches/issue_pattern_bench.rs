@@ -24,7 +24,7 @@ fn bench_find_issue_number(c: &mut Criterion) {
       b.iter(|| {
         let res = find_issue_number(black_box(input));
         black_box(res);
-      })
+      });
     });
   }
 
@@ -36,14 +36,14 @@ fn bench_find_issue_number(c: &mut Criterion) {
     b.iter(|| {
       let res = find_issue_number(black_box(input));
       black_box(res);
-    })
+    });
   });
 
   group.bench_with_input(BenchmarkId::new("long", "with_issue"), &long_with, |b, input| {
     b.iter(|| {
       let res = find_issue_number(black_box(input));
       black_box(res);
-    })
+    });
   });
 
   // Throughput style: run over a batch of inputs per iteration
@@ -64,7 +64,7 @@ fn bench_find_issue_number(c: &mut Criterion) {
         black_box(count)
       },
       BatchSize::SmallInput,
-    )
+    );
   });
 
   group.finish();

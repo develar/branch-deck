@@ -38,7 +38,7 @@ pub struct ValidateRepositoryPathParams {
 #[instrument]
 pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, String> {
   match sync_core::repository_validation::validate_path(&params.path) {
-    Ok(_) => Ok(String::new()),
+    Ok(()) => Ok(String::new()),
     Err(e) => Ok(e.to_string()),
   }
 }

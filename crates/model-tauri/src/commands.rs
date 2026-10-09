@@ -69,7 +69,7 @@ pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app
   let model_config = model_gen.get_model_config();
 
   // Check which files exist
-  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, &model_path);
+  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, &model_path);
   let all_files_present = config_exists && model_exists && tokenizer_exists;
 
   Ok(ModelStatus {
@@ -85,7 +85,7 @@ pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app
 }
 
 /// Check which model files exist in the given model path
-pub(crate) fn check_model_files_exist(model_config: &model_core::config::ModelConfig, model_path: &std::path::Path) -> (bool, bool, bool) {
+pub(crate) fn check_model_files_exist(model_config: model_core::config::ModelConfig, model_path: &std::path::Path) -> (bool, bool, bool) {
   let download_urls = model_config.download_urls();
 
   let mut config_exists = true; // Default to true for GGUF models
@@ -99,7 +99,10 @@ pub(crate) fn check_model_files_exist(model_config: &model_core::config::ModelCo
       "config.json" => config_exists = file_path.exists(),
       "tokenizer.json" => tokenizer_exists = file_path.exists(),
       // Any file that ends with .safetensors or .gguf is the model file
-      f if f.ends_with(".safetensors") || f.ends_with(".gguf") => {
+      f if std::path::Path::new(f)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("safetensors") || ext.eq_ignore_ascii_case("gguf")) =>
+      {
         model_exists = file_path.exists();
       }
       _ => {} // Ignore other files like merges.txt, tokenizer_config.json

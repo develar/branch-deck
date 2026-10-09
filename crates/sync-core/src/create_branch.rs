@@ -73,7 +73,7 @@ pub fn do_create_branch_from_commits(git_executor: &GitCommandExecutor, params: 
   }
 
   // Reword commits using plumbing commands
-  let reworded_count = rewrites.len() as u32;
+  let reworded_count = u32::try_from(rewrites.len()).unwrap_or(u32::MAX);
 
   match reword_commits_batch(git_executor, &params.repository_path, rewrites) {
     Ok(mapping) => {

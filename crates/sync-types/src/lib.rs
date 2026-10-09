@@ -58,7 +58,7 @@ pub enum SyncEvent {
     status: BranchSyncStatus,
     error: Option<BranchError>,
   },
-  /// Unified per-branch detection event for any status (Integrated, Orphaned, NotIntegrated, Partial)
+  /// Unified per-branch detection event for any status (Integrated, Orphaned, `NotIntegrated`, Partial)
   #[serde(rename_all = "camelCase")]
   BranchIntegrationDetected { info: branch_integration::BranchIntegrationInfo },
   /// Sent immediately when archived branches are found (before expensive detection)

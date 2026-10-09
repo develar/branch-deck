@@ -7,9 +7,8 @@ use tracing::instrument;
 #[inline]
 fn remote_branch_exists(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> bool {
   git_executor
-    .execute_command_with_status(&["--no-pager", "show-ref", "--verify", "--quiet", &format!("refs/remotes/{}", remote_ref)], repository_path)
-    .map(|(_, exit_code)| exit_code == 0)
-    .unwrap_or(false)
+    .execute_command_with_status(&["--no-pager", "show-ref", "--verify", "--quiet", &format!("refs/remotes/{remote_ref}")], repository_path)
+    .is_ok_and(|(_, exit_code)| exit_code == 0)
 }
 
 /// Get last push time from reflog if available
@@ -20,7 +19,7 @@ fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, 
     for line in lines {
       if line.contains("update by push") {
         // Extract unix timestamp from format: "hash refs/remotes/origin/branch@{unix_timestamp}: update by push"
-        if let Some(timestamp_start) = line.find("{")
+        if let Some(timestamp_start) = line.find('{')
           && let Some(timestamp_end) = line.find("}: update by push")
           && let Ok(timestamp) = line[timestamp_start + 1..timestamp_end].parse::<u32>()
         {
@@ -33,7 +32,7 @@ fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, 
 }
 
 /// Compute remote status for a single local virtual branch.
-/// local_ref must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix).
+/// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix).
 #[instrument(
   skip(git_executor),
   fields(
@@ -50,7 +49,7 @@ pub fn compute_remote_status_for_branch(
   total_commits_in_branch: u32,
   baseline_branch: &str, // Used to exclude commits already in master
 ) -> Result<RemoteStatusUpdate> {
-  let remote_ref = format!("origin/{}", local_ref);
+  let remote_ref = format!("origin/{local_ref}");
 
   // Fast check if remote exists
   if !remote_branch_exists(git_executor, repository_path, &remote_ref) {
@@ -65,7 +64,7 @@ pub fn compute_remote_status_for_branch(
   }
 
   // Get ahead/behind counts
-  let range = format!("{}...{}", remote_ref, local_ref);
+  let range = format!("{remote_ref}...{local_ref}");
   let counts = git_executor.execute_command(&["--no-pager", "rev-list", "--left-right", "--count", &range], repository_path)?;
   let counts = counts.trim();
   let mut parts = counts.split_whitespace();
@@ -91,22 +90,22 @@ pub fn compute_remote_status_for_branch(
   }
 
   // Get unpushed commits (all commits ahead, including patch-equivalent)
-  let unpushed_range = format!("{}..{}", remote_ref, local_ref);
+  let unpushed_range = format!("{remote_ref}..{local_ref}");
   let unpushed_commits = git_executor.execute_command_lines(&["--no-pager", "rev-list", "--reverse", &unpushed_range], repository_path)?;
 
   // Calculate my_unpushed_count only if we have an email to filter by
   let my_unpushed_count = if let Some(email) = my_email {
     // Get patch-unique commits by the specific author, excluding those already in baseline
     // Using git's --author filter and ^baseline to exclude commits already in master
-    let author_filter = format!("--author={}", email);
-    let baseline_exclusion = format!("^{}", baseline_branch);
+    let author_filter = format!("--author={email}");
+    let baseline_exclusion = format!("^{baseline_branch}");
     let output = git_executor.execute_command_lines(
       &["--no-pager", "rev-list", "--cherry-pick", "--right-only", &author_filter, &baseline_exclusion, &range],
       repository_path,
     )?;
 
     // Count patch-unique commits by the user that are not already in baseline
-    output.iter().filter(|line| !line.is_empty()).count() as u32
+    u32::try_from(output.iter().filter(|line| !line.is_empty()).count()).unwrap_or(u32::MAX)
   } else {
     0
   };

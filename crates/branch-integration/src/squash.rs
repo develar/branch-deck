@@ -33,7 +33,7 @@ pub fn detect_squash_status(git: &GitCommandExecutor, repo: &str, branch_name: &
     return Ok(Some(BranchIntegrationStatus::Integrated {
       integrated_at,
       confidence: IntegrationConfidence::High,
-      commit_count: right_count as u32,
+      commit_count: u32::try_from(right_count).unwrap_or(u32::MAX),
     }));
   }
 
@@ -52,7 +52,7 @@ pub fn detect_squash_status(git: &GitCommandExecutor, repo: &str, branch_name: &
         return Ok(Some(BranchIntegrationStatus::Integrated {
           integrated_at,
           confidence: IntegrationConfidence::High,
-          commit_count: right_count as u32,
+          commit_count: u32::try_from(right_count).unwrap_or(u32::MAX),
         }));
       }
     }

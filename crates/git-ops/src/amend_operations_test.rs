@@ -83,8 +83,8 @@ fn test_amend_to_commit_basic() -> Result<()> {
   let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
-  assert!(!result.amended_commit_id.is_empty());
-  assert!(!result.rebased_to_commit.is_empty());
+  assert_ne!(result.amended_commit_id, "");
+  assert_ne!(result.rebased_to_commit, "");
   assert_ne!(result.amended_commit_id, commit1);
 
   // Verify the file was amended
@@ -181,7 +181,7 @@ fn test_conflict_check_with_intervening_commits() -> Result<()> {
   // The important thing is that it runs without panicking
   match result {
     Ok(()) => println!("No conflicts detected"),
-    Err(e) => println!("Conflicts detected: {}", e),
+    Err(e) => println!("Conflicts detected: {e}"),
   }
 
   Ok(())
@@ -260,8 +260,8 @@ fn test_amend_with_unstaged_changes() -> Result<()> {
   let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
-  assert!(!result.amended_commit_id.is_empty());
-  assert!(!result.rebased_to_commit.is_empty());
+  assert_ne!(result.amended_commit_id, "");
+  assert_ne!(result.rebased_to_commit, "");
   assert_ne!(result.amended_commit_id, commit1);
 
   // Verify the file was amended
@@ -300,7 +300,7 @@ fn test_amend_with_mixed_staged_unstaged_changes() -> Result<()> {
   let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
-  assert!(!result.amended_commit_id.is_empty());
+  assert_ne!(result.amended_commit_id, "");
 
   // Verify both files were included in the amend
   assert_eq!(repo.get_file_content("file1.txt")?, "amended content");
@@ -393,8 +393,8 @@ fn test_amend_with_intervening_commits_modifying_same_file() -> Result<()> {
   let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
-  assert!(!result.amended_commit_id.is_empty());
-  assert!(!result.rebased_to_commit.is_empty());
+  assert_ne!(result.amended_commit_id, "");
+  assert_ne!(result.rebased_to_commit, "");
   assert_ne!(result.amended_commit_id, original_commit);
 
   // Verify commit count is still the same (no commits lost)
@@ -434,7 +434,7 @@ fn test_amend_multiple_files_optimization() -> Result<()> {
   let result = amend_to_commit_in_main(&repo.git, &repo.path, params)?;
 
   // Verify the operation succeeded
-  assert!(!result.amended_commit_id.is_empty());
+  assert_ne!(result.amended_commit_id, "");
   assert_ne!(result.amended_commit_id, original_commit);
 
   // Verify the amended commit contains our changes for file1 (the original commit only had file1)
@@ -480,8 +480,8 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
       match branch_err {
         crate::model::BranchError::MergeConflict(conflict_info) => {
           // Verify the conflict info has expected data
-          assert!(!conflict_info.commit_hash.is_empty());
-          assert!(!conflict_info.commit_message.is_empty());
+          assert_ne!(conflict_info.commit_hash, "");
+          assert_ne!(conflict_info.commit_message, "");
           assert!(!conflict_info.conflicting_files.is_empty());
 
           // Should have at least one conflicting file (file1.txt)
@@ -494,7 +494,7 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
           // Sometimes conflicts are detected but conflict analysis may fail
           // That's also acceptable behavior - the important thing is we detect conflicts
           assert!(msg.contains("conflict") || msg.contains("Rebase"));
-          println!("✓ Conflicts properly detected with message: {}", msg);
+          println!("✓ Conflicts properly detected with message: {msg}");
         }
       }
     }
@@ -502,7 +502,7 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
       // Check if it's a conflict-related error
       let error_msg = other_err.to_string();
       assert!(error_msg.contains("conflict") || error_msg.contains("Rebase"));
-      println!("✓ Conflicts properly detected with error: {}", error_msg);
+      println!("✓ Conflicts properly detected with error: {error_msg}");
     }
   }
 

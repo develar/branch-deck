@@ -19,7 +19,7 @@ fn test_cache_serialization() {
 
   // Test JSON serialization with short field names
   let json = serialize_for_cache(&info).unwrap();
-  assert!(json.contains(&format!("\"v\":{}", DETECTION_CACHE_VERSION))); // version field
+  assert!(json.contains(&format!("\"v\":{DETECTION_CACHE_VERSION}"))); // version field
   // The actual JSON structure uses "k" for the variant key
   assert!(json.contains("\"k\":\"i\"")); // status: integrated
   assert!(json.contains("\"cc\":3")); // commit_count
@@ -213,7 +213,7 @@ fn test_json_size_optimization() {
   let json = serialize_for_cache(&info).unwrap();
 
   // Verify it contains optimized field names
-  assert!(json.contains(&format!("\"v\":{}", DETECTION_CACHE_VERSION))); // version
+  assert!(json.contains(&format!("\"v\":{DETECTION_CACHE_VERSION}"))); // version
   assert!(json.contains("\"k\":\"i\"")); // status: integrated with variant key
   assert!(json.contains("\"cc\":5")); // commit_count
   assert!(json.contains("\"ia\":1703116800")); // integrated_at

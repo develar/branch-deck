@@ -30,3 +30,6 @@ git-executor = { path = "../git-executor" }
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }
 test-log = { workspace = true }
+
+[lints]
+workspace = true

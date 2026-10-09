@@ -47,7 +47,7 @@ impl ModelBasedBranchGenerator {
     self.core.set_model_config(config).await
   }
 
-  pub(crate) fn get_git_output_for_commits(&self, git_executor: &GitCommandExecutor, commits: &[CommitInfo], repo_path: &str) -> Result<String> {
+  pub(crate) fn get_git_output_for_commits(git_executor: &GitCommandExecutor, commits: &[CommitInfo], repo_path: &str) -> Result<String> {
     if commits.is_empty() {
       return Ok(String::new());
     }
@@ -109,7 +109,7 @@ impl ModelBasedBranchGenerator {
     }
 
     // Get git output once and reuse it
-    let git_output = self.get_git_output_for_commits(git_executor, commits, repository_path)?;
+    let git_output = Self::get_git_output_for_commits(git_executor, commits, repository_path)?;
 
     // Check if we should continue with this generation
     if my_generation_id != self.current_generation_id.load(std::sync::atomic::Ordering::SeqCst) {

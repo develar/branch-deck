@@ -206,7 +206,7 @@ fn test_get_merge_conflict_content_with_markers() {
     assert!(!file_diff.hunks.is_empty(), "Should have diff hunks");
     let hunk = &file_diff.hunks[0];
     assert!(hunk.contains("@@"), "Hunk should contain @@ markers");
-    assert!(hunk.contains("+"), "Hunk should show added lines with conflict markers");
+    assert!(hunk.contains('+'), "Hunk should show added lines with conflict markers");
 
     println!("Conflict content with markers:\n{conflict_content}");
     println!("Diff hunk:\n{hunk}");
@@ -289,8 +289,8 @@ fn test_conflict_detail_file_diff_structure() {
     );
 
     // Verify diff hunks for 3-way view
-    assert!(!conflict_detail.base_to_target_diff.hunks.is_empty());
-    assert!(!conflict_detail.base_to_cherry_diff.hunks.is_empty());
+    assert_ne!(conflict_detail.base_to_target_diff.hunks, [] as [std::string::String; 0]);
+    assert_ne!(conflict_detail.base_to_cherry_diff.hunks, [] as [std::string::String; 0]);
 
     println!("File diff old (target): {}", file_diff.old_file.content);
     println!("File diff new (conflict): {}", file_diff.new_file.content);
@@ -462,7 +462,7 @@ fun enable() {
 }"#;
 
   // Create cherry-pick - different change to event handling
-  let cherry_content = r#"class EternalEventStealer {
+  let cherry_content = r"class EternalEventStealer {
 private var counter = 0
 
 init {
@@ -474,7 +474,7 @@ init {
       false
   }, disposable)
 }
-}"#;
+}";
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -530,7 +530,7 @@ fn test_complex_multi_region_conflict() {
   let git_executor = &GitCommandExecutor::new();
 
   // Create a file with multiple distinct regions that will conflict
-  let initial_content = r#"function processEvent(event) {
+  let initial_content = r"function processEvent(event) {
 // Region 1: Event validation
 if (!event) {
   return false;
@@ -542,10 +542,10 @@ const result = handleEvent(event);
 // Region 3: Cleanup
 cleanup();
 return result;
-}"#;
+}";
 
   // Target branch: modify regions 1 and 3
-  let target_content = r#"function processEvent(event) {
+  let target_content = r"function processEvent(event) {
 // Region 1: Enhanced validation
 if (!event || !event.isValid()) {
   console.error('Invalid event');
@@ -563,10 +563,10 @@ try {
   logError(e);
 }
 return result;
-}"#;
+}";
 
   // Cherry-pick: modify regions 1 and 2
-  let cherry_content = r#"function processEvent(event) {
+  let cherry_content = r"function processEvent(event) {
 // Region 1: Type-safe validation
 if (!event || typeof event !== 'object') {
   throw new TypeError('Event must be an object');
@@ -578,7 +578,7 @@ const result = await handleEventAsync(event);
 // Region 3: Cleanup
 cleanup();
 return result;
-}"#;
+}";
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -689,7 +689,7 @@ fun disable() {
 }"#;
 
   // Cherry-pick - major refactoring with new event type
-  let cherry_content = r#"private class EternalEventStealer(disposable: Disposable) {
+  let cherry_content = r"private class EternalEventStealer(disposable: Disposable) {
 private var counter = 0
 
 private val specialEvents = LinkedBlockingQueue<ForcedEvent>()
@@ -703,7 +703,7 @@ init {
       false
   }, disposable)
 }
-}"#;
+}";
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -819,7 +819,7 @@ fn test_batch_commit_info_performance() {
     commit_ids_str.push(commit_id);
   }
 
-  let commit_ids: Vec<&str> = commit_ids_str.iter().map(|s| s.as_str()).collect();
+  let commit_ids: Vec<&str> = commit_ids_str.iter().map(std::string::String::as_str).collect();
 
   // Measure batch operation
   let start = std::time::Instant::now();

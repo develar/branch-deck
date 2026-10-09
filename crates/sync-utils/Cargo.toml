@@ -5,3 +5,5 @@ edition.workspace = true
 
 [dependencies]
 memchr = "2"
+[lints]
+workspace = true

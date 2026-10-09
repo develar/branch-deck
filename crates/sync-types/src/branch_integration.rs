@@ -16,12 +16,11 @@ impl PartialOrd for IntegrationConfidence {
 
 impl Ord for IntegrationConfidence {
   fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    use IntegrationConfidence::*;
+    use IntegrationConfidence::{Exact, High};
     match (self, other) {
-      (Exact, Exact) => std::cmp::Ordering::Equal,
+      (Exact, Exact) | (High, High) => std::cmp::Ordering::Equal,
       (Exact, High) => std::cmp::Ordering::Greater,
       (High, Exact) => std::cmp::Ordering::Less,
-      (High, High) => std::cmp::Ordering::Equal,
     }
   }
 }

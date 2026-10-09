@@ -5,7 +5,7 @@
 
 use tower_http::services::ServeDir;
 
-/// Creates a ServeDir service that serves static files from the `.output/public` directory
+/// Creates a `ServeDir` service that serves static files from the `.output/public` directory
 /// with SPA fallback support.
 ///
 /// This function:
@@ -26,7 +26,7 @@ use tower_http::services::ServeDir;
 /// # Test Mode Behavior
 ///
 /// In test mode (`#[cfg(test)]`), if the `.output` directory cannot be found, this function
-/// will create a minimal fallback ServeDir service using a temporary directory instead of panicking.
+/// will create a minimal fallback `ServeDir` service using a temporary directory instead of panicking.
 /// This allows unit tests to run without requiring the full Nuxt build output.
 pub fn serve_static_files() -> ServeDir {
   // Find the project root by looking for Cargo.toml

@@ -51,7 +51,7 @@ impl QuantizedQwen3BranchGenerator {
     // Load GGUF model
     debug!("Loading GGUF file...");
     let mut file = std::fs::File::open(&model_file)?;
-    let model_content = gguf_file::Content::read(&mut file).map_err(|e| anyhow::anyhow!("Failed to read GGUF: {}", e))?;
+    let model_content = gguf_file::Content::read(&mut file).map_err(|e| anyhow::anyhow!("Failed to read GGUF: {e}"))?;
 
     // Log model info
     let mut total_size_in_bytes = 0;
@@ -131,7 +131,7 @@ impl QuantizedQwen3BranchGenerator {
       let logits = logits.squeeze(0)?;
 
       // Apply repeat penalty like candle example
-      let logits = if self.repeat_penalty == 1.0 {
+      let logits = if (self.repeat_penalty - 1.0).abs() < f32::EPSILON {
         logits
       } else {
         let start_at = all_tokens.len().saturating_sub(self.repeat_last_n);
@@ -162,7 +162,7 @@ impl QuantizedQwen3BranchGenerator {
 
     let result = BranchNameResult {
       name: cleaned_name,
-      generation_time_ms: generation_time.as_millis() as u64,
+      generation_time_ms: u64::try_from(generation_time.as_millis()).unwrap_or(u64::MAX),
     };
 
     debug!("Generated branch name: '{}' in {}ms", result.name, result.generation_time_ms);
@@ -176,13 +176,13 @@ impl QuantizedQwen3BranchGenerator {
   }
 
   /// Create model-specific prompt for quantized Qwen3 models
-  /// Uses ChatML format which works better with quantized models
+  /// Uses `ChatML` format which works better with quantized models
   pub fn create_prompt(&self, git_output: &str) -> anyhow::Result<String> {
     crate::prompt::create_chatml_prompt(git_output, None)
   }
 
   /// Create alternative prompt when a previous suggestion exists
-  /// Uses ChatML format with modified system prompt
+  /// Uses `ChatML` format with modified system prompt
   pub fn create_alternative_prompt(&self, git_output: &str, previous_suggestion: &str) -> anyhow::Result<String> {
     crate::prompt::create_chatml_prompt(git_output, Some(previous_suggestion))
   }
@@ -200,6 +200,8 @@ impl std::fmt::Debug for QuantizedQwen3BranchGenerator {
       .field("model_loaded", &self.model.is_some())
       .field("tokenizer_loaded", &self.tokenizer.is_some())
       .field("device", &format!("{:?}", self.device))
+      .field("repeat_penalty", &self.repeat_penalty)
+      .field("repeat_last_n", &self.repeat_last_n)
       .finish()
   }
 }

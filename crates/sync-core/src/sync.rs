@@ -44,7 +44,7 @@ impl Default for SyncOptions {
 /// 1. For repositories without remotes: checks for local preferred branch, then master/main
 /// 2. For repositories with remotes:
 ///    - First tries to get the upstream tracking branch (@{u})
-///    - Then tries remote/preferred_branch (e.g., origin/master)
+///    - Then tries `remote/preferred_branch` (e.g., origin/master)
 ///    - Finally tries remote/master and remote/main
 ///
 /// # Arguments
@@ -113,9 +113,7 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
   }
 
   Err(anyhow!(
-    "No baseline branch found. Tried upstream tracking, {}/{{{},master,main}}",
-    first_remote,
-    preferred_branch
+    "No baseline branch found. Tried upstream tracking, {first_remote}/{{{preferred_branch},master,main}}"
   ))
 }
 
@@ -203,7 +201,7 @@ pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Com
 
     // Single pass to find latest commit time only (author emails are pre-computed)
     let mut latest_commit_time = 0u32;
-    for c in commits.iter() {
+    for c in commits {
       // Track latest committer timestamp
       if c.committer_timestamp > latest_commit_time {
         latest_commit_time = c.committer_timestamp;
@@ -376,7 +374,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let ordered_progress = ordered_progress.clone();
     let git_executor = git_executor.clone();
     let grouped_commits = grouped_commits.clone();
-    let baseline_branch = baseline_branch.to_string();
+    let baseline_branch = baseline_branch.clone();
     let branch_emails = branch_emails.clone();
 
     async move {
@@ -448,7 +446,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   let git_executor_clone = git_executor.clone();
   let repository_path_str = repository_path.to_string();
   let branch_prefix_str = branch_prefix.to_string();
-  let baseline_branch_str = baseline_branch.to_string();
+  let baseline_branch_str = baseline_branch.clone();
   let progress_clone = progress.clone();
 
   // Spawn integration detection task - runs concurrently with branch processing

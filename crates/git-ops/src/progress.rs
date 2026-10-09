@@ -23,7 +23,7 @@ pub struct CherryPickProgress<'a> {
   pub task_index: i16,
 }
 
-impl<'a> std::fmt::Debug for CherryPickProgress<'a> {
+impl std::fmt::Debug for CherryPickProgress<'_> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("CherryPickProgress")
       .field("branch_name", &self.branch_name)

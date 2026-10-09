@@ -9,7 +9,7 @@ use crate::menu_state::MenuState;
 pub async fn update_menu_checkbox(app: AppHandle, menu_id: String, checked: bool) -> Result<(), String> {
   // Currently we only support the auto_sync_on_focus checkbox
   if menu_id != "auto_sync_on_focus" {
-    return Err(format!("Unsupported menu_id: {}", menu_id));
+    return Err(format!("Unsupported menu_id: {menu_id}"));
   }
 
   // Get MenuState from app state
@@ -23,7 +23,7 @@ pub async fn update_menu_checkbox(app: AppHandle, menu_id: String, checked: bool
   })?;
 
   checkbox.set_checked(checked).map_err(|e| {
-    let error_msg = format!("Failed to set checkbox state: {}", e);
+    let error_msg = format!("Failed to set checkbox state: {e}");
     tracing::error!("{}", error_msg);
     error_msg
   })?;

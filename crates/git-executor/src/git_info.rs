@@ -46,8 +46,7 @@ impl GitInfo {
 
     if major < MIN_MAJOR || (major == MIN_MAJOR && minor < MIN_MINOR) {
       Err(format!(
-        "Git version {}.{} is too old. Branch Deck requires Git {}.{} or newer. Please upgrade your Git installation.",
-        major, minor, MIN_MAJOR, MIN_MINOR
+        "Git version {major}.{minor} is too old. Branch Deck requires Git {MIN_MAJOR}.{MIN_MINOR} or newer. Please upgrade your Git installation."
       ))
     } else {
       Ok(())
@@ -89,12 +88,9 @@ fn get_git_path() -> Result<String, String> {
 
   // Validate system git version
   let info = GitInfo::from_path(&system_git)?;
-  info.validate_minimum_version().map_err(|e| {
-    format!(
-      "{}\nNote: Homebrew git not found or doesn't meet requirements. Please install/upgrade with: brew install git",
-      e
-    )
-  })?;
+  info
+    .validate_minimum_version()
+    .map_err(|e| format!("{e}\nNote: Homebrew git not found or doesn't meet requirements. Please install/upgrade with: brew install git"))?;
 
   Ok(system_git)
 }

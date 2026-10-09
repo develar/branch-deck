@@ -156,7 +156,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
 
   // Wait for all templates to be created
   for result in futures {
-    result.await?.map_err(|e| anyhow::anyhow!("Failed to create template: {}", e))?;
+    result.await?.map_err(|e| anyhow::anyhow!("Failed to create template: {e}"))?;
   }
 
   Ok(())

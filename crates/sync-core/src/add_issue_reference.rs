@@ -83,7 +83,7 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
     });
   }
 
-  let updated_count = rewrites.len() as u32;
+  let updated_count = u32::try_from(rewrites.len()).unwrap_or(u32::MAX);
 
   if rewrites.is_empty() {
     return Ok(AddIssueReferenceResult {

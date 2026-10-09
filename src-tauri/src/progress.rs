@@ -24,7 +24,7 @@ impl ProgressReporter for TauriProgressReporter {
   }
 }
 
-/// Adapter that implements ProgressCallback for Tauri Channel
+/// Adapter that implements `ProgressCallback` for Tauri Channel
 /// This allows git-ops to send progress updates through Tauri IPC
 pub struct TauriChannelProgress<'a> {
   channel: &'a Channel<SyncEvent>,
@@ -36,7 +36,7 @@ impl<'a> TauriChannelProgress<'a> {
   }
 }
 
-impl<'a> ProgressCallback for TauriChannelProgress<'a> {
+impl ProgressCallback for TauriChannelProgress<'_> {
   fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> Result<()> {
     self.channel.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })?;
     Ok(())

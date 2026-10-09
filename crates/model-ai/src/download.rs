@@ -30,7 +30,7 @@ impl ProgressReporter for ConsoleProgressReporter {
 
   fn report_file_started(&self, file_name: &str, file_size: Option<u32>) -> Result<()> {
     if let Some(size) = file_size {
-      println!("  ↓ Downloading {} ({:.2} MB)...", file_name, size as f64 / 1_000_000.0);
+      println!("  ↓ Downloading {} ({:.2} MB)...", file_name, f64::from(size) / 1_000_000.0);
     } else {
       println!("  ↓ Downloading {file_name}...");
     }
@@ -38,11 +38,12 @@ impl ProgressReporter for ConsoleProgressReporter {
   }
 
   fn report_progress(&self, file_name: &str, downloaded: u32, total: u32, bytes_per_second: Option<u32>, seconds_remaining: Option<u32>) -> Result<()> {
-    let percent = (downloaded as f64 / total as f64 * 100.0) as u32;
+    use std::io::Write;
+    let percent = approx_ratio_u32(u64::from(downloaded) * 100, f64::from(total));
     print!("\r  ↓ {file_name} - {percent}% ");
 
     if let Some(bps) = bytes_per_second {
-      print!("({:.1} MB/s) ", bps as f64 / 1_000_000.0);
+      print!("({:.1} MB/s) ", f64::from(bps) / 1_000_000.0);
     }
 
     if let Some(secs) = seconds_remaining
@@ -51,7 +52,6 @@ impl ProgressReporter for ConsoleProgressReporter {
       print!("- {} remaining", format_duration(secs));
     }
 
-    use std::io::Write;
     std::io::stdout().flush().ok();
     Ok(())
   }
@@ -94,7 +94,7 @@ fn create_http_client() -> Result<ClientWithMiddleware> {
     .build()
     .map_err(|e| {
       error!("Failed to create HTTP client: {}", e);
-      anyhow::anyhow!("Failed to create HTTP client: {}", e)
+      anyhow::anyhow!("Failed to create HTTP client: {e}")
     })?;
 
   // Create retry policy: 3 retries with exponential backoff
@@ -117,6 +117,7 @@ async fn download_file(
   progress: &dyn ProgressReporter,
   cancelled: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
+  use tokio::io::AsyncWriteExt;
   // Check if we can resume a partial download
   let mut resume_from = 0u64;
   let temp_path = file_path.with_extension("download");
@@ -146,7 +147,7 @@ async fn download_file(
     let msg = format!("Failed to download {filename}: {e}");
     error!("{}", msg);
     let _ = progress.report_error(&msg);
-    anyhow::anyhow!("{}", msg)
+    anyhow::anyhow!("{msg}")
   })?;
 
   // Check response status
@@ -156,7 +157,7 @@ async fn download_file(
     let msg = format!("Failed to download {filename}: HTTP {status}");
     error!("{}", msg);
     let _ = progress.report_error(&msg);
-    return Err(anyhow::anyhow!("{}", msg));
+    return Err(anyhow::anyhow!("{msg}"));
   }
 
   // Get content length
@@ -180,7 +181,7 @@ async fn download_file(
       let msg = format!("Failed to create file {filename}: {e}");
       error!("{}", msg);
       let _ = progress.report_error(&msg);
-      anyhow::anyhow!("{}", msg)
+      anyhow::anyhow!("{msg}")
     })?;
 
     // Get response stream
@@ -188,14 +189,12 @@ async fn download_file(
     let mut downloaded = resume_from;
     let mut last_progress_update = std::time::Instant::now();
     let download_start = std::time::Instant::now();
-    let mut last_percentage = (resume_from * 100).checked_div(total_size).unwrap_or(0) as u32;
+    let mut last_percentage = saturating_u32((resume_from * 100).checked_div(total_size).unwrap_or(0));
 
     // Send initial progress if resuming
     if resume_from > 0 {
-      let _ = progress.report_progress(filename, downloaded.min(u32::MAX as u64) as u32, total_size.min(u32::MAX as u64) as u32, None, None);
+      let _ = progress.report_progress(filename, saturating_u32(downloaded), saturating_u32(total_size), None, None);
     }
-
-    use tokio::io::AsyncWriteExt;
 
     // Stream download with progress updates
     while let Some(chunk_result) = stream.next().await {
@@ -211,7 +210,7 @@ async fn download_file(
         let msg = format!("Failed to download chunk for {filename}: {e}");
         error!("{}", msg);
         let _ = progress.report_error(&msg);
-        anyhow::anyhow!("{}", msg)
+        anyhow::anyhow!("{msg}")
       })?;
 
       // Write chunk to file
@@ -219,13 +218,13 @@ async fn download_file(
         let msg = format!("Failed to write chunk for {filename}: {e}");
         error!("{}", msg);
         let _ = progress.report_error(&msg);
-        anyhow::anyhow!("{}", msg)
+        anyhow::anyhow!("{msg}")
       })?;
 
       downloaded += chunk.len() as u64;
 
       // Calculate current percentage
-      let current_percentage = (downloaded * 100).checked_div(total_size).unwrap_or(0) as u32;
+      let current_percentage = saturating_u32((downloaded * 100).checked_div(total_size).unwrap_or(0));
 
       // Send progress update every 1000ms and when percentage changes by at least 1%
       if last_progress_update.elapsed() > Duration::from_millis(1000) && (current_percentage > last_percentage || current_percentage == 100) {
@@ -235,7 +234,7 @@ async fn download_file(
         let elapsed_secs = download_start.elapsed().as_secs_f64();
         let bytes_downloaded_in_session = downloaded - resume_from;
         let bytes_per_second = if elapsed_secs > 0.0 {
-          Some((bytes_downloaded_in_session as f64 / elapsed_secs) as u32)
+          Some(approx_ratio_u32(bytes_downloaded_in_session, elapsed_secs))
         } else {
           None
         };
@@ -243,7 +242,7 @@ async fn download_file(
         let seconds_remaining = if let Some(bps) = bytes_per_second {
           if bps > 0 {
             let remaining_bytes = total_size.saturating_sub(downloaded);
-            Some((remaining_bytes as f64 / bps as f64) as u32)
+            Some(approx_ratio_u32(remaining_bytes, f64::from(bps)))
           } else {
             None
           }
@@ -251,26 +250,20 @@ async fn download_file(
           None
         };
 
-        let _ = progress.report_progress(
-          filename,
-          downloaded.min(u32::MAX as u64) as u32,
-          total_size.min(u32::MAX as u64) as u32,
-          bytes_per_second,
-          seconds_remaining,
-        );
+        let _ = progress.report_progress(filename, saturating_u32(downloaded), saturating_u32(total_size), bytes_per_second, seconds_remaining);
         last_progress_update = std::time::Instant::now();
       }
     }
 
     // Final progress update
-    let _ = progress.report_progress(filename, downloaded.min(u32::MAX as u64) as u32, total_size.min(u32::MAX as u64) as u32, None, Some(0));
+    let _ = progress.report_progress(filename, saturating_u32(downloaded), saturating_u32(total_size), None, Some(0));
 
     // Flush file
     file.flush().await.map_err(|e| {
       let msg = format!("Failed to flush file {filename}: {e}");
       error!("{}", msg);
       let _ = progress.report_error(&msg);
-      anyhow::anyhow!("{}", msg)
+      anyhow::anyhow!("{msg}")
     })?;
 
     // Move temp file to final location
@@ -278,7 +271,7 @@ async fn download_file(
       let msg = format!("Failed to move downloaded file {filename}: {e}");
       error!("{}", msg);
       let _ = progress.report_error(&msg);
-      anyhow::anyhow!("{}", msg)
+      anyhow::anyhow!("{msg}")
     })?;
 
     let _ = progress.report_file_completed(filename);
@@ -288,18 +281,33 @@ async fn download_file(
       let msg = format!("Failed to read response for {filename}: {e}");
       error!("{}", msg);
       let _ = progress.report_error(&msg);
-      anyhow::anyhow!("{}", msg)
+      anyhow::anyhow!("{msg}")
     })?;
 
     tokio::fs::write(file_path, &bytes).await.map_err(|e| {
       let msg = format!("Failed to write {filename}: {e}");
       error!("{}", msg);
       let _ = progress.report_error(&msg);
-      anyhow::anyhow!("{}", msg)
+      anyhow::anyhow!("{msg}")
     })?;
   }
 
   Ok(())
+}
+
+fn saturating_u32(value: u64) -> u32 {
+  u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+/// Approximate `numerator / denominator` for progress statistics.
+#[expect(
+  clippy::cast_precision_loss,
+  clippy::cast_possible_truncation,
+  clippy::cast_sign_loss,
+  reason = "approximate progress statistics; float-to-int `as` saturates and maps NaN to 0"
+)]
+fn approx_ratio_u32(numerator: u64, denominator: f64) -> u32 {
+  (numerator as f64 / denominator) as u32
 }
 
 /// Download model files with optional cancellation support
@@ -312,14 +320,14 @@ pub async fn download_model_files(model_config: &ModelConfig, provider: &dyn Mod
   let files = model_config.download_urls();
 
   // Send start event with correct file count
-  progress.report_started(files.len() as u32)?;
+  progress.report_started(u32::try_from(files.len()).unwrap_or(u32::MAX))?;
 
   // Create model directory if it doesn't exist
   tokio::fs::create_dir_all(&model_path).await.map_err(|e| {
     let msg = format!("Failed to create model directory: {e}");
     error!("{}", msg);
     let _ = progress.report_error(&msg);
-    anyhow::anyhow!("{}", msg)
+    anyhow::anyhow!("{msg}")
   })?;
 
   // Create HTTP client with retry middleware
@@ -351,7 +359,7 @@ pub async fn download_model_files(model_config: &ModelConfig, provider: &dyn Mod
 
     // Download file with retry and resume support
     match download_file(&client, url, &file_path, filename, expected_size, progress, cancelled.clone()).await {
-      Ok(_) => {
+      Ok(()) => {
         info!("Successfully downloaded {}", filename);
       }
       Err(e) => {

@@ -26,15 +26,18 @@ impl RepoTemplate {
     }
   }
 
+  #[must_use]
   pub fn branch_prefix(mut self, prefix: impl Into<String>) -> Self {
     self.branch_prefix = Some(prefix.into());
     self
   }
 
+  #[must_use]
   pub fn commit(self, message: impl Into<String>, files: &[(&str, &str)]) -> Self {
     self.commit_with_timestamp(message, files, None)
   }
 
+  #[must_use]
   pub fn commit_with_timestamp(mut self, message: impl Into<String>, files: &[(&str, &str)], timestamp: Option<i64>) -> Self {
     let files = files.iter().map(|(path, content)| (path.to_string(), content.to_string())).collect();
 
@@ -1082,7 +1085,7 @@ data class User(
       let create_archived_from = |branch_name: &str, steps: &[(&str, &str, &str, i64)]| -> Result<()> {
         co_initial()?;
         // create a temp branch
-        let tmp = format!("tmp-{}", branch_name);
+        let tmp = format!("tmp-{branch_name}");
         Command::new("git").args(["checkout", "-b", &tmp]).current_dir(output_path).output()?;
         for (path, content, message, ts) in steps {
           write_file(path, content)?;
@@ -1090,7 +1093,7 @@ data class User(
           git_commit(message, *ts)?;
         }
         // Use the expected archived prefix as per E2E docs and snapshots
-        let full_ref = format!("user-name/archived/{date}/{branch}", branch = branch_name);
+        let full_ref = format!("user-name/archived/{date}/{branch_name}");
         Command::new("git").args(["branch", &full_ref, "HEAD"]).current_dir(output_path).output()?;
         // return to master
         Command::new("git").args(["checkout", "-f", "main"]).current_dir(output_path).output()?;

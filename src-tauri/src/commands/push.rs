@@ -57,7 +57,7 @@ pub async fn push_branch(git_executor: State<'_, GitCommandExecutor>, params: Pu
       params.total_commits,
       &params.baseline_branch,
     )
-    .map_err(|e| format!("Failed to compute remote status: {}", e))?;
+    .map_err(|e| format!("Failed to compute remote status: {e}"))?;
 
     Ok(remote_status)
   })

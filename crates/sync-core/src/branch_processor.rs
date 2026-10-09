@@ -39,7 +39,7 @@ enum CommitProcessingResult {
   BranchError,
 }
 
-/// Progress adapter that implements ProgressCallback for the ProgressReporter trait
+/// Progress adapter that implements `ProgressCallback` for the `ProgressReporter` trait
 pub(crate) struct ProgressReporterAdapter<'a, P: ProgressReporter> {
   reporter: &'a P,
 }
@@ -50,7 +50,7 @@ impl<'a, P: ProgressReporter> ProgressReporterAdapter<'a, P> {
   }
 }
 
-impl<'a, P: ProgressReporter> ProgressCallback for ProgressReporterAdapter<'a, P> {
+impl<P: ProgressReporter> ProgressCallback for ProgressReporterAdapter<'_, P> {
   fn send_branch_status(&self, branch_name: String, status: BranchSyncStatus, error: Option<BranchError>) -> Result<()> {
     self.reporter.send(SyncEvent::BranchStatusUpdate { branch_name, status, error })
   }
@@ -88,7 +88,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
     baseline_branch,
   } = params;
 
-  let task_index = current_branch_idx as i16;
+  let task_index = i16::try_from(current_branch_idx).unwrap_or(i16::MAX);
   let full_branch_name = to_final_branch_name(&branch_prefix, &branch_name)?;
 
   let is_existing_branch = branch_exists(&git_executor, &repository_path, &full_branch_name);
@@ -120,7 +120,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   let total_commits_in_branch = commits.len();
 
   // Collect all commit hashes for potential blocking notifications
-  let all_commit_hashes: Vec<String> = commits.iter().map(|c| c.id.to_string()).collect();
+  let all_commit_hashes: Vec<String> = commits.iter().map(|c| c.id.clone()).collect();
 
   for (current_commit_idx, commit) in commits.into_iter().enumerate() {
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
@@ -149,9 +149,9 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
       existing_virtual_commits: existing_virtual_commits.as_ref(),
     };
 
-    let original_hash = commit.id.to_string();
+    let original_hash = commit.id.clone();
 
-    match process_single_commit(commit_params, &branch_name, &original_hash, &all_commit_hashes, progress.clone(), &progress_info)? {
+    match process_single_commit(commit_params, &branch_name, &original_hash, &all_commit_hashes, &progress, &progress_info)? {
       CommitProcessingResult::Success {
         new_commit_hash,
         sync_status,
@@ -169,7 +169,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
           }
         }
 
-        current_parent_hash = new_commit_hash.clone();
+        current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
       }
       CommitProcessingResult::BranchError => {
@@ -196,7 +196,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
   // only update the branch if it's new or changed
   if branch_sync_status != BranchSyncStatus::Unchanged {
     // Use git CLI to update branch reference
-    let commit_hash_str = last_commit_hash.to_string();
+    let commit_hash_str = last_commit_hash.clone();
     let args = vec!["branch", "-f", &full_branch_name, &commit_hash_str];
     git_executor.execute_command(&args, &repository_path)?;
   }
@@ -233,7 +233,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter + Clone>(params: BranchP
     &local_ref,
     &branch_name,
     my_email.as_deref(),
-    total_commits_in_branch as u32,
+    u32::try_from(total_commits_in_branch).unwrap_or(u32::MAX),
     &baseline_branch,
   ) {
     let _ = progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
@@ -256,7 +256,7 @@ fn process_single_commit<P: ProgressReporter>(
   branch_name: &str,
   original_hash: &str,
   all_commit_hashes: &[String],
-  progress: P,
+  progress: &P,
   progress_info: &git_ops::copy_commit::ProgressInfo<'_>,
 ) -> Result<CommitProcessingResult> {
   let result = create_or_update_commit(commit_params);

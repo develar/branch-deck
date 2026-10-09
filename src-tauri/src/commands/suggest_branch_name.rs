@@ -57,11 +57,10 @@ pub async fn suggest_branch_name_stream(
       let error_message = format!("Model loading failed. Please check your internet connection and try again. ({e})");
       progress.send(SuggestionProgress::Error { message: error_message.clone() }).ok();
       return Err(error_message);
-    } else {
-      let error_message = format!("Failed to load model: {e}");
-      progress.send(SuggestionProgress::Error { message: error_message.clone() }).ok();
-      return Err(error_message);
     }
+    let error_message = format!("Failed to load model: {e}");
+    progress.send(SuggestionProgress::Error { message: error_message.clone() }).ok();
+    return Err(error_message);
   }
 
   // Generate branch names with streaming - fail if generation fails
@@ -69,7 +68,7 @@ pub async fn suggest_branch_name_stream(
     .generate_branch_names_stream(&git_executor, &params.commits, &params.repository_path, &progress, my_generation_id)
     .await
   {
-    Ok(_) => {
+    Ok(()) => {
       progress.send(SuggestionProgress::Completed).map_err(|e| format!("Failed to send completion: {e}"))?;
       Ok(())
     }

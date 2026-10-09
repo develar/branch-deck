@@ -18,7 +18,7 @@ pub fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, descend
   git.execute_command(&["merge-base", "--is-ancestor", ancestor, descendant], repo).is_ok()
 }
 
-/// List virtual branches that are not currently active (not in grouped_commits)
+/// List virtual branches that are not currently active (not in `grouped_commits`)
 /// Returns only branches that should be checked for integration detection
 #[instrument(skip(git, grouped_commits), fields(repo = %repo, branch_prefix = %branch_prefix), ret)]
 pub fn list_inactive_virtual_branches(
@@ -149,14 +149,16 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
           && let Some((commit, note)) = record.split_once('\x1f')
         {
           let note = note.trim();
-          if !note.is_empty() {
+          if note.is_empty() {
+            debug!(commit = %commit, "Empty note for commit");
+          } else {
             debug!(commit = %commit, "Found note for commit");
             // Parse the JSON note into DetectionCache immediately
             match parse_cached_note(note) {
               Some(mut cache_info) => {
                 // Find the branch name for this commit using all_branch_commits
                 if let Some((branch_name, _)) = all_branch_commits.iter().find(|(_, c)| c == &commit) {
-                  cache_info.name = branch_name.clone();
+                  cache_info.name.clone_from(branch_name);
                 }
                 debug!(commit = %commit, "Successfully parsed detection cache");
                 branch_notes.insert(commit.to_string(), cache_info);
@@ -165,8 +167,6 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
                 warn!(commit = %commit, note = %note, "Failed to parse detection cache JSON");
               }
             }
-          } else {
-            debug!(commit = %commit, "Empty note for commit");
           }
         } else if !record.is_empty() {
           debug!(record = %record, "Could not parse record");

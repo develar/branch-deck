@@ -48,6 +48,23 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 clap = { version = "4.6", features = ["derive"] }
 tokio-stream = "0.1"
 
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+# Unix timestamps in tests and templates are conventionally written without separators.
+unreadable_literal = "allow"
+# Test bindings and git terms (oid/oids, base/bases) trip this lint without being confusing.
+similar_names = "allow"
+# Test fixtures, repo templates and the sync pipeline are long linear procedures; splitting them adds only indirection.
+too_many_lines = "allow"
+# `test_log::test` injects statements before the test body, so every item inside a test is flagged.
+items_after_statements = "allow"
+# Internal application functions never need custom hashers; generic `S: BuildHasher` parameters only add noise.
+implicit_hasher = "allow"
+
 # Optimize ML dependencies for better performance
 [profile.dev.package."candle-core"]
 opt-level = 2

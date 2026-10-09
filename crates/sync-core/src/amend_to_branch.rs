@@ -49,6 +49,6 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
       rebased_to_commit: result.rebased_to_commit,
     })),
     Err(CopyCommitError::BranchError(branch_error)) => Ok(AmendCommandResult::BranchError(branch_error)),
-    Err(CopyCommitError::Other(other_err)) => Err(format!("Failed to amend commit: {}", other_err)),
+    Err(CopyCommitError::Other(other_err)) => Err(format!("Failed to amend commit: {other_err}")),
   }
 }

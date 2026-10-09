@@ -45,7 +45,7 @@ fn validate_commits_in_head(git_executor: &GitCommandExecutor, repository_path: 
   }
 
   if !missing_commits.is_empty() {
-    return Err(anyhow!("The following commits are not found in HEAD: {:?}", missing_commits));
+    return Err(anyhow!("The following commits are not found in HEAD: {missing_commits:?}"));
   }
 
   Ok(())
@@ -54,7 +54,7 @@ fn validate_commits_in_head(git_executor: &GitCommandExecutor, repository_path: 
 /// Rename a branch to an unapplied namespace, ensuring no collisions by appending a numeric suffix if needed.
 /// Returns the final unapplied branch name.
 fn move_branch_to_unapplied(git_executor: &GitCommandExecutor, repo: &str, from_branch: &str, branch_prefix: &str) -> Result<String> {
-  let simple_name = extract_branch_name_from_final(from_branch, branch_prefix).ok_or_else(|| anyhow!("Could not extract simple name from branch: {}", from_branch))?;
+  let simple_name = extract_branch_name_from_final(from_branch, branch_prefix).ok_or_else(|| anyhow!("Could not extract simple name from branch: {from_branch}"))?;
 
   let base_unapplied_name = to_unapplied_branch_name(branch_prefix, &simple_name)?;
   let mut target = base_unapplied_name.clone();
@@ -76,7 +76,7 @@ fn move_branch_to_unapplied(git_executor: &GitCommandExecutor, repo: &str, from_
   }
 
   // Lock to prevent race conditions when multiple tasks try to create branches in same directory
-  let _guard = UNAPPLY_MUTEX.lock().map_err(|e| anyhow!("Failed to acquire unapply mutex: {}", e))?;
+  let _guard = UNAPPLY_MUTEX.lock().map_err(|e| anyhow!("Failed to acquire unapply mutex: {e}"))?;
 
   // Create directory structure for unapplied branches if needed
   // The unapplied path (e.g., user/unapplied) requires directory structure in .git/refs.
@@ -112,16 +112,16 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   } = params;
 
   // Safety check: only allow unapplying virtual branches
-  let virtual_prefix = format!("{}/virtual/", branch_prefix);
+  let virtual_prefix = format!("{branch_prefix}/virtual/");
   if !branch_name.starts_with(&virtual_prefix) {
     return Err(anyhow!("Can only unapply virtual branches under the configured branch prefix"));
   }
 
   // Verify branch exists
-  let branch_ref = format!("refs/heads/{}", branch_name);
+  let branch_ref = format!("refs/heads/{branch_name}");
   let exists = git_executor.execute_command(&["show-ref", "--verify", &branch_ref], &repository_path).is_ok();
   if !exists {
-    return Err(anyhow!("Virtual branch does not exist: {}", branch_name));
+    return Err(anyhow!("Virtual branch does not exist: {branch_name}"));
   }
 
   // Check if we're currently on the virtual branch
@@ -140,7 +140,7 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   debug!(unapplied_branch = %unapplied_branch_name, "Moved virtual branch to unapplied");
 
   // Drop the specified commits from HEAD
-  let _new_head = drop_commits_from_head(git_executor, &repository_path, &original_commit_ids, baseline_branch).map_err(|e| anyhow!("Failed to drop commits from HEAD: {}", e))?;
+  let _new_head = drop_commits_from_head(git_executor, &repository_path, &original_commit_ids, baseline_branch).map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
 
   debug!(commits_dropped = original_commit_ids.len(), "Successfully dropped commits from HEAD");
 

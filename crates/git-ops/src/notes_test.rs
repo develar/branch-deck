@@ -36,7 +36,7 @@ fn test_write_single_commit_note() {
   assert!(result.is_ok());
 
   // Verify the note was written
-  let note_content = test_repo.show_note(&commit1_hash).unwrap_or_else(|e| panic!("Failed to read note: {}", e));
+  let note_content = test_repo.show_note(&commit1_hash).unwrap_or_else(|e| panic!("Failed to read note: {e}"));
   assert_eq!(note_content.trim(), format!("{PREFIX}{commit2_hash}"));
 }
 
@@ -76,7 +76,7 @@ fn test_write_multiple_commit_notes() {
   for i in 0..7 {
     let note_content = test_repo
       .show_note(&original_commits[i])
-      .unwrap_or_else(|e| panic!("Failed to read note for commit {}: {}", i, e));
+      .unwrap_or_else(|e| panic!("Failed to read note for commit {i}: {e}"));
     assert_eq!(
       note_content.trim(),
       format!("{}{}", PREFIX, new_commits[i]),

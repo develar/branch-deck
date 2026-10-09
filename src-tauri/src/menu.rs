@@ -99,6 +99,7 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value, reason = "signature is dictated by tauri's on_menu_event callback")]
 #[instrument(skip(app), fields(menu_id = ?event.id()))]
 pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
   match event.id().as_ref() {

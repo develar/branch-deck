@@ -123,8 +123,8 @@ mod tests {
     let original_line = " M community/platform/jps-bootstrap/pom.xml";
     let trimmed_line = original_line.trim(); // This simulates the old bug
 
-    println!("Original: {:?}", original_line);
-    println!("Trimmed: {:?}", trimmed_line);
+    println!("Original: {original_line:?}");
+    println!("Trimmed: {trimmed_line:?}");
 
     // Parse original (correct behavior)
     let original_filename = &original_line[3..];
@@ -147,6 +147,7 @@ mod tests {
     struct MockGitExecutor;
 
     impl MockGitExecutor {
+      #[expect(clippy::unused_self, clippy::unnecessary_wraps, reason = "mirrors the GitCommandExecutor method signature")]
       fn execute_command_raw(&self, _args: &[&str], _repo_path: &str) -> Result<String, String> {
         // Simulate what git status --porcelain -z actually returns (with leading spaces intact)
         Ok(" M community/platform/jps-bootstrap/pom.xml\0A  new-file.txt\0".to_string())

@@ -121,7 +121,7 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
   for line in lines {
     let mut parts = line.split_whitespace();
     if let Some(commit) = parts.next() {
-      let parent = parts.next().map(|p| p.to_string());
+      let parent = parts.next().map(std::string::ToString::to_string);
       commits_with_parents.push((commit.to_string(), parent));
     }
   }

@@ -23,7 +23,7 @@ impl From<anyhow::Error> for CopyCommitError {
 
 impl From<tauri::Error> for CopyCommitError {
   fn from(err: tauri::Error) -> Self {
-    CopyCommitError::Other(anyhow!("Tauri error: {}", err))
+    CopyCommitError::Other(anyhow!("Tauri error: {err}"))
   }
 }
 
@@ -66,6 +66,8 @@ pub struct CreateCommitParams<'a> {
 // Returns new commit hash, sync status, and note info for later writing
 #[instrument(skip(params), fields(commit_id = %params.commit.id, branch = %params.progress_info.branch_name))]
 pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String, CommitSyncStatus, Option<CommitNoteInfo>), CopyCommitError> {
+  use crate::cherry_pick::perform_fast_cherry_pick_with_context;
+  use crate::progress::CherryPickProgress;
   let CreateCommitParams {
     commit,
     new_parent_oid,
@@ -105,9 +107,8 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
           CommitSyncStatus::Unchanged,
           Some(note_info), // Return note info for database tracking
         ));
-      } else {
-        debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit no longer exists, will re-copy");
       }
+      debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit no longer exists, will re-copy");
     }
   }
 
@@ -128,8 +129,6 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
   } else {
     debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     // Use cherry-pick for efficient 3-way merge with conflict handling
-    use crate::cherry_pick::perform_fast_cherry_pick_with_context;
-    use crate::progress::CherryPickProgress;
     let cherry_progress = CherryPickProgress::new(progress, progress_info.branch_name, task_index);
     perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, &new_parent_oid, Some(&cherry_progress), tree_id_cache)?
   };
@@ -160,7 +159,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
 
   let output = git_executor
     .execute_command_with_env(&commit_args, repo_path, &env_vars)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {}", e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
 
   let new_commit_hash = output.trim().to_string();
 
@@ -172,10 +171,10 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<(String
     author: commit.author_name.clone(),
     author_email: commit.author_email.clone(),
     tree_id: commit.tree_id.clone(),
-    subject: if !commit.stripped_subject.is_empty() {
-      commit.stripped_subject.clone()
-    } else {
+    subject: if commit.stripped_subject.is_empty() {
       commit.subject.clone()
+    } else {
+      commit.stripped_subject.clone()
     },
   };
 

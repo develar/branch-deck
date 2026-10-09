@@ -29,7 +29,7 @@ impl TestRepo {
     // Initialize git repository
     git_executor
       .execute_command(&["init"], repo_path.to_str().unwrap())
-      .unwrap_or_else(|e| panic!("Git init failed: {}", e));
+      .unwrap_or_else(|e| panic!("Git init failed: {e}"));
 
     // Configure git user for the test repo
     Self::configure_git_user(&git_executor, repo_path.to_str().unwrap()).unwrap();
@@ -90,7 +90,7 @@ impl TestRepo {
     self
       .git_executor
       .execute_command(&["add", filename], self.path_str())
-      .unwrap_or_else(|e| panic!("Git add failed: {}", e));
+      .unwrap_or_else(|e| panic!("Git add failed: {e}"));
 
     // Commit with optional fixed timestamp
     if let Some(ts) = timestamp {
@@ -101,23 +101,23 @@ impl TestRepo {
         self
           .git_executor
           .execute_command_with_env(&["commit", "--allow-empty-message", "-m", ""], self.path_str(), &env_vars)
-          .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+          .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
       } else {
         self
           .git_executor
           .execute_command_with_env(&["commit", "-m", message], self.path_str(), &env_vars)
-          .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+          .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
       }
     } else if message.is_empty() {
       self
         .git_executor
         .execute_command(&["commit", "--allow-empty-message", "-m", ""], self.path_str())
-        .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+        .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
     } else {
       self
         .git_executor
         .execute_command(&["commit", "-m", message], self.path_str())
-        .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+        .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
     }
 
     // Get the commit hash
@@ -189,7 +189,7 @@ impl TestRepo {
     self
       .git_executor
       .execute_command(&["commit", "-m", message], self.path_str())
-      .unwrap_or_else(|e| panic!("Git commit failed: {}", e));
+      .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
 
     self.head()
   }
@@ -209,8 +209,7 @@ impl TestRepo {
     self
       .git_executor
       .execute_command_with_status(&["show-ref", "--verify", "--quiet", &ref_path], self.path_str())
-      .map(|(_, exit_code)| exit_code == 0)
-      .unwrap_or(false)
+      .is_ok_and(|(_, exit_code)| exit_code == 0)
   }
 
   /// Get list of files in a commit
@@ -531,6 +530,7 @@ impl<'a> ConflictTestBuilder<'a> {
   }
 
   /// Set initial state files and commit message
+  #[must_use]
   pub fn with_initial_state(mut self, files: Vec<(&'a str, &'a str)>, message: &'a str) -> Self {
     self.initial_files = files;
     self.initial_message = message;
@@ -538,6 +538,7 @@ impl<'a> ConflictTestBuilder<'a> {
   }
 
   /// Set target branch changes
+  #[must_use]
   pub fn with_target_changes(mut self, files: Vec<(&'a str, &'a str)>, message: &'a str) -> Self {
     self.target_files = files;
     self.target_message = message;
@@ -545,6 +546,7 @@ impl<'a> ConflictTestBuilder<'a> {
   }
 
   /// Set cherry-pick changes
+  #[must_use]
   pub fn with_cherry_changes(mut self, files: Vec<(&'a str, &'a str)>, message: &'a str) -> Self {
     self.cherry_files = files;
     self.cherry_message = message;
@@ -561,9 +563,7 @@ impl<'a> ConflictTestBuilder<'a> {
     };
 
     // Create target branch changes
-    let target_hash = if !self.target_files.is_empty() {
-      self.repo.create_commit_with_files(self.target_message, &self.target_files)
-    } else {
+    let target_hash = if self.target_files.is_empty() {
       // For deletion scenarios, create a commit that deletes the specific files from initial commit
       // This represents the "target branch deletes the file" scenario
 
@@ -587,20 +587,22 @@ impl<'a> ConflictTestBuilder<'a> {
         .repo
         .git_executor
         .execute_command(&["commit", "--allow-empty", "-m", self.target_message], self.repo.path_str())
-        .unwrap_or_else(|e| panic!("Failed to commit deletion: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to commit deletion: {e}"));
 
       // Get the commit hash
       self.repo.head()
+    } else {
+      self.repo.create_commit_with_files(self.target_message, &self.target_files)
     };
 
     // Reset to initial commit
     self.repo.reset_hard(&initial_hash).unwrap();
 
     // Create cherry-pick changes
-    let cherry_hash = if !self.cherry_files.is_empty() {
-      self.repo.create_commit_with_files(self.cherry_message, &self.cherry_files)
-    } else {
+    let cherry_hash = if self.cherry_files.is_empty() {
       panic!("Cherry-pick changes must be provided for conflict scenario");
+    } else {
+      self.repo.create_commit_with_files(self.cherry_message, &self.cherry_files)
     };
 
     ConflictScenario {

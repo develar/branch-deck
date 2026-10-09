@@ -43,7 +43,7 @@ pub fn parse_git_status_output(status_output: &str) -> Vec<UncommittedFileChange
   // Work on raw bytes to avoid repeated UTF-8 char iteration and reduce overhead
   let bytes = status_output.as_bytes();
   // Rough upper bound for capacity: number of NULs (may over-estimate for renames, which is fine)
-  let approx_entries = bytes.iter().filter(|&&b| b == 0).count();
+  let approx_entries = status_output.matches('\0').count();
   let mut files = Vec::with_capacity(approx_entries);
 
   for entry in bytes.split(|&b| b == 0) {
@@ -97,7 +97,7 @@ pub fn get_uncommitted_changes(git_executor: &GitCommandExecutor, params: GetUnc
   // Note: For large repos, consider using --untracked-files=normal to avoid scanning all untracked files
   let status_output = git_executor
     .execute_command_raw(&["status", "--porcelain", "-z"], &repo_path)
-    .map_err(|e| format!("Failed to get repository status: {}", e))?;
+    .map_err(|e| format!("Failed to get repository status: {e}"))?;
 
   // Parse file changes from status (null-terminated)
   let files = parse_git_status_output(&status_output);
@@ -127,7 +127,7 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
   // Get unified diff with 15 lines of context
   let diff_output = git_executor
     .execute_command(&["diff", "HEAD", "-U3", &file_path], &repo_path)
-    .map_err(|e| format!("Failed to get diff for file {}: {}", file_path, e))?;
+    .map_err(|e| format!("Failed to get diff for file {file_path}: {e}"))?;
 
   // Create FileDiff with unified diff in hunks - git-diff-view will parse it
   Ok(FileDiff {

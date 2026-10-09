@@ -31,7 +31,7 @@ pub fn archive_ref_unique(git: &GitCommandExecutor, repo: &str, from_branch: &st
   }
 
   // Lock to prevent race conditions when multiple tasks try to create branches in same directory
-  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {}", e))?;
+  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {e}"))?;
 
   // The archive path (e.g., user/archived/2025-08-11) requires directory structure in .git/refs.
   // Since virtual branches don't contain '/', only the archive prefix creates nested paths.
@@ -75,7 +75,7 @@ pub fn batch_archive_inactive_branches(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   branch_prefix: &str,
-  inactive_branches: Vec<String>,
+  inactive_branches: &[String],
   branch_commits: &HashMap<String, String>,
   existing_today_names: &HashSet<String>,
 ) -> Result<HashMap<String, String>> {
@@ -87,14 +87,14 @@ pub fn batch_archive_inactive_branches(
   let archive_prefix = format!("{branch_prefix}/archived/{date}");
 
   // Lock to prevent race conditions
-  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {}", e))?;
+  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {e}"))?;
 
   // Build mappings with conflict resolution
   let mut used_names = existing_today_names.clone();
   let mut archive_mappings = Vec::with_capacity(inactive_branches.len());
 
-  for branch_name in &inactive_branches {
-    let simple_name = extract_branch_name_from_final(branch_name, branch_prefix).unwrap_or_else(|| branch_name.to_string());
+  for branch_name in inactive_branches {
+    let simple_name = extract_branch_name_from_final(branch_name, branch_prefix).unwrap_or_else(|| branch_name.clone());
 
     let mut target_name = simple_name.clone();
     let mut suffix = 1u32;
@@ -207,13 +207,13 @@ pub fn batch_delete_archived_branches(git_executor: &GitCommandExecutor, repo_pa
   }
 
   // Lock to prevent race conditions during deletion
-  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {}", e))?;
+  let _guard = ARCHIVE_MUTEX.lock().map_err(|e| anyhow::anyhow!("Failed to acquire archive mutex: {e}"))?;
 
   // Build args for a single git call: `git branch -D <branches...>`
   let mut args: Vec<&str> = Vec::with_capacity(2 + branches.len());
   args.push("branch");
   args.push("-D");
-  for name in branches.iter() {
+  for name in branches {
     args.push(name.as_str());
   }
 
@@ -223,7 +223,7 @@ pub fn batch_delete_archived_branches(git_executor: &GitCommandExecutor, repo_pa
       // Fallback: attempt individual deletions to make best effort
       tracing::warn!(error = %e, "Batch delete via git branch -D failed, attempting individual deletions");
       let mut fallback_deleted = 0usize;
-      for name in branches.iter() {
+      for name in branches {
         if git_executor.execute_command(["branch", "-D", name.as_str()].as_slice(), repo_path).is_ok() {
           fallback_deleted += 1;
         }

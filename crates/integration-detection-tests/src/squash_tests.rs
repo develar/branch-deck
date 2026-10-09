@@ -16,7 +16,7 @@ fn test_squash_merge_integration_with_timestamp_verification() {
   test_integration_workflow_helper(
     UpdateMethod::Rebase,
     IntegrationMethod::Squash,
-    vec![(
+    &[(
       "feature-squash",
       vec![
         ("(feature-squash) Add function one", "feature1.js", "function one() {}"),
@@ -105,7 +105,7 @@ fn test_squash_merge_detection() {
         sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated { .. } => {
           println!("Not integrated branch detected: {}", info.name);
         }
-        _ => println!("Other integration status: {} - {:?}", info.name, info.status),
+        sync_types::branch_integration::BranchIntegrationStatus::Partial { .. } => println!("Other integration status: {} - {:?}", info.name, info.status),
       },
       SyncEvent::BranchesGrouped { branches, .. } => {
         for branch in branches {
@@ -119,7 +119,7 @@ fn test_squash_merge_detection() {
   // Also check what's in the baseline after squash merge
   let baseline_log = local_repo.log(&["--oneline", "main", "-5"]).unwrap();
   println!("\nBaseline (main) after pull:");
-  println!("{}", baseline_log);
+  println!("{baseline_log}");
 
   // Check the tree of the squashed commit
   let squash_tree = local_repo.log(&["--format=%T %s", "main", "-1"]).unwrap();
@@ -133,7 +133,7 @@ fn test_squash_merge_detection() {
   // Check commits on virtual branch
   if let Ok(virtual_commits) = local_repo.log(&["--oneline", "user/virtual/feature-squash", "-5"]) {
     println!("\nCommits on user/virtual/feature-squash:");
-    println!("{}", virtual_commits);
+    println!("{virtual_commits}");
   }
 
   // Git notes are now used for tracking instead of database
@@ -170,14 +170,14 @@ fn test_squash_merge_detection() {
 
       // Verify timestamp is close to squash merge time
       if let Some(integrated_date) = integrated_at {
-        let timestamp_diff = (*integrated_date as i64 - squash_commit as i64).abs();
+        let timestamp_diff = (i64::from(*integrated_date) - i64::from(squash_commit)).abs();
         assert!(
           timestamp_diff <= 60,
           "Squash merge timestamp should match. Expected: {squash_commit}, Got: {integrated_date}, Diff: {timestamp_diff}"
         );
 
         // Verify it's not just "now"
-        let now = chrono::Utc::now().timestamp() as u32;
+        let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");
         assert!(
           *integrated_date < now - 60,
           "Integration timestamp should be from when the squash merge happened, not 'now'"

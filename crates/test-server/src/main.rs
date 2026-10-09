@@ -21,8 +21,8 @@ async fn shutdown_signal(state: Arc<test_server::state::AppState>) {
 
   // Wait for either signal
   tokio::select! {
-    _ = ctrl_c => {},
-    _ = terminate => {},
+    () = ctrl_c => {},
+    () = terminate => {},
   }
 
   tracing::info!("Shutdown signal received, cleaning up...");

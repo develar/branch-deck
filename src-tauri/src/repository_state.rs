@@ -40,7 +40,7 @@ impl RepositoryStateCache {
       // If Git version was previously validated as invalid, return the cached error
       if !cached.git_version_valid {
         let error_msg = cached.git_version_error.as_deref().unwrap_or("Git version validation failed (cached)");
-        return Err(anyhow::anyhow!("{}", error_msg));
+        return Err(anyhow::anyhow!("{error_msg}"));
       }
       return Ok(cached);
     }
@@ -63,7 +63,7 @@ impl RepositoryStateCache {
           git_version_error: Some(error_msg.clone()),
         });
         self.cache.insert(repository_path.to_string(), state);
-        return Err(anyhow::anyhow!("{}", error_msg));
+        return Err(anyhow::anyhow!("{error_msg}"));
       }
     };
 

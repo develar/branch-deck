@@ -100,9 +100,8 @@ impl ModelConfig {
   /// Returns the maximum context window size in tokens for each model
   pub fn max_context_tokens(&self) -> usize {
     match self {
-      ModelConfig::Qwen25Coder15B => 32_768, // 32K context window
-      ModelConfig::Qwen25Coder3B => 32_768,  // 32K context window
-      ModelConfig::Qwen3_17B => 32_768,      // 32K context window
+      // 32K context window
+      ModelConfig::Qwen25Coder15B | ModelConfig::Qwen25Coder3B | ModelConfig::Qwen3_17B => 32_768,
     }
   }
 }

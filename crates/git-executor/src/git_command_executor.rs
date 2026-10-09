@@ -24,7 +24,7 @@ impl GitCommandExecutor {
 
   #[instrument(skip(self))]
   pub fn get_info(&self) -> Result<GitInfo> {
-    let mut guard = self.info.lock().map_err(|e| anyhow!("Failed to acquire lock: {}", e))?;
+    let mut guard = self.info.lock().map_err(|e| anyhow!("Failed to acquire lock: {e}"))?;
     if guard.is_none() {
       let info = GitInfo::discover().map_err(|e| anyhow!(e))?;
       tracing::info!(git_version = %info.version, git_path = %info.path, "discovered git info");
@@ -60,7 +60,7 @@ impl GitCommandExecutor {
   }
 
   // Helper method to check if failure is acceptable (e.g., merge-tree conflicts)
-  fn is_acceptable_failure(&self, args: &[&str], status: &std::process::ExitStatus) -> bool {
+  fn is_acceptable_failure(args: &[&str], status: std::process::ExitStatus) -> bool {
     args.contains(&"merge-tree") && status.code() == Some(1)
   }
 
@@ -71,7 +71,7 @@ impl GitCommandExecutor {
       .filter_map(|line| {
         let line_str = String::from_utf8_lossy(line);
         let trimmed = line_str.trim();
-        if !trimmed.is_empty() { Some(trimmed.to_string()) } else { None }
+        if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
       })
       .collect()
   }
@@ -102,7 +102,7 @@ impl GitCommandExecutor {
   pub fn execute_command(&self, args: &[&str], repository_path: &str) -> Result<String> {
     let (output, _exit_code) = self.execute_command_internal(args, repository_path)?;
 
-    if output.status.success() || self.is_acceptable_failure(args, &output.status) {
+    if output.status.success() || Self::is_acceptable_failure(args, output.status) {
       if !output.status.success() {
         tracing::debug!("git merge-tree returned with conflicts");
       }
@@ -125,7 +125,7 @@ impl GitCommandExecutor {
   pub fn execute_command_raw(&self, args: &[&str], repository_path: &str) -> Result<String> {
     let (output, _exit_code) = self.execute_command_internal(args, repository_path)?;
 
-    if output.status.success() || self.is_acceptable_failure(args, &output.status) {
+    if output.status.success() || Self::is_acceptable_failure(args, output.status) {
       if !output.status.success() {
         tracing::debug!("git merge-tree returned with conflicts");
       }
@@ -153,7 +153,7 @@ impl GitCommandExecutor {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
 
-    if output.status.success() || self.is_acceptable_failure(args, &output.status) {
+    if output.status.success() || Self::is_acceptable_failure(args, output.status) {
       tracing::Span::current().record("success", true);
       Ok((stdout, exit_code))
     } else {
@@ -306,7 +306,7 @@ impl GitCommandExecutor {
           Ok(n) => {
             handler(&buffer[..n])?;
           }
-          Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+          Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {} // retry the read
           Err(e) => return Err(anyhow!("Failed to read stdout: {e}")),
         }
       }
@@ -379,7 +379,7 @@ impl GitCommandExecutor {
       .trim()
       .split(|c: char| c.is_whitespace())
       .filter(|s| !s.is_empty())
-      .map(|s| s.parse::<u32>().map_err(|e| anyhow!("Failed to parse count '{}': {}", s, e)))
+      .map(|s| s.parse::<u32>().map_err(|e| anyhow!("Failed to parse count '{s}': {e}")))
       .collect::<Result<Vec<_>>>()?;
     Ok(counts)
   }

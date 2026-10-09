@@ -74,7 +74,7 @@ pub async fn sync_branches_core_with_strategy_and_retention<P: ProgressReporter 
   .await
 }
 
-/// Helper to list all detection notes using TestRepo API
+/// Helper to list all detection notes using `TestRepo` API
 fn list_detection_notes(repo: &TestRepo) -> Vec<String> {
   repo.list_notes_with_ref(branch_integration::cache::NOTES_REF).unwrap_or_default()
 }
@@ -108,8 +108,8 @@ pub async fn verify_detection_cache_works(
     match &cache.status {
       BranchIntegrationStatus::Integrated { commit_count, integrated_at, .. } => {
         integrated_cache_count += 1;
-        assert!(*commit_count > 0, "Integrated branch cache should have commit_count > 0, got {}", commit_count);
-        assert!(integrated_at.is_some(), "Integrated branch cache should have integrated_date, got {:?}", integrated_at);
+        assert!(*commit_count > 0, "Integrated branch cache should have commit_count > 0, got {commit_count}");
+        assert!(integrated_at.is_some(), "Integrated branch cache should have integrated_date, got {integrated_at:?}");
         info!(commit = %commit, commit_count = commit_count, integrated_date = ?integrated_at, "verified integrated cache has commit count and date");
       }
       BranchIntegrationStatus::NotIntegrated {
@@ -121,8 +121,7 @@ pub async fn verify_detection_cache_works(
         orphaned_cache_count += 1;
         assert!(
           *total_commit_count > 0,
-          "NotIntegrated branch cache should have total_commit_count > 0, got {}",
-          total_commit_count
+          "NotIntegrated branch cache should have total_commit_count > 0, got {total_commit_count}"
         );
         assert_eq!(
           *total_commit_count,
@@ -137,7 +136,7 @@ pub async fn verify_detection_cache_works(
           "verified not-integrated cache has commit counts"
         );
       }
-      _ => {} // Not checking Partial caches
+      BranchIntegrationStatus::Partial { .. } => {} // Not checking Partial caches
     }
   }
 
@@ -188,15 +187,15 @@ pub enum IntegrationMethod {
   Squash, // squash merge
 }
 
-/// Type alias for branch test data: (branch_name, vec![(subject, filename, content)])
-pub type BranchTestData<'a> = Vec<(&'a str, Vec<(&'a str, &'a str, &'a str)>)>;
+/// Type alias for branch test data: (`branch_name`, vec![(subject, filename, content)])
+pub type BranchTestData<'a> = [(&'a str, Vec<(&'a str, &'a str, &'a str)>)];
 
 /// Helper function to get commit timestamp
 pub fn get_commit_timestamp(repo: &TestRepo, commit_ref: &str) -> u32 {
   repo.get_commit_timestamp(commit_ref).unwrap()
 }
 
-/// Verify that archived branches are found using production get_all_branch_data
+/// Verify that archived branches are found using production `get_all_branch_data`
 pub fn verify_archived_branches_listed(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, expected_branches: &[&str]) {
   use branch_integration::common::get_all_branch_data;
 
@@ -213,8 +212,7 @@ pub fn verify_archived_branches_listed(git_executor: &GitCommandExecutor, repo_p
   for branch_name in expected_branches {
     assert!(
       all_archived.iter().any(|b| b.contains(branch_name)),
-      "get_all_branch_data should find archived branch {}",
-      branch_name
+      "get_all_branch_data should find archived branch {branch_name}"
     );
   }
 }
@@ -241,7 +239,7 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
 
     // Sync to create virtual branch
     let progress_reporter = TestReporter::new();
-    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter, strategy.clone())
+    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter, strategy)
       .await
       .unwrap();
 
@@ -296,7 +294,7 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
 
     // Run sync again with the specific strategy
     let progress_reporter2 = TestReporter::new();
-    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter2.clone(), strategy.clone())
+    sync_branches_core_with_strategy(&git_executor, local_repo.path().to_str().unwrap(), "user", progress_reporter2.clone(), strategy)
       .await
       .unwrap();
 

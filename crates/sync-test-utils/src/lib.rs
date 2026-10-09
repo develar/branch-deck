@@ -4,8 +4,8 @@ use anyhow::Result;
 use sync_types::{ProgressReporter, SyncEvent};
 use test_utils::progress_reporter::TestProgressReporter;
 
-/// Wrapper around TestProgressReporter that implements ProgressReporter.
-/// This avoids the orphan rule since TestReporter is local to this crate.
+/// Wrapper around `TestProgressReporter` that implements `ProgressReporter`.
+/// This avoids the orphan rule since `TestReporter` is local to this crate.
 #[derive(Clone)]
 pub struct TestReporter(TestProgressReporter<SyncEvent>);
 
@@ -27,7 +27,7 @@ impl TestReporter {
 
   /// Clear all events
   pub fn clear_events(&self) {
-    self.0.clear_events()
+    self.0.clear_events();
   }
 }
 

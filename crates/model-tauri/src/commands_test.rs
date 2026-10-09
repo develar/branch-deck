@@ -15,7 +15,7 @@ fn test_model_status_detection_for_gguf_model() {
   let download_urls = model_config.download_urls();
 
   // Initially, no files exist
-  let (_config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (_config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(!model_exists);
   assert!(!tokenizer_exists);
 
@@ -25,7 +25,7 @@ fn test_model_status_detection_for_gguf_model() {
   }
 
   // Now check again - all files should exist
-  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(config_exists); // GGUF doesn't need config
   assert!(model_exists);
   assert!(tokenizer_exists);
@@ -45,7 +45,7 @@ fn test_model_status_qwen3_17b_specific_filename() {
   fs::write(model_path.join("tokenizer.json"), "{}").unwrap();
 
   // Should NOT detect as available because it's looking for the wrong filename
-  let (_config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (_config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(!model_exists, "Should not detect generic model.gguf as the model file");
   assert!(tokenizer_exists);
 
@@ -53,7 +53,7 @@ fn test_model_status_qwen3_17b_specific_filename() {
   fs::write(model_path.join("Qwen3-1.7B-Q8_0.gguf"), "correct model").unwrap();
 
   // Should now detect as available
-  let (_config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (_config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(model_exists, "Should detect Qwen3-1.7B-Q8_0.gguf as the model file");
   assert!(tokenizer_exists);
 }
@@ -68,7 +68,7 @@ fn test_model_status_detection_for_safetensors_model() {
   let model_config = ModelConfig::Qwen25Coder15B;
 
   // Initially, no files exist
-  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(!config_exists);
   assert!(!model_exists);
   assert!(!tokenizer_exists);
@@ -78,7 +78,7 @@ fn test_model_status_detection_for_safetensors_model() {
   fs::write(model_path.join("tokenizer.json"), "{}").unwrap();
 
   // Model file is still missing
-  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(config_exists);
   assert!(!model_exists);
   assert!(tokenizer_exists);
@@ -87,7 +87,7 @@ fn test_model_status_detection_for_safetensors_model() {
   fs::write(model_path.join("model.safetensors"), "dummy").unwrap();
 
   // Now all files should exist
-  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(&model_config, model_path);
+  let (config_exists, model_exists, tokenizer_exists) = check_model_files_exist(model_config, model_path);
   assert!(config_exists);
   assert!(model_exists);
   assert!(tokenizer_exists);

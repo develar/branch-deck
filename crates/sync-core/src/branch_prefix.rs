@@ -24,18 +24,18 @@ pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor,
       }
       128 => {
         // Directory not accessible: return error (like git does)
-        Err(anyhow::anyhow!("Repository not accessible: {}", repository_path))
+        Err(anyhow::anyhow!("Repository not accessible: {repository_path}"))
       }
       code => {
         // Unexpected exit code: return error
         warn!(code, repository_path, "Unexpected git config exit code for path");
-        Err(anyhow::anyhow!("Unexpected git config exit code {} for path {}", code, repository_path))
+        Err(anyhow::anyhow!("Unexpected git config exit code {code} for path {repository_path}"))
       }
     },
     Err(e) => {
       // Executor failed (e.g., OS error on cwd): return error (like git does)
       warn!(repository_path, error = %e, "Failed to execute git config");
-      Err(anyhow::anyhow!("Failed to access repository {}: {}", repository_path, e))
+      Err(anyhow::anyhow!("Failed to access repository {repository_path}: {e}"))
     }
   }
 }

@@ -7,7 +7,7 @@ use tracing::{debug, instrument};
 
 /// Thread-safe cache for tree IDs to avoid redundant git rev-parse calls
 /// Cache is per-sync operation to ensure fresh data
-/// Uses DashMap for high-performance concurrent access with lock-free reads
+/// Uses `DashMap` for high-performance concurrent access with lock-free reads
 #[derive(Clone)]
 pub struct TreeIdCache {
   cache: Arc<DashMap<String, String>>,
@@ -41,7 +41,7 @@ impl TreeIdCache {
     debug!("cache miss for commit {}", commit_id);
     let tree_id = git_executor
       .resolve_tree_id(repo_path, commit_id)
-      .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get tree ID for {}: {}", commit_id, e)))?;
+      .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get tree ID for {commit_id}: {e}")))?;
 
     // Store in cache (minimal locking) only for stable keys
     if cacheable {

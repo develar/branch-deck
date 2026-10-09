@@ -33,3 +33,6 @@ test-log = { workspace = true }
 [[bench]]
 name = "issue_pattern_bench"
 harness = false
+
+[lints]
+workspace = true

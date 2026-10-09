@@ -51,7 +51,7 @@ pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app:
       // Calculate directory size
       match calculate_dir_size(&model_path).await {
         Ok(size) => {
-          total_size_mb += (size / 1_000_000) as u32;
+          total_size_mb = total_size_mb.saturating_add(u32::try_from(size / 1_000_000).unwrap_or(u32::MAX));
         }
         Err(e) => {
           warn!("Failed to calculate size for {}: {}", model_config.model_name(), e);
@@ -60,7 +60,7 @@ pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app:
 
       // Remove directory
       match tokio::fs::remove_dir_all(&model_path).await {
-        Ok(_) => {
+        Ok(()) => {
           info!("Cleared cache for {}", model_config.model_name());
           cleared_models.push(model_config.model_name().to_string());
         }

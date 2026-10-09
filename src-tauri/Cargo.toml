@@ -77,3 +77,6 @@ tempfile = "3"
 # Build dependencies used in build.rs
 ignored = ["tauri-build"]
 
+
+[lints]
+workspace = true

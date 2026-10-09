@@ -42,7 +42,7 @@ fn parse_issue_navigation_xml(xml: &str) -> Option<IssueNavigationConfig> {
 
   loop {
     match reader.read_event_into(&mut buf) {
-      Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+      Ok(Event::Start(ref e) | Event::Empty(ref e)) => {
         match e.name().as_ref() {
           "component" => {
             // Check if this is the IssueNavigationConfiguration component
@@ -72,7 +72,7 @@ fn parse_issue_navigation_xml(xml: &str) -> Option<IssueNavigationConfig> {
                 }
                 "value" => {
                   // Unescape entities (e.g. `&amp;` in URLs) and normalize whitespace as per XML spec
-                  option_value = attr.normalized_value(XmlVersion::Implicit1_0).ok().map(|v| v.into_owned());
+                  option_value = attr.normalized_value(XmlVersion::Implicit1_0).ok().map(std::borrow::Cow::into_owned);
                 }
                 _ => {}
               }

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 
 /// Test commit information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +43,7 @@ pub fn convert_to_raw_git_format(commits: &[CommitInfo], diffs: &[CommitDiff]) -
         } else {
           "M" // Modified
         };
-        git_output.push_str(&format!("{}\t{}\n", status, file.path));
+        let _ = writeln!(git_output, "{}\t{}", status, file.path);
       }
     }
     git_output.push('\n'); // Separate commits

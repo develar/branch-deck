@@ -45,3 +45,6 @@ dashmap.workspace = true
 [dev-dependencies]
 reqwest.workspace = true
 pretty_assertions = { workspace = true }
+
+[lints]
+workspace = true

@@ -58,7 +58,7 @@ fn test_create_branch_with_invalid_name() {
   // Test empty branch name
   let params = CreateBranchFromCommitsParams {
     repository_path: repo_path.to_string(),
-    branch_name: "".to_string(),
+    branch_name: String::new(),
     commit_ids: vec![commit1.clone()],
   };
 
@@ -402,7 +402,7 @@ fn test_create_branch_with_missing_commits_scenario() {
 
   // Debug: print all branch-related events
   println!("\nAll sync events:");
-  for event in events.iter() {
+  for event in &events {
     match event {
       SyncEvent::BranchStatusUpdate { branch_name, status, error } => {
         println!("  Branch: {branch_name}, Status: {status:?}, Error: {error:?}");

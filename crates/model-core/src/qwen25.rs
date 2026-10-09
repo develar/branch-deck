@@ -152,7 +152,7 @@ impl Qwen25BranchGenerator {
 
     let result = BranchNameResult {
       name: cleaned_name,
-      generation_time_ms: generation_time.as_millis() as u64,
+      generation_time_ms: u64::try_from(generation_time.as_millis()).unwrap_or(u64::MAX),
     };
 
     debug!("Generated branch name: '{}' in {}ms", result.name, result.generation_time_ms);

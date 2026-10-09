@@ -27,7 +27,7 @@ pub fn detect_merge_status(git: &GitCommandExecutor, repo: &str, branch_name: &s
   }
 
   let commit_count = git
-    .execute_command(&["rev-list", "--count", &format!("{}...{}", baseline, branch_name)], repo)
+    .execute_command(&["rev-list", "--count", &format!("{baseline}...{branch_name}")], repo)
     .ok()
     .and_then(|output| output.trim().parse::<u32>().ok())
     .unwrap_or(0);

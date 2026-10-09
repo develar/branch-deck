@@ -122,13 +122,12 @@ impl ModelBasedBranchGenerator {
           // Another thread is loading - drop lock and wait
           drop(loading_state);
           tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-          continue;
         }
 
         ModelLoadingState::Failed(error) => {
           let error_msg = error.clone();
           *loading_state = ModelLoadingState::NotLoaded; // Reset for retry
-          return Err(anyhow::anyhow!("Model loading previously failed: {}", error_msg));
+          return Err(anyhow::anyhow!("Model loading previously failed: {error_msg}"));
         }
 
         ModelLoadingState::NotLoaded => {
@@ -154,7 +153,7 @@ impl ModelBasedBranchGenerator {
       }
       Err(ref error) => {
         *loading_state = ModelLoadingState::Failed(error.to_string());
-        Err(anyhow::anyhow!("Failed to load model: {}", error))
+        Err(anyhow::anyhow!("Failed to load model: {error}"))
       }
     }
   }
@@ -181,7 +180,7 @@ impl ModelBasedBranchGenerator {
     for file in &required_files {
       if !model_path.join(file).exists() {
         info!("Model files not found: missing {}", file);
-        return Err(anyhow::anyhow!("Model not downloaded: missing {}", file));
+        return Err(anyhow::anyhow!("Model not downloaded: missing {file}"));
       }
     }
 
@@ -214,12 +213,12 @@ impl ModelBasedBranchGenerator {
   }
 
   pub fn is_loaded(&self) -> bool {
-    self.generator.as_ref().is_some_and(|g| g.is_loaded())
+    self.generator.as_ref().is_some_and(model_core::generator_type::GeneratorType::is_loaded)
   }
 
   /// Create an enhanced prompt from raw git output using model-specific formatting
-  /// This is now internal - external callers should use generate_branch_name directly
-  async fn create_enhanced_prompt(&self, git_output: &str, previous_suggestion: Option<&str>) -> Result<String> {
+  /// This is now internal - external callers should use `generate_branch_name` directly
+  fn create_enhanced_prompt(&self, git_output: &str, previous_suggestion: Option<&str>) -> Result<String> {
     let generator = self.generator.as_ref().ok_or_else(|| anyhow::anyhow!("Model not loaded"))?;
 
     let prompt = match previous_suggestion {
@@ -244,7 +243,7 @@ impl ModelBasedBranchGenerator {
   /// * `previous_suggestion` - Optional previous suggestion to generate an alternative
   pub async fn generate_branch_name(&mut self, git_output: &str, previous_suggestion: Option<&str>) -> Result<BranchNameResult> {
     // Create appropriate prompt based on whether this is an alternative
-    let prompt = self.create_enhanced_prompt(git_output, previous_suggestion).await?;
+    let prompt = self.create_enhanced_prompt(git_output, previous_suggestion)?;
 
     // Get mutable reference to generator after creating prompt
     let generator = self.generator.as_mut().ok_or_else(|| anyhow::anyhow!("Model not loaded"))?;

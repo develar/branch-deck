@@ -27,10 +27,10 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   let recent_date = (chrono::Utc::now() - chrono::Duration::days(2)).format("%Y-%m-%d").to_string();
 
   // Archived branch names
-  let old_integrated = format!("user/archived/{}/old-integrated", old_date);
-  let old_orphaned = format!("user/archived/{}/old-orphaned", old_date);
-  let old_uncached = format!("user/archived/{}/old-uncached", old_date);
-  let recent_integrated = format!("user/archived/{}/recent-integrated", recent_date);
+  let old_integrated = format!("user/archived/{old_date}/old-integrated");
+  let old_orphaned = format!("user/archived/{old_date}/old-orphaned");
+  let old_uncached = format!("user/archived/{old_date}/old-uncached");
+  let recent_integrated = format!("user/archived/{recent_date}/recent-integrated");
 
   // Create the archived branches pointing to distinct commits
   local_repo.create_branch_at(&old_integrated, &commit_a).unwrap();

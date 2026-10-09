@@ -30,3 +30,6 @@ default = []
 metal = ["model-core/metal"]
 accelerate = ["model-core/accelerate"]
 specta = ["dep:specta", "git-ops/specta"]
+
+[lints]
+workspace = true

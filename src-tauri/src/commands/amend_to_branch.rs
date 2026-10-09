@@ -13,5 +13,5 @@ pub async fn amend_uncommitted_to_branch(git_executor: State<'_, GitCommandExecu
 
   tokio::task::spawn_blocking(move || amend_uncommitted_to_branch_core(&git, params))
     .await
-    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Task failed: {e}"))?
 }

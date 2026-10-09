@@ -56,7 +56,7 @@ pub fn perform_fast_cherry_pick_with_context(
 
   let output = git_executor
     .execute_command(&args, repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {}", e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
 
   debug!(output_length = output.len(), "git merge-tree completed");
 
@@ -200,7 +200,7 @@ pub fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, com
   let args = vec!["rev-parse", &parent_ref];
   let output = git_executor
     .execute_command(&args, repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get parent for {}: {}", commit_id, e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get parent for {commit_id}: {e}")))?;
   Ok(output.trim().to_string())
 }
 
@@ -211,7 +211,7 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commi
   // Format: %s<NULL>%at<NULL>%ct
   let output = git_executor
     .execute_command(&["log", "-1", "--format=%s%x00%at%x00%ct", commit_id], repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit info for {}: {}", commit_id, e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit info for {commit_id}: {e}")))?;
 
   let mut parts = output.split('\0');
   let subject = parts.next().unwrap_or("").trim().to_string();
@@ -220,10 +220,10 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commi
 
   let author_timestamp: u32 = author_ts_str
     .parse()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid author timestamp for commit {}: {}", commit_id, e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid author timestamp for commit {commit_id}: {e}")))?;
   let committer_timestamp: u32 = committer_ts_str
     .parse()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid committer timestamp for commit {}: {}", commit_id, e)))?;
+    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid committer timestamp for commit {commit_id}: {e}")))?;
 
   Ok(Commit {
     id: commit_id.to_string(),
@@ -241,7 +241,7 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commi
   })
 }
 
-/// Convert ConflictMarkerCommitInfo to Commit for backward compatibility
+/// Convert `ConflictMarkerCommitInfo` to Commit for backward compatibility
 fn conflict_marker_to_commit(commit_id: &str, info: &crate::model::ConflictMarkerCommitInfo) -> Commit {
   Commit {
     id: commit_id.to_string(),

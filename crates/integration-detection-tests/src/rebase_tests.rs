@@ -8,6 +8,7 @@ use test_log::test;
 /// This tests what CLAUDE.md describes as orphaned: "Virtual branch exists but original commits are gone"
 #[test(tokio::test)]
 async fn test_true_orphan_case_when_original_commits_removed_from_head() {
+  use sync_core::sync::detect_baseline_branch;
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
 
   // Step 1: Create some commits on main branch (simulating commits in baseline..HEAD range)
@@ -30,9 +31,8 @@ async fn test_true_orphan_case_when_original_commits_removed_from_head() {
   let progress = TestReporter::new();
 
   // Use production code path - detect_integrated_branches with sync_branches to detect baseline automatically
-  use sync_core::sync::detect_baseline_branch;
   let baseline = detect_baseline_branch(&git_executor, local_repo.path().to_str().unwrap(), "main").unwrap();
-  println!("Detected baseline: {}", baseline);
+  println!("Detected baseline: {baseline}");
 
   let grouped_commits = indexmap::IndexMap::new(); // Empty since we're testing archived branches
   let result = detect_integrated_branches(
@@ -49,14 +49,14 @@ async fn test_true_orphan_case_when_original_commits_removed_from_head() {
   )
   .await;
 
-  println!("Orphan detection result: {:?}", result);
+  println!("Orphan detection result: {result:?}");
   assert!(result.is_ok(), "Detection should succeed");
 
   // Check events to verify orphan was detected
   let events = progress.get_events();
   let mut found_orphaned = false;
 
-  for event in events.iter() {
+  for event in &events {
     if let SyncEvent::BranchIntegrationDetected { info } = event {
       found_orphaned = true;
       // The branch name should contain feature-test (might be archived)
@@ -120,7 +120,7 @@ fn test_batch_archive_inactive_branches() {
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
-    inactive_branches,
+    &inactive_branches,
     &branch_data.virtual_commits,
     &branch_data.archived_today_names,
   );
@@ -156,7 +156,7 @@ fn test_batch_archive_inactive_branches() {
       s if s.contains("feature-1") => &commit1,
       s if s.contains("feature-2") => &commit2,
       s if s.contains("feature-3") => &commit3,
-      _ => panic!("Unexpected archived branch: {}", archived_name),
+      _ => panic!("Unexpected archived branch: {archived_name}"),
     };
     assert_eq!(commit_hash, expected_commit, "Archived branch should point to correct commit");
   }
@@ -195,7 +195,7 @@ fn test_batch_archive_with_naming_conflicts() {
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
-    inactive_branches_real,
+    &inactive_branches_real,
     &branch_data.virtual_commits,
     &branch_data.archived_today_names,
   );
@@ -237,7 +237,7 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
-    vec!["user/virtual/123".to_string()],
+    &["user/virtual/123".to_string()],
     &branch_data.virtual_commits,
     &branch_data.archived_today_names,
   )
@@ -245,8 +245,8 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
 
   assert_eq!(first_archive.len(), 1);
   let first_archive_name = first_archive.keys().next().unwrap();
-  println!("First archive created: {}", first_archive_name);
-  assert!(first_archive_name.ends_with("/123"), "First archive should be named '123', got: {}", first_archive_name);
+  println!("First archive created: {first_archive_name}");
+  assert!(first_archive_name.ends_with("/123"), "First archive should be named '123', got: {first_archive_name}");
 
   // Verify the archived branch actually exists
   let verify_exists = git_executor.execute_command(&["rev-parse", first_archive_name], local_repo.path().to_str().unwrap());
@@ -256,7 +256,7 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
   let all_branches = git_executor
     .execute_command_lines(&["branch", "--list", "--format=%(refname:short)"], local_repo.path().to_str().unwrap())
     .unwrap();
-  println!("All branches after first archive: {:?}", all_branches);
+  println!("All branches after first archive: {all_branches:?}");
 
   // Afternoon: Work on issue #123 again
   local_repo.checkout("main").unwrap();
@@ -282,7 +282,7 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
-    vec!["user/virtual/123".to_string()],
+    &["user/virtual/123".to_string()],
     &branch_data.virtual_commits,
     &branch_data.archived_today_names,
   )
@@ -292,8 +292,7 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
   let second_archive_name = second_archive.keys().next().unwrap();
   assert!(
     second_archive_name.ends_with("/123-1"),
-    "Second archive should be named '123-1' due to conflict, got: {}",
-    second_archive_name
+    "Second archive should be named '123-1' due to conflict, got: {second_archive_name}"
   );
 
   // Verify both archived branches exist
@@ -340,9 +339,9 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   let recent_date = (chrono::Utc::now() - chrono::Duration::days(2)).format("%Y-%m-%d").to_string();
 
   // Archive branches manually to specific dates for testing
-  let old_archived_name = format!("user/archived/{}/feature-old", old_date);
-  let orphaned_archived_name = format!("user/archived/{}/feature-orphaned", old_date);
-  let recent_archived_name = format!("user/archived/{}/feature-recent", recent_date);
+  let old_archived_name = format!("user/archived/{old_date}/feature-old");
+  let orphaned_archived_name = format!("user/archived/{old_date}/feature-orphaned");
+  let recent_archived_name = format!("user/archived/{recent_date}/feature-recent");
 
   // Move branches to archive namespace
   git_executor

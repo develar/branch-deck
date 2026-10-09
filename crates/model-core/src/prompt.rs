@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fmt::Write;
 
 /// Maximum length for branch names (Git's practical limit)
 pub const MAX_BRANCH_NAME_LENGTH: usize = 50;
@@ -11,7 +12,7 @@ fn extract_meaningful_words(branch_name: &str) -> Vec<String> {
     .filter_map(|word| {
       let clean_word = word.trim().to_lowercase();
       // Filter out short words, numbers, and common prefixes
-      if clean_word.len() >= 3 && clean_word.chars().any(|c| c.is_alphabetic()) {
+      if clean_word.len() >= 3 && clean_word.chars().any(char::is_alphabetic) {
         Some(clean_word)
       } else {
         None
@@ -90,12 +91,12 @@ pub fn create_chatml_prompt(git_output: &str, previous_suggestion: Option<&str>)
   let mut system_message = String::from(CHATML_BASE_ROLE);
 
   if let Some(prev) = previous_suggestion {
-    system_message.push_str(&format!(" Previous suggestion was '{prev}'."));
+    let _ = write!(system_message, " Previous suggestion was '{prev}'.");
     system_message.push_str(" Create a DIFFERENT name using completely different words.");
 
     let words_to_avoid = extract_meaningful_words(prev);
     if !words_to_avoid.is_empty() {
-      system_message.push_str(&format!(" DO NOT use these words: {}.", words_to_avoid.join(", ")));
+      let _ = write!(system_message, " DO NOT use these words: {}.", words_to_avoid.join(", "));
     }
   }
 
@@ -103,11 +104,11 @@ pub fn create_chatml_prompt(git_output: &str, previous_suggestion: Option<&str>)
   system_message.push_str(CHATML_BASE_INSTRUCTIONS);
 
   let prompt = format!(
-    r#"<|im_start|>system
+    r"<|im_start|>system
 {} /no_think<|im_end|>
 <|im_start|>user
 {}<|im_end|>
-<|im_start|>assistant"#,
+<|im_start|>assistant",
     system_message,
     git_output.trim()
   );

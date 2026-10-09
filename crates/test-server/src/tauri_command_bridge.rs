@@ -62,7 +62,7 @@ pub struct ValidateRepositoryPathRequest {
 pub async fn validate_repository_path(Json(request): Json<ValidateRepositoryPathRequest>) -> Json<String> {
   // Use production validation logic
   match sync_core::repository_validation::validate_path(&request.path) {
-    Ok(_) => Json(String::new()),
+    Ok(()) => Json(String::new()),
     Err(e) => Json(e.to_string()),
   }
 }
@@ -166,7 +166,7 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   let branch_prefix = &request.branch_prefix;
   let progress = reporter.clone();
   match sync_branches_core_with_cache(git_executor, repository_path, branch_prefix, progress, None).await {
-    Ok(_) => {
+    Ok(()) => {
       // Core function completed successfully
     }
     Err(e) => {
@@ -285,7 +285,10 @@ pub async fn suggest_branch_name_stream(
         // Send suggestions
         for (index, suggestion) in suggestions.into_iter().enumerate() {
           tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-          let _ = tx.send(SuggestionProgress::SuggestionReady { suggestion, index: index as u32 });
+          let _ = tx.send(SuggestionProgress::SuggestionReady {
+            suggestion,
+            index: u32::try_from(index).unwrap_or(u32::MAX),
+          });
         }
 
         // Complete
@@ -323,7 +326,7 @@ pub async fn download_model(
 
     let slow = if let Some(settings_value) = repo_entry.store.get("ai") {
       if let Some(settings_obj) = settings_value.as_object() {
-        let slow = settings_obj.get("simulateSlowDownload").and_then(|v| v.as_bool()).unwrap_or(false);
+        let slow = settings_obj.get("simulateSlowDownload").and_then(serde_json::Value::as_bool).unwrap_or(false);
         tracing::debug!(slow, "simulateSlowDownload setting found");
         slow
       } else {
@@ -392,7 +395,7 @@ pub async fn download_model(
         file_name,
         chunks,
         delay_ms,
-        total_time_s = (chunks as u64 * delay_ms) / 1000,
+        total_time_s = (u64::from(chunks) * delay_ms) / 1000,
         "Download simulation parameters"
       );
 
@@ -408,7 +411,6 @@ pub async fn download_model(
         }
 
         let downloaded = chunk_size * i;
-        let _progress = (i as f32 / chunks as f32 * 100.0) as u32;
 
         let _ = tx.send(DownloadProgress::Progress {
           file_name: file_name.to_string(),

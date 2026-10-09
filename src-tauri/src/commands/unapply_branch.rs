@@ -16,5 +16,5 @@ pub async fn unapply_branch(git_executor: State<'_, GitCommandExecutor>, params:
     unapply_branch_core(&git, params, &baseline_branch).map_err(|e| e.to_string())
   })
   .await
-  .map_err(|e| format!("Task error: {}", e))?
+  .map_err(|e| format!("Task error: {e}"))?
 }

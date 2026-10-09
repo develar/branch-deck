@@ -16,7 +16,7 @@ pub async fn get_uncommitted_changes(git_executor: State<'_, GitCommandExecutor>
 
   tokio::task::spawn_blocking(move || core_get_uncommitted_changes(&git, params))
     .await
-    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Get file content for diff display when user expands a file in the UI
@@ -28,5 +28,5 @@ pub async fn get_file_content_for_diff(git_executor: State<'_, GitCommandExecuto
 
   tokio::task::spawn_blocking(move || core_get_file_content_for_diff(&git, params))
     .await
-    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Task failed: {e}"))?
 }

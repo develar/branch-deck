@@ -260,11 +260,11 @@ fn calculate_divergence(git_executor: &GitCommandExecutor, repo_path: &str, merg
   // Parse output format: "<left>\t<right>"
   let parts: Vec<&str> = output.trim().split('\t').collect();
   if parts.len() != 2 {
-    return Err(anyhow!("Unexpected rev-list output format: {}", output));
+    return Err(anyhow!("Unexpected rev-list output format: {output}"));
   }
 
-  let source_count = parts[0].parse::<u32>().map_err(|e| anyhow!("Failed to parse source commit count: {}", e))?;
-  let target_count = parts[1].parse::<u32>().map_err(|e| anyhow!("Failed to parse target commit count: {}", e))?;
+  let source_count = parts[0].parse::<u32>().map_err(|e| anyhow!("Failed to parse source commit count: {e}"))?;
+  let target_count = parts[1].parse::<u32>().map_err(|e| anyhow!("Failed to parse target commit count: {e}"))?;
 
   // The common ancestor distance is the minimum of the two
   let common_ancestor_distance = source_count.min(target_count);
@@ -294,7 +294,12 @@ pub(crate) fn batch_rev_parse(git_executor: &GitCommandExecutor, repo_path: &str
   // Parse output - one hash per line, in the same order as input refs
   let hashes: Vec<&str> = output.lines().collect();
 
-  if hashes.len() != refs.len() {
+  if hashes.len() == refs.len() {
+    // Success - map refs to their hashes
+    for (i, &ref_str) in refs.iter().enumerate() {
+      result.insert(ref_str.to_string(), hashes[i].to_string());
+    }
+  } else {
     // If some refs failed, fall back to individual resolution
     for &ref_str in refs {
       match git_executor.execute_command(&["rev-parse", ref_str], repo_path) {
@@ -303,16 +308,11 @@ pub(crate) fn batch_rev_parse(git_executor: &GitCommandExecutor, repo_path: &str
         }
         Err(_) => {
           // For parent refs that don't exist (first commit), use empty tree
-          if ref_str.ends_with("^") {
+          if ref_str.ends_with('^') {
             result.insert(ref_str.to_string(), "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_string());
           }
         }
       }
-    }
-  } else {
-    // Success - map refs to their hashes
-    for (i, &ref_str) in refs.iter().enumerate() {
-      result.insert(ref_str.to_string(), hashes[i].to_string());
     }
   }
 
@@ -342,7 +342,7 @@ pub(crate) fn batch_get_file_diffs(
 
   // Batch resolve all parent commits at once
   let parent_refs: Vec<String> = commit_files_map.iter().map(|(commit_hash, _)| format!("{commit_hash}^")).collect();
-  let parent_ref_strs: Vec<&str> = parent_refs.iter().map(|s| s.as_str()).collect();
+  let parent_ref_strs: Vec<&str> = parent_refs.iter().map(std::string::String::as_str).collect();
 
   let resolved_parents = batch_rev_parse(git_executor, repo_path, &parent_ref_strs)?;
 
@@ -384,7 +384,7 @@ pub(crate) fn batch_get_file_diffs(
 
     // Get the unified diff for all files at once
     let mut show_args = vec!["-c", "merge.conflictStyle=zdiff3", "show", "--no-color", "--format=", "--unified=3", commit_hash, "--"];
-    show_args.extend(files.iter().map(|s| s.as_str()));
+    show_args.extend(files.iter().map(std::string::String::as_str));
 
     let diff_output = git_executor.execute_command(&show_args, repo_path)?;
 
@@ -461,12 +461,12 @@ pub(crate) fn get_files_content_at_commit(git_executor: &GitCommandExecutor, rep
 
   // First, get the object IDs for all files
   let mut args = vec!["ls-tree", "-z", "-r", commit_hash, "--"];
-  let file_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
+  let file_refs: Vec<&str> = file_paths.iter().map(std::string::String::as_str).collect();
   args.extend(&file_refs);
 
   let ls_tree_output = git_executor
     .execute_command(&args, repo_path)
-    .map_err(|e| anyhow!("Failed to ls-tree at commit {}: {}", commit_hash, e))?;
+    .map_err(|e| anyhow!("Failed to ls-tree at commit {commit_hash}: {e}"))?;
 
   debug!(output_length = ls_tree_output.len(), "ls-tree completed");
 
@@ -573,7 +573,7 @@ pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_pat
         // Find next null byte for the header
         let header_end = bytes[i..].iter().position(|&b| b == 0).map(|pos| i + pos);
         if let Some(end) = header_end {
-          let header = std::str::from_utf8(&bytes[i..end]).map_err(|e| anyhow!("Invalid UTF-8 in header: {}", e))?;
+          let header = std::str::from_utf8(&bytes[i..end]).map_err(|e| anyhow!("Invalid UTF-8 in header: {e}"))?;
           debug!("Processing header at position {}: {:?}", i, header);
 
           if let Some((oid, size)) = parse_cat_file_header(header) {
@@ -585,16 +585,16 @@ pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_pat
             // Read the content (size bytes)
             if i + size <= bytes.len() {
               let content_bytes = &bytes[i..i + size];
-              let content = std::str::from_utf8(content_bytes).map_err(|e| anyhow!("Invalid UTF-8 in content: {}", e))?;
+              let content = std::str::from_utf8(content_bytes).map_err(|e| anyhow!("Invalid UTF-8 in content: {e}"))?;
               debug!("Found content for oid {}: length={}", oid, content.len());
 
               let expected_oid = oids[oid_index];
               let label = labeled_oids.and_then(|lo| lo.get(oid_index).map(|(_, label)| label)).unwrap_or(&"");
               if oid == expected_oid {
                 debug!(label = %label, oid = %oid, size = size, "storing content");
-                contents.insert(oid.to_string(), content.to_string());
+                contents.insert(oid.clone(), content.to_string());
               } else {
-                return Err(anyhow!("OID mismatch: expected {}, got {}", expected_oid, oid));
+                return Err(anyhow!("OID mismatch: expected {expected_oid}, got {oid}"));
               }
 
               // Move past the content and its null terminator
@@ -612,7 +612,7 @@ pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_pat
             i = end + 1;
             oid_index += 1;
           } else {
-            return Err(anyhow!("Failed to parse git cat-file header: {:?}", header));
+            return Err(anyhow!("Failed to parse git cat-file header: {header:?}"));
           }
         } else {
           // No more null terminators found
@@ -621,7 +621,7 @@ pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_pat
       }
     }
     Err(e) => {
-      return Err(anyhow!("Failed to cat-file batch: {}", e));
+      return Err(anyhow!("Failed to cat-file batch: {e}"));
     }
   }
 

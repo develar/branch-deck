@@ -34,7 +34,7 @@ pub async fn sync_branches(
     Ok(state) => state.issue_config.clone(),
     Err(e) => {
       error!("Failed to initialize repository cache: {}.", e);
-      return Err(format!("{}", e));
+      return Err(format!("{e}"));
     }
   };
 

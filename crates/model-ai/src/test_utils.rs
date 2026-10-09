@@ -1,4 +1,5 @@
 use git_ops::model::CommitInfo;
+use std::fmt::Write;
 
 // Legacy types for backward compatibility with existing tests
 #[derive(Debug, Clone)]
@@ -35,7 +36,7 @@ pub fn convert_to_raw_git_format(commits: &[CommitInfo], diffs: &[CommitDiff]) -
         } else {
           "M" // Modified
         };
-        git_output.push_str(&format!("{}\t{}\n", status, file.path));
+        let _ = writeln!(git_output, "{}\t{}", status, file.path);
       }
     }
     git_output.push('\n'); // Separate commits

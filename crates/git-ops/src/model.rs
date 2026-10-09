@@ -107,7 +107,7 @@ pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::R
 
   // Validate that the branch name is already sanitized
   let sanitized_name = sanitize_branch_name(name);
-  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{}', expected '{}'", name, sanitized_name);
+  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{name}', expected '{sanitized_name}'");
 
   Ok(format!("{prefix}/virtual/{name}"))
 }
@@ -116,7 +116,7 @@ pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::R
 /// e.g., "user/virtual/feature-auth" -> "feature-auth"
 pub fn extract_branch_name_from_final(full_branch_name: &str, branch_prefix: &str) -> Option<String> {
   let prefix = format!("{}/virtual/", branch_prefix.trim_end_matches('/'));
-  full_branch_name.strip_prefix(&prefix).map(|s| s.to_string())
+  full_branch_name.strip_prefix(&prefix).map(std::string::ToString::to_string)
 }
 
 /// Create an unapplied branch name from branch prefix and simple name
@@ -130,7 +130,7 @@ pub fn to_unapplied_branch_name(branch_prefix: &str, branch_name: &str) -> anyho
 
   // Validate that the branch name is already sanitized
   let sanitized_name = sanitize_branch_name(name);
-  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{}', expected '{}'", name, sanitized_name);
+  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{name}', expected '{sanitized_name}'");
 
   Ok(format!("{prefix}/unapplied/{name}"))
 }
@@ -139,7 +139,7 @@ pub fn to_unapplied_branch_name(branch_prefix: &str, branch_name: &str) -> anyho
 /// e.g., "user/unapplied/feature-auth" -> "feature-auth"
 pub fn extract_branch_name_from_unapplied(full_branch_name: &str, branch_prefix: &str) -> Option<String> {
   let prefix = format!("{}/unapplied/", branch_prefix.trim_end_matches('/'));
-  full_branch_name.strip_prefix(&prefix).map(|s| s.to_string())
+  full_branch_name.strip_prefix(&prefix).map(std::string::ToString::to_string)
 }
 
 /// Sanitizes a branch name to make it valid for Git references

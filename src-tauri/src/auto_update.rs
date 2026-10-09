@@ -26,12 +26,12 @@ pub enum UpdateStatus {
 
 #[cfg(feature = "auto-update")]
 mod auto_update_impl {
-  use super::*;
+  use super::{UpdateInfo, UpdateStatus};
   use anyhow::anyhow;
   use std::sync::Mutex;
   use tauri::AppHandle;
   use tauri_plugin_updater::{Update, UpdaterExt};
-  use tracing::{debug, info};
+  use tracing::{debug, info, instrument};
 
   pub struct UpdateState {
     pub info: UpdateInfo,

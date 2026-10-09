@@ -23,7 +23,7 @@ pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: De
   } = params;
 
   // Safety checks: only allow deleting refs under <prefix>/archived/
-  let required_prefix = format!("{}/archived/", branch_prefix);
+  let required_prefix = format!("{branch_prefix}/archived/");
   if !branch_name.starts_with(&required_prefix) {
     return Err(anyhow::anyhow!("Can only delete archived branches under the configured branch prefix"));
   }
@@ -34,7 +34,7 @@ pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: De
 
   // Verify branch exists before attempting deletion
   let exists = git_executor
-    .execute_command(&["show-ref", "--verify", &format!("refs/heads/{}", branch_name)], &repository_path)
+    .execute_command(&["show-ref", "--verify", &format!("refs/heads/{branch_name}")], &repository_path)
     .is_ok();
   if !exists {
     return Err(anyhow::anyhow!("Branch does not exist"));
@@ -43,7 +43,7 @@ pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: De
   // Delete branch
   git_executor
     .execute_command(&["branch", "-D", &branch_name], &repository_path)
-    .map_err(|e| anyhow::anyhow!("Failed to delete branch: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("Failed to delete branch: {e}"))?;
 
   Ok(())
 }

@@ -49,12 +49,12 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
 
     // Update both __TAURI_STORE__ and __INIT_DATA__ directly by evaluating JavaScript
     let update_script = format!(
-      r#"
+      r"
       window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
       // Trigger a custom event to notify the app that data has been updated
       window.dispatchEvent(new CustomEvent('init-data-updated'));
-      "#,
+      ",
       params.store_cache, params.data
     );
 
@@ -65,10 +65,10 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
 
   // Create initialization script that sets both the store cache and the window data
   let init_script = format!(
-    r#"
+    r"
       window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
-      "#,
+      ",
     params.store_cache, params.data
   );
 

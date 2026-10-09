@@ -56,7 +56,7 @@ async fn process_branches_parallel(params: BranchProcessingParams<'_>) -> Result
   for archived_branch in branches {
     let repo = repo_path.to_string();
     let baseline = baseline_branch.to_string();
-    let strategy_clone = strategy.clone();
+    let strategy_clone = strategy;
 
     // Precompute cheap values before spawning
     let is_merged = merged_branches.contains(&archived_branch);
@@ -84,7 +84,7 @@ async fn process_branches_parallel(params: BranchProcessingParams<'_>) -> Result
       archived_branch: archived_branch.clone(),
       branch_tip: branch_tip.clone(),
       is_merged,
-      strategy: strategy_clone.clone(),
+      strategy: strategy_clone,
       repo: repo.clone(),
       baseline: baseline.clone(),
     };
@@ -131,7 +131,7 @@ fn compute_summary_blocking(git: &GitCommandExecutor, repo: &str, branch_tip: &s
   git
     .execute_command(["--no-pager", "log", "-1", "--format=%s", branch_tip].as_slice(), repo)
     .ok()
-    .map(|subject| {
+    .map_or_default(|subject| {
       if let Some((_, end)) = find_issue_range(&subject) {
         let cleaned = subject[end..].trim_start_matches([' ', ':']).trim();
         if cleaned.is_empty() { String::new() } else { cleaned.to_string() }
@@ -139,7 +139,6 @@ fn compute_summary_blocking(git: &GitCommandExecutor, repo: &str, branch_tip: &s
         subject.trim().to_string()
       }
     })
-    .unwrap_or_default()
 }
 
 fn handle_cache_hit(progress: &dyn ProgressReporter, archived_branch: &str, mut info: BranchIntegrationInfo) -> Result<bool> {
@@ -158,7 +157,7 @@ async fn run_branch_task(inputs: BranchWorkInputs, git: GitCommandExecutor) -> s
   let repo_for_det = inputs.repo.clone();
   let branch_for_det = inputs.archived_branch.clone();
   let baseline_for_det = inputs.baseline.clone();
-  let strategy_for_det = inputs.strategy.clone();
+  let strategy_for_det = inputs.strategy;
   let is_merged = inputs.is_merged;
 
   let det_handle = tokio::task::spawn_blocking(move || perform_fresh_detection(&git_for_det, &repo_for_det, &branch_for_det, &baseline_for_det, is_merged, strategy_for_det));
@@ -174,10 +173,10 @@ async fn run_branch_task(inputs: BranchWorkInputs, git: GitCommandExecutor) -> s
     None
   };
 
-  let status = det_handle.await.map_err(|e| anyhow::anyhow!("join error in detection: {}", e))??;
+  let status = det_handle.await.map_err(|e| anyhow::anyhow!("join error in detection: {e}"))??;
 
   let summary = if let Some(h) = sum_handle {
-    h.await.map_err(|e| anyhow::anyhow!("join error in summary: {}", e))?
+    h.await.map_err(|e| anyhow::anyhow!("join error in summary: {e}"))?
   } else {
     String::new()
   };
@@ -202,7 +201,7 @@ fn write_caches_sequentially(git_executor: &GitCommandExecutor, repo_path: &str,
 
 /// Archive inactive branches using pre-fetched branch data
 /// Returns map of newly archived branch names to their commits
-async fn archive_inactive_branches(
+fn archive_inactive_branches(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   branch_prefix: &str,
@@ -232,7 +231,7 @@ async fn archive_inactive_branches(
     git_executor,
     repo_path,
     branch_prefix,
-    inactive_branches,
+    &inactive_branches,
     &branch_data.virtual_commits,
     &branch_data.archived_today_names,
   )?;
@@ -252,7 +251,10 @@ pub async fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_
 
   // Step 0.5: Clean up old archived branches, but only those fully integrated
   // Compute cutoff date based on retention
-  let cutoff_date = chrono::Utc::now() - chrono::Duration::days(config.retention_days as i64);
+  let retention_days = i64::try_from(config.retention_days).unwrap_or(i64::MAX);
+  let cutoff_date = chrono::Duration::try_days(retention_days)
+    .and_then(|retention| chrono::Utc::now().checked_sub_signed(retention))
+    .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC);
   let archive_prefix = format!("{branch_prefix}/archived/");
 
   // Build list of archived branches to delete: older than cutoff AND cache status Integrated
@@ -287,7 +289,7 @@ pub async fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_
   }
 
   // Step 2: Archive inactive branches using the pre-fetched data
-  let newly_archived = archive_inactive_branches(git_executor, repo_path, branch_prefix, &branch_data, config.grouped_commits).await?;
+  let newly_archived = archive_inactive_branches(git_executor, repo_path, branch_prefix, &branch_data, config.grouped_commits)?;
 
   // Step 3: Build a complete branch commit map including newly archived branches
   let mut all_branch_commits = branch_data.all_branch_commits.clone();
@@ -387,14 +389,14 @@ impl DetectionResult {
 fn create_detection_result(status: BranchIntegrationStatus, branch_name: String, branch_tip: String, summary: String) -> DetectionResult {
   let info = BranchIntegrationInfo {
     name: branch_name,
-    summary: summary.clone(),
-    status: status.clone(),
+    summary,
+    status,
   };
   DetectionResult::new(info, branch_tip)
 }
 
 /// Perform fresh detection using the specified strategy
-/// Returns (integrated_info, not_integrated_info) based on detection results
+/// Returns (`integrated_info`, `not_integrated_info`) based on detection results
 fn perform_fresh_detection(
   git: &GitCommandExecutor,
   repo: &str,

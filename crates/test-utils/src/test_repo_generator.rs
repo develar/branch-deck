@@ -12,6 +12,7 @@ impl Default for TestRepoGenerator {
   }
 }
 
+#[expect(clippy::unused_self, reason = "stateless generator; methods are grouped on the type for readability")]
 impl TestRepoGenerator {
   pub fn new() -> Self {
     Self
@@ -608,7 +609,7 @@ data class CacheStats(
     )?;
 
     // 7. Add metrics service (new feature)
-    let metrics_service = r#"package com.example.service
+    let metrics_service = r"package com.example.service
 
 import org.springframework.stereotype.Service
 
@@ -636,7 +637,7 @@ class MetricsService {
         counters.clear()
         timers.clear()
     }
-}"#;
+}";
 
     self.create_commit(
       repo_path,
@@ -1673,7 +1674,7 @@ third-party integrations.",
     )?;
 
     // 16. Update README with architecture
-    let readme_update = r#"# Test Repository
+    let readme_update = r"# Test Repository
 
 Generated test repository for Branch Deck conflict demonstration.
 
@@ -1736,7 +1737,7 @@ This repository demonstrates Branch Deck's conflict scenarios:
 - Interleaved commits with different prefixes
 - Dependencies between features
 - Pushed vs unpushed base conflicts
-"#;
+";
 
     self.create_commit(
       repo_path,

@@ -116,7 +116,7 @@ where
   if !buffer.is_empty()
     && let Ok(record) = std::str::from_utf8(&buffer)
     && !record.is_empty()
-    && !record.chars().all(|c| c.is_whitespace())
+    && !record.chars().all(char::is_whitespace)
   {
     match parse_single_commit(record) {
       Ok(commit) => {
@@ -162,26 +162,26 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   // Parse timestamps
   let author_timestamp = author_timestamp_field
     .parse::<u32>()
-    .map_err(|e| anyhow!("Failed to parse author timestamp '{}': {}", author_timestamp_field, e))?;
+    .map_err(|e| anyhow!("Failed to parse author timestamp '{author_timestamp_field}': {e}"))?;
   let committer_timestamp = committer_timestamp_field
     .parse::<u32>()
-    .map_err(|e| anyhow!("Failed to parse committer timestamp '{}': {}", committer_timestamp_field, e))?;
+    .map_err(|e| anyhow!("Failed to parse committer timestamp '{committer_timestamp_field}': {e}"))?;
 
   // Parse parent ID
-  let parent_id = if !parents_field.is_empty() {
-    parents_field.split_whitespace().next().map(|p| p.to_string())
-  } else {
+  let parent_id = if parents_field.is_empty() {
     None
+  } else {
+    parents_field.split_whitespace().next().map(std::string::ToString::to_string)
   };
 
   // Parse note and extract mapped commit ID
   let (note, mapped_commit_id) = if let Some(note_content) = note_field {
-    if !note_content.is_empty() {
+    if note_content.is_empty() {
+      (None, None)
+    } else {
       let trimmed = note_content.trim();
       let mapped_id = trimmed.strip_prefix("v-commit-v1:").map(|stripped| stripped.trim().to_string());
       (Some(trimmed.to_string()), mapped_id)
-    } else {
-      (None, None)
     }
   } else {
     (None, None)

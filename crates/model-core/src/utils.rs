@@ -20,7 +20,7 @@ pub fn clean_branch_name(raw_name: &str) -> Result<String> {
   };
 
   // Take first non-empty line and trim
-  let first_line = without_tags.lines().find(|line| !line.trim().is_empty()).map(|line| line.trim()).unwrap_or("");
+  let first_line = without_tags.lines().find(|line| !line.trim().is_empty()).map_or("", str::trim);
 
   // Early return for empty input
   if first_line.is_empty() {

@@ -25,7 +25,7 @@ fn extract_remote_status_for_branch(events: &[SyncEvent], branch_name: &str) -> 
     {
       return Some(RemoteStatusResult {
         my_commits_count: status_update.my_unpushed_count,
-        total_commits_count: status_update.unpushed_commits.len() as u32,
+        total_commits_count: u32::try_from(status_update.unpushed_commits.len()).unwrap_or(u32::MAX),
         commits_behind: status_update.commits_behind,
         remote_exists: status_update.remote_exists,
       });
@@ -108,7 +108,7 @@ fn configure_test_author(repo: &TestRepo, email: &str, name: &str) {
 
 /// Helper function to print remote status for debugging
 fn print_remote_status(branch_name: &str, status: &RemoteStatusResult) {
-  println!("Remote status for {}:", branch_name);
+  println!("Remote status for {branch_name}:");
   println!("  My commits: {}", status.my_commits_count);
   println!("  Total commits: {}", status.total_commits_count);
   println!("  Commits behind: {}", status.commits_behind);
@@ -117,10 +117,10 @@ fn print_remote_status(branch_name: &str, status: &RemoteStatusResult) {
 
 /// Helper function to assert remote status with detailed messaging
 fn assert_remote_status(events: &[SyncEvent], branch_name: &str, expected_my_commits: u32, expected_total_commits: u32, expected_commits_behind: u32, test_description: &str) {
-  let status = extract_remote_status_for_branch(events, branch_name).unwrap_or_else(|| panic!("Should have received remote status update for {}", branch_name));
+  let status = extract_remote_status_for_branch(events, branch_name).unwrap_or_else(|| panic!("Should have received remote status update for {branch_name}"));
 
   print_remote_status(branch_name, &status);
-  println!("Test: {}", test_description);
+  println!("Test: {test_description}");
 
   assert_eq!(
     status.my_commits_count, expected_my_commits,
@@ -245,7 +245,7 @@ async fn test_real_io_mockk_update_bug_scenario() {
   );
 }
 
-/// Direct test of compute_remote_status_for_branch function
+/// Direct test of `compute_remote_status_for_branch` function
 #[test(tokio::test)]
 async fn test_compute_remote_status_directly() {
   let scenario = TestScenario::new();

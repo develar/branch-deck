@@ -41,10 +41,10 @@ pub fn validate_path(path: &str) -> Result<()> {
   Ok(())
 }
 
-/// Validates a path and creates a BrowseResult
+/// Validates a path and creates a `BrowseResult`
 pub fn validate_and_create_result(path: String) -> BrowseResult {
   match validate_path(&path) {
-    Ok(_) => BrowseResult {
+    Ok(()) => BrowseResult {
       path: Some(path),
       valid: true,
       error: None,

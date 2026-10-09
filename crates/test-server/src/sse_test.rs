@@ -20,6 +20,7 @@ async fn start_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
 
 #[tokio::test]
 async fn test_sync_branches_sse_stream() {
+  use futures::StreamExt;
   // Initialize test environment
   let _ = tracing_subscriber::fmt::try_init();
 
@@ -74,7 +75,6 @@ async fn test_sync_branches_sse_stream() {
   let start = std::time::Instant::now();
   let timeout = Duration::from_secs(5);
 
-  use futures::StreamExt;
   while let Ok(Some(chunk)) = tokio::time::timeout(Duration::from_millis(100), stream.next()).await {
     if start.elapsed() > timeout {
       break;
@@ -147,6 +147,7 @@ async fn test_sync_branches_sse_stream() {
 
 #[tokio::test]
 async fn test_download_model_sse_immediate_response() {
+  use futures::StreamExt;
   // This test verifies that download_model sends at least one event immediately
   // to prevent ERR_EMPTY_RESPONSE issues
   let _ = tracing_subscriber::fmt::try_init();
@@ -185,7 +186,6 @@ async fn test_download_model_sse_immediate_response() {
   // Read the first event immediately - this should not timeout
   let mut stream = response.bytes_stream();
 
-  use futures::StreamExt;
   // Use a very short timeout - if the fix is working, we should get an event immediately
   let first_chunk_result = tokio::time::timeout(Duration::from_millis(100), stream.next()).await;
 

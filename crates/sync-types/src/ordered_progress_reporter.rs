@@ -6,7 +6,7 @@ use std::sync::{
 };
 
 /// Progress reporter wrapper that ensures correct event ordering
-/// Queues branch-specific events until BranchesGrouped is sent
+/// Queues branch-specific events until `BranchesGrouped` is sent
 pub struct OrderedProgressReporter<P: ProgressReporter> {
   inner: P,
   queued_events: Arc<SegQueue<SyncEvent>>,

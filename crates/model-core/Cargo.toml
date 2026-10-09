@@ -32,3 +32,6 @@ cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 test-log = { workspace = true }
+
+[lints]
+workspace = true

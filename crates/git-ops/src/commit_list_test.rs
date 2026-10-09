@@ -64,9 +64,9 @@ fn test_get_commit_list_with_origin() {
   assert_eq!(commits[3].subject, "(ui-components) Add button");
 
   // Verify other fields are populated
-  assert!(!commits[0].id.is_empty());
-  assert!(!commits[0].author_name.is_empty());
-  assert!(!commits[0].author_email.is_empty());
+  assert_ne!(commits[0].id, "");
+  assert_ne!(commits[0].author_name, "");
+  assert_ne!(commits[0].author_email, "");
   assert!(commits[0].committer_timestamp > 0);
   assert!(commits[0].note.is_none()); // No notes in test commits
 }

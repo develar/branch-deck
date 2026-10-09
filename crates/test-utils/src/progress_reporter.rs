@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 /// Test progress reporter that captures events for verification
-/// This replaces the duplicated TestProgressReporter in various test files
+/// This replaces the duplicated `TestProgressReporter` in various test files
 #[derive(Clone)]
 pub struct TestProgressReporter<T> {
   events: Arc<Mutex<Vec<T>>>,

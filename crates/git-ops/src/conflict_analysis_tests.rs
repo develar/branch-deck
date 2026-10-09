@@ -16,7 +16,7 @@ fn count_commits(git_executor: &GitCommandExecutor, repo_path: &str, from_commit
   let args = vec!["rev-list", "--count", &range_arg];
 
   let output = git_executor.execute_command(&args, repo_path)?;
-  output.trim().parse::<u32>().map_err(|e| anyhow!("Failed to parse commit count: {}", e))
+  output.trim().parse::<u32>().map_err(|e| anyhow!("Failed to parse commit count: {e}"))
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn test_batch_get_file_diffs_with_hunk_format() {
   let diff = &diffs[0];
 
   // Check that hunks are not empty
-  assert!(!diff.hunks.is_empty());
+  assert_ne!(diff.hunks, [] as [std::string::String; 0]);
 
   // Check that the hunk contains proper diff format
   let hunk = &diff.hunks[0];
@@ -194,7 +194,7 @@ fn test_get_file_diffs_multiple_files() {
   let diff1 = diffs.iter().find(|d| d.old_file.file_name == "file1.txt").unwrap();
   assert_eq!(diff1.old_file.content, "Content 1");
   assert_eq!(diff1.new_file.content, "Modified Content 1");
-  assert!(!diff1.hunks.is_empty());
+  assert_ne!(diff1.hunks, [] as [std::string::String; 0]);
 
   // Check second file
   let diff2 = diffs.iter().find(|d| d.old_file.file_name == "file2.txt").unwrap();
@@ -202,7 +202,7 @@ fn test_get_file_diffs_multiple_files() {
   tracing::debug!(new_content = ?diff2.new_file.content, "file2.txt new content");
   assert_eq!(diff2.old_file.content, "Content 2");
   assert_eq!(diff2.new_file.content, "Modified Content 2");
-  assert!(!diff2.hunks.is_empty());
+  assert_ne!(diff2.hunks, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn test_get_file_diffs_new_file() {
   let diff = &diffs[0];
   assert_eq!(diff.old_file.content, ""); // Empty in parent commit
   assert_eq!(diff.new_file.content, "New file content");
-  assert!(!diff.hunks.is_empty());
+  assert_ne!(diff.hunks, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -393,9 +393,7 @@ fn test_different_author_and_committer_times() {
     .output()
     .expect("Failed to create commit with author date");
 
-  if !output.status.success() {
-    panic!("Failed to create commit: {}", String::from_utf8_lossy(&output.stderr));
-  }
+  assert!(output.status.success(), "Failed to create commit: {}", String::from_utf8_lossy(&output.stderr));
 
   let _test_commit = test_repo.rev_parse("HEAD").unwrap();
 
@@ -480,9 +478,7 @@ fn test_cherry_pick_preserves_author_time() {
     .output()
     .expect("Failed to cherry-pick");
 
-  if !output.status.success() {
-    panic!("Cherry-pick failed: {}", String::from_utf8_lossy(&output.stderr));
-  }
+  assert!(output.status.success(), "Cherry-pick failed: {}", String::from_utf8_lossy(&output.stderr));
 
   let _cherry_picked = test_repo.rev_parse("HEAD").unwrap();
 
@@ -545,9 +541,7 @@ fn test_rebase_changes_committer_time_only() {
     .output()
     .expect("Failed to rebase");
 
-  if !output.status.success() {
-    panic!("Rebase failed: {}", String::from_utf8_lossy(&output.stderr));
-  }
+  assert!(output.status.success(), "Rebase failed: {}", String::from_utf8_lossy(&output.stderr));
 
   let feature_head = test_repo.rev_parse("HEAD").unwrap();
 

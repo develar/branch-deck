@@ -17,7 +17,7 @@ use super::test_helpers::{
 
 /// Helper function for integration workflow tests
 /// Tests the complete workflow of creating commits, syncing, pushing, integrating upstream, and detecting integration
-pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration_method: IntegrationMethod, branch_names: BranchTestData) {
+pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration_method: IntegrationMethod, branch_names: &BranchTestData) {
   let rt = tokio::runtime::Runtime::new().unwrap();
   let (upstream_repo, local_repo, git_executor) = setup_test_repos();
 
@@ -25,7 +25,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   local_repo.checkout_new_branch("local-dev").unwrap();
 
   // Step 4: Add commits with prefixes
-  for (_branch_name, commits) in &branch_names {
+  for (_branch_name, commits) in branch_names {
     for (subject, filename, content) in commits {
       local_repo.create_commit(subject, filename, content);
     }
@@ -37,7 +37,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   assert!(result.is_ok(), "Initial sync should succeed");
 
   // Verify branches were created
-  for (branch_name, _) in &branch_names {
+  for (branch_name, _) in branch_names {
     let full_branch_name = to_final_branch_name("user", branch_name).unwrap();
     let branches = local_repo.list_branches(&full_branch_name).unwrap();
     assert!(
@@ -55,7 +55,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   }
 
   // Step 6: Push virtual branches to upstream
-  for (branch_name, _) in &branch_names {
+  for (branch_name, _) in branch_names {
     let full_branch_name = to_final_branch_name("user", branch_name).unwrap();
     local_repo.push("origin", &full_branch_name).unwrap();
   }
@@ -64,7 +64,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   upstream_repo.checkout("main").unwrap();
 
   let mut integration_timestamps = std::collections::HashMap::new();
-  for (branch_name, _) in &branch_names {
+  for (branch_name, _) in branch_names {
     let full_branch_name = to_final_branch_name("user", branch_name).unwrap();
 
     match integration_method {
@@ -157,7 +157,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   assert_eq!(integrated_branches.len(), branch_names.len(), "Should detect all branches as integrated");
 
   // Verify each branch is detected with correct timestamp
-  for (branch_name, _) in &branch_names {
+  for (branch_name, _) in branch_names {
     // The integrated branch name will be the archived path, so check if it contains the simple name
     let found = integrated_branches.iter().find(|b| b.contains(branch_name));
     assert!(found.is_some(), "Branch {branch_name} should be detected as integrated");
@@ -178,7 +178,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
       if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {
         if let Some(integrated_date) = integrated_at {
           // Allow some tolerance (within 60 seconds) for timestamp detection
-          let timestamp_diff = (*integrated_date as i64 - *expected_timestamp as i64).abs();
+          let timestamp_diff = (i64::from(*integrated_date) - i64::from(*expected_timestamp)).abs();
 
           assert!(
             timestamp_diff <= 60,
@@ -187,7 +187,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
 
           // Verify it's not just "now" (should be from the past, not the current time)
           // Since the test runs quickly, we allow for very small time differences
-          let now = chrono::Utc::now().timestamp() as u32;
+          let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");
 
           // The integration happened in the past (during the test), so it should be at least 0 seconds ago
           // and not in the future
@@ -211,7 +211,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   // Verify branches were archived
   let archived_branches = local_repo.list_branches("user/archived/*").unwrap();
   let archived = archived_branches.join("\n");
-  for (branch_name, commits) in &branch_names {
+  for (branch_name, commits) in branch_names {
     assert!(archived.contains(&format!("/{branch_name}")), "{branch_name} should be archived");
 
     // Test that we can get commits from the archived branch
@@ -249,7 +249,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   }
 
   // Original virtual branches should no longer exist
-  for (branch_name, _) in &branch_names {
+  for (branch_name, _) in branch_names {
     let full_branch_name = to_final_branch_name("user", branch_name).unwrap();
     let branches = local_repo.list_branches(&full_branch_name).unwrap();
     assert!(branches.is_empty(), "Original {branch_name} branch should be gone");
@@ -275,7 +275,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
 
 // TODO: Fix this test - it's failing because local-only repos don't detect integration properly
 // when the virtual branch is merged locally to main without going through a remote
-#[ignore]
+#[ignore = "local-only repos do not detect integration when merged to main without a remote"]
 #[test]
 fn test_integration_timestamp_accuracy() {
   // Test that integration timestamps reflect actual integration time, not detection time
@@ -292,7 +292,7 @@ fn test_integration_timestamp_accuracy() {
 
   // Add commit with specific timestamp (old timestamp)
   let old_timestamp = 1700000000u32; // Some time in the past
-  repo.create_commit_with_timestamp("(feature-test) Add feature", "feature.txt", "feature content", Some(old_timestamp as i64));
+  repo.create_commit_with_timestamp("(feature-test) Add feature", "feature.txt", "feature content", Some(i64::from(old_timestamp)));
 
   // Run initial sync to create virtual branch
   let progress_reporter = TestReporter::new();
@@ -302,9 +302,9 @@ fn test_integration_timestamp_accuracy() {
   // Merge the virtual branch back to main with a newer timestamp
   repo.checkout("main").unwrap();
 
-  let merge_timestamp = (chrono::Utc::now().timestamp() - 300) as u32; // 5 minutes ago
+  let merge_timestamp = u32::try_from(chrono::Utc::now().timestamp() - 300).expect("timestamp fits in u32"); // 5 minutes ago
   repo
-    .merge_no_ff_with_timestamp("user/virtual/feature-test", "Merge feature-test", merge_timestamp as i64)
+    .merge_no_ff_with_timestamp("user/virtual/feature-test", "Merge feature-test", i64::from(merge_timestamp))
     .unwrap();
 
   // Don't delete the virtual branch yet - we need it to exist for detection
@@ -340,7 +340,7 @@ fn test_integration_timestamp_accuracy() {
     .expect("Should find integration info");
 
   // Verify the timestamp is close to merge time, not current time
-  let now = chrono::Utc::now().timestamp() as u32;
+  let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");
   let time_since_merge = now - merge_timestamp;
 
   if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {
@@ -376,7 +376,7 @@ fn test_rebase_integration_with_timestamp_verification() {
   test_integration_workflow_helper(
     UpdateMethod::Rebase,
     IntegrationMethod::Rebase,
-    vec![(
+    &[(
       "feature-rebase",
       vec![
         ("(feature-rebase) Add feature 1", "feature1.txt", "feature 1 content"),

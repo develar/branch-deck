@@ -27,7 +27,7 @@ fn skip_bracket_prefix(bytes: &[u8], mut i: usize) -> Option<usize> {
         }
         return Some(i);
       }
-      (None, None) | (None, Some(_)) => {
+      (None, None | Some(_)) => {
         return None; // no closing bracket found before newline or end
       }
     }
@@ -65,7 +65,7 @@ fn skip_semantic_prefix(bytes: &[u8], mut i: usize) -> Option<usize> {
         (Some(p), _) => {
           i += p + 1;
         }
-        (None, None) | (None, Some(_)) => {
+        (None, None | Some(_)) => {
           return Some(type_start); // no closing ')'
         }
       }
@@ -160,7 +160,7 @@ pub fn find_issue_number(text: &str) -> Option<&str> {
 }
 
 /// Check if a message already contains an issue reference pattern (like ABC-123)
-/// More efficient than find_issue_number when you only need existence check
+/// More efficient than `find_issue_number` when you only need existence check
 pub fn has_issue_reference(text: &str) -> bool {
   find_issue_range(text).is_some()
 }

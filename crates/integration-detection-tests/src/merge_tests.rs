@@ -12,7 +12,7 @@ fn test_full_integration_workflow_with_push_and_merge() {
   test_integration_workflow_helper(
     UpdateMethod::Rebase,
     IntegrationMethod::Merge,
-    vec![
+    &[
       (
         "feature-auth",
         vec![
@@ -32,7 +32,7 @@ fn test_full_integration_workflow_with_merge_instead_of_rebase() {
   test_integration_workflow_helper(
     UpdateMethod::Merge,
     IntegrationMethod::Merge,
-    vec![(
+    &[(
       "feature-merge",
       vec![
         ("(feature-merge) Add feature function", "feature.js", "export function feature() {}"),

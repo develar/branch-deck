@@ -30,3 +30,6 @@ tempfile = { workspace = true }
 [features]
 default = []
 specta = ["dep:specta"]
+
+[lints]
+workspace = true
