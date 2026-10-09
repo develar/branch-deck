@@ -23,6 +23,8 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
     &[
       "for-each-ref",
       "--format=%(refname:short) %(objectname) %(contents:subject)",
+      // Newest first: `archived_all` keeps this order and the UI uses it until integration dates are known
+      "--sort=-committerdate",
       &format!("refs/heads/{branch_prefix}/"),
     ],
     repo_path,
