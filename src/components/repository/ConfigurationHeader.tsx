@@ -7,18 +7,14 @@ import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { formatRelativeTime } from "@/lib/time"
+import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
 
-export interface ConfigurationHeaderProps {
-  isSyncing: boolean
-  syncError: string | null
-  branchCount: number
-  onSync: () => void
-}
-
-// TODO(Phase 5): read isSyncing/syncError/branch count/syncBranches from the branch-sync store instead of props
-export function ConfigurationHeader({ isSyncing, syncError, branchCount, onSync }: ConfigurationHeaderProps) {
+export function ConfigurationHeader() {
+  const isSyncing = useBranchSync(state => state.isSyncing)
+  const syncError = useBranchSync(state => state.syncError)
+  const branchCount = useBranchSync(state => state.branchOrder.length)
   const pathValidation = useRepository(state => state.pathValidation)
   const selectedProject = useSelectedProject()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
@@ -78,7 +74,7 @@ export function ConfigurationHeader({ isSyncing, syncError, branchCount, onSync 
               <TooltipContent>{syncError}</TooltipContent>
             </Tooltip>
           )}
-          <SyncButton isSyncing={isSyncing} syncError={syncError} onSync={onSync} />
+          <SyncButton />
         </div>
       </div>
     </div>

@@ -2,16 +2,12 @@ import { RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { syncBranches, useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 
-export interface SyncButtonProps {
-  isSyncing: boolean
-  syncError: string | null
-  onSync: () => void
-}
-
-// TODO(Phase 5): read isSyncing/syncError/syncBranches from the branch-sync store instead of props
-export function SyncButton({ isSyncing, syncError, onSync }: SyncButtonProps) {
+export function SyncButton() {
+  const isSyncing = useBranchSync(state => state.isSyncing)
+  const syncError = useBranchSync(state => state.syncError)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProject() !== null
   const canSync = hasSelectedProject && pathValidation.valid
@@ -23,7 +19,7 @@ export function SyncButton({ isSyncing, syncError, onSync }: SyncButtonProps) {
       disabled={isSyncing || !canSync}
       aria-busy={isSyncing || undefined}
       data-testid="sync-button"
-      onClick={onSync}
+      onClick={() => void syncBranches()}
     >
       {isSyncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
       Sync
