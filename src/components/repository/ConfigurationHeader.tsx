@@ -1,0 +1,86 @@
+import { CircleAlertIcon, Settings2Icon } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
+import { RepositorySelector } from "@/components/repository/RepositorySelector"
+import { SyncButton } from "@/components/repository/SyncButton"
+import { formatRelativeTime } from "@/lib/time"
+import { useRepository, useSelectedProject } from "@/stores/repository"
+import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
+
+export interface ConfigurationHeaderProps {
+  isSyncing: boolean
+  syncError: string | null
+  branchCount: number
+  onSync: () => void
+}
+
+// TODO(Phase 5): read isSyncing/syncError/branch count/syncBranches from the branch-sync store instead of props
+export function ConfigurationHeader({ isSyncing, syncError, branchCount, onSync }: ConfigurationHeaderProps) {
+  const pathValidation = useRepository(state => state.pathValidation)
+  const selectedProject = useSelectedProject()
+  const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
+  const lastSyncTime = selectedProject?.lastSyncTime
+
+  return (
+    <div className="rounded-lg border border-border bg-muted backdrop-blur-sm" data-testid="configuration-header">
+      <div className="flex h-14 items-center justify-between gap-4 px-4">
+        {/* repository info */}
+        <div className="flex min-w-0 items-center gap-3">
+          <RepositorySelector disabled={isSyncing} />
+
+          <BranchPrefixField disabled={isSyncing || !pathValidation.valid} />
+
+          <Popover>
+            <PopoverTrigger
+              render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />}
+            >
+              <Settings2Icon />
+            </PopoverTrigger>
+            <PopoverContent className="w-auto min-w-[200px] gap-2 p-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
+                Auto-sync on focus
+              </label>
+              <div className="text-xs text-muted-foreground">
+                Automatically sync when the window gains focus
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {selectedProject && branchCount > 0 && pathValidation.valid && (
+            <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
+              <span className="whitespace-nowrap">
+                {branchCount}
+                {" "}
+                {branchCount === 1 ? "branch" : "branches"}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* actions */}
+        <div className="flex items-center gap-3">
+          {lastSyncTime && !isSyncing && pathValidation.valid
+            ? (
+                <div className="text-xs text-muted-foreground">
+                  {`Last synced ${formatRelativeTime(lastSyncTime)}`}
+                </div>
+              )
+            : null}
+          {syncError && (
+            <Tooltip>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <CircleAlertIcon className="size-4 text-destructive" />
+              </TooltipTrigger>
+              <TooltipContent>{syncError}</TooltipContent>
+            </Tooltip>
+          )}
+          <SyncButton isSyncing={isSyncing} syncError={syncError} onSync={onSync} />
+        </div>
+      </div>
+    </div>
+  )
+}
