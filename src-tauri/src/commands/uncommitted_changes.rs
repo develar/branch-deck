@@ -1,6 +1,6 @@
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
 use git_ops::conflict_analysis::FileDiff;
+use model_tauri::command_error::CommandError;
 use sync_core::uncommitted_changes::{
   GetFileContentForDiffParams, GetUncommittedChangesParams, UncommittedChangesResult, get_file_content_for_diff as core_get_file_content_for_diff,
   get_uncommitted_changes as core_get_uncommitted_changes,

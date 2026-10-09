@@ -1,3 +1,4 @@
+pub mod command_error;
 pub mod commands;
 pub mod download;
 pub mod generator;

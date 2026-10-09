@@ -1,6 +1,6 @@
-use git_ops::command_error::CommandError;
 use model_ai::path_provider::ModelPathProvider;
 use model_core::config::ModelConfig;
+use model_tauri::command_error::CommandError;
 use model_tauri::generator::ModelGeneratorState;
 use model_tauri::path_provider::TauriModelPathProvider;
 use serde::Deserialize;

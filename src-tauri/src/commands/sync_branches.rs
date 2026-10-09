@@ -1,7 +1,7 @@
 use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::sync::{IssueConfigSource, sync_branches_core_with_cache};
 use sync_types::SyncEvent;

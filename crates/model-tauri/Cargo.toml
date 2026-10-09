@@ -27,6 +27,7 @@ git-ops = { path = "../git-ops", features = ["specta"] }
 git-executor = { path = "../git-executor" }
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }
 test-log = { workspace = true }

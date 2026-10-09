@@ -1,7 +1,7 @@
+use crate::command_error::CommandError;
 use crate::generator::ModelGeneratorState;
 use crate::path_provider::TauriModelPathProvider;
 use anyhow::Context;
-use git_ops::command_error::CommandError;
 use model_ai::types::DownloadProgress;
 use serde::Serialize;
 use tauri::{AppHandle, State};

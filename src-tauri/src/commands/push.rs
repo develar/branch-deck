@@ -1,7 +1,7 @@
 use anyhow::Context;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
 use git_ops::model::to_final_branch_name;
+use model_tauri::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::remote_status::compute_remote_status_for_branch;
 use sync_types::RemoteStatusUpdate;

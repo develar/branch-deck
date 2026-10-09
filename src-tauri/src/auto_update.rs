@@ -1,4 +1,4 @@
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 #[cfg(feature = "auto-update")]

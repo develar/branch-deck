@@ -1,5 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use sync_core::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
 use tauri::State;
 use tracing::instrument;

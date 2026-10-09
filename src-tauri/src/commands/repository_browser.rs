@@ -1,5 +1,5 @@
 use anyhow::Result;
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;

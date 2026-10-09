@@ -11,15 +11,11 @@ git-executor = { path = "../git-executor" }
 # Core utilities (shared via workspace)
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 tracing.workspace = true
 
 # Git and file operations
 dashmap.workspace = true
 
-
-# Tauri dependencies for IPC
-tauri.workspace = true
 specta = { workspace = true, optional = true }
 
 [dev-dependencies]

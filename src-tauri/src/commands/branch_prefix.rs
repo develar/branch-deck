@@ -1,5 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use serde::Deserialize;
 use tauri::State;
 

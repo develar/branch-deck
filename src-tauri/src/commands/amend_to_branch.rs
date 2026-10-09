@@ -1,5 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use tauri::State;
 use tracing::instrument;

@@ -1,6 +1,6 @@
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::command_error::CommandError;
 use model_ai::types::{SuggestBranchNameParams, SuggestionProgress};
+use model_tauri::command_error::CommandError;
 use model_tauri::{generator::ModelGeneratorState, path_provider::TauriModelPathProvider};
 use tauri::{AppHandle, State};
 use tracing::instrument;

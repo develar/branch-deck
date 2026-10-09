@@ -5,8 +5,7 @@
 use serde::Serialize;
 
 /// Error returned by Tauri commands, serialized as `{ message }`.
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct CommandError {
   pub message: String,
 }
@@ -34,18 +33,6 @@ impl From<anyhow::Error> for CommandError {
 
 impl From<tauri::Error> for CommandError {
   fn from(err: tauri::Error) -> Self {
-    Self::new(err.to_string())
-  }
-}
-
-impl From<std::io::Error> for CommandError {
-  fn from(err: std::io::Error) -> Self {
-    Self::new(err.to_string())
-  }
-}
-
-impl From<serde_json::Error> for CommandError {
-  fn from(err: serde_json::Error) -> Self {
     Self::new(err.to_string())
   }
 }

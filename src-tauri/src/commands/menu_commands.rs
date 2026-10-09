@@ -1,4 +1,4 @@
-use git_ops::command_error::CommandError;
+use model_tauri::command_error::CommandError;
 use tauri::{AppHandle, Manager, State};
 use tracing::instrument;
 
