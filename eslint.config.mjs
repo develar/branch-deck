@@ -16,9 +16,6 @@ export default tseslint.config(
       "playwright-report/**",
       "**/migration-backup/**",
       "**/.tools/**",
-      // TODO: legacy Vue sources kept on disk as reference during the React rewrite; remove with them
-      "app/**",
-      "layers/**",
     ],
   },
   js.configs.recommended,

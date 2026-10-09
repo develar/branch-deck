@@ -47,7 +47,7 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
     [items, selectedIds],
   )
 
-  // like a Vue watcher: not called for the initial value
+  // change callback: not called for the initial value
   const isFirstRef = useRef(true)
   useEffect(() => {
     if (isFirstRef.current) {

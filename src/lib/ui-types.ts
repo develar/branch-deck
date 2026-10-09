@@ -6,7 +6,7 @@ export type UIColor = "primary" | "secondary" | "success" | "info" | "warning" |
 
 export type SubtleBadgeVariant = "primary" | "secondary" | "success" | "info" | "warning" | "destructive"
 
-/** Badge variant with a tinted background for a semantic color (Nuxt UI `variant="soft"`/`"subtle"`). */
+/** Badge variant with a tinted background for a semantic color. */
 export function subtleBadgeVariant(color: UIColor): SubtleBadgeVariant {
   switch (color) {
     case "primary":
@@ -25,7 +25,7 @@ export function subtleBadgeVariant(color: UIColor): SubtleBadgeVariant {
   }
 }
 
-/** Text and border classes for an outline button in a semantic color (Nuxt UI `UButton variant="outline" :color`). */
+/** Text and border classes for an outline button in a semantic color. */
 export function outlineButtonColorClass(color: UIColor): string {
   switch (color) {
     case "primary":

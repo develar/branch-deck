@@ -70,22 +70,19 @@ cd src-tauri && cargo test --lib -- --nocapture
 
 ```bash
 # Lint all code (Rust + TypeScript)
-pnpm lint-all
-
-# Lint Rust code only
-pnpm lint-rust
-# or
-cd src-tauri && cargo clippy --fix -- -W clippy::all
-
-# Lint TypeScript/Vue code only
 pnpm lint
+
+# Format and lint Rust code only (cargo fmt + clippy --fix)
+pnpm lint:backend
+
+# Lint and type-check TypeScript/React code only (ESLint + tsc)
+pnpm lint:frontend
 ```
 
 ### Code Formatting
 
 ```bash
-cd src-tauri && cargo fmt
-
+# Rust (cargo fmt) and TypeScript (ESLint --fix)
 pnpm lint
 ```
 
@@ -93,9 +90,11 @@ pnpm lint
 
 ```
 branch-deck/
-├── app/                   # Vue frontend: entry (main.ts, router.ts), pages, components, composables
-├── layers/                # Frontend feature folders (shared-ui, commit-ui, conflict-ui, branch-ui, ai, core)
+├── src/                   # React frontend: entry (main.tsx, router.ts), pages, components, hooks, stores
+│   ├── components/ui/     # shadcn/ui components (generated, see components.json)
+│   └── lib/bindings.ts    # TypeScript bindings generated from Rust (Specta)
 ├── index.html             # SPA entry page
+├── crates/                # Rust libraries (git operations, sync, AI model, test server)
 ├── src-tauri/             # Rust backend source
 │   ├── src/               # Rust source code
 │   ├── Cargo.toml         # Rust dependencies
@@ -106,7 +105,7 @@ branch-deck/
 
 ## Architecture
 
-- **Frontend**: Vue 3 + Vite SPA with Composition API, vue-router, Nuxt UI components (via `@nuxt/ui/vite`), TypeScript
+- **Frontend**: React 19 + Vite SPA with react-router, zustand stores, shadcn/ui components on Base UI, Tailwind CSS v4, TypeScript
 - **Backend**: Rust with Tauri framework for native desktop app
 - **Git Integration**: Git CLI operations via custom GitCommandExecutor
 - **IPC**: Tauri's built-in IPC for frontend-backend communication
@@ -115,7 +114,7 @@ branch-deck/
 ## Key Technologies
 
 - **Tauri**: Cross-platform desktop app framework
-- **Vue 3**: Progressive JavaScript framework
+- **React 19**: UI library, with shadcn/ui (Base UI) components
 - **Rust**: Systems programming language for performance
 - **Git CLI**: Native Git command-line interface for operations
 - **Vite**: Fast build tool and development server
@@ -125,7 +124,7 @@ branch-deck/
 1. Make changes to frontend code in `src/` or backend code in `src-tauri/src/`
 2. The development server will automatically reload changes
 3. Test your changes with `pnpm test`
-4. Lint your code with `pnpm lint-all`
+4. Lint your code with `pnpm lint`
 5. Build for production with `pnpm tauri build`
 
 ## Contributing

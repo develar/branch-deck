@@ -167,7 +167,7 @@
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
     --primary: var(--bd-primary-400);
-    /* dark text on the lighter dark-mode primary, as Nuxt UI did (text-inverted) */
+    /* dark text on the lighter dark-mode primary */
     --primary-foreground: oklch(0.145 0 0);
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
