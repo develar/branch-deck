@@ -1,7 +1,9 @@
 import { CircleCheckIcon, FileDiffIcon } from "lucide-react"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
+import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
+import { MissingCommitsDetails } from "@/components/conflict/MissingCommitsDetails"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
@@ -13,24 +15,22 @@ export function MissingCommitsPage() {
       {missingCommitsData
         ? (
             <div className="flex flex-col gap-4">
-              {/* Commit Context */}
-              <Card className="bg-muted">
-                <CardHeader>
-                  {/* TODO(Phase 7): <ConflictCommitContext title="Cannot apply commit" ... /> */}
-                  <div className="text-sm text-muted-foreground">
-                    ConflictCommitContext (TODO Phase 7):
-                    {" "}
-                    {missingCommitsData.conflictCommitMessage}
-                    {" "}
-                    on
-                    {" "}
-                    {missingCommitsData.branchName}
-                  </div>
-                </CardHeader>
+              {/* Commit context */}
+              <Card className="gap-0 bg-muted py-0">
+                <div className="p-4 sm:px-6">
+                  <ConflictCommitContext
+                    title="Cannot apply commit"
+                    commitMessage={missingCommitsData.conflictCommitMessage}
+                    commitHash={missingCommitsData.conflictCommitHash}
+                    commitAuthorTime={missingCommitsData.conflictCommitAuthorTime}
+                    commitCommitterTime={missingCommitsData.conflictCommitCommitterTime}
+                    branchName={missingCommitsData.branchName}
+                  />
+                </div>
 
-                {/* Divergence Info (matching main view) */}
+                {/* Divergence insight (matching the main view) */}
                 {missingCommitsData.mergeBase && (
-                  <CardContent>
+                  <div className="border-t border-border bd-padding-card">
                     <div className="flex flex-col gap-2 rounded-lg border border-warning bg-muted p-3">
                       <div className="flex items-center gap-2">
                         <FileDiffIcon className="size-4 text-warning" />
@@ -40,8 +40,7 @@ export function MissingCommitsPage() {
                       </div>
 
                       <p className="text-sm text-muted-foreground">
-                        Common ancestor:
-                        {" "}
+                        {"Common ancestor: "}
                         <CommitHashPopover
                           hash={missingCommitsData.mergeBase.hash}
                           subject={missingCommitsData.mergeBase.subject}
@@ -51,42 +50,25 @@ export function MissingCommitsPage() {
                         />
                         {" "}
                         <span className="text-muted-foreground">
-                          (
-                          {missingCommitsData.divergenceSummary.commitsAheadInSource}
-                          {" "}
-                          commits behind source,
-                          {" "}
-                          {missingCommitsData.divergenceSummary.commitsAheadInTarget}
-                          {" "}
-                          commits behind target)
+                          {`(${missingCommitsData.divergenceSummary.commitsAheadInSource} commits behind source, ${missingCommitsData.divergenceSummary.commitsAheadInTarget} commits behind target)`}
                         </span>
                       </p>
                     </div>
-                  </CardContent>
+                  </div>
                 )}
               </Card>
 
+              {/* Missing commits (main content) */}
               {missingCommitsData.missingCommits.length > 0
-                ? (
-                    // TODO(Phase 7): <MissingCommitsDetails missingCommits isInWindow />
-                    <div className="text-sm text-muted-foreground">
-                      MissingCommitsDetails (TODO Phase 7):
-                      {" "}
-                      {missingCommitsData.missingCommits.length}
-                      {" "}
-                      missing commits
-                    </div>
-                  )
+                ? <MissingCommitsDetails missingCommits={missingCommitsData.missingCommits} isInWindow />
                 : (
-                    <Card>
-                      <CardContent>
+                    <Card className="gap-0 py-0">
+                      <div className="bd-padding-card">
                         <div className="flex flex-col items-center gap-3 py-8 text-center">
                           <CircleCheckIcon className="size-12 text-success" />
-                          <p className="text-sm text-muted-foreground">
-                            No missing commits found for this conflict.
-                          </p>
+                          <p className="text-sm text-muted-foreground">No missing commits found for this conflict.</p>
                         </div>
-                      </CardContent>
+                      </div>
                     </Card>
                   )}
             </div>

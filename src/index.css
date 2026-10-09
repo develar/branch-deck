@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@git-diff-view/react/styles/diff-view-pure.css";
 
 /* The colour scheme follows the OS; there is no manual toggle */
 @custom-variant dark (@media (prefers-color-scheme: dark));

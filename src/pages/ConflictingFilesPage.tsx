@@ -1,60 +1,43 @@
 import { useMemo } from "react"
-import { Card, CardHeader } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
+import { getConflictMarkerCommits } from "@/components/conflict/conflict-marker-commits"
+import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
+import { ConflictingFileListCard } from "@/components/conflict/ConflictingFileListCard"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import type { ConflictMarkerCommitInfo } from "@/lib/bindings"
 import type { ConflictingFilesWindowData } from "@/types/sub-window"
 
 export function ConflictingFilesPage() {
   const conflictData = useSubWindowData<ConflictingFilesWindowData>()
-
-  const conflictMarkerCommits = useMemo(() => {
-    const result: Record<string, ConflictMarkerCommitInfo> = {}
-    const commits = conflictData?.conflict.conflictMarkerCommits
-    if (commits) {
-      for (const [key, value] of Object.entries(commits)) {
-        if (value) {
-          result[key] = value
-        }
-      }
-    }
-    return result
-  }, [conflictData])
+  const conflictMarkerCommits = useMemo(() => getConflictMarkerCommits(conflictData?.conflict), [conflictData])
 
   return (
     <div className="w-full px-4 py-4 sm:px-6 lg:px-8">
       {conflictData
         ? (
             <div className="flex flex-col gap-4">
-              {/* Commit Context */}
-              <Card className="bg-muted">
-                <CardHeader>
-                  {/* TODO(Phase 7): <ConflictCommitContext title="Cannot apply commit" commitMessage commitHash commitAuthorTime commitCommitterTime branchName /> */}
-                  <div className="text-sm text-muted-foreground">
-                    ConflictCommitContext (TODO Phase 7):
-                    {" "}
-                    {conflictData.conflict.commitMessage}
-                    {" "}
-                    on
-                    {" "}
-                    {conflictData.branchName}
-                  </div>
-                </CardHeader>
+              {/* Commit context */}
+              <Card className="gap-0 bg-muted py-0">
+                <div className="p-4 sm:px-6">
+                  <ConflictCommitContext
+                    title="Cannot apply commit"
+                    commitMessage={conflictData.conflict.commitMessage}
+                    commitHash={conflictData.conflict.commitHash}
+                    commitAuthorTime={conflictData.conflict.commitAuthorTime}
+                    commitCommitterTime={conflictData.conflict.commitCommitterTime}
+                    branchName={conflictData.branchName}
+                  />
+                </div>
               </Card>
 
-              {/* Conflicting Files Section (main content) */}
-              {/* TODO(Phase 7): <ConflictingFileListCard conflicts conflictInfo conflictMarkerCommits branchName isInWindow /> */}
-              <div className="text-sm text-muted-foreground">
-                ConflictingFileListCard (TODO Phase 7):
-                {" "}
-                {conflictData.conflict.conflictingFiles.length}
-                {" "}
-                files,
-                {" "}
-                {Object.keys(conflictMarkerCommits).length}
-                {" "}
-                conflict marker commits
-              </div>
+              {/* Conflicting files (main content) */}
+              <ConflictingFileListCard
+                conflicts={conflictData.conflict.conflictingFiles}
+                conflictInfo={conflictData.conflict}
+                conflictMarkerCommits={conflictMarkerCommits}
+                branchName={conflictData.branchName}
+                isInWindow
+              />
             </div>
           )
         : <LoadingState message="Loading conflicting files data..." />}

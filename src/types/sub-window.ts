@@ -16,7 +16,7 @@ export interface MissingCommitsWindowData {
   missingCommits: MissingCommit[]
   mergeBase?: {
     hash: string
-    // the Vue page read `subject`, but the opener never set it; the opener should pass `mergeBaseSubject`
+    /** `ConflictAnalysis.mergeBaseSubject`; optional, the Vue opener didn't set it */
     subject?: string
     message: string
     author: string

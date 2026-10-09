@@ -17,7 +17,6 @@ export function BranchCreator() {
   useEffect(() => {
     initRepository()
   }, [])
-  // TODO(Phase 8): model state for AI features (provideModelState)
   // TODO(Phase 9): menu checkbox sync (useMenuSync) and debounced auto-sync on window focus
 
   const isSyncing = useBranchSync(state => state.isSyncing)

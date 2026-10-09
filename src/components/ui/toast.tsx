@@ -5,6 +5,7 @@ import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
+import { ModelDownloadProgress } from "@/components/ai/ModelDownloadProgress"
 import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const toast = ToastPrimitive.createToastManager()
@@ -179,8 +180,13 @@ function ToastIcon({ type }: { type: string | undefined }) {
   )
 }
 
+/** Custom toast data; `kind` selects a custom body */
+interface ToastData {
+  kind?: "model-download"
+}
+
 function ToastList() {
-  const { toasts } = ToastPrimitive.useToastManager()
+  const { toasts } = ToastPrimitive.useToastManager<ToastData>()
 
   return toasts.map(toastItem => (
     <Toast key={toastItem.id} toast={toastItem}>
@@ -188,7 +194,10 @@ function ToastList() {
         <ToastIcon type={toastItem.type} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <ToastTitle />
-          <ToastDescription />
+          {toastItem.data?.kind === "model-download"
+            // live body subscribed to the model store (the toast itself isn't updated per progress event)
+            ? <ToastDescription render={<div />}><ModelDownloadProgress variant="toast" /></ToastDescription>
+            : <ToastDescription />}
         </div>
         <ToastAction />
         <ToastClose />
