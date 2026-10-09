@@ -93,7 +93,9 @@ pnpm lint
 
 ```
 branch-deck/
-├── src/                    # Vue.js frontend source
+├── app/                   # Vue frontend: entry (main.ts, router.ts), pages, components, composables
+├── layers/                # Frontend feature folders (shared-ui, commit-ui, conflict-ui, branch-ui, ai, core)
+├── index.html             # SPA entry page
 ├── src-tauri/             # Rust backend source
 │   ├── src/               # Rust source code
 │   ├── Cargo.toml         # Rust dependencies
@@ -104,7 +106,7 @@ branch-deck/
 
 ## Architecture
 
-- **Frontend**: Vue.js 3 with Composition API, Nuxt UI components, TypeScript
+- **Frontend**: Vue 3 + Vite SPA with Composition API, vue-router, Nuxt UI components (via `@nuxt/ui/vite`), TypeScript
 - **Backend**: Rust with Tauri framework for native desktop app
 - **Git Integration**: Git CLI operations via custom GitCommandExecutor
 - **IPC**: Tauri's built-in IPC for frontend-backend communication

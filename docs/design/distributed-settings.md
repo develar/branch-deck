@@ -124,7 +124,7 @@ Optimizations:
 
 ## References
 
-- Implementation: `app/utils/appStore.ts`, `app/plugins/tauri-store.client.ts`
-- Store creation: `app/composables/createPersistentStore.ts`
-- Tests: `tests/unit/appStore.test.ts`
+- Implementation: `layers/core/utils/app-store.ts` (main window), `layers/core/utils/SubWindowAppStore.ts` (sub-windows)
+- Store creation: `layers/core/utils/persistent-store.ts`; stores in `layers/core/stores/` and `layers/ai/stores/` are module-level singletons
+- Initialization: `initializeStoreHandlers()` in `app/app.vue`
 - Related: [virtual-branches.md](virtual-branches.md)

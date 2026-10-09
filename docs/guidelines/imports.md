@@ -1,16 +1,16 @@
 # Import Guidelines and No Re-exports Policy
 
 **Status:** Active  
-**Updated:** 2025-08-22  
-**Tags:** [imports, rust, nuxt]
+**Updated:** 2026-10-09  
+**Tags:** [imports, rust, vue]
 
 ## Summary
 
-Maintain clear, explicit dependencies by preferring direct imports over re-exports. Never use `pub use` statements except for internal module organization. All Nuxt composables and Vue APIs are auto-imported.
+Maintain clear, explicit dependencies by preferring direct imports over re-exports. Never use `pub use` statements except for internal module organization. The frontend has no auto-imports: every Vue API, Nuxt UI component, composable and project module is imported explicitly.
 
 ## Context
 
-This simplifies navigation and refactoring by making dependencies explicit. Applies to Rust backend crates and Nuxt 4 frontend.
+This simplifies navigation and refactoring by making dependencies explicit. Applies to Rust backend crates and the Vue 3 + Vite frontend.
 
 ## Principles
 
@@ -19,7 +19,7 @@ This simplifies navigation and refactoring by making dependencies explicit. Appl
 - Do not re-export external types at crate roots (e.g., error types).
 - Keep imports self-documenting; import from the exact module path.
 - Limit exceptions to private, internal organization cases only.
-- Frontend (Nuxt): rely on Nuxt’s auto-imports; do not manually import Vue APIs (`ref`, `computed`, etc.), Nuxt composables, or project utilities/types; in templates, refs are auto-unwrapped.
+- Frontend: import everything explicitly, including Vue APIs, Nuxt UI components and composables, project modules and components (see [Frontend Imports](#frontend-imports)).
 
 ## The No Re-exports Rule
 
@@ -118,7 +118,6 @@ use model_tauri::generator::ModelGeneratorState;
 use model_tauri::path_provider::TauriModelPathProvider;
 ```
 
-- 2025-08-22: Added Frontend (Nuxt 4) Auto-imports section; broadened scope to frontend; updated principles.
 ### Error Types
 
 ```rust
@@ -140,13 +139,24 @@ use test_utils::git_test_utils::TestRepo;
 use test_utils::progress_reporter::TestProgressReporter;
 ```
 
-## Frontend (Nuxt 4) Auto-imports (IMPORTANT!)
+## Frontend Imports
 
-- ALL composables, core Vue APIs, Nuxt composables, and project utilities/types are auto-imported by Nuxt 4.
-- NEVER manually import Vue APIs (`ref`, `computed`, `watch`), Nuxt composables (`useRoute`, `useState`, etc.), or registered project utilities/types.
+The frontend is a Vite + Vue 3 SPA without auto-imports. Every identifier a file uses is imported in its header,
+so dependencies are visible in the file and `vue-tsc` (with `strictTemplates`) reports unknown components and names.
+ESLint `vue/no-undef-components` also flags components used in templates without an import.
+
+- Vue: `import { ref, computed } from "vue"`, types via `import type { Ref } from "vue"`.
+- Nuxt UI components: `import UButton from "@nuxt/ui/components/Button.vue"`.
+- Nuxt UI composables and utilities: `import { useToast, useOverlay } from "@nuxt/ui/composables"`, `import { omit } from "@nuxt/ui/utils"`.
+- Within a layer, use relative paths (`./CommitInfo.vue`, `../composables/useAmendChanges`).
+- Across layers, use `@layers/<layer>/<dir>/<file>` (`@layers/shared-ui/utils/errorHandling`). Never reach into another layer with `../../`.
+- Modules in `app/` are imported with `~/` (`~/composables/repositoryProvider`).
+- Generated bindings: `import type { Commit } from "~/utils/bindings"` (and `import { commands } from "~/utils/bindings"`).
+- Lazy components: `const LazyX = defineAsyncComponent(() => import("./X.vue"))`.
+- Order imports: `vue`, third-party packages, `@nuxt/ui`, `@layers/` and `~/`, relative paths.
 - In Vue templates, refs are automatically unwrapped (no `.value`).
 
-### ✅ Examples (do this)
+## Migrating Rust Re-exports
 
 1. **Remove re-exports** from lib.rs files
 2. **Make modules public** with `pub mod`
@@ -177,7 +187,7 @@ use model_core::config::ModelConfig;
 ## Tools and Enforcement
 
 - Use `pnpm lint:backend` to catch unused imports and run clippy
-- Use `pnpm lint:frontend` to lint and type-check TypeScript/Vue and validate auto-import usage
+- Use `pnpm lint:frontend` to lint and type-check TypeScript/Vue, including components used without an import
 - IDE warnings for unused re-exports
 - Code reviews should flag any new `pub use` statements
 - Automated tests ensure all imports work correctly
