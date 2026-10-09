@@ -3,11 +3,11 @@ export default defineAppConfig({
     colors: {
       primary: "green",
     },
-  },
-  toast: {
-    slots: {
-      // make text selectable
-      description: "text-sm text-muted select-text",
+    toast: {
+      slots: {
+        // make text selectable
+        description: "text-sm text-muted select-text",
+      },
     },
   },
 })

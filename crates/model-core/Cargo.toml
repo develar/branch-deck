@@ -9,7 +9,8 @@ description = "Core ML inference package for branch name generation"
 candle-core = { version = "0.11.0", default-features = false }
 candle-nn = { version = "0.11.0", default-features = false }
 candle-transformers = { version = "0.11.0", default-features = false }
-tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+# Pinned to the version required by candle-core 0.11 (it depends on tokenizers 0.22); bump together with candle.
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 # Core utilities (shared via workspace)
 anyhow.workspace = true
