@@ -26,6 +26,10 @@
 </template>
 
 <script lang="ts" setup>
+import { ref, computed } from "vue"
+import InlineInputDialog from "@layers/shared-ui/components/InlineInputDialog.vue"
+import { getSimpleBranchName } from "~/utils/branch"
+
 // InlineInputDialog is auto-imported from shared-ui layer
 const props = defineProps<{
   branchName: string

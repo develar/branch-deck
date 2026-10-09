@@ -1,3 +1,5 @@
+import { ref, readonly } from "vue"
+
 /**
  * Generic composable for table row expansion
  * Works with any data type and doesn't depend on TanStack Table

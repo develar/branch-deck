@@ -92,6 +92,7 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import colors from "tailwindcss/colors"
 import { omit } from "#ui/utils"
 

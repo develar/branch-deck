@@ -63,6 +63,8 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+
 // Platform detection
 const isMac = computed(() => navigator.userAgent.toLowerCase().includes("mac"))
 </script>

@@ -24,6 +24,8 @@
 </template>
 
 <script lang="ts" setup>
+import { formatTimestamp } from "../utils/time"
+
 defineProps<{
   authorTime: number
   committerTime?: number

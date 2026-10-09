@@ -1,7 +1,8 @@
+import { isReactive } from "vue"
 import { emit, listen } from "@tauri-apps/api/event"
+import type { z } from "zod"
 import type { IAppStore, ReactiveStoreMetadata } from "./app-store"
 import { createSnapshotFromStore, updateSnapshot, createReactiveStore, updateReactiveState } from "./app-store"
-import type { z } from "zod"
 
 // Sub-window implementation - proxy to main window
 export class SubWindowAppStore implements IAppStore {

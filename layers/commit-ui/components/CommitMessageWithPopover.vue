@@ -17,6 +17,9 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import LinkedText from "./LinkedText.vue"
+
 interface Props {
   subject: string
   message: string

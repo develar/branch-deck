@@ -1,4 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { fileURLToPath } from "node:url"
+
 export default defineNuxtConfig({
   vite: {
     optimizeDeps: {
@@ -42,6 +44,10 @@ export default defineNuxtConfig({
   extends: ["./layers/core", "./layers/shared-ui", "./layers/conflict-ui", "./layers/commit-ui", "./layers/ai", "./layers/branch-ui"],
 
   modules: ["@nuxt/ui", "@nuxt/eslint"],
+
+  alias: {
+    "@layers": fileURLToPath(new URL("./layers", import.meta.url)),
+  },
 
   css: ["~/assets/css/main.css"],
 

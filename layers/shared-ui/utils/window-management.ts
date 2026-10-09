@@ -1,4 +1,5 @@
 import { commands } from "~/utils/bindings"
+import { appStore } from "@layers/core/utils/app-store"
 
 interface SubWindowOptions<T = unknown> {
   windowId: string

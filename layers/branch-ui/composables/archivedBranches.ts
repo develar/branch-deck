@@ -1,3 +1,4 @@
+import { reactive, computed } from "vue"
 import type { Commit, IntegrationConfidence, BranchIntegrationInfo } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
 import type { createRepositoryState } from "~/composables/repositoryProvider"

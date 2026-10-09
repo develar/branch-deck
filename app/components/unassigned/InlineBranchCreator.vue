@@ -40,7 +40,16 @@
 </template>
 
 <script lang="ts" setup>
+import { ref, useTemplateRef, computed, watch, nextTick } from "vue"
 import type { Commit } from "~/utils/bindings"
+import InlineInputDialog from "@layers/shared-ui/components/InlineInputDialog.vue"
+import AIStatusIndicator from "@layers/ai/components/AIStatusIndicator.vue"
+import BranchNameSuggestions from "@layers/ai/components/BranchNameSuggestions.vue"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+import { useBranchNameValidation } from "@layers/branch-ui/composables/useBranchNameValidation"
+import { useBranchCreation } from "~/composables/useBranchCreation"
+import { useInlineRowAction } from "@layers/branch-ui/composables/useInlineRowAction"
 
 const props = withDefaults(defineProps<{
   selectedCommits: Commit[]

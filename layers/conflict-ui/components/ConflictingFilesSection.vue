@@ -40,7 +40,12 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
+import DiffViewToggle from "@layers/shared-ui/components/DiffViewToggle.vue"
+import { useConflictViewerStore } from "@layers/core/stores/conflictViewer"
+import FileDiffList from "./FileDiffList.vue"
+import GitDiffMergeView from "./GitDiffMergeView.vue"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]

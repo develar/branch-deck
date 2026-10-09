@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { createPersistentStore } from "@layers/core/utils/persistent-store"
 
 // AI mode states
 export type AIMode = "initial" | "enabled" | "disabled"

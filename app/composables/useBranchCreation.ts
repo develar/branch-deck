@@ -1,4 +1,5 @@
 import { commands } from "~/utils/bindings"
+import { useInlineRowAction } from "@layers/branch-ui/composables/useInlineRowAction"
 
 export function useBranchCreation() {
   const { withRowProcessing } = useInlineRowAction()

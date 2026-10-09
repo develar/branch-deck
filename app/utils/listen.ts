@@ -1,3 +1,4 @@
+import { onScopeDispose } from "vue"
 import { type EventCallback, type EventName, listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { error as logError } from "@tauri-apps/plugin-log"
 

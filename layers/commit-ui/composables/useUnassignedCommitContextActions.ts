@@ -1,5 +1,6 @@
 import type { Commit, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import { useCommitCopyActions } from "./useCommitCopyActions"
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit

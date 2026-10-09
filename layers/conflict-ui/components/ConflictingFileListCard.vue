@@ -46,6 +46,10 @@
 
 <script lang="ts" setup>
 import type { ConflictDetail, MergeConflictInfo, ConflictMarkerCommitInfo } from "~/utils/bindings"
+import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
+import InfoCard from "@layers/shared-ui/components/InfoCard.vue"
+import { openSubWindow } from "@layers/shared-ui/utils/window-management"
+import ConflictingFilesSection from "./ConflictingFilesSection.vue"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]

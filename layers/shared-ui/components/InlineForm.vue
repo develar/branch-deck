@@ -73,7 +73,9 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import { DialogRoot, DialogPortal, DialogContent, DialogTitle, DialogDescription, VisuallyHidden } from "reka-ui"
+import { useInlineRowAction } from "@layers/branch-ui/composables/useInlineRowAction"
 
 // Get activeInline directly for processing state
 const { activeInline } = useInlineRowAction()

@@ -18,6 +18,10 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import CommitInfo from "./CommitInfo.vue"
+import { formatShortHash } from "../utils/hash"
+
 const props = defineProps<{
   hash: string
   subject?: string

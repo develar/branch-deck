@@ -24,6 +24,10 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import LinkedText from "@layers/commit-ui/components/LinkedText.vue"
+import { getSimpleBranchName } from "~/utils/branch"
+
 const props = withDefaults(defineProps<{
   name: string
   summary?: string

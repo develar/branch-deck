@@ -16,7 +16,9 @@
 </template>
 
 <script lang="ts" setup>
+import { toRef } from "vue"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
+import { useStatusBadge } from "../../composables/useStatusBadge"
 
 const props = defineProps<{
   branch: ReactiveBranch

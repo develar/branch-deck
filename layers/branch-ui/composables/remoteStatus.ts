@@ -1,5 +1,5 @@
 import type { RemoteStatus } from "~/composables/branchSyncProvider"
-import { formatTimestamp } from "#layers/shared-ui/utils/time"
+import { formatTimestamp } from "@layers/shared-ui/utils/time"
 import type { UIColor } from "~/utils/uiTypes"
 
 export interface StatusTexts {

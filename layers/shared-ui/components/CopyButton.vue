@@ -22,6 +22,9 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import { useCopyToClipboard } from "../composables/useCopyToClipboard"
+
 // useCopyToClipboard is auto-imported
 
 interface Props {

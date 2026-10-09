@@ -1,9 +1,11 @@
+import { isReactive, reactive, toRaw, watch } from "vue"
 import { LazyStore } from "@tauri-apps/plugin-store"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { emit, listen } from "@tauri-apps/api/event"
 import pDebounce from "p-debounce"
-import { SubWindowAppStore } from "./SubWindowAppStore"
 import type { z } from "zod"
+import { logError } from "@layers/shared-ui/utils/errorHandling"
+import { SubWindowAppStore } from "./SubWindowAppStore"
 
 // Metadata for reactive stores
 export interface ReactiveStoreMetadata {

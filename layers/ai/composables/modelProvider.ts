@@ -1,8 +1,10 @@
+import { type Ref, h, ref, shallowRef, watch, readonly, provide, inject } from "vue"
 import { Channel } from "@tauri-apps/api/core"
+import { useThrottleFn } from "@vueuse/core"
 import type { DownloadProgress } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
-import ModelDownloadProgress from "#layers/ai/components/ModelDownloadProgress.vue"
-import { useThrottleFn } from "@vueuse/core"
+import ModelDownloadProgress from "@layers/ai/components/ModelDownloadProgress.vue"
+import { useAISettingsStore } from "../stores/aiSettings"
 
 /**
  * Model information for download UI

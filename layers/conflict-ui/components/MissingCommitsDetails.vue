@@ -70,7 +70,15 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import type { MissingCommit, MergeConflictInfo } from "~/utils/bindings"
+import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
+import DiffViewToggle from "@layers/shared-ui/components/DiffViewToggle.vue"
+import CommitList from "@layers/commit-ui/components/CommitList.vue"
+import InfoCard from "@layers/shared-ui/components/InfoCard.vue"
+import { useConflictViewerStore } from "@layers/core/stores/conflictViewer"
+import { openSubWindow } from "@layers/shared-ui/utils/window-management"
+import FileDiffList from "./FileDiffList.vue"
 
 const props = defineProps<{
   missingCommits: MissingCommit[]

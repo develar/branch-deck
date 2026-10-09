@@ -1,3 +1,7 @@
+import type { ReactiveBranch } from "~/composables/branchSyncProvider"
+import { useBranchCopyActions } from "./useBranchCopyActions"
+import { useInlineRowAction } from "./useInlineRowAction"
+
 export interface BranchContextActionsReturn {
   // Methods
   getContextMenuItems: (branch: ReactiveBranch) => Array<Array<{ label: string, icon: string, disabled?: boolean, onSelect: () => void }>>

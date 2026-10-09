@@ -18,6 +18,11 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import BranchPrefixHelp from "~/components/BranchPrefixHelp.vue"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useAppSettingsStore } from "@layers/core/stores/appSettings"
+
 const props = defineProps<{
   disabled?: boolean
 }>()

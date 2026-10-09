@@ -103,6 +103,10 @@
 </template>
 
 <script lang="ts" setup>
+import ModelDownloadProgress from "./ModelDownloadProgress.vue"
+import { useAIToggle } from "../composables/useAIToggle"
+import { useModelState } from "../composables/modelProvider"
+
 // AI composables are auto-imported from ai layer
 
 const { aiMode, aiStatus, aiError } = useAIToggle()

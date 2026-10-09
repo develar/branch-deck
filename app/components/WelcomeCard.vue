@@ -78,7 +78,8 @@
 </template>
 
 <script lang="ts" setup>
-import { BranchPrefixHelp } from "#components"
+import { toRefs } from "vue"
+import BranchPrefixHelp from "~/components/BranchPrefixHelp.vue"
 
 const props = defineProps<{
   hasRepository: boolean

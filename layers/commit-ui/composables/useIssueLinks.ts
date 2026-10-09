@@ -3,7 +3,9 @@
  * Converts issue references to clickable links based on IntelliJ IDEA configuration
  */
 
+import { computed } from "vue"
 import type { IssueNavigationLink } from "~/utils/bindings"
+import { useRepository } from "~/composables/repositoryProvider"
 
 interface CompiledPattern {
   regex: RegExp

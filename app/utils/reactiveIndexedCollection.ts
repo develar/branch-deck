@@ -1,3 +1,5 @@
+import { type Ref, ref } from "vue"
+
 /**
  * A reactive collection that maintains both a Map (for O(1) lookups)
  * and an Array (for UI binding), following the proven pattern from branchSyncProvider

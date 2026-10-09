@@ -1,3 +1,4 @@
+import { ref, onMounted, onScopeDispose } from "vue"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 
 // Handle ESC key to close sub-window - set up immediately

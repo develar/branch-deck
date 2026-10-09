@@ -76,7 +76,12 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import type { UncommittedChangesResult } from "~/utils/bindings"
+import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
+import DiffViewToggle from "@layers/shared-ui/components/DiffViewToggle.vue"
+import OnDemandFileDiffList from "@layers/conflict-ui/components/OnDemandFileDiffList.vue"
+import { useConflictViewerStore } from "@layers/core/stores/conflictViewer"
 
 const props = defineProps<{
   diffData?: UncommittedChangesResult | null

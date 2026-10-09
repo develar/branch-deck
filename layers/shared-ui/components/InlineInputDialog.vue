@@ -86,6 +86,8 @@
 </template>
 
 <script lang="ts" setup>
+import { useTemplateRef, ref, watch } from "vue"
+import InlineForm from "./InlineForm.vue"
 
 interface Props {
   // Dialog props

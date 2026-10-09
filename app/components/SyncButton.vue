@@ -27,6 +27,10 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+
 const { pathValidation, selectedProject } = useRepository()
 const { syncBranches, isSyncing, syncError } = useBranchSync()
 

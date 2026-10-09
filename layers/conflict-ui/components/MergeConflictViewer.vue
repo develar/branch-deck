@@ -72,7 +72,12 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import CommitInfo from "@layers/commit-ui/components/CommitInfo.vue"
 import type { MergeConflictInfo } from "~/utils/bindings"
+import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"
+import MissingCommitsDetails from "./MissingCommitsDetails.vue"
+import ConflictingFileListCard from "./ConflictingFileListCard.vue"
 
 const props = defineProps<{
   conflict: MergeConflictInfo

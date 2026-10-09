@@ -1,4 +1,8 @@
+import { ref } from "vue"
 import { commands, type UncommittedChangesResult } from "~/utils/bindings"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync, type ReactiveBranch } from "~/composables/branchSyncProvider"
+import { useInlineRowAction } from "./useInlineRowAction"
 
 /**
  * Composable for amending uncommitted changes to a branch

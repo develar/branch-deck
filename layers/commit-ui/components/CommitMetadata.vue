@@ -27,8 +27,12 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import type { Commit, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import TimeWithPopover from "@layers/shared-ui/components/TimeWithPopover.vue"
+import { formatTimestamp } from "@layers/shared-ui/utils/time"
+import { formatShortHash } from "../utils/hash"
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit

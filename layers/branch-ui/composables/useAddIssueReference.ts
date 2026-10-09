@@ -1,4 +1,7 @@
 import { commands } from "~/utils/bindings"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync, type ReactiveBranch } from "~/composables/branchSyncProvider"
+import { useInlineRowAction } from "./useInlineRowAction"
 
 export function useAddIssueReference() {
   const toast = useToast()

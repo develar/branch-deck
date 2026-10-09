@@ -111,12 +111,22 @@
 </template>
 
 <script lang="ts" setup>
+import { defineAsyncComponent } from "vue"
 import { useGenericTableExpansion } from "~/composables/useGenericTableExpansion"
+import TableHeader from "~/components/shared/TableHeader.vue"
+import { useBranchSync, type ReactiveBranch } from "~/composables/branchSyncProvider"
+import { scopedListen } from "~/utils/listen"
 import BranchNameCell from "./cells/BranchNameCell.vue"
 import BranchStatusBadge from "./cells/BranchStatusBadge.vue"
 import BranchActions from "./cells/BranchActions.vue"
 import ActiveBranchExpanded from "./ActiveBranchExpanded.vue"
-import TableHeader from "~/components/shared/TableHeader.vue"
+import { useInlineRowAction } from "../composables/useInlineRowAction"
+import { useBranchContextActions } from "../composables/useBranchContextActions"
+
+const LazyMergeConflictViewer = defineAsyncComponent(() => import("@layers/conflict-ui/components/MergeConflictViewer.vue"))
+const LazyActionsInlineIssueReferenceInput = defineAsyncComponent(() => import("./actions/InlineIssueReferenceInput.vue"))
+const LazyActionsInlineAmendChangesInput = defineAsyncComponent(() => import("./actions/InlineAmendChangesInput.vue"))
+const LazyActionsInlineUnapplyConfirm = defineAsyncComponent(() => import("./actions/InlineUnapplyConfirm.vue"))
 
 const { syncBranches, branches } = useBranchSync()
 

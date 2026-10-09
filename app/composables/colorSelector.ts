@@ -1,4 +1,7 @@
+import { computed } from "vue"
 import ColorSelectorModal from "~/components/ColorSelectorModal.vue"
+import { useAppSettingsStore } from "@layers/core/stores/appSettings"
+import { scopedListen } from "~/utils/listen"
 
 export function useColorSelector() {
   const appConfig = useAppConfig()

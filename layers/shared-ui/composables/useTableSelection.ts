@@ -1,6 +1,7 @@
+import type { ComputedRef } from "vue"
+import { computed } from "vue"
 import type { RowData, RowSelectionState, Table } from "@tanstack/vue-table"
 import { rowSelectionFeature, tableFeatures } from "@tanstack/vue-table"
-import type { ComputedRef } from "vue"
 
 // TanStack Table v9 only exposes APIs of explicitly registered features
 export const selectableTableFeatures = tableFeatures({ rowSelectionFeature })

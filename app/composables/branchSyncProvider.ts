@@ -1,9 +1,11 @@
+import { shallowRef, ref, reactive, markRaw, readonly, inject } from "vue"
+import { Channel } from "@tauri-apps/api/core"
 import type { BranchError, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, SyncEvent } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
-import { Channel } from "@tauri-apps/api/core"
 import { UserError } from "~/composables/git/vcsRequest"
 import type { createRepositoryState } from "~/composables/repositoryProvider"
 import { createReactiveIndexedCollection } from "~/utils/reactiveIndexedCollection"
+import { createArchivedBranchesState } from "@layers/branch-ui/composables/archivedBranches"
 
 // Injection key
 export const BranchSyncKey = Symbol("branch-sync")

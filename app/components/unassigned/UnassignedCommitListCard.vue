@@ -59,10 +59,16 @@
 </template>
 
 <script lang="ts" setup>
-import type { CommitList } from "#components"
-
+import { useTemplateRef, ref, computed, watch, nextTick } from "vue"
 import type { Commit, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
+import UnassignedCommitsHelpPopover from "~/components/unassigned/UnassignedCommitsHelpPopover.vue"
+import FloatingSelectionBar from "@layers/commit-ui/components/FloatingSelectionBar.vue"
+import InlineBranchCreator from "~/components/unassigned/InlineBranchCreator.vue"
+import CommitList from "@layers/commit-ui/components/CommitList.vue"
+import { useUnassignedCommitContextActions } from "@layers/commit-ui/composables/useUnassignedCommitContextActions"
+import { useInlineRowAction } from "@layers/branch-ui/composables/useInlineRowAction"
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit

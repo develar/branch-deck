@@ -104,13 +104,26 @@
 </template>
 
 <script lang="ts" setup>
+import { defineAsyncComponent, computed } from "vue"
 import { useGenericTableExpansion } from "~/composables/useGenericTableExpansion"
+import TableHeader from "~/components/shared/TableHeader.vue"
+import CollapsibleCard from "@layers/shared-ui/components/CollapsibleCard.vue"
+import CardHeader from "@layers/shared-ui/components/CardHeader.vue"
+import CopyButton from "@layers/shared-ui/components/CopyButton.vue"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+import { useRepository } from "~/composables/repositoryProvider"
+import { commands } from "~/utils/bindings"
+import { getSimpleBranchName } from "~/utils/branch"
 import ArchivedBranchesHelpPopover from "./ArchivedBranchesHelpPopover.vue"
 import BranchNameCell from "./cells/BranchNameCell.vue"
 import ArchivedBranchStatusBadge from "./cells/ArchivedBranchStatusBadge.vue"
 import ArchivedDateCell from "./cells/ArchivedDateCell.vue"
 import ArchivedBranchExpanded from "./ArchivedBranchExpanded.vue"
-import TableHeader from "~/components/shared/TableHeader.vue"
+import { useBranchCopyActions } from "../composables/useBranchCopyActions"
+import { useInlineRowAction } from "../composables/useInlineRowAction"
+import type { ReactiveArchivedBranch } from "../composables/archivedBranches"
+
+const LazyActionsInlineDeleteConfirmationInput = defineAsyncComponent(() => import("./actions/InlineDeleteConfirmationInput.vue"))
 
 const { archivedBranches } = useBranchSync()
 const { getCopyMenuItems } = useBranchCopyActions()

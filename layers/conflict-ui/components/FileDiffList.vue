@@ -40,9 +40,12 @@
 </template>
 
 <script lang="ts" setup>
+import { ref, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
 import type { FileDiff } from "~/utils/bindings"
+import CollapsibleFileHeader from "@layers/shared-ui/components/CollapsibleFileHeader.vue"
+import ConflictMarkerExtension from "./ConflictMarkerExtension.vue"
 
 // Props
 const props = defineProps<{

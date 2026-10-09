@@ -20,6 +20,9 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import { useIssueLinks } from "../composables/useIssueLinks"
+
 interface Props {
   text: string
   textClass?: string

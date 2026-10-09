@@ -1,3 +1,4 @@
+import { type Ref, computed, markRaw } from "vue"
 import type { ReactiveBranch, RemoteStatus } from "~/composables/branchSyncProvider"
 import { buildRemoteStatusTexts, type StatusTexts } from "./remoteStatus"
 

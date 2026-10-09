@@ -12,6 +12,9 @@
 </template>
 
 <script lang="ts" setup>
+import TimeWithPopover from "@layers/shared-ui/components/TimeWithPopover.vue"
+import { formatShortHash } from "../utils/hash"
+
 defineProps<{
   hash: string
   author?: string

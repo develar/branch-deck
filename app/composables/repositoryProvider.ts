@@ -1,7 +1,10 @@
+import { ref, shallowRef, computed, reactive, readonly, toRef, provide, inject, type Ref } from "vue"
 import { watchDebounced } from "@vueuse/core"
 import { commands } from "~/utils/bindings"
 import { VcsRequestFactory } from "~/composables/git/vcsRequest"
-import { getErrorDetails } from "#layers/shared-ui/utils/errorHandling"
+import { getErrorDetails, notifyInternalError, logError } from "@layers/shared-ui/utils/errorHandling"
+import { useAppSettingsStore } from "@layers/core/stores/appSettings"
+import { type ProjectMetadata, repositorySettings } from "@layers/core/stores/repositorySettings"
 
 type BranchPrefixResult = Awaited<ReturnType<typeof commands.getBranchPrefixFromGitConfig>>
 

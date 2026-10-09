@@ -184,9 +184,12 @@
 </template>
 
 <script lang="ts" setup>
+import { ref, onMounted, computed } from "vue"
 import { DiffView, DiffModeEnum } from "@git-diff-view/vue"
 import { SplitterGroup, SplitterPanel, SplitterResizeHandle, AccordionRoot, AccordionItem, AccordionContent } from "reka-ui"
 import type { ConflictDetail, MergeConflictInfo } from "~/utils/bindings"
+import CollapsibleFileHeader from "@layers/shared-ui/components/CollapsibleFileHeader.vue"
+import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"
 
 const props = defineProps<{
   conflicts: ConflictDetail[]

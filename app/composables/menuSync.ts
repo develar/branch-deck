@@ -1,4 +1,7 @@
+import { watch } from "vue"
 import { commands } from "~/utils/bindings"
+import { useAppSettingsStore } from "@layers/core/stores/appSettings"
+import { scopedListen } from "~/utils/listen"
 
 /**
  * Composable to sync menu checkbox states with app settings

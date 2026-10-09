@@ -27,7 +27,9 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
+import CommitList from "@layers/commit-ui/components/CommitList.vue"
 
 const props = defineProps<{
   branch: ReactiveBranch

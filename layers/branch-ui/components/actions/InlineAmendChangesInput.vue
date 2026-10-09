@@ -24,8 +24,13 @@
 </template>
 
 <script lang="ts" setup>
+import { computed, watch } from "vue"
 import pDebounce from "p-debounce"
+import InlineForm from "@layers/shared-ui/components/InlineForm.vue"
+import { useBranchSync } from "~/composables/branchSyncProvider"
 import UncommittedChangesCard from "./UncommittedChangesCard.vue"
+import { useAmendChanges } from "../../composables/useAmendChanges"
+import { useInlineRowAction } from "../../composables/useInlineRowAction"
 
 // Access context and composables
 const { branches } = useBranchSync()

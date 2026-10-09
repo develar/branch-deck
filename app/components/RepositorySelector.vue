@@ -40,6 +40,11 @@
 </template>
 
 <script lang="ts" setup>
+import { type ComputedRef, computed, ref, onMounted } from "vue"
+import { formatRelativeTime } from "@layers/shared-ui/utils/time"
+import { useRepository } from "~/composables/repositoryProvider"
+import type { ProjectMetadata } from "@layers/core/stores/repositorySettings"
+
 defineProps<{
   disabled?: boolean
 }>()

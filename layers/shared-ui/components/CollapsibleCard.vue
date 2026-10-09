@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, computed } from "vue"
 import { CollapsibleRoot, CollapsibleTrigger, CollapsibleContent } from "reka-ui"
 
 defineSlots<{

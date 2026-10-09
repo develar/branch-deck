@@ -1,5 +1,6 @@
 import type { z } from "zod"
 import type { ReactiveStoreMetadata } from "./app-store"
+import { appStore } from "./app-store"
 
 /**
  * Creates a synchronous persistent reactive store that automatically saves to and loads from storage

@@ -1,8 +1,11 @@
+import { type Ref, ref, computed, markRaw, watch, readonly } from "vue"
 import { Channel } from "@tauri-apps/api/core"
+import { useThrottleFn } from "@vueuse/core"
 import type { Commit, BranchSuggestion, SuggestBranchNameParams, SuggestionProgress } from "~/utils/bindings"
 import { commands } from "~/utils/bindings"
+import { notifyError } from "@layers/shared-ui/utils/errorHandling"
 import { useModelState } from "./modelProvider"
-import { useThrottleFn } from "@vueuse/core"
+import { useAIToggle } from "./useAIToggle"
 // notifyError is auto-imported from shared-ui layer
 
 interface UseBranchSuggestionsOptions {

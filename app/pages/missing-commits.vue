@@ -72,6 +72,10 @@
 
 <script lang="ts" setup>
 import type { MissingCommit } from "~/utils/bindings"
+import ConflictCommitContext from "@layers/conflict-ui/components/ConflictCommitContext.vue"
+import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"
+import MissingCommitsDetails from "@layers/conflict-ui/components/MissingCommitsDetails.vue"
+import { useSubWindowData } from "@layers/shared-ui/composables/useSubWindowData"
 // useSubWindowData and useSubWindowFocusSync are auto-imported from shared-ui layer
 
 // Disable layout for sub-window

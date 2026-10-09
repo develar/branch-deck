@@ -15,7 +15,9 @@
 </template>
 
 <script lang="ts" setup>
-import { formatTimestamp } from "#layers/shared-ui/utils/time"
+import { computed } from "vue"
+import { formatTimestamp } from "@layers/shared-ui/utils/time"
+import type { ReactiveArchivedBranch } from "../../composables/archivedBranches"
 
 interface Props {
   branch: ReactiveArchivedBranch

@@ -30,6 +30,12 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import InlineForm from "@layers/shared-ui/components/InlineForm.vue"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+import { useUnapplyBranch } from "../../composables/useUnapplyBranch"
+import { useInlineRowAction } from "../../composables/useInlineRowAction"
+
 // Access context and composables
 const { branches } = useBranchSync()
 const { unapplyBranch } = useUnapplyBranch()

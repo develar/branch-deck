@@ -1,4 +1,7 @@
 import { commands, type UnapplyBranchResult } from "~/utils/bindings"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync, type ReactiveBranch } from "~/composables/branchSyncProvider"
+import { useInlineRowAction } from "./useInlineRowAction"
 
 /**
  * Composable for unapplying branches (removing commits from HEAD and shelving the branch)

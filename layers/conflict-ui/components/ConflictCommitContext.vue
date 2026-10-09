@@ -20,6 +20,8 @@
 </template>
 
 <script lang="ts" setup>
+import CommitInfo from "@layers/commit-ui/components/CommitInfo.vue"
+
 defineProps<{
   title?: string
   commitMessage: string

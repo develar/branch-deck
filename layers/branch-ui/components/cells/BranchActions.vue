@@ -32,9 +32,14 @@
 </template>
 
 <script lang="ts" setup>
+import { toRef } from "vue"
 import type { ReactiveBranch } from "~/composables/branchSyncProvider"
 import { usePushButton } from "~/composables/usePushButton"
 import { usePush } from "~/composables/git/push"
+import CopyButton from "@layers/shared-ui/components/CopyButton.vue"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+import { useInlineRowAction } from "../../composables/useInlineRowAction"
 
 const props = defineProps<{
   branch: ReactiveBranch

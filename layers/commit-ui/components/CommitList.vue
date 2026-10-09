@@ -49,10 +49,16 @@
 </template>
 
 <script lang="ts" setup>
-import type { Commit, CommitSyncStatus, BranchError, MissingCommit } from "~/utils/bindings"
-import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import { defineAsyncComponent, useTemplateRef, computed, h, resolveComponent, toRef, watch } from "vue"
 import type { Row } from "@tanstack/vue-table"
 import { createColumnHelper, FlexRender, useTable } from "@tanstack/vue-table"
+import type { Commit, CommitSyncStatus, BranchError, MissingCommit } from "~/utils/bindings"
+import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import { type SelectableTableFeatures, selectableTableFeatures, useTableSelection } from "@layers/shared-ui/composables/useTableSelection"
+import CommitMessageWithPopover from "./CommitMessageWithPopover.vue"
+import CommitMetadata from "./CommitMetadata.vue"
+
+const LazyMergeConflictViewer = defineAsyncComponent(() => import("@layers/conflict-ui/components/MergeConflictViewer.vue"))
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit
@@ -124,7 +130,7 @@ const columns = computed(() => [
         // Commit message with optional badge
         h("div", { class: "flex items-center gap-2" }, [
           // Use strippedSubject if available, otherwise subject, otherwise fallback to message
-          h(resolveComponent("CommitMessageWithPopover"), {
+          h(CommitMessageWithPopover, {
             subject: ("strippedSubject" in commit && commit.strippedSubject)
               ? commit.strippedSubject
               : ("subject" in commit && commit.subject)
@@ -161,10 +167,11 @@ const columns = computed(() => [
 
         // Metadata line
         h("div", { class: "mt-1 flex items-center gap-2 text-xs text-muted" }, [
-          h(resolveComponent("CommitMetadata"), {
+          h(CommitMetadata, {
             commit: commit,
             showAuthor: props.showAuthor,
-            variant: props.variant,
+            // CommitMetadata distinguishes only the status variant
+            variant: props.variant === "status" ? "status" : "compact",
           }),
 
           // File count (if enabled)
@@ -190,8 +197,8 @@ const columns = computed(() => [
 
         // Error details (status variant only)
         props.variant === "status" && "error" in commit && commit.error && h("div", { class: "mt-2" }, [
-          "error" in commit && commit.error && "MergeConflict" in commit.error
-            ? h(resolveComponent("LazyMergeConflictViewer"), {
+          "error" in commit && commit.error?.MergeConflict
+            ? h(LazyMergeConflictViewer, {
                 conflict: commit.error.MergeConflict,
                 branchName: props.branchName,
               })

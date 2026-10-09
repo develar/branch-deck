@@ -1,5 +1,6 @@
 import type { Commit, MissingCommit } from "~/utils/bindings"
 import type { SyncedCommit } from "~/composables/branchSyncProvider"
+import { useCopyToClipboard } from "@layers/shared-ui/composables/useCopyToClipboard"
 
 // Union type for all supported commit types
 type CommitUnion = Commit | SyncedCommit | MissingCommit

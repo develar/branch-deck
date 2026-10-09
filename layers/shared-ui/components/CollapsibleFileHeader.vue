@@ -23,6 +23,7 @@
 
 <script lang="ts" setup>
 import { AccordionHeader, AccordionTrigger } from "reka-ui"
+import CopyButton from "./CopyButton.vue"
 
 defineProps<{
   fileName: string

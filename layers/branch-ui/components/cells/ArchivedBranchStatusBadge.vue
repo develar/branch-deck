@@ -32,6 +32,8 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import type { ReactiveArchivedBranch } from "../../composables/archivedBranches"
 
 interface Props {
   branch: ReactiveArchivedBranch

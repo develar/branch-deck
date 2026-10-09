@@ -1,5 +1,7 @@
-import { buildRemoteStatusTexts } from "#layers/branch-ui/composables/remoteStatus"
+import { type Ref, computed } from "vue"
+import { buildRemoteStatusTexts } from "@layers/branch-ui/composables/remoteStatus"
 import type { UIColor } from "~/utils/uiTypes"
+import type { ReactiveBranch, RemoteStatus } from "~/composables/branchSyncProvider"
 
 export function usePushButton(
   branch: Ref<ReactiveBranch>,

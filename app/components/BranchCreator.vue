@@ -62,9 +62,21 @@
 </template>
 
 <script lang="ts" setup>
+import { defineAsyncComponent, provide, computed } from "vue"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import pDebounce from "p-debounce"
 import { scopedCustomListen } from "~/utils/listen"
+import ConfigurationHeader from "~/components/ConfigurationHeader.vue"
+import BranchTableCard from "@layers/branch-ui/components/BranchTableCard.vue"
+import ArchivedBranchTableCard from "@layers/branch-ui/components/ArchivedBranchTableCard.vue"
+import { provideModelState } from "@layers/ai/composables/modelProvider"
+import { provideRepository } from "~/composables/repositoryProvider"
+import { createBranchSyncState, BranchSyncKey } from "~/composables/branchSyncProvider"
+import { useAppSettingsStore } from "@layers/core/stores/appSettings"
+import { useMenuSync } from "~/composables/menuSync"
+
+const LazyWelcomeCard = defineAsyncComponent(() => import("~/components/WelcomeCard.vue"))
+const LazyUnassignedCommitListCard = defineAsyncComponent(() => import("~/components/unassigned/UnassignedCommitListCard.vue"))
 
 // Provide model state for AI features
 provideModelState()

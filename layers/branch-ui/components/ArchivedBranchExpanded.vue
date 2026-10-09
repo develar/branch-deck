@@ -30,6 +30,10 @@
 </template>
 
 <script lang="ts" setup>
+import { onMounted } from "vue"
+import CommitList from "@layers/commit-ui/components/CommitList.vue"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+import type { ReactiveArchivedBranch } from "../composables/archivedBranches"
 
 const props = defineProps<{
   branch: ReactiveArchivedBranch

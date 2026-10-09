@@ -1,5 +1,7 @@
+import { ref, computed, readonly } from "vue"
 import { useModelState } from "./modelProvider"
 import type { AIMode } from "../stores/aiSettings"
+import { useAISettingsStore } from "../stores/aiSettings"
 
 /** Stable toast IDs to prevent duplicate notifications */
 const TOAST_IDS = {

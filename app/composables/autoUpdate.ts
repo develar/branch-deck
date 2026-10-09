@@ -1,6 +1,8 @@
 import { useTimeoutFn } from "@vueuse/core"
 import * as log from "@tauri-apps/plugin-log"
 import { getName } from "@tauri-apps/api/app"
+import { commands, type UpdateInfo } from "~/utils/bindings"
+import { scopedListen } from "~/utils/listen"
 
 export function useAutoUpdate() {
   const toast = useToast()

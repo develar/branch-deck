@@ -20,6 +20,8 @@
 </template>
 
 <script lang="ts" setup>
+import { useConflictViewerStore } from "@layers/core/stores/conflictViewer"
+
 // Get conflict viewer settings from store
 const store = useConflictViewerStore()
 </script>

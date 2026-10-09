@@ -54,6 +54,8 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import CommitHashPopover from "@layers/commit-ui/components/CommitHashPopover.vue"
 
 // Props from the extend slot
 const props = defineProps<{

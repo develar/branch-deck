@@ -59,6 +59,15 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue"
+import RepositorySelector from "~/components/RepositorySelector.vue"
+import BranchPrefixField from "~/components/BranchPrefixField.vue"
+import { formatRelativeTime } from "@layers/shared-ui/utils/time"
+import SyncButton from "~/components/SyncButton.vue"
+import { useRepository } from "~/composables/repositoryProvider"
+import { useBranchSync } from "~/composables/branchSyncProvider"
+import { useAppSettingsStore } from "@layers/core/stores/appSettings"
+
 const { pathValidation, selectedProject } = useRepository()
 const { isSyncing, syncError, branches } = useBranchSync()
 const appSettings = useAppSettingsStore()
