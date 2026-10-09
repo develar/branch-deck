@@ -1,25 +1,30 @@
-import { BellIcon } from "lucide-react"
-import { Container } from "@/components/layout/Container"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { toast, Toaster } from "@/components/ui/toast"
+import { useLayoutEffect, useState } from "react"
+import { Outlet } from "react-router"
+import { ColorSelectorDialog } from "@/components/settings/ColorSelectorDialog"
+import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useTauriListen } from "@/hooks/useTauriListen"
+import { applyPrimaryColor } from "@/lib/theme"
+import { useAppSettings } from "@/stores/settings/appSettings"
 
-// Smoke page for the shadcn setup; replaced by the router shell in the next phase
-export default function App() {
+/** Root layout shared by the main window and sub-windows. */
+export function App() {
+  const primaryColor = useAppSettings(state => state.primaryColor)
+  // layout effect: apply before paint to avoid a flash of the default primary colour
+  useLayoutEffect(() => {
+    applyPrimaryColor(primaryColor)
+  }, [primaryColor])
+
+  // "Theme…" menu item
+  const [colorSelectorOpen, setColorSelectorOpen] = useState(false)
+  useTauriListen("open_color_selector", () => {
+    setColorSelectorOpen(true)
+  })
+
   return (
     <TooltipProvider>
-      <Container data-testid="app-container" className="flex flex-col items-start gap-4 py-6">
-        <Badge variant="success">synced</Badge>
-        <Button
-          onClick={() => {
-            toast.add({ title: "Branch Deck", description: "Toast from the shadcn toast manager", type: "success" })
-          }}
-        >
-          <BellIcon data-icon="inline-start" />
-          Show toast
-        </Button>
-      </Container>
+      <Outlet />
+      <ColorSelectorDialog open={colorSelectorOpen} onOpenChange={setColorSelectorOpen} />
       <Toaster />
     </TooltipProvider>
   )
