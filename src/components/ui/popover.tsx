@@ -26,7 +26,8 @@ function PopoverContent({
     "align" | "alignOffset" | "side" | "sideOffset" | "anchor"
   >) {
   return (
-    <PopoverPrimitive.Portal>
+    // layout-neutral portal element: like the Vue (reka) portals, the popup is the outermost box (E2E visibility checks)
+    <PopoverPrimitive.Portal className="contents">
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

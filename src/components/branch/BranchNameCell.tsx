@@ -1,5 +1,6 @@
 import { FolderClosedIcon, FolderOpenIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { LinkedText } from "@/components/commit/LinkedText"
 import { getSimpleBranchName } from "@/lib/branch"
 
 export interface BranchNameCellProps {
@@ -32,8 +33,7 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
             <FolderIcon />
           </Button>
         )}
-        {/* TODO(Phase 6): LinkedText (issue references as links) */}
-        <span className="shrink-0 text-sm font-medium">{simplified ? getSimpleBranchName(name) : name}</span>
+        <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" />
         {summary && <span className="truncate text-xs text-muted-foreground">{summary}</span>}
       </div>
     </td>
