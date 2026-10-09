@@ -1,7 +1,7 @@
 # Branch Deck Development Context
 
 ## Project Overview
-Desktop Git branch management tool using Nuxt 4 + Tauri v2. Use `pnpm` only.
+Desktop Git branch management tool using Vue 3 + Vite + Tauri v2. Use `pnpm` only.
 
 ## Quick Commands
 See `package.json` for the full list of scripts.
@@ -10,7 +10,7 @@ See `package.json` for the full list of scripts.
 # Core Development
 pnpm install              # Install dependencies
 pnpm run tauri dev        # Run the full Tauri app (frontend + backend)
-pnpm dev                  # Run only the Nuxt frontend
+pnpm dev                  # Run only the Vite frontend (port 1420)
 
 # Testing
 pnpm test                 # Run all tests (Rust and E2E)
@@ -46,10 +46,11 @@ Using `cargo test` may lead to incorrect results or miss failures.
 
 ## Technology Stack
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
-- **Nuxt 4**: With auto-imports and layers architecture.
+- **Vite 8 + Vue 3 SPA**: vue-router, explicit imports (no auto-imports), feature folders in `layers/`.
+- **Nuxt UI 4**: Used through its Vite plugin (`@nuxt/ui/vite`), components imported from `@nuxt/ui/components/*.vue`.
 - **Tauri v2**: For the desktop application shell.
 - **Vue 3**: Using the Composition API and `<script setup>`.
-- **TypeScript 5**: With strict mode enabled.
+- **TypeScript 6**: With strict mode enabled.
 - **Tailwind CSS v4**: Using the new, faster Rust-based engine.
 - **Vite**: As the build tool for the frontend.
 - **Nextest**: As the test runner for all Rust tests.
@@ -91,10 +92,12 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Stores**: camelCase (e.g., `repositoryStore.ts`).
 - **Rust modules**: snake_case (e.g., `git_ops.rs`).
 
-### Nuxt Auto-imports (IMPORTANT!)
-- **ALL** composables, types, and utilities are auto-imported by Nuxt 4.
-- **NEVER** manually import Vue APIs (`ref`, `computed`), Nuxt composables, or project utilities/types.
-- In Vue templates, refs are automatically unwrapped (no `.value` needed).
+### Frontend Imports (IMPORTANT!)
+- There are **no auto-imports**. Import every Vue API, component, composable, store, utility and type explicitly.
+- Vue: `import { ref, computed } from "vue"`; Nuxt UI: `import UButton from "@nuxt/ui/components/Button.vue"`, `import { useToast } from "@nuxt/ui/composables"`.
+- Within a layer use relative paths; across layers use `@layers/<layer>/...`; modules in `app/` use `~/...`.
+- Lazy components: `const LazyX = defineAsyncComponent(() => import("./X.vue"))`.
+- See [Import Guidelines](docs/guidelines/imports.md). In Vue templates, refs are automatically unwrapped (no `.value` needed).
 
 ## Performance & Debugging
 
@@ -140,9 +143,9 @@ layers/
 ├── ai/              # AI features and model integration
 app/
 ├── components/      # App-specific components
-├── stores/          # Pinia stores with Zod schemas
-├── pages/           # Nuxt pages
-├── plugins/         # Nuxt plugins (includes Pinia persistence)
+├── pages/           # Route components (index, conflicting-files, missing-commits)
+├── main.ts          # App entry (Nuxt UI plugin, router)
+├── router.ts        # vue-router routes
 ├── utils/           # App utilities (appStore, etc.)
 src-tauri/
 ├── commands/        # Tauri commands
