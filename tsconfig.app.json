@@ -4,8 +4,7 @@
     "module": "preserve",
     "moduleResolution": "Bundler",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "jsx": "preserve",
-    "jsxImportSource": "vue",
+    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
@@ -22,13 +21,8 @@
     "noEmit": true,
     "types": ["vite/client"],
     "paths": {
-      "~/*": ["./app/*"],
-      "@layers/*": ["./layers/*"]
+      "@/*": ["./src/*"]
     }
   },
-  "vueCompilerOptions": {
-    "strictTemplates": true,
-    "dataAttributes": ["data-*", "autocapitalize", "autocorrect", "spellcheck"]
-  },
-  "include": ["app/**/*", "app/**/*.vue", "layers/**/*", "layers/**/*.vue"]
+  "include": ["src"]
 }

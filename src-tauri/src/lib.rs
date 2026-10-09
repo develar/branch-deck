@@ -67,7 +67,7 @@ pub fn run() {
   // only export on non-release builds
   #[cfg(debug_assertions)]
   ts_builder
-    .export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), "../app/utils/bindings.ts")
+    .export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), "../src/lib/bindings.ts")
     .expect("Failed to export TypeScript bindings");
 
   #[cfg(feature = "devtools")]

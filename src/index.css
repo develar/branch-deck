@@ -1,0 +1,199 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+/* The colour scheme follows the OS; there is no manual toggle */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/* Branch Deck specific padding utilities */
+
+/*
+ * bd-padding-card: General card content padding
+ * Use for: InfoCard interiors, card bodies without lists
+ * Responsive: 16px (mobile) → 24px (desktop)
+ */
+@utility bd-padding-card {
+  @apply p-4 sm:p-6;
+}
+
+/*
+ * bd-padding-list-item: List item padding
+ * Use for: Commit rows, file lists, any repeated list items
+ * Responsive: horizontal 16px → 24px, vertical 12px consistent
+ */
+@utility bd-padding-list-item {
+  @apply px-4 sm:px-6 py-3;
+}
+
+/*
+ * bd-padding-content: Form and content area padding
+ * Use for: Form containers, dialog content, general content sections
+ * Responsive: horizontal 16px → 24px, vertical 16px consistent
+ */
+@utility bd-padding-content {
+  @apply px-4 sm:px-6 py-4;
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: 'Geist Variable', sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-info-foreground: var(--info-foreground);
+  --color-info: var(--info);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
+  --color-success-foreground: var(--success-foreground);
+  --color-success: var(--success);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /*
+   * Primary palette, switchable at runtime by applyPrimaryColor() (src/lib/theme.ts),
+   * which writes these variables on <html>. Defaults are Tailwind `green`.
+   */
+  --bd-primary-50: oklch(98.2% 0.018 155.826);
+  --bd-primary-100: oklch(96.2% 0.044 156.743);
+  --bd-primary-200: oklch(92.5% 0.084 155.995);
+  --bd-primary-300: oklch(87.1% 0.15 154.449);
+  --bd-primary-400: oklch(79.2% 0.209 151.711);
+  --bd-primary-500: oklch(72.3% 0.219 149.579);
+  --bd-primary-600: oklch(62.7% 0.194 149.214);
+  --bd-primary-700: oklch(52.7% 0.154 150.069);
+  --bd-primary-800: oklch(44.8% 0.119 151.328);
+  --bd-primary-900: oklch(39.3% 0.095 152.535);
+  --bd-primary-950: oklch(26.6% 0.065 152.934);
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: var(--bd-primary-500);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  /* green-600, amber-600, blue-600 */
+  --success: oklch(62.7% 0.194 149.214);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(66.6% 0.179 58.318);
+  --warning-foreground: oklch(1 0 0);
+  --info: oklch(54.6% 0.245 262.881);
+  --info-foreground: oklch(1 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: var(--primary);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: var(--bd-primary-400);
+    /* dark text on the lighter dark-mode primary, as Nuxt UI did (text-inverted) */
+    --primary-foreground: oklch(0.145 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    /* green-400, amber-400, blue-400 */
+    --success: oklch(79.2% 0.209 151.711);
+    --success-foreground: oklch(0.145 0 0);
+    --warning: oklch(82.8% 0.189 84.429);
+    --warning-foreground: oklch(0.145 0 0);
+    --info: oklch(70.7% 0.165 254.624);
+    --info-foreground: oklch(0.145 0 0);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
