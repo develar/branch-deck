@@ -1,4 +1,4 @@
-use super::amend_operations::{AmendToCommitParams, amend_to_commit_in_main, check_amend_conflicts};
+use super::amend_operations::{AmendToCommitParams, amend_to_commit_in_main};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::fs;
@@ -143,69 +143,6 @@ fn test_amend_preserves_commit_metadata() -> Result<()> {
   assert_eq!(parts[0], "Test");
   assert_eq!(parts[1], "User");
   assert_eq!(parts[2], "test@example.com");
-
-  Ok(())
-}
-
-#[test]
-fn test_conflict_check_no_conflicts() -> Result<()> {
-  let repo = TestRepository::new()?;
-
-  // Create initial commit
-  let commit1 = repo.commit_file("file1.txt", "initial content", "Initial commit")?;
-
-  // Should pass because there are no commits after the target
-  let result = check_amend_conflicts(&repo.git, &repo.path, "master", &commit1);
-  assert!(result.is_ok());
-
-  Ok(())
-}
-
-#[test]
-fn test_conflict_check_with_intervening_commits() -> Result<()> {
-  let repo = TestRepository::new()?;
-
-  // Create initial commit
-  let commit1 = repo.commit_file("file1.txt", "initial content", "Initial commit")?;
-
-  // Create second commit that modifies different file
-  repo.commit_file("file2.txt", "second content", "Add second file")?;
-
-  // Add uncommitted changes
-  repo.modify_file("file1.txt", "amended content")?;
-
-  // Should pass because changes are in different files
-  let result = check_amend_conflicts(&repo.git, &repo.path, "master", &commit1);
-
-  // This may pass or fail depending on git merge-tree's analysis
-  // The important thing is that it runs without panicking
-  match result {
-    Ok(()) => println!("No conflicts detected"),
-    Err(e) => println!("Conflicts detected: {e}"),
-  }
-
-  Ok(())
-}
-
-#[test]
-fn test_conflict_check_with_file_conflicts() -> Result<()> {
-  let repo = TestRepository::new()?;
-
-  // Create initial commit
-  let commit1 = repo.commit_file("file1.txt", "line 1\nline 2\nline 3", "Initial commit")?;
-
-  // Create second commit that modifies the same file
-  repo.commit_file("file1.txt", "line 1\nmodified line 2\nline 3", "Modify file1")?;
-
-  // Add conflicting uncommitted changes to the same lines
-  repo.modify_file("file1.txt", "line 1\ndifferent line 2\nline 3")?;
-
-  // Should detect conflicts
-  let result = check_amend_conflicts(&repo.git, &repo.path, "master", &commit1);
-  assert!(result.is_err());
-
-  let error = result.unwrap_err().to_string();
-  assert!(error.contains("conflict") || error.contains("Amending would create"));
 
   Ok(())
 }
@@ -505,6 +442,55 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
       println!("✓ Conflicts properly detected with error: {error_msg}");
     }
   }
+
+  Ok(())
+}
+
+#[test]
+fn test_amend_conflict_in_non_linear_history_returns_merge_conflict_info() -> Result<()> {
+  let repo = TestRepository::new()?;
+
+  repo.commit_file("base.txt", "base content", "Base commit")?;
+  let branch = repo.git.execute_command(&["symbolic-ref", "--short", "HEAD"], &repo.path)?;
+  let commit_to_amend = repo.commit_file("file1.txt", "line 1\noriginal line 2\nline 3\n", "Add file1")?;
+
+  // A merge commit after the target makes the history non-linear, so amend falls back to fixup + autosquash
+  repo.git.execute_command(&["checkout", "-q", "-b", "side"], &repo.path)?;
+  repo.commit_file("side.txt", "side content", "Side commit")?;
+  repo.git.execute_command(&["checkout", "-q", &branch], &repo.path)?;
+  repo.commit_file("file1.txt", "line 1\nmodified by later commit\nline 3\n", "Later modification")?;
+  repo.git.execute_command(&["merge", "-q", "--no-ff", "-m", "Merge side", "side"], &repo.path)?;
+  let head_before = repo.git.execute_command(&["rev-parse", "HEAD"], &repo.path)?;
+
+  // Conflicting uncommitted change to the same line
+  repo.modify_file_without_staging("file1.txt", "line 1\nmodified by uncommitted\nline 3\n")?;
+
+  let params = AmendToCommitParams {
+    original_commit_id: commit_to_amend.clone(),
+    files: vec!["file1.txt".to_string()],
+  };
+  let error = amend_to_commit_in_main(&repo.git, &repo.path, params).expect_err("amend should conflict");
+
+  let crate::copy_commit::CopyCommitError::BranchError(crate::model::BranchError::MergeConflict(conflict_info)) = error else {
+    panic!("expected MergeConflictInfo, got {error:?}");
+  };
+  assert_eq!(conflict_info.original_parent_hash, commit_to_amend);
+  assert_eq!(conflict_info.commit_hash, conflict_info.target_branch_hash);
+  assert_ne!(conflict_info.commit_message, "");
+  assert!(conflict_info.conflict_marker_commits.contains_key(&conflict_info.commit_hash));
+
+  let files: Vec<&str> = conflict_info.conflicting_files.iter().map(|f| f.file.as_str()).collect();
+  assert_eq!(files, ["file1.txt"]);
+  let detail = &conflict_info.conflicting_files[0];
+  assert!(
+    detail.target_file.as_ref().is_some_and(|f| f.content.ends_with("line 3\n")),
+    "untrimmed target content: {detail:?}"
+  );
+
+  // The rebase was aborted. Note: the fixup commit created before the rebase stays on top of the original history.
+  assert_eq!(repo.git.execute_command(&["rev-parse", "HEAD^"], &repo.path)?, head_before);
+  let (_, rebase_head_exit_code) = repo.git.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "REBASE_HEAD"], &repo.path)?;
+  assert_ne!(rebase_head_exit_code, 0, "rebase should be aborted");
 
   Ok(())
 }

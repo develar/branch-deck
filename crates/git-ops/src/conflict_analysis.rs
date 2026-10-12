@@ -1,3 +1,4 @@
+use crate::commit_list::Commit;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ pub struct FileInfo {
 }
 
 /// Analysis results for a merge conflict, including missing commits and divergence information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictAnalysis {
@@ -58,7 +59,7 @@ pub struct ConflictAnalysis {
 }
 
 /// Summary of how two branches have diverged from their common ancestor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DivergenceSummary {
@@ -67,34 +68,30 @@ pub struct DivergenceSummary {
   pub common_ancestor_distance: u32, // How far back is the common ancestor
 }
 
-/// Analyze why a cherry-pick conflict occurred and find missing commits
-#[instrument(skip(git_executor, conflicting_files))]
+/// Analyze why a cherry-pick conflict occurred and find missing commits.
+/// `merge_base` is the merge base of `original_parent_hash` and `target_commit_hash`, already resolved by the caller.
+#[instrument(skip(git_executor, merge_base, conflicting_files), fields(merge_base = %merge_base.id))]
 pub fn analyze_conflict(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   original_parent_hash: &str,
   target_commit_hash: &str,
+  merge_base: &Commit,
   conflicting_files: &[PathBuf],
 ) -> Result<ConflictAnalysis> {
-  // Find merge base
-  let merge_base = find_merge_base(git_executor, repo_path, original_parent_hash, target_commit_hash)?;
-
-  // Get merge base details
-  let merge_base_info = get_commit_info(git_executor, repo_path, &merge_base)?;
-
   // Find missing commits that touch conflicting files
   let missing_commits = find_missing_commits_for_conflicts(git_executor, repo_path, original_parent_hash, target_commit_hash, conflicting_files)?;
 
   // Calculate divergence summary
-  let divergence_summary = calculate_divergence(git_executor, repo_path, &merge_base, original_parent_hash, target_commit_hash)?;
+  let divergence_summary = calculate_divergence(git_executor, repo_path, original_parent_hash, target_commit_hash)?;
 
   Ok(ConflictAnalysis {
     missing_commits,
-    merge_base_hash: merge_base.clone(),
-    merge_base_subject: merge_base_info.1,
-    merge_base_message: merge_base_info.2,
-    merge_base_time: merge_base_info.3,
-    merge_base_author: merge_base_info.4,
+    merge_base_hash: merge_base.id.clone(),
+    merge_base_subject: merge_base.subject.clone(),
+    merge_base_message: merge_base.message.clone(),
+    merge_base_time: merge_base.committer_timestamp,
+    merge_base_author: merge_base.author_name.clone(),
     divergence_summary,
   })
 }
@@ -225,30 +222,9 @@ pub(crate) fn find_merge_base(git_executor: &GitCommandExecutor, repo_path: &str
   Ok(output.trim().to_string())
 }
 
-/// Get commit information
-#[instrument(skip(git_executor))]
-fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_hash: &str) -> Result<(String, String, String, u32, String)> {
-  let args = vec!["show", "--no-patch", "--format=%H%x00%s%x00%B%x00%ct%x00%an", commit_hash];
-
-  let output = git_executor.execute_command(&args, repo_path)?;
-  let parts: Vec<&str> = output.trim().split('\0').collect();
-
-  if parts.len() < 5 {
-    return Err(anyhow!("Failed to parse commit info"));
-  }
-
-  Ok((
-    parts[0].to_string(),
-    parts[1].to_string(),
-    parts[2].to_string(),
-    parts[3].parse::<u32>().unwrap_or(0),
-    parts[4].to_string(),
-  ))
-}
-
 /// Calculate how the branches have diverged using a single git command
 #[instrument(skip(git_executor))]
-fn calculate_divergence(git_executor: &GitCommandExecutor, repo_path: &str, merge_base: &str, source_commit: &str, target_commit: &str) -> Result<DivergenceSummary> {
+fn calculate_divergence(git_executor: &GitCommandExecutor, repo_path: &str, source_commit: &str, target_commit: &str) -> Result<DivergenceSummary> {
   // Use git rev-list --left-right --count to get both counts in a single command
   // This shows commits that are reachable from source but not target (left)
   // and commits that are reachable from target but not source (right)
@@ -362,14 +338,14 @@ pub(crate) fn batch_get_file_diffs(
     all_contents.insert(commit_hash.clone(), contents);
   }
 
-  // Also fetch parent contents
+  // Also fetch parent contents: every file touched by any of the commits
+  let all_files: Vec<String> = all_files_by_commit
+    .values()
+    .flat_map(|files| files.iter().cloned())
+    .collect::<HashSet<_>>()
+    .into_iter()
+    .collect();
   for parent_hash in &parent_commits {
-    let all_files: Vec<String> = all_files_by_commit
-      .values()
-      .flat_map(|files| files.iter().cloned())
-      .collect::<HashSet<_>>()
-      .into_iter()
-      .collect();
     let contents = get_files_content_at_commit(git_executor, repo_path, parent_hash, &all_files)?;
     all_contents.insert(parent_hash.clone(), contents);
   }
@@ -383,35 +359,13 @@ pub(crate) fn batch_get_file_diffs(
       .unwrap_or_else(|| "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_string());
 
     // Get the unified diff for all files at once
-    let mut show_args = vec!["-c", "merge.conflictStyle=zdiff3", "show", "--no-color", "--format=", "--unified=3", commit_hash, "--"];
+    let mut show_args = vec!["-c", "core.quotePath=false", "--no-pager", "show", "--format="];
+    show_args.extend(PATCH_ARGS);
+    show_args.extend(["--end-of-options", commit_hash.as_str(), "--"]);
     show_args.extend(files.iter().map(std::string::String::as_str));
 
     let diff_output = git_executor.execute_command(&show_args, repo_path)?;
-
-    // Parse the diff output
-    let mut file_to_diff: HashMap<String, String> = HashMap::new();
-    let mut current_file_diff = String::new();
-    let mut current_file: Option<&str> = None;
-
-    for line in diff_output.lines() {
-      if line.starts_with("diff --git") {
-        if let Some(file) = current_file {
-          file_to_diff.insert(file.to_string(), current_file_diff.clone());
-        }
-        if let Some(file) = files.iter().find(|f| line.contains(f.as_str())) {
-          current_file = Some(file);
-          current_file_diff.clear();
-        }
-      }
-      if current_file.is_some() {
-        current_file_diff.push_str(line);
-        current_file_diff.push('\n');
-      }
-    }
-
-    if let Some(file) = current_file {
-      file_to_diff.insert(file.to_string(), current_file_diff);
-    }
+    let file_to_diff: HashMap<String, String> = split_diff_by_file(&diff_output).into_iter().collect();
 
     // Build FileDiff objects
     let mut file_diffs = Vec::new();
@@ -447,7 +401,97 @@ pub(crate) fn batch_get_file_diffs(
   Ok(result)
 }
 
-/// Get content of multiple files at a specific commit using batch operation
+/// Options for patch output that `split_diff_by_file` can parse regardless of user configuration:
+/// fixed `a/` and `b/` prefixes and no rename pairs, so both header paths are equal.
+/// Run with `-c core.quotePath=false` so that only paths with control characters or quotes are C-quoted.
+pub(crate) const PATCH_ARGS: [&str; 8] = [
+  "-p",
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-renames",
+  "--unified=3",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+];
+
+/// Split patch output (`git diff-tree -p`, `git show`) produced with `PATCH_ARGS` into per-file sections.
+/// Each section is `(path, text)`, where the text starts with the section's `diff --git` line.
+/// Sections whose header cannot be parsed are dropped.
+pub(crate) fn split_diff_by_file(diff: &str) -> Vec<(String, String)> {
+  let mut sections: Vec<(String, String)> = Vec::new();
+  let mut in_section = false;
+  for line in diff.split_inclusive('\n') {
+    if let Some(header) = line.strip_prefix("diff --git ") {
+      if let Some(path) = parse_diff_header_path(header.trim_end_matches(['\n', '\r'])) {
+        sections.push((path, String::new()));
+        in_section = true;
+      } else {
+        debug!(header, "cannot parse diff header, skipping file section");
+        in_section = false;
+      }
+    }
+    if in_section && let Some((_, text)) = sections.last_mut() {
+      text.push_str(line);
+    }
+  }
+  sections
+}
+
+/// Path from the part of a `diff --git` line after the command: `a/<path> b/<path>`, C-quoted when needed
+fn parse_diff_header_path(header: &str) -> Option<String> {
+  if header.starts_with('"') {
+    let (path, _) = unquote_c_style(header)?;
+    return path.strip_prefix("a/").map(str::to_string);
+  }
+  // Without renames both paths are equal, so the line is "a/" + path + " b/" + path
+  let path_len = header.len().checked_sub(5)? / 2;
+  let path = header.strip_prefix("a/")?.get(..path_len)?;
+  (header.get(2 + path_len..)? == format!(" b/{path}")).then(|| path.to_string())
+}
+
+/// Decode a C-style quoted string as git writes it for unusual paths. Returns the value and the rest after the closing quote.
+fn unquote_c_style(quoted: &str) -> Option<(String, &str)> {
+  let bytes = quoted.as_bytes();
+  if bytes.first() != Some(&b'"') {
+    return None;
+  }
+  let mut value = Vec::with_capacity(bytes.len());
+  let mut i = 1;
+  while i < bytes.len() {
+    match bytes[i] {
+      b'"' => return Some((String::from_utf8_lossy(&value).into_owned(), &quoted[i + 1..])),
+      b'\\' => {
+        let escaped = *bytes.get(i + 1)?;
+        i += 2;
+        let decoded = match escaped {
+          b'a' => 0x07,
+          b'b' => 0x08,
+          b'f' => 0x0c,
+          b'n' => b'\n',
+          b'r' => b'\r',
+          b't' => b'\t',
+          b'v' => 0x0b,
+          b'0'..=b'7' => {
+            // Three octal digits, the first one already consumed
+            let octal = quoted.get(i - 1..i + 2)?;
+            i += 2;
+            u8::from_str_radix(octal, 8).ok()?
+          }
+          other => other,
+        };
+        value.push(decoded);
+      }
+      byte => {
+        value.push(byte);
+        i += 1;
+      }
+    }
+  }
+  None
+}
+
+/// Get content of multiple files at a specific commit (or any tree-ish) using batch operation
 #[instrument(skip(git_executor, file_paths))]
 pub(crate) fn get_files_content_at_commit(git_executor: &GitCommandExecutor, repo_path: &str, commit_hash: &str, file_paths: &[String]) -> Result<HashMap<String, String>> {
   let mut contents = HashMap::new();
@@ -507,7 +551,7 @@ pub(crate) fn get_files_content_at_commit(git_executor: &GitCommandExecutor, rep
 
     debug!(unique_objects = unique_oids.len(), "deduped objects to fetch");
 
-    let fetched_contents = execute_batch_cat_file(git_executor, repo_path, &unique_oids, None)?;
+    let fetched_contents = execute_batch_cat_file(git_executor, repo_path, &unique_oids)?;
 
     // Map content back to all files that use each OID
     for (oid, content) in fetched_contents {
@@ -544,87 +588,57 @@ pub(crate) fn parse_cat_file_header(line: &str) -> Option<(String, usize)> {
   None
 }
 
-#[instrument(skip(git_executor, oids))]
-pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_path: &str, oids: &[&str], labeled_oids: Option<&[(&str, &str)]>) -> Result<HashMap<String, String>> {
+/// Read blob contents with one `git cat-file --batch`, keyed by OID. Missing objects are skipped.
+/// Content is returned exactly as stored (invalid UTF-8 is replaced), never trimmed.
+#[instrument(skip(git_executor, oids), fields(batch_objects = oids.len()))]
+pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_path: &str, oids: &[&str]) -> Result<HashMap<String, String>> {
   let mut contents = HashMap::new();
 
   if oids.is_empty() {
     return Ok(contents);
   }
 
-  // Build batch input - just the OIDs
+  // NUL-terminated input with -Z
   let batch_input = oids.join("\0") + "\0";
 
-  debug!(batch_objects = oids.len(), "executing cat-file batch");
-
   let args = vec!["cat-file", "--batch", "--buffer", "-Z"];
-  match git_executor.execute_command_with_input(&args, repo_path, &batch_input) {
-    Ok(batch_output) => {
-      debug!("Cat-file batch output length: {}, raw: {:?}", batch_output.len(), batch_output);
+  let bytes = git_executor
+    .execute_command_with_input_raw(&args, repo_path, &batch_input)
+    .map_err(|e| anyhow!("Failed to cat-file batch: {e}"))?;
 
-      // Parse batch output
-      // With -Z flag: <oid> <type> <size>\0<content>\0
-      // The output is a series of: header\0content\0
-      let mut i = 0;
-      let mut oid_index = 0;
-      let bytes = batch_output.as_bytes();
+  // With -Z, every entry is `<oid> <type> <size>\0<content>\0`, or `<oid> missing\0` for a missing object
+  let mut i = 0;
+  let mut oid_index = 0;
+  while i < bytes.len() && oid_index < oids.len() {
+    let Some(end) = memchr::memchr(0, &bytes[i..]).map(|pos| i + pos) else {
+      break;
+    };
+    let header = std::str::from_utf8(&bytes[i..end]).map_err(|e| anyhow!("Invalid UTF-8 in header: {e}"))?;
+    i = end + 1;
 
-      while i < bytes.len() && oid_index < oids.len() {
-        // Find next null byte for the header
-        let header_end = bytes[i..].iter().position(|&b| b == 0).map(|pos| i + pos);
-        if let Some(end) = header_end {
-          let header = std::str::from_utf8(&bytes[i..end]).map_err(|e| anyhow!("Invalid UTF-8 in header: {e}"))?;
-          debug!("Processing header at position {}: {:?}", i, header);
+    if let Some((oid, size)) = parse_cat_file_header(header) {
+      let content_bytes = bytes
+        .get(i..i + size)
+        .ok_or_else(|| anyhow!("Insufficient data for content: expected {size} bytes, but only {} remaining", bytes.len() - i))?;
 
-          if let Some((oid, size)) = parse_cat_file_header(header) {
-            debug!("Parsed header: oid={}, size={}", oid, size);
-
-            // Move past the header and its null terminator
-            i = end + 1;
-
-            // Read the content (size bytes)
-            if i + size <= bytes.len() {
-              let content_bytes = &bytes[i..i + size];
-              let content = std::str::from_utf8(content_bytes).map_err(|e| anyhow!("Invalid UTF-8 in content: {e}"))?;
-              debug!("Found content for oid {}: length={}", oid, content.len());
-
-              let expected_oid = oids[oid_index];
-              let label = labeled_oids.and_then(|lo| lo.get(oid_index).map(|(_, label)| label)).unwrap_or(&"");
-              if oid == expected_oid {
-                debug!(label = %label, oid = %oid, size = size, "storing content");
-                contents.insert(oid.clone(), content.to_string());
-              } else {
-                return Err(anyhow!("OID mismatch: expected {expected_oid}, got {oid}"));
-              }
-
-              // Move past the content and its null terminator
-              i += size;
-              if i < bytes.len() && bytes[i] == 0 {
-                i += 1;
-              }
-
-              oid_index += 1;
-            } else {
-              return Err(anyhow!("Insufficient data for content: expected {} bytes, but only {} remaining", size, bytes.len() - i));
-            }
-          } else if header.contains("missing") {
-            debug!("Object missing: {}", header);
-            i = end + 1;
-            oid_index += 1;
-          } else {
-            return Err(anyhow!("Failed to parse git cat-file header: {header:?}"));
-          }
-        } else {
-          // No more null terminators found
-          break;
-        }
+      let expected_oid = oids[oid_index];
+      if oid != expected_oid {
+        return Err(anyhow!("OID mismatch: expected {expected_oid}, got {oid}"));
       }
+      contents.insert(oid, String::from_utf8_lossy(content_bytes).into_owned());
+
+      // Move past the content and its NUL terminator
+      i += size;
+      if bytes.get(i) == Some(&0) {
+        i += 1;
+      }
+    } else if header.ends_with(" missing") {
+      debug!(header, "object missing");
+    } else {
+      return Err(anyhow!("Failed to parse git cat-file header: {header:?}"));
     }
-    Err(e) => {
-      return Err(anyhow!("Failed to cat-file batch: {e}"));
-    }
+    oid_index += 1;
   }
 
-  debug!("Returning {} contents from batch cat-file", contents.len());
   Ok(contents)
 }

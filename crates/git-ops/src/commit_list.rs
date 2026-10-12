@@ -1,3 +1,4 @@
+use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -56,15 +57,8 @@ where
     format!("{baseline_branch}..HEAD")
   };
 
-  // Use a more robust delimiter-based format
-  let args = vec![
-    "--no-pager",
-    "log",
-    "--reverse",
-    "--no-merges",
-    "--pretty=format:%H%x1f%B%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%P%x1f%T%x1f%N%x1e",
-    &range,
-  ];
+  let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
+  let args = vec!["--no-pager", "log", "--reverse", "--no-merges", pretty_format.as_str(), &range];
 
   // Buffer to accumulate partial records
   let mut buffer = Vec::new();

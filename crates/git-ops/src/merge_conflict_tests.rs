@@ -126,6 +126,18 @@ fn test_delete_modify_conflict() {
 
     // For delete/modify conflicts, we should have diff hunks in file_diff
     assert!(!file_diff.hunks.is_empty(), "Should have conflict hunks for delete/modify conflict");
+    // The file is absent in the target, so the conflict content is a new file
+    assert!(
+      file_diff.hunks[0].starts_with("--- /dev/null\n+++ b/delete_me.txt\n@@ -0,0 +1"),
+      "conflict hunk should add the file: {}",
+      file_diff.hunks[0]
+    );
+    // Base -> target deletes the file
+    let deletion_hunk = &conflict_detail.base_to_target_diff.hunks[0];
+    assert!(
+      deletion_hunk.starts_with("--- a/delete_me.txt\n+++ /dev/null\n@@ "),
+      "base to target should delete the file: {deletion_hunk}"
+    );
 
     println!("Delete/modify conflict detail: {conflict_detail:?}");
   } else {
@@ -201,6 +213,11 @@ fn test_get_merge_conflict_content_with_markers() {
     // Check that both target and cherry content are present
     assert!(conflict_content.contains("hello from target"), "Should contain target branch content");
     assert!(conflict_content.contains("hello from cherry"), "Should contain cherry-pick content");
+
+    // Content is untrimmed: indentation and the final newline are preserved
+    assert!(conflict_content.starts_with("function hello() {\n"), "content: {conflict_content:?}");
+    assert!(conflict_content.contains("\n  console.log('hello from target');\n"), "content: {conflict_content:?}");
+    assert!(conflict_content.ends_with("}\n"), "content: {conflict_content:?}");
 
     // Verify hunks are properly formatted for git-diff-view
     assert!(!file_diff.hunks.is_empty(), "Should have diff hunks");
@@ -749,85 +766,3 @@ init {
 }
 
 // Tests for batch commit info functionality that's part of merge conflict handling
-
-#[test]
-fn test_batch_commit_info_fetching() {
-  let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
-
-  // Create multiple commits
-  let commit1_id = test_repo.create_commit("First commit", "file1.txt", "content1");
-  let commit2_id = test_repo.create_commit("Second commit", "file2.txt", "content2");
-  let commit3_id = test_repo.create_commit("Third commit with special chars: 'quotes' and \"double quotes\"", "file3.txt", "content3");
-
-  // Test batch fetching
-  let commit_ids = vec![commit1_id.as_str(), commit2_id.as_str(), commit3_id.as_str()];
-  let result = super::merge_conflict::get_commit_info_batch(git_executor, test_repo.path().to_str().unwrap(), &commit_ids).unwrap();
-
-  // Verify all commits were fetched
-  assert_eq!(result.len(), 3, "Should fetch all 3 commits");
-
-  // Verify commit data
-  let commit1_info = result.get(&commit1_id).unwrap();
-  assert_eq!(commit1_info.message, "First commit");
-  assert_eq!(commit1_info.author, "Test User");
-  assert!(commit1_info.author_time > 0);
-  assert!(commit1_info.committer_time > 0);
-
-  let commit2_info = result.get(&commit2_id).unwrap();
-  assert_eq!(commit2_info.message, "Second commit");
-
-  let commit3_info = result.get(&commit3_id).unwrap();
-  assert_eq!(commit3_info.message, "Third commit with special chars: 'quotes' and \"double quotes\"");
-}
-
-#[test]
-fn test_batch_commit_info_empty_input() {
-  let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
-
-  // Test with empty input
-  let result = super::merge_conflict::get_commit_info_batch(git_executor, test_repo.path().to_str().unwrap(), &[]).unwrap();
-  assert!(result.is_empty(), "Empty input should return empty result");
-}
-
-#[test]
-fn test_batch_commit_info_nonexistent_commits() {
-  let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
-
-  // Create one valid commit
-  let valid_commit = test_repo.create_commit("Valid commit", "file.txt", "content");
-
-  // Test with mix of valid and invalid commit IDs
-  let commit_ids = vec![valid_commit.as_str(), "0000000000000000000000000000000000000000", "invalid_hash"];
-
-  // This should fail because git log will error on invalid commits
-  let result = super::merge_conflict::get_commit_info_batch(git_executor, test_repo.path().to_str().unwrap(), &commit_ids);
-  assert!(result.is_err(), "Should fail when given invalid commit IDs");
-}
-
-#[test]
-fn test_batch_commit_info_performance() {
-  let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
-
-  // Create many commits to test batch performance
-  let mut commit_ids_str = Vec::new();
-  for i in 0..20 {
-    let commit_id = test_repo.create_commit(&format!("Commit {i}"), &format!("file{i}.txt"), &format!("content{i}"));
-    commit_ids_str.push(commit_id);
-  }
-
-  let commit_ids: Vec<&str> = commit_ids_str.iter().map(std::string::String::as_str).collect();
-
-  // Measure batch operation
-  let start = std::time::Instant::now();
-  let result = super::merge_conflict::get_commit_info_batch(git_executor, test_repo.path().to_str().unwrap(), &commit_ids).unwrap();
-  let batch_duration = start.elapsed();
-
-  assert_eq!(result.len(), 20, "Should fetch all 20 commits");
-
-  // Ensure batch operation is reasonably fast (should complete in under 1 second even for 20 commits)
-  assert!(batch_duration.as_secs() < 1, "Batch operation took too long: {batch_duration:?}");
-}
