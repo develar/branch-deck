@@ -6,7 +6,7 @@ export function IndexPage() {
   // startup update check and the "Check for Updates…" menu item
   useAutoUpdate()
   return (
-    <Container className="pb-4" data-testid="app-container">
+    <Container className="py-4" data-testid="app-container">
       <BranchCreator />
     </Container>
   )

@@ -1,5 +1,6 @@
 import { CircleAlertIcon, Settings2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -21,7 +22,7 @@ export function ConfigurationHeader() {
   const lastSyncTime = selectedProject?.lastSyncTime
 
   return (
-    <div className="rounded-lg border border-border bg-muted backdrop-blur-sm" data-testid="configuration-header">
+    <Card className="gap-0 py-0" data-testid="configuration-header">
       <div className="flex h-14 items-center justify-between gap-4 px-4">
         {/* repository info */}
         <div className="flex min-w-0 items-center gap-3">
@@ -77,6 +78,6 @@ export function ConfigurationHeader() {
           <SyncButton />
         </div>
       </div>
-    </div>
+    </Card>
   )
 }
