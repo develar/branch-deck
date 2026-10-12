@@ -66,9 +66,9 @@ fn test_perform_merge_displays_conflict_diffs() {
   println!("\n{}", "=".repeat(70));
   println!("🚀 STRUCTURED CONFLICT DATA DEMO");
   println!("{}", "=".repeat(70));
-  println!("Commit: {} ({})", conflict_info.commit_message, conflict_info.commit_hash);
-  println!("Original Parent: {} ({})", conflict_info.original_parent_message, conflict_info.original_parent_hash);
-  println!("Target Branch: {} ({})", conflict_info.target_branch_message, conflict_info.target_branch_hash);
+  println!("Commit: {} ({})", conflict_info.commit.message, conflict_info.commit.hash);
+  println!("Original Parent: {} ({})", conflict_info.original_parent.message, conflict_info.original_parent.hash);
+  println!("Target Branch: {} ({})", conflict_info.target_branch.message, conflict_info.target_branch.hash);
   println!("Conflicting files: {}", conflict_info.conflicting_files.len());
 
   for file in &conflict_info.conflicting_files {

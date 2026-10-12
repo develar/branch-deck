@@ -21,10 +21,10 @@ export function ConflictingFilesPage() {
                 <div className="p-4 sm:px-6">
                   <ConflictCommitContext
                     title="Cannot apply commit"
-                    commitMessage={conflictData.conflict.commitMessage}
-                    commitHash={conflictData.conflict.commitHash}
-                    commitAuthorTime={conflictData.conflict.commitAuthorTime}
-                    commitCommitterTime={conflictData.conflict.commitCommitterTime}
+                    commitMessage={conflictData.conflict.commit.message}
+                    commitHash={conflictData.conflict.commit.hash}
+                    commitAuthorTime={conflictData.conflict.commit.authorTime}
+                    commitCommitterTime={conflictData.conflict.commit.committerTime}
                     branchName={conflictData.branchName}
                   />
                 </div>

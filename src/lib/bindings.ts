@@ -158,6 +158,15 @@ export type ConflictAnalysis = {
 	divergenceSummary: DivergenceSummary,
 };
 
+/**  A commit involved in a merge conflict: the applied commit, its original parent, the target, or one referenced in conflict markers */
+export type ConflictCommit = {
+	hash: string,
+	message: string,
+	author: string,
+	authorTime: number,
+	committerTime: number,
+};
+
 /**
  *  Represents details of a conflict during a cherry-pick operation.
  * 
@@ -172,15 +181,6 @@ export type ConflictDetail = {
 	cherryFile: FileInfo | null,
 	baseToTargetDiff: FileDiff,
 	baseToCherryDiff: FileDiff,
-};
-
-/**  Information about a commit referenced in conflict markers */
-export type ConflictMarkerCommitInfo = {
-	hash: string,
-	message: string,
-	author: string,
-	authorTime: number,
-	committerTime: number,
 };
 
 export type CreateBranchFromCommitsParams = {
@@ -275,21 +275,16 @@ export type IssueNavigationLink = {
  *  Contains information about the conflicting files, associated commit details, and conflict analysis results.
  */
 export type MergeConflictInfo = {
-	commitMessage: string,
-	commitHash: string,
-	commitAuthorTime: number,
-	commitCommitterTime: number,
-	originalParentMessage: string,
-	originalParentHash: string,
-	originalParentAuthorTime: number,
-	originalParentCommitterTime: number,
-	targetBranchMessage: string,
-	targetBranchHash: string,
-	targetBranchAuthorTime: number,
-	targetBranchCommitterTime: number,
+	/**  Commit being applied (cherry-picked) */
+	commit: ConflictCommit,
+	/**  Original parent of the cherry-picked commit */
+	originalParent: ConflictCommit,
+	/**  Target branch HEAD where we're trying to apply the commit */
+	targetBranch: ConflictCommit,
 	conflictingFiles: ConflictDetail[],
 	conflictAnalysis: ConflictAnalysis,
-	conflictMarkerCommits: { [key in string]: ConflictMarkerCommitInfo },
+	/**  Map of commit hashes to their info for conflict markers (shared across all files) */
+	conflictMarkerCommits: { [key in string]: ConflictCommit },
 };
 
 /**

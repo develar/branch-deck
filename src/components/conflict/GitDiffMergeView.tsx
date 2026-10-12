@@ -31,13 +31,8 @@ export function GitDiffMergeView({ conflicts, conflictInfo }: GitDiffMergeViewPr
   const mergeBase: CommitRef | null = analysis?.mergeBaseHash
     ? { hash: analysis.mergeBaseHash, subject: analysis.mergeBaseSubject, message: analysis.mergeBaseMessage, author: analysis.mergeBaseAuthor, authorTime: analysis.mergeBaseTime }
     : null
-  // the author is not provided for the target and the cherry-picked commit
-  const target: CommitRef | null = conflictInfo
-    ? { hash: conflictInfo.targetBranchHash, message: conflictInfo.targetBranchMessage, author: "", authorTime: conflictInfo.targetBranchAuthorTime }
-    : null
-  const cherry: CommitRef | null = conflictInfo
-    ? { hash: conflictInfo.commitHash, message: conflictInfo.commitMessage, author: "", authorTime: conflictInfo.commitAuthorTime }
-    : null
+  const target: CommitRef | null = conflictInfo?.targetBranch ?? null
+  const cherry: CommitRef | null = conflictInfo?.commit ?? null
 
   return (
     <div className="flex flex-col gap-4">
