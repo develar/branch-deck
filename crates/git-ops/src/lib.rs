@@ -14,6 +14,9 @@ pub mod reword_commits;
 mod amend_operations_test;
 
 #[cfg(test)]
+mod commit_utils_test;
+
+#[cfg(test)]
 mod conflict_analysis_tests;
 
 #[cfg(test)]

@@ -654,7 +654,7 @@ fn test_batch_cat_file_with_null_termination() {
 
   // Test batch cat-file
   let oids = vec![oid1.as_str(), oid2.as_str()];
-  let contents = execute_batch_cat_file(git_executor, test_repo.path().to_str().unwrap(), &oids, None).unwrap();
+  let contents = execute_batch_cat_file(git_executor, test_repo.path().to_str().unwrap(), &oids).unwrap();
 
   assert_eq!(contents.len(), 2, "Should retrieve both blobs");
   assert_eq!(contents.get(&oid1).unwrap(), "Content with\nnewline");
@@ -686,7 +686,7 @@ fn test_error_handling_batch_cat_file_missing_objects() {
     "0000000000000000000000000000000000000000", // Invalid OID
   ];
 
-  let contents = execute_batch_cat_file(git_executor, test_repo.path().to_str().unwrap(), &oids, None).unwrap();
+  let contents = execute_batch_cat_file(git_executor, test_repo.path().to_str().unwrap(), &oids).unwrap();
 
   // Should still return the valid object
   assert_eq!(contents.len(), 1, "Should retrieve only valid objects");
@@ -724,14 +724,15 @@ fn test_null_terminated_parsing_in_batch_commit_info() {
   let commit3_str = commit3.clone();
   let commit_ids = vec![commit1_str.as_str(), commit2_str.as_str(), commit3_str.as_str()];
 
-  let result = super::merge_conflict::get_commit_info_batch(git_executor, test_repo.path().to_str().unwrap(), &commit_ids).unwrap();
+  let result = super::commit_utils::get_commits_info(git_executor, test_repo.path().to_str().unwrap(), &commit_ids).unwrap();
 
   // Verify parsing handled special characters correctly
   assert_eq!(result.len(), 3);
 
   // Git will handle newlines in commit messages
   let commit1_info = result.get(&commit1).unwrap();
-  assert!(commit1_info.message.contains("Message with"));
+  assert_eq!(commit1_info.message, "Message with\nnewline");
+  assert_eq!(commit1_info.subject, "Message with");
 
   // Null bytes in commit messages are typically rejected by git or handled specially
   let commit2_info = result.get(&commit2).unwrap();
@@ -798,4 +799,45 @@ fn test_author_names_with_spaces() {
   let mary_jane_commit = missing.iter().find(|c| c.author == "Mary Jane Watson");
   assert!(mary_jane_commit.is_some(), "Should find commit by Mary Jane Watson");
   assert_eq!(mary_jane_commit.unwrap().author, "Mary Jane Watson", "Author name with spaces should be correctly parsed");
+}
+
+#[test]
+fn test_split_diff_by_file() {
+  let diff = "diff --git a/file with spaces.txt b/file with spaces.txt\n\
+index 1..2 100644\n\
+--- a/file with spaces.txt\n\
++++ b/file with spaces.txt\n\
+@@ -1 +1 @@\n\
+-old\n\
++new\n\
+diff --git a/a b/a b b/a b/a b\n\
+new file mode 100644\n\
+--- /dev/null\n\
++++ b/a b/a b\n\
+@@ -0,0 +1 @@\n\
++diff --git a/x b/x\n\
+diff --git \"a/tab\\tname\" \"b/tab\\tname\"\n\
+@@ -1 +1 @@\n\
+-\\303\\251\n";
+
+  let sections = split_diff_by_file(diff);
+  let paths: Vec<&str> = sections.iter().map(|(path, _)| path.as_str()).collect();
+  assert_eq!(paths, ["file with spaces.txt", "a b/a b", "tab\tname"]);
+  assert!(sections[0].1.starts_with("diff --git a/file with spaces.txt"));
+  assert!(sections[0].1.ends_with("+new\n"));
+  // An added line that looks like a header belongs to its file
+  assert!(sections[1].1.ends_with("+diff --git a/x b/x\n"));
+}
+
+#[test]
+fn test_batch_cat_file_keeps_whitespace_and_non_utf8() {
+  let test_repo = TestRepo::new();
+  let git_executor = &GitCommandExecutor::new();
+
+  let commit_hash = test_repo.create_commit_with_files("Whitespace", &[("indented.txt", "\n  indented\n\n"), ("last.txt", "  trailing  \n")]);
+  let files = vec!["indented.txt".to_string(), "last.txt".to_string()];
+  let contents = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit_hash, &files).unwrap();
+
+  assert_eq!(contents.get("indented.txt").unwrap(), "\n  indented\n\n");
+  assert_eq!(contents.get("last.txt").unwrap(), "  trailing  \n");
 }

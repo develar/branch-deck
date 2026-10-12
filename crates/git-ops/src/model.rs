@@ -1,3 +1,4 @@
+use crate::commit_list::Commit;
 use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
@@ -88,6 +89,18 @@ pub struct ConflictMarkerCommitInfo {
   pub author: String,
   pub author_time: u32,
   pub committer_time: u32,
+}
+
+impl From<&Commit> for ConflictMarkerCommitInfo {
+  fn from(commit: &Commit) -> Self {
+    Self {
+      hash: commit.id.clone(),
+      message: commit.subject.clone(),
+      author: commit.author_name.clone(),
+      author_time: commit.author_timestamp,
+      committer_time: commit.committer_timestamp,
+    }
+  }
 }
 
 /// Branch operation errors.

@@ -1,6 +1,4 @@
-use crate::commit_list::Commit;
-use crate::commit_utils::create_commit_with_metadata;
-use crate::commit_utils::prefetch_commit_infos_map;
+use crate::commit_utils::{create_commit_with_metadata, get_commit_info, prefetch_commit_infos_map};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -129,45 +127,6 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
   let tip = commits_with_parents.last().map(|(id, _)| id.clone()).ok_or_else(|| anyhow!("Failed to determine tip"))?;
 
   Ok((commits_with_parents, tip, range))
-}
-
-pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit> {
-  // Use git show with format to get all commit info at once
-  let format = "%an%n%ae%n%at%n%ct%n%T%n%P%n%B";
-  let format_arg = format!("--format={format}");
-  let args = vec!["show", "-s", &format_arg, commit_id];
-
-  let output = git_executor.execute_command(&args, repo_path)?;
-
-  let lines: Vec<&str> = output.lines().collect();
-  if lines.len() < 7 {
-    return Err(anyhow!("Invalid commit info format"));
-  }
-
-  // Parse the output
-  let author_name = lines[0].to_string();
-  let author_email = lines[1].to_string();
-  let author_timestamp: u32 = lines[2].parse().map_err(|_| anyhow!("Invalid author time"))?;
-  let committer_timestamp: u32 = lines[3].parse().map_err(|_| anyhow!("Invalid committer time"))?;
-  let tree_id = lines[4].to_string();
-  let parent_id = if lines[5].is_empty() { None } else { Some(lines[5].to_string()) };
-  let message = lines[6..].join("\n");
-  let subject = message.lines().next().unwrap_or("").to_string();
-
-  Ok(Commit {
-    id: commit_id.to_string(),
-    subject: subject.clone(),
-    message,
-    author_name,
-    author_email,
-    author_timestamp,
-    committer_timestamp,
-    parent_id,
-    tree_id,
-    note: None,
-    stripped_subject: subject, // Same as subject since we're not stripping
-    mapped_commit_id: None,    // Not relevant for rewording
-  })
 }
 
 pub fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str) -> Result<()> {

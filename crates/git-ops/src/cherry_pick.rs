@@ -1,9 +1,8 @@
 use crate::cache::TreeIdCache;
-use crate::commit_list::Commit;
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::{ConflictDetailsParams, extract_conflict_details, get_commit_info_batch};
-use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
-use anyhow::{Result, anyhow};
+use crate::merge_conflict::{ConflictContext, build_merge_conflict_info};
+use crate::model::{BranchError, BranchSyncStatus};
+use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -21,8 +20,8 @@ pub fn perform_fast_cherry_pick_with_context(
   on_status: &dyn Fn(BranchSyncStatus),
   tree_id_cache: &TreeIdCache,
 ) -> Result<String, CopyCommitError> {
-  // Get commit information using git CLI
-  let cherry_parent_id = get_commit_parent(git_executor, repo_path, cherry_commit_id)?;
+  let cherry_parent_id = get_commit_parent(git_executor, repo_path, cherry_commit_id)?
+    .ok_or_else(|| CopyCommitError::Other(anyhow!("Cannot cherry-pick root commit {cherry_commit_id}: it has no parent")))?;
 
   // Fast path: check if parent tree matches target tree
   let cherry_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, &cherry_parent_id)?;
@@ -92,76 +91,16 @@ pub fn perform_fast_cherry_pick_with_context(
       // Conflict analysis takes a while; let the UI show it
       on_status(BranchSyncStatus::AnalyzingConflict);
 
-      // Get detailed conflict information with diffs
-      let (detailed_conflicts, conflict_marker_commits) = extract_conflict_details(ConflictDetailsParams {
+      let conflict_info = build_merge_conflict_info(ConflictContext {
         git_executor,
         repo_path,
         conflict_files: &conflict_files,
-        merge_tree_oid: parts[0], // merge_tree_oid
+        merge_tree_oid: tree_oid,
         parent_commit_id: &cherry_parent_id,
         target_commit_id,
         cherry_commit_id,
       })?;
-
-      // Analyze the conflict to find missing commits
-      let conflict_analysis = match crate::conflict_analysis::analyze_conflict(git_executor, repo_path, &cherry_parent_id, target_commit_id, &conflict_files) {
-        Ok(analysis) => analysis,
-        Err(e) => {
-          // If conflict analysis fails, create a default analysis with empty data
-          debug!(error = %e, "failed to analyze conflict");
-          crate::conflict_analysis::ConflictAnalysis {
-            missing_commits: vec![],
-            merge_base_hash: String::new(),
-            merge_base_subject: String::new(),
-            merge_base_message: String::new(),
-            merge_base_time: 0,
-            merge_base_author: String::new(),
-            divergence_summary: crate::conflict_analysis::DivergenceSummary {
-              commits_ahead_in_source: 0,
-              commits_ahead_in_target: 0,
-              common_ancestor_distance: 0,
-            },
-          }
-        }
-      };
-
-      // Get commit information for error reporting (batch operation)
-      let commit_ids = vec![cherry_commit_id, &cherry_parent_id, target_commit_id];
-      let batch_commit_info = get_commit_info_batch(git_executor, repo_path, &commit_ids)?;
-
-      let cherry_commit_info = batch_commit_info
-        .get(cherry_commit_id)
-        .map(|info| conflict_marker_to_commit(cherry_commit_id, info))
-        .or_else(|| get_commit_info(git_executor, repo_path, cherry_commit_id).ok())
-        .ok_or_else(|| CopyCommitError::Other(anyhow!("Failed to get cherry commit info")))?;
-      let cherry_parent_info = batch_commit_info
-        .get(&cherry_parent_id)
-        .map(|info| conflict_marker_to_commit(&cherry_parent_id, info))
-        .or_else(|| get_commit_info(git_executor, repo_path, &cherry_parent_id).ok())
-        .ok_or_else(|| CopyCommitError::Other(anyhow!("Failed to get parent commit info")))?;
-      let target_commit_info = batch_commit_info
-        .get(target_commit_id)
-        .map(|info| conflict_marker_to_commit(target_commit_id, info))
-        .or_else(|| get_commit_info(git_executor, repo_path, target_commit_id).ok())
-        .ok_or_else(|| CopyCommitError::Other(anyhow!("Failed to get target commit info")))?;
-
-      return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo {
-        commit_message: cherry_commit_info.message,
-        commit_hash: cherry_commit_id.to_string(),
-        commit_author_time: cherry_commit_info.author_timestamp,
-        commit_committer_time: cherry_commit_info.committer_timestamp,
-        original_parent_message: cherry_parent_info.message,
-        original_parent_hash: cherry_parent_id,
-        original_parent_author_time: cherry_parent_info.author_timestamp,
-        original_parent_committer_time: cherry_parent_info.committer_timestamp,
-        target_branch_message: target_commit_info.message,
-        target_branch_hash: target_commit_id.to_string(),
-        target_branch_author_time: target_commit_info.author_timestamp,
-        target_branch_committer_time: target_commit_info.committer_timestamp,
-        conflicting_files: detailed_conflicts,
-        conflict_analysis,
-        conflict_marker_commits,
-      }))));
+      return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
     }
   }
 
@@ -169,68 +108,12 @@ pub fn perform_fast_cherry_pick_with_context(
   Ok(tree_oid.to_string())
 }
 
-/// Get the parent commit ID using git CLI
+/// First parent of a commit, `None` for a root commit. An unknown commit is an error.
 #[instrument(skip(git_executor), fields(commit_id = %commit_id))]
-pub fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<String, CopyCommitError> {
-  let parent_ref = [commit_id, "^"].concat();
-  let args = vec!["rev-parse", &parent_ref];
+pub fn get_commit_parent(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Option<String>, CopyCommitError> {
+  // Prints "<commit> <parent>..." and only "<commit>" for a root commit, so a root commit is not a failure
   let output = git_executor
-    .execute_command(&args, repo_path)
+    .execute_command(&["rev-list", "--no-walk", "--parents", "--end-of-options", commit_id], repo_path)
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get parent for {commit_id}: {e}")))?;
-  Ok(output.trim().to_string())
-}
-
-/// Get basic commit information using git CLI
-#[instrument(skip(git_executor), fields(commit_id = %commit_id))]
-pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<Commit, CopyCommitError> {
-  // Fetch subject and both timestamps in a single call for performance
-  // Format: %s<NULL>%at<NULL>%ct
-  let output = git_executor
-    .execute_command(&["log", "-1", "--format=%s%x00%at%x00%ct", commit_id], repo_path)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get commit info for {commit_id}: {e}")))?;
-
-  let mut parts = output.split('\0');
-  let subject = parts.next().unwrap_or("").trim().to_string();
-  let author_ts_str = parts.next().unwrap_or("").trim();
-  let committer_ts_str = parts.next().unwrap_or("").trim();
-
-  let author_timestamp: u32 = author_ts_str
-    .parse()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid author timestamp for commit {commit_id}: {e}")))?;
-  let committer_timestamp: u32 = committer_ts_str
-    .parse()
-    .map_err(|e| CopyCommitError::Other(anyhow!("Invalid committer timestamp for commit {commit_id}: {e}")))?;
-
-  Ok(Commit {
-    id: commit_id.to_string(),
-    subject: subject.clone(),
-    message: subject.clone(),    // For error reporting, subject is sufficient
-    author_name: String::new(),  // Not available from this query
-    author_email: String::new(), // Not available from this query
-    author_timestamp,
-    committer_timestamp,
-    parent_id: None,
-    tree_id: String::new(),
-    note: None,
-    stripped_subject: subject,
-    mapped_commit_id: None,
-  })
-}
-
-/// Convert `ConflictMarkerCommitInfo` to Commit for backward compatibility
-fn conflict_marker_to_commit(commit_id: &str, info: &crate::model::ConflictMarkerCommitInfo) -> Commit {
-  Commit {
-    id: commit_id.to_string(),
-    subject: info.message.clone(),
-    message: info.message.clone(),
-    author_name: info.author.clone(),
-    author_email: String::new(), // Not available from ConflictMarkerCommitInfo
-    author_timestamp: info.author_time,
-    committer_timestamp: info.committer_time,
-    parent_id: None,
-    tree_id: String::new(),
-    note: None,
-    stripped_subject: info.message.clone(),
-    mapped_commit_id: None,
-  }
+  Ok(output.split_whitespace().nth(1).map(str::to_string))
 }

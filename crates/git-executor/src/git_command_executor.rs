@@ -200,6 +200,20 @@ impl GitCommandExecutor {
     Ok(Self::trimmed(&output))
   }
 
+  /// Like `execute_command_with_input`, but returns stdout bytes untouched: no trimming and no UTF-8 decoding.
+  /// Use it for size-framed output such as `cat-file --batch`, where both would corrupt the framing or the content.
+  pub fn execute_command_with_input_raw(&self, args: &[&str], repository_path: &str, input: &str) -> Result<Vec<u8>> {
+    let output = self.run(
+      args,
+      repository_path,
+      &RunOptions {
+        stdin: Some(input.as_bytes()),
+        ..RunOptions::default()
+      },
+    )?;
+    Ok(output.stdout)
+  }
+
   pub fn execute_command_with_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)]) -> Result<String> {
     let output = self.run(
       args,
