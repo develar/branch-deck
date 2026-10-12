@@ -2,7 +2,7 @@ use crate::commit_list::Commit;
 use crate::commit_utils::get_commits_info;
 use crate::conflict_analysis::{ConflictAnalysis, FileDiff, FileInfo, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_commit, split_diff_by_file};
 use crate::copy_commit::CopyCommitError;
-use crate::model::{ConflictDetail, ConflictMarkerCommitInfo, MergeConflictInfo};
+use crate::model::{ConflictCommit, ConflictDetail, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -65,21 +65,12 @@ pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConfli
   };
 
   Ok(MergeConflictInfo {
-    commit_message: cherry.subject.clone(),
-    commit_hash: cherry.id.clone(),
-    commit_author_time: cherry.author_timestamp,
-    commit_committer_time: cherry.committer_timestamp,
-    original_parent_message: parent.subject.clone(),
-    original_parent_hash: parent.id.clone(),
-    original_parent_author_time: parent.author_timestamp,
-    original_parent_committer_time: parent.committer_timestamp,
-    target_branch_message: target.subject.clone(),
-    target_branch_hash: target.id.clone(),
-    target_branch_author_time: target.author_timestamp,
-    target_branch_committer_time: target.committer_timestamp,
+    commit: ConflictCommit::from(cherry),
+    original_parent: ConflictCommit::from(parent),
+    target_branch: ConflictCommit::from(target),
     conflicting_files,
     conflict_analysis,
-    conflict_marker_commits: commits.iter().map(|(id, commit)| (id.clone(), ConflictMarkerCommitInfo::from(commit))).collect(),
+    conflict_marker_commits: commits.iter().map(|(id, commit)| (id.clone(), ConflictCommit::from(commit))).collect(),
   })
 }
 

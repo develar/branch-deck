@@ -5,13 +5,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FileDiffList } from "@/components/conflict/FileDiffList"
 import { GitDiffMergeView } from "@/components/conflict/GitDiffMergeView"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import type { ConflictDetail, ConflictMarkerCommitInfo, FileDiff, MergeConflictInfo } from "@/lib/bindings"
+import type { ConflictDetail, ConflictCommit, FileDiff, MergeConflictInfo } from "@/lib/bindings"
 import { setConflictViewMode, setShowConflictsOnly, useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
 export interface ConflictingFilesSectionProps {
   conflicts: readonly ConflictDetail[]
   conflictInfo?: MergeConflictInfo
-  conflictMarkerCommits?: Record<string, ConflictMarkerCommitInfo>
+  conflictMarkerCommits?: Record<string, ConflictCommit>
 }
 
 /** Conflicting files as diffs with conflict markers (optionally only the conflicting hunks) or as a 3-way merge view. */

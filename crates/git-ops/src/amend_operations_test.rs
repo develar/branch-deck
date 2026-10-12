@@ -417,8 +417,8 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
       match branch_err {
         crate::model::BranchError::MergeConflict(conflict_info) => {
           // Verify the conflict info has expected data
-          assert_ne!(conflict_info.commit_hash, "");
-          assert_ne!(conflict_info.commit_message, "");
+          assert_ne!(conflict_info.commit.hash, "");
+          assert_ne!(conflict_info.commit.message, "");
           assert!(!conflict_info.conflicting_files.is_empty());
 
           // Should have at least one conflicting file (file1.txt)
@@ -474,10 +474,10 @@ fn test_amend_conflict_in_non_linear_history_returns_merge_conflict_info() -> Re
   let crate::copy_commit::CopyCommitError::BranchError(crate::model::BranchError::MergeConflict(conflict_info)) = error else {
     panic!("expected MergeConflictInfo, got {error:?}");
   };
-  assert_eq!(conflict_info.original_parent_hash, commit_to_amend);
-  assert_eq!(conflict_info.commit_hash, conflict_info.target_branch_hash);
-  assert_ne!(conflict_info.commit_message, "");
-  assert!(conflict_info.conflict_marker_commits.contains_key(&conflict_info.commit_hash));
+  assert_eq!(conflict_info.original_parent.hash, commit_to_amend);
+  assert_eq!(conflict_info.commit.hash, conflict_info.target_branch.hash);
+  assert_ne!(conflict_info.commit.message, "");
+  assert!(conflict_info.conflict_marker_commits.contains_key(&conflict_info.commit.hash));
 
   let files: Vec<&str> = conflict_info.conflicting_files.iter().map(|f| f.file.as_str()).collect();
   assert_eq!(files, ["file1.txt"]);

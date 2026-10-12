@@ -28,8 +28,8 @@ export function MergeConflictViewer({ conflict, branchName }: MergeConflictViewe
             <GitMergeIcon className="mt-0.5 size-5 shrink-0 text-destructive" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <p className="text-sm font-medium text-foreground">Cherry-pick conflict detected</p>
-              <p className="text-sm text-muted-foreground">{`Cannot apply: ${conflict.commitMessage}`}</p>
-              <CommitInfo hash={conflict.commitHash} authorTime={conflict.commitAuthorTime} committerTime={conflict.commitCommitterTime} />
+              <p className="text-sm text-muted-foreground">{`Cannot apply: ${conflict.commit.message}`}</p>
+              <CommitInfo hash={conflict.commit.hash} authorTime={conflict.commit.authorTime} committerTime={conflict.commit.committerTime} />
             </div>
           </div>
         </div>

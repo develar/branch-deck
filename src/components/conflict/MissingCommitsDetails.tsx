@@ -45,10 +45,10 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
 
     const analysis = conflict.conflictAnalysis
     const data: MissingCommitsWindowData = {
-      conflictCommitHash: conflict.commitHash,
-      conflictCommitMessage: conflict.commitMessage,
-      conflictCommitAuthorTime: conflict.commitAuthorTime,
-      conflictCommitCommitterTime: conflict.commitCommitterTime,
+      conflictCommitHash: conflict.commit.hash,
+      conflictCommitMessage: conflict.commit.message,
+      conflictCommitAuthorTime: conflict.commit.authorTime,
+      conflictCommitCommitterTime: conflict.commit.committerTime,
       branchName: branchName || "Unknown",
       missingCommits: analysis.missingCommits,
       mergeBase: {

@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
 import { InfoCard } from "@/components/shared/InfoCard"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
-import type { ConflictDetail, ConflictMarkerCommitInfo, MergeConflictInfo } from "@/lib/bindings"
+import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
 import type { ConflictingFilesWindowData } from "@/types/sub-window"
@@ -12,7 +12,7 @@ import type { ConflictingFilesWindowData } from "@/types/sub-window"
 export interface ConflictingFileListCardProps {
   conflicts: readonly ConflictDetail[]
   conflictInfo: MergeConflictInfo
-  conflictMarkerCommits: Record<string, ConflictMarkerCommitInfo>
+  conflictMarkerCommits: Record<string, ConflictCommit>
   branchName?: string
   /** Rendered in the `conflicting-files` sub-window: no "Open in Window" action */
   isInWindow?: boolean

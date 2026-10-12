@@ -60,30 +60,23 @@ pub struct ConflictDetail {
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MergeConflictInfo {
-  pub commit_message: String,
-  pub commit_hash: String,
-  pub commit_author_time: u32,
-  pub commit_committer_time: u32,
-  // Original parent of the cherry-picked commit
-  pub original_parent_message: String,
-  pub original_parent_hash: String,
-  pub original_parent_author_time: u32,
-  pub original_parent_committer_time: u32,
-  // Target branch HEAD where we're trying to apply the commit
-  pub target_branch_message: String,
-  pub target_branch_hash: String,
-  pub target_branch_author_time: u32,
-  pub target_branch_committer_time: u32,
+  /// Commit being applied (cherry-picked)
+  pub commit: ConflictCommit,
+  /// Original parent of the cherry-picked commit
+  pub original_parent: ConflictCommit,
+  /// Target branch HEAD where we're trying to apply the commit
+  pub target_branch: ConflictCommit,
   pub conflicting_files: Vec<ConflictDetail>,
   pub conflict_analysis: crate::conflict_analysis::ConflictAnalysis,
-  // Map of commit hashes to their info for conflict markers (shared across all files)
-  pub conflict_marker_commits: std::collections::HashMap<String, ConflictMarkerCommitInfo>,
+  /// Map of commit hashes to their info for conflict markers (shared across all files)
+  pub conflict_marker_commits: std::collections::HashMap<String, ConflictCommit>,
 }
-/// Information about a commit referenced in conflict markers
+
+/// A commit involved in a merge conflict: the applied commit, its original parent, the target, or one referenced in conflict markers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
-pub struct ConflictMarkerCommitInfo {
+pub struct ConflictCommit {
   pub hash: String,
   pub message: String,
   pub author: String,
@@ -91,7 +84,7 @@ pub struct ConflictMarkerCommitInfo {
   pub committer_time: u32,
 }
 
-impl From<&Commit> for ConflictMarkerCommitInfo {
+impl From<&Commit> for ConflictCommit {
   fn from(commit: &Commit) -> Self {
     Self {
       hash: commit.id.clone(),

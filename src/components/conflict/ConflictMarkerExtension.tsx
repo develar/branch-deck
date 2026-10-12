@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import { CircleAlertIcon, GitBranchIcon, GitCommitHorizontalIcon, GitMergeIcon, SplitIcon } from "lucide-react"
 import { cn } from "cn"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
-import type { ConflictMarkerCommitInfo } from "@/lib/bindings"
+import type { ConflictCommit } from "@/lib/bindings"
 
 export type ConflictMarkerType = "conflict-start" | "conflict-base" | "conflict-separator" | "conflict-end"
 
@@ -18,7 +18,7 @@ export interface ConflictMarkerInfo {
 export interface ConflictLineData {
   tooltip: string
   conflictInfo?: ConflictMarkerInfo
-  conflictMarkerCommits?: Record<string, ConflictMarkerCommitInfo>
+  conflictMarkerCommits?: Record<string, ConflictCommit>
 }
 
 interface MarkerStyle {

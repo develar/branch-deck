@@ -6,13 +6,13 @@ import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHead
 import { ConflictMarkerExtension } from "@/components/conflict/ConflictMarkerExtension"
 import type { ConflictLineData, ConflictMarkerInfo } from "@/components/conflict/ConflictMarkerExtension"
 import { useIsDark } from "@/hooks/useIsDark"
-import type { ConflictMarkerCommitInfo, FileDiff } from "@/lib/bindings"
+import type { ConflictCommit, FileDiff } from "@/lib/bindings"
 import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
 
 export interface FileDiffListProps {
   fileDiffs: readonly FileDiff[]
   keyPrefix: string
-  conflictMarkerCommits?: Record<string, ConflictMarkerCommitInfo>
+  conflictMarkerCommits?: Record<string, ConflictCommit>
   diffViewMode?: ConflictDiffViewMode
 }
 
@@ -38,7 +38,7 @@ export function FileDiffList({ fileDiffs, keyPrefix, conflictMarkerCommits, diff
 
 interface ConflictFileDiffViewProps {
   diff: FileDiff
-  conflictMarkerCommits: Record<string, ConflictMarkerCommitInfo> | undefined
+  conflictMarkerCommits: Record<string, ConflictCommit> | undefined
   diffViewMode: ConflictDiffViewMode
 }
 
@@ -87,7 +87,7 @@ function extractConflictInfo(line: string): ConflictMarkerInfo | null {
 type ExtendData = NonNullable<DiffViewProps<ConflictLineData>["extendData"]>
 
 /** `extendData` keyed by new-file line number for every added line holding a conflict marker */
-function getConflictExtendData(diff: FileDiff, conflictMarkerCommits: Record<string, ConflictMarkerCommitInfo> | undefined): ExtendData {
+function getConflictExtendData(diff: FileDiff, conflictMarkerCommits: Record<string, ConflictCommit> | undefined): ExtendData {
   const newFile: Record<string, { data: ConflictLineData }> = {}
 
   for (const hunk of diff.hunks) {
