@@ -44,8 +44,7 @@ moka = { version = "0.12", features = ["sync"] }
 # Specta for type generation (most comprehensive feature set)
 specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 
-# CLI and additional tokio utilities
-clap = { version = "4.6", features = ["derive"] }
+# Additional tokio utilities
 tokio-stream = "0.1"
 
 [workspace.lints.clippy]

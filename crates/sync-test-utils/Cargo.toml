@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 sync-types = { path = "../sync-types" }
-test-utils = { path = "../test-utils" }
 anyhow.workspace = true
 
 [lints]

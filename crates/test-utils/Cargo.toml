@@ -4,16 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "Shared test utilities for Branch Deck workspace"
 
-[[bin]]
-name = "generate-test-repo"
-path = "src/bin/generate-test-repo.rs"
-
 [dependencies]
 # Core utilities (shared via workspace)
 anyhow.workspace = true
 tempfile.workspace = true
-clap.workspace = true
-tracing.workspace = true
 
 # Git command executor
 git-executor = { path = "../git-executor" }

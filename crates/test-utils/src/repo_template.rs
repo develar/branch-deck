@@ -72,17 +72,19 @@ impl RepoTemplate {
 
     // Create commits
     for commit in self.commits {
-      // Write files
+      // Write files, then stage them all at once
       for (file_path, content) in &commit.files {
         let full_path = output_path.join(file_path);
         if let Some(parent) = full_path.parent() {
           fs::create_dir_all(parent)?;
         }
         fs::write(&full_path, content)?;
-
-        // Stage file
-        Command::new("git").args(["add", file_path]).current_dir(output_path).output()?;
       }
+      Command::new("git")
+        .args(["add", "--"])
+        .args(commit.files.iter().map(|(file_path, _)| file_path))
+        .current_dir(output_path)
+        .output()?;
 
       // Commit with optional timestamp
       let mut cmd = Command::new("git");
