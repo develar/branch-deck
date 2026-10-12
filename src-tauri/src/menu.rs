@@ -36,11 +36,7 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
     .build(app)?;
 
   // Store checkbox reference in MenuState for programmatic access
-  let menu_state = app.state::<MenuState>();
-  let checkbox_clone = auto_sync_checkbox.clone();
-  tauri::async_runtime::block_on(async move {
-    *menu_state.auto_sync_checkbox.write().await = Some(checkbox_clone);
-  });
+  app.state::<MenuState>().set_auto_sync_checkbox(auto_sync_checkbox.clone());
 
   let file_menu = &SubmenuBuilder::new(app, "File").item(&sync_branches).separator().item(&auto_sync_checkbox).build()?;
 

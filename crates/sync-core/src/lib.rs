@@ -7,6 +7,7 @@ pub mod commit_grouper;
 pub mod create_branch;
 pub mod delete_archived_branch;
 pub mod issue_navigation;
+pub mod push;
 pub mod remote_status;
 pub mod repository_validation;
 pub mod sync;
@@ -17,6 +18,8 @@ pub mod uncommitted_changes;
 mod branch_prefix_test;
 #[cfg(test)]
 mod create_branch_test;
+#[cfg(test)]
+mod push_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]

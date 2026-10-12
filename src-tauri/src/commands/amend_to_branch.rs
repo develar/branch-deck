@@ -1,4 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
+use model_tauri::blocking::run_blocking;
 use model_tauri::command_error::CommandError;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use tauri::State;
@@ -11,9 +12,5 @@ use tracing::instrument;
 #[instrument(skip(git_executor))]
 pub async fn amend_uncommitted_to_branch(git_executor: State<'_, GitCommandExecutor>, params: AmendUncommittedToBranchParams) -> Result<AmendCommandResult, CommandError> {
   let git = (*git_executor).clone();
-
-  tokio::task::spawn_blocking(move || amend_uncommitted_to_branch_core(&git, params))
-    .await
-    .map_err(|e| CommandError::new(format!("Task failed: {e}")))?
-    .map_err(CommandError::from)
+  run_blocking(move || amend_uncommitted_to_branch_core(&git, params)).await
 }

@@ -27,6 +27,26 @@ fn find_repository_by_path(state: &AppState, path: &str) -> Option<String> {
   state.path_to_id.get(path).map(|entry| entry.value().clone())
 }
 
+/// Runs blocking work off the async runtime; a failed task or closure is logged and answered with 500
+async fn run_blocking<T, E, F>(what: &'static str, f: F) -> Result<T, StatusCode>
+where
+  F: FnOnce() -> Result<T, E> + Send + 'static,
+  T: Send + 'static,
+  E: std::fmt::Display + Send + 'static,
+{
+  match tokio::task::spawn_blocking(f).await {
+    Ok(Ok(result)) => Ok(result),
+    Ok(Err(e)) => {
+      tracing::error!("{what}: {e}");
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+    Err(join_error) => {
+      tracing::error!("{what}: task failed: {join_error}");
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
 // Helper function to ensure a repository exists by path
 fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), StatusCode> {
   let repo_id = find_repository_by_path(state, path);
@@ -486,46 +506,20 @@ pub async fn amend_uncommitted_to_branch(State(state): State<Arc<AppState>>, Jso
   // Validate that the repository path belongs to a test repository
   ensure_repository_exists(&state, &params.repository_path)?;
 
-  // Use the shared git executor from state and spawn blocking task
-  match tokio::task::spawn_blocking({
-    let git_executor = state.git_executor.clone();
-    move || amend_uncommitted_to_branch_core(&git_executor, params)
-  })
-  .await
-  {
-    Ok(Ok(result)) => Ok(Json(result)),
-    Ok(Err(error_msg)) => {
-      tracing::error!("Failed to amend uncommitted changes: {}", error_msg);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-    Err(join_error) => {
-      tracing::error!("Task failed: {}", join_error);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
+  let git_executor = state.git_executor.clone();
+  run_blocking("Failed to amend uncommitted changes", move || amend_uncommitted_to_branch_core(&git_executor, params))
+    .await
+    .map(Json)
 }
 
 pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> Result<Json<UncommittedChangesResult>, StatusCode> {
   // Validate that the repository path belongs to a test repository
   ensure_repository_exists(&state, &params.repository_path)?;
 
-  // Use the shared git executor from state and spawn blocking task
-  match tokio::task::spawn_blocking({
-    let git_executor = state.git_executor.clone();
-    move || core_get_uncommitted_changes(&git_executor, params)
-  })
-  .await
-  {
-    Ok(Ok(result)) => Ok(Json(result)),
-    Ok(Err(error_msg)) => {
-      tracing::error!("Failed to get uncommitted changes: {}", error_msg);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-    Err(join_error) => {
-      tracing::error!("Task failed: {}", join_error);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
+  let git_executor = state.git_executor.clone();
+  run_blocking("Failed to get uncommitted changes", move || core_get_uncommitted_changes(&git_executor, params))
+    .await
+    .map(Json)
 }
 
 #[derive(Deserialize)]
