@@ -9,6 +9,9 @@ pnpm-debug.log*
 .idea/shelf/
 .idea/httpRequests/
 
+# Claude Code agent worktrees
+.claude/worktrees/
+
 node_modules
 *.local
 
