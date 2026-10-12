@@ -1,3 +1,5 @@
+#[cfg(feature = "auto-update")]
+use model_tauri::blocking::run_blocking;
 use model_tauri::command_error::CommandError;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -190,14 +192,14 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
       (state.pending_update.take().unwrap(), state.downloaded_bytes.take().unwrap())
     };
 
-    // Install the update
+    // Install the update: unpacking and replacing the app bundle blocks, keep it off the async runtime
     info!("Installing update");
-    update.install(&bytes).map_err(|e| {
-      error!("Failed to install update: {e}");
-      let error_msg = format!("Failed to install update: {e}");
-      update_state.lock().unwrap().info.status = UpdateStatus::Error(error_msg.clone());
-      CommandError::new(error_msg)
-    })?;
+    if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| CommandError::new(format!("Failed to install update: {e}")))).await {
+      error!("{e}");
+      let mut state = update_state.lock().map_err(|_| CommandError::new("Failed to lock state"))?;
+      state.info.status = UpdateStatus::Error(e.message.clone());
+      return Err(e);
+    }
 
     // Restart the app after installation (never returns)
     info!("Update installed, restarting app");

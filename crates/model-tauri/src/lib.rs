@@ -1,3 +1,4 @@
+pub mod blocking;
 pub mod command_error;
 pub mod commands;
 pub mod download;

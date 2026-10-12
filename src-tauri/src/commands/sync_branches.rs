@@ -1,6 +1,7 @@
 use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
+use model_tauri::blocking::run_blocking;
 use model_tauri::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
@@ -30,14 +31,20 @@ pub async fn sync_branches(
   let repository_path = &params.repository_path;
   let branch_prefix = &params.branch_prefix;
 
-  // Get or create cached repository state (includes Git version validation)
-  let issue_config = match cache.get_or_create(repository_path, &git_executor).await {
-    Ok(state) => IssueConfigSource::Cached(state.issue_config.clone()),
-    Err(e) => {
-      error!("Failed to initialize repository cache: {e:#}");
-      return Err(CommandError::from(e));
-    }
+  // Git discovery runs a process and the config lookup reads the file system: both block.
+  // The version check is free after the first call, git info is discovered once per process.
+  let issue_config = {
+    let git = (*git_executor).clone();
+    let cache = (*cache).clone();
+    let repository_path = repository_path.clone();
+    run_blocking(move || {
+      git.get_info()?.validate_minimum_version().map_err(anyhow::Error::msg)?;
+      Ok::<_, anyhow::Error>(cache.issue_config(&repository_path))
+    })
+    .await
+    .inspect_err(|e| error!("Failed to prepare sync: {e}"))?
   };
+  let issue_config = IssueConfigSource::Cached((*issue_config).clone());
 
   // Use the branch-sync implementation with TauriProgressReporter adapter
   let progress_adapter = TauriProgressReporter::new(progress);

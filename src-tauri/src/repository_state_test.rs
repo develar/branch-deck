@@ -1,72 +1,45 @@
-#[cfg(test)]
-mod tests {
-  use super::super::repository_state::RepositoryStateCache;
-  use git_executor::git_command_executor::GitCommandExecutor;
-  use std::sync::Arc;
-  use tempfile::TempDir;
+use crate::repository_state::RepositoryStateCache;
+use std::sync::Arc;
+use tempfile::TempDir;
 
-  #[tokio::test]
-  async fn test_cache_stores_and_retrieves_state() {
-    let cache = RepositoryStateCache::new();
-    let git_executor = GitCommandExecutor::new();
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path().to_str().unwrap();
+const VCS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="IssueNavigationConfiguration">
+    <option name="links">
+      <list>
+        <IssueNavigationLink>
+          <option name="issueRegexp" value="\b[A-Z]+-\d+\b" />
+          <option name="linkRegexp" value="https://jira.example.com/browse/$0" />
+        </IssueNavigationLink>
+      </list>
+    </option>
+  </component>
+</project>
+"#;
 
-    // Initialize git repository
-    git_executor.execute_command(&["init"], repo_path).expect("Failed to init git repo");
+#[test]
+fn second_lookup_returns_cached_instance() {
+  let cache = RepositoryStateCache::new();
+  let dir = TempDir::new().unwrap();
+  let path = dir.path().to_str().unwrap();
 
-    // First call should initialize and cache
-    let state1 = cache.get_or_create(repo_path, &git_executor).await.unwrap();
-    assert!(Arc::strong_count(&state1) >= 2, "State should be referenced by cache and our variable");
+  let first = cache.issue_config(path);
+  let second = cache.issue_config(path);
+  assert!(Arc::ptr_eq(&first, &second), "the second lookup must be served from the cache");
+}
 
-    // Second call should return cached state
-    let state2 = cache.get_or_create(repo_path, &git_executor).await.unwrap();
-    assert!(Arc::ptr_eq(&state1, &state2), "Should return same cached instance");
+#[test]
+fn issue_config_is_loaded_from_vcs_xml() {
+  let cache = RepositoryStateCache::new();
 
-    // Verify cache stats - Moka cache uses eventual consistency
-    // May need to wait or use run_pending_tasks
-    cache.cache.run_pending_tasks();
-    assert_eq!(cache.cache.entry_count(), 1, "Cache should have 1 entry");
-  }
+  let with_config = TempDir::new().unwrap();
+  std::fs::create_dir(with_config.path().join(".idea")).unwrap();
+  std::fs::write(with_config.path().join(".idea").join("vcs.xml"), VCS_XML).unwrap();
+  let config = cache.issue_config(with_config.path().to_str().unwrap());
+  let config = config.as_ref().as_ref().expect("config from .idea/vcs.xml");
+  assert_eq!(config.links.len(), 1);
+  assert_eq!(config.links[0].link_regexp, "https://jira.example.com/browse/$0");
 
-  #[tokio::test]
-  async fn test_cache_invalidation() {
-    let cache = RepositoryStateCache::new();
-    let git_executor = GitCommandExecutor::new();
-    let temp_dir = TempDir::new().unwrap();
-    let repo_path = temp_dir.path().to_str().unwrap();
-
-    // Initialize git repository
-    git_executor.execute_command(&["init"], repo_path).expect("Failed to init git repo");
-
-    // Cache a state
-    let state1 = cache.get_or_create(repo_path, &git_executor).await.unwrap();
-
-    // Invalidate the cache
-    cache.invalidate(repo_path);
-
-    // Next call should create a new instance
-    let state2 = cache.get_or_create(repo_path, &git_executor).await.unwrap();
-    assert!(!Arc::ptr_eq(&state1, &state2), "Should create new instance after invalidation");
-  }
-
-  #[tokio::test]
-  async fn test_cache_handles_nonexistent_path() {
-    let cache = RepositoryStateCache::new();
-    let git_executor = GitCommandExecutor::new();
-    // Use a path that doesn't exist
-    let result = cache.get_or_create("/nonexistent/path/that/should/fail", &git_executor).await;
-
-    // Should succeed but with None issue config
-    assert!(result.is_ok(), "Should succeed even for non-existent path");
-
-    let state = result.unwrap();
-    assert!(state.issue_config.is_none(), "Should have no issue config for non-existent path");
-
-    // Run pending tasks to ensure cache is updated
-    cache.cache.run_pending_tasks();
-
-    // Verify cache stores the state
-    assert_eq!(cache.cache.entry_count(), 1, "Cache should store the state");
-  }
+  let without_config = TempDir::new().unwrap();
+  assert!(cache.issue_config(without_config.path().to_str().unwrap()).is_none());
 }
