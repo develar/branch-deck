@@ -10,27 +10,29 @@ export interface LinkedTextProps {
   className?: string
   /** Render code tokens (backtick spans, identifiers, paths, flags) in the monospace font; see `splitInlineCode` */
   detectCode?: boolean
+  /** Colour of the issue links; muted by default, so prose links stay quiet */
+  linkClassName?: string
 }
 
 /** Text with issue references (per the project's issue navigation config) rendered as external links. */
-export function LinkedText({ text, className, detectCode = false }: LinkedTextProps) {
+export function LinkedText({ text, className, detectCode = false, linkClassName = "text-muted-foreground" }: LinkedTextProps) {
   const patterns = useIssuePatterns()
   const content = useMemo(() => {
     if (!detectCode) {
-      return renderLinks(text, patterns)
+      return renderLinks(text, patterns, linkClassName)
     }
     // code first: a path or identifier that contains an issue key stays one code token
     return splitInlineCode(text).map((segment, index) => (
       <Fragment key={index}>
-        {segment.type === "code" ? <InlineCode segment={segment} /> : renderLinks(segment.content, patterns)}
+        {segment.type === "code" ? <InlineCode segment={segment} /> : renderLinks(segment.content, patterns, linkClassName)}
       </Fragment>
     ))
-  }, [text, patterns, detectCode])
+  }, [text, patterns, detectCode, linkClassName])
 
   return <span className={className}>{content}</span>
 }
 
-function renderLinks(text: string, patterns: readonly CompiledIssuePattern[]) {
+function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], linkClassName: string) {
   const segments = parseTextSegments(text, patterns)
   if (segments.length === 1 && segments[0]?.type === "text") {
     return segments[0].content
@@ -44,7 +46,7 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[]) {
           href={segment.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-md text-muted-foreground transition-colors outline-primary/25 hover:text-foreground focus-visible:outline-3"
+          className={cn("rounded-md transition-colors outline-primary/25 hover:text-foreground focus-visible:outline-3", linkClassName)}
         >
           {segment.content}
         </a>
@@ -52,8 +54,9 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[]) {
     : <span key={index}>{segment.content}</span>)
 }
 
-// break opportunities in long identifiers and paths: before `/`, `_` and a single `.` (not inside Bazel's `...`)
-const CODE_BREAK = /(?=\/|_|(?<!\.)\.(?!\.))/
+// break opportunities in long paths and dotted names: before a `/` or `.` that follows a name character (not inside
+// `//`, `./` or Bazel's `...`), and not before a short final extension (`Foo` / `.kt`); CONSTANT_CASE names stay whole
+const CODE_BREAK = /(?<=[^/.])(?=\/)|(?<=[^.])(?=\.(?![./]|\w{1,4}$))/
 
 function InlineCode({ segment }: { segment: InlineSegment }) {
   const parts = segment.content.split(CODE_BREAK)
@@ -62,7 +65,7 @@ function InlineCode({ segment }: { segment: InlineSegment }) {
       data-slot="inline-code"
       data-explicit={segment.explicit ? "" : undefined}
       className={cn(
-        "font-mono text-[0.9em] leading-none text-foreground [overflow-wrap:anywhere]",
+        "font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]",
         segment.explicit && "rounded-sm bg-muted px-1",
       )}
     >

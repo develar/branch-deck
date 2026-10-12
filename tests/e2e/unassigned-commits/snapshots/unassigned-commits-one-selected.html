@@ -10,134 +10,148 @@
         </span>
       </div>
       <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2" data-testid="selection-actions">
+          <span class="text-xs text-muted-foreground">
+            1 selected
+          </span>
+          <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-background font-normal aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" data-slot="button" tabindex="0" type="button">
+            <svg aria-hidden="true" class="lucide lucide-git-branch" data-icon="inline-start" />
+            Group into Branch
+          </button>
+        </div>
         <span aria-expanded="false" aria-haspopup="dialog" class="inline-flex" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
           <svg aria-hidden="true" class="lucide lucide-info size-3 cursor-help text-muted-foreground transition-colors hover:text-foreground" data-testid="unassigned-commits-help-icon" />
         </span>
       </div>
     </div>
   </div>
-  <span aria-hidden="true" data-base-ui-focus-guard="" data-type="outside" style="clip-path: inset(50%);  overflow: hidden;  white-space: nowrap;  border: 0px;  padding: 0px;  width: 1px;  height: 1px;  margin: 0px;  position: fixed;  top: 0px;  left: 0px" tabindex="0" />
-  <span aria-owns="[ID]" style="clip-path: inset(50%);  position: fixed;  top: 0px;  left: 0px" />
-  <span aria-hidden="true" data-base-ui-focus-guard="" data-type="outside" style="clip-path: inset(50%);  overflow: hidden;  white-space: nowrap;  border: 0px;  padding: 0px;  width: 1px;  height: 1px;  margin: 0px;  position: fixed;  top: 0px;  left: 0px" tabindex="0" />
   <div>
     <table class="w-full rounded-lg focus:outline-none" tabindex="0">
       <tbody class="divide-y divide-border">
-        <tr class="relative cursor-pointer select-none hover:bg-muted select-none" data-row-id="341683b90cb088a228a0ab162e80426cdb2d7df2" data-selected="false" data-slot="context-menu-trigger">
+        <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="341683b90cb088a228a0ab162e80426cdb2d7df2" data-selected="false" data-slot="context-menu-trigger">
           <td class="bd-padding-list-item">
             <div class="flex flex-col gap-1">
-              <div class="flex items-center gap-2">
-                <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
-                  <span>
-                    Refactor: Extract configuration constants
+              <div class="flex min-w-0 flex-col gap-1">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
+                    <span>
+                      Refactor: Extract configuration constants
+                    </span>
                   </span>
-                </span>
-              </div>
-              <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                <span class="font-mono">
-                  [SHA]
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Test User
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Yesterday 6:00 PM
-                </span>
+                </div>
+                <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span class="font-mono">
+                    [SHA]
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Test User
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Yesterday 6:00 PM
+                  </span>
+                </div>
               </div>
             </div>
           </td>
         </tr>
-        <tr class="relative cursor-pointer select-none bg-primary/10 hover:bg-primary/15 select-none" data-row-id="7c8faa93e062070740b2180fb03b5e4ba3eddb8c" data-selected="true" data-slot="context-menu-trigger">
+        <tr class="cursor-pointer select-none bg-primary/10 hover:bg-primary/15 select-none" data-row-id="7c8faa93e062070740b2180fb03b5e4ba3eddb8c" data-selected="true" data-slot="context-menu-trigger">
           <td class="bd-padding-list-item">
             <div class="flex flex-col gap-1">
-              <div class="flex items-center gap-2">
-                <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
-                  <span>
-                    Implement secure password hashing
+              <div class="flex min-w-0 flex-col gap-1">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
+                    <span>
+                      Implement secure password hashing
+                    </span>
                   </span>
-                </span>
-              </div>
-              <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                <span class="font-mono">
-                  [SHA]
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Test User
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Yesterday 5:30 PM
-                </span>
+                </div>
+                <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span class="font-mono">
+                    [SHA]
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Test User
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Yesterday 5:30 PM
+                  </span>
+                </div>
               </div>
             </div>
           </td>
         </tr>
-        <tr class="relative cursor-pointer select-none hover:bg-muted select-none" data-row-id="03da2835949a129f90b861e7b6396ba765419fd7" data-selected="false" data-slot="context-menu-trigger">
+        <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="03da2835949a129f90b861e7b6396ba765419fd7" data-selected="false" data-slot="context-menu-trigger">
           <td class="bd-padding-list-item">
             <div class="flex flex-col gap-1">
-              <div class="flex items-center gap-2">
-                <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
-                  <span>
-                    Add bcrypt dependency
+              <div class="flex min-w-0 flex-col gap-1">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
+                    <span>
+                      Add bcrypt dependency
+                    </span>
                   </span>
-                </span>
-              </div>
-              <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                <span class="font-mono">
-                  [SHA]
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Test User
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Yesterday 5:00 PM
-                </span>
+                </div>
+                <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span class="font-mono">
+                    [SHA]
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Test User
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Yesterday 5:00 PM
+                  </span>
+                </div>
               </div>
             </div>
           </td>
         </tr>
-        <tr class="relative cursor-pointer select-none hover:bg-muted select-none" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false" data-slot="context-menu-trigger">
+        <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false" data-slot="context-menu-trigger">
           <td class="bd-padding-list-item">
             <div class="flex flex-col gap-1">
-              <div class="flex items-center gap-2">
-                <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
-                  <span>
-                    Add UserService
+              <div class="flex min-w-0 flex-col gap-1">
+                <div class="flex items-center gap-2">
+                  <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
+                    <span>
+                      Add UserService
+                    </span>
                   </span>
-                </span>
-              </div>
-              <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                <span class="font-mono">
-                  [SHA]
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Test User
-                </span>
-                <span>
-                  •
-                </span>
-                <span>
-                  Yesterday 3:30 PM
-                </span>
+                </div>
+                <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span class="font-mono">
+                    [SHA]
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Test User
+                  </span>
+                  <span>
+                    •
+                  </span>
+                  <span>
+                    Yesterday 3:30 PM
+                  </span>
+                </div>
               </div>
             </div>
           </td>

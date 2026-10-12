@@ -12,7 +12,7 @@
 
 /*
  * bd-padding-card: General card content padding
- * Use for: InfoCard interiors, card bodies without lists
+ * Use for: card bodies without lists
  * Responsive: 16px (mobile) → 24px (desktop)
  */
 @utility bd-padding-card {

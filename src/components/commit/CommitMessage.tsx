@@ -1,11 +1,10 @@
 import type { MouseEvent } from "react"
 import { RectangleEllipsisIcon } from "lucide-react"
-import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { getCommitMessageBody } from "@/lib/commit"
-import { fitsGutter, groupCommitBodySections, parseCommitBody } from "@/lib/commit-message"
-import type { CommitBodyBlock, CommitBodySection } from "@/lib/commit-message"
+import { groupCommitBodySections, parseCommitBody } from "@/lib/commit-message"
+import type { CommitBodyBlock } from "@/lib/commit-message"
 
 export interface CommitMessageToggleProps {
   expanded: boolean
@@ -37,46 +36,30 @@ export function CommitMessageToggle({ expanded, onToggle }: CommitMessageToggleP
  * Body of a commit message (the message without its subject line), rendered only while expanded,
  * so rows don't parse their bodies.
  *
- * Lead-in labels ("Why:", "What changed:") go into a side gutter when the panel is wide enough; a label wider than the
- * gutter takes its own line above its blocks, as a man page `.TP` tag does. Code tokens are set in the monospace font.
+ * The body sits on the row surface and shares the subject's left edge. A lead-in label ("Why:", "What changed:") is a
+ * small heading above its blocks. Code tokens are set in the monospace font.
  * The text is selectable, and a click in it does not change the row selection.
  */
 export function CommitMessageBody({ message }: { message: string }) {
   const sections = groupCommitBodySections(parseCommitBody(getCommitMessageBody(message)))
-  const hasLabels = sections.some(section => section.label != null)
   return (
     <div
       data-testid="commit-message-body"
-      className="@container cursor-text rounded-lg bg-card px-4 py-3 ring-1 ring-border select-text"
+      // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
+      className="flex max-w-[90ch] cursor-text flex-col gap-4 pb-1 text-[13px] leading-5 text-foreground/85 select-text [font-feature-settings:'ss04']"
       onClick={event => event.stopPropagation()}
     >
-      <div
-        className={cn(
-          // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-          "flex flex-col gap-4 text-[13px] leading-5 text-pretty text-foreground/85 [font-feature-settings:'ss04']",
-          hasLabels ? "@xl:grid @xl:grid-cols-[8.5rem_minmax(0,54ch)]" : "max-w-[54ch]",
-        )}
-      >
-        {/* sections of the same message never reorder, so the index is a stable key */}
-        {sections.map((section, index) => <CommitBodySectionView key={index} section={section} inGrid={hasLabels} />)}
-      </div>
-    </div>
-  )
-}
-
-/** `inGrid`: the body has labels, so on a wide panel the section spans the gutter and the text column of the body grid */
-function CommitBodySectionView({ section, inGrid }: { section: CommitBodySection, inGrid: boolean }) {
-  const { label } = section
-  return (
-    <div className={cn("flex flex-col gap-2", inGrid && "@xl:col-span-2 @xl:grid @xl:grid-cols-subgrid")}>
-      {label != null && (
-        <div data-slot="commit-section-label" className={cn("font-medium text-muted-foreground", !fitsGutter(label) && "@xl:col-span-2")}>
-          {label}
+      {/* sections of the same message never reorder, so the index is a stable key */}
+      {sections.map((section, index) => (
+        <div key={index} className="flex flex-col gap-1">
+          {section.label != null && (
+            <div data-slot="commit-section-label" className="font-medium text-foreground/70">{section.label}</div>
+          )}
+          <div className="flex min-w-0 flex-col gap-2">
+            {section.blocks.map((block, blockIndex) => <CommitBodyBlockView key={blockIndex} block={block} />)}
+          </div>
         </div>
-      )}
-      <div className={cn("flex min-w-0 flex-col gap-2", inGrid && "@xl:col-start-2")}>
-        {section.blocks.map((block, index) => <CommitBodyBlockView key={index} block={block} />)}
-      </div>
+      ))}
     </div>
   )
 }

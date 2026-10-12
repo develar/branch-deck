@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { usePushButton } from "@/hooks/usePushButton"
 import { pushBranch } from "@/lib/git/push"
-import { outlineButtonColorClass } from "@/lib/ui-types"
+import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
@@ -29,8 +29,8 @@ export function BranchActions({ branch }: { branch: Branch }) {
             render={(
               <Button
                 size="xs"
-                variant="outline"
-                className={outlineButtonColorClass(push.color)}
+                variant="ghost"
+                className={ghostButtonColorClass(push.color)}
                 disabled={push.disabled || processing}
                 aria-busy={branch.isPushing || undefined}
                 onClick={(event) => {

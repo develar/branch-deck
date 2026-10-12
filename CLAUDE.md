@@ -151,6 +151,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
+- [Specs](spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, [@test] links); start with spec/commit/commit-row.spec.md
 
 ### File Structure
 ```

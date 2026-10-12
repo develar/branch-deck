@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
+import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
 import { MissingCommitsDetails } from "@/components/conflict/MissingCommitsDetails"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
@@ -17,7 +18,7 @@ export function MissingCommitsPage() {
             <div className="flex flex-col gap-4">
               {/* Commit context */}
               <Card className="gap-0 py-0">
-                <div className="p-4 sm:px-6">
+                <div className="flex flex-col gap-4 p-4 sm:px-6">
                   <ConflictCommitContext
                     title="Cannot apply commit"
                     commitMessage={missingCommitsData.conflictCommitMessage}
@@ -26,12 +27,13 @@ export function MissingCommitsPage() {
                     commitCommitterTime={missingCommitsData.conflictCommitCommitterTime}
                     branchName={missingCommitsData.branchName}
                   />
+                  <ConflictResolutionHint />
                 </div>
 
                 {/* Divergence insight (matching the main view) */}
                 {missingCommitsData.mergeBase && (
                   <div className="border-t border-border bd-padding-card">
-                    <div className="flex flex-col gap-2 rounded-lg border border-warning bg-muted p-3">
+                    <div className="flex flex-col gap-2 rounded-lg bg-warning/5 p-3 ring-1 ring-warning/30">
                       <div className="flex items-center gap-2">
                         <FileDiffIcon className="size-4 text-warning" />
                         <span className="text-sm font-medium text-foreground">

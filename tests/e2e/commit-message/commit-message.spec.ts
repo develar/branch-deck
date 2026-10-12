@@ -1,3 +1,4 @@
+// @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow } from "../helpers/branch-helpers"
@@ -83,7 +84,7 @@ test.describe("Commit message", () => {
     // near the start: the middle of the text is the CRITICAL-112 link
     await body.locator("p").click({ position: { x: 4, y: 4 } })
     await expect(unassignedRow).toHaveAttribute("data-selected", "false")
-    await expect(page.getByTestId("floating-selection-bar")).toHaveCount(0)
+    await expect(page.getByTestId("selection-actions")).toHaveCount(0)
 
     // the rest of the row still selects it
     await unassignedRow.getByText("Emergency fix for").click()

@@ -233,7 +233,6 @@ const LEAD_IN_PARAGRAPH = /^([A-Z][^:]{0,38}):$/
 // a short run-in label at the start of a paragraph: "Why: …", "Left out: …"
 const RUN_IN_LABEL = /^([A-Z][a-z]*(?: [a-z]+){0,2}): (.+)$/
 const RUN_IN_LABEL_MAX_LENGTH = 20
-const GUTTER_LABEL_MAX_LENGTH = 18
 
 /**
  * Groups body blocks into sections that start at a lead-in label:
@@ -273,9 +272,4 @@ export function groupCommitBodySections(blocks: readonly CommitBodyBlock[]): Com
     }
   }
   return sections
-}
-
-/** Whether a section label fits the side gutter; a longer one goes on its own line above the blocks (as man's `.TP`). */
-export function fitsGutter(label: string): boolean {
-  return label.length <= GUTTER_LABEL_MAX_LENGTH
 }

@@ -1,8 +1,7 @@
-import { ExternalLinkIcon, InfoIcon } from "lucide-react"
+import { ExternalLinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
-import { InfoCard } from "@/components/shared/InfoCard"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
@@ -33,7 +32,7 @@ export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarke
   }
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <Card className="gap-0 overflow-hidden py-0 shadow-none">
       <div className="border-b border-border p-4 sm:px-6">
         <SectionCardHeader
           title="Conflicting Files"
@@ -54,12 +53,6 @@ export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarke
         <ConflictingFilesSection conflicts={conflicts} conflictInfo={conflictInfo} conflictMarkerCommits={conflictMarkerCommits} />
       </div>
 
-      <div className="border-t border-border p-4 sm:px-6">
-        <InfoCard title="Missing commits cause conflicts" icon={InfoIcon}>
-          <p>This commit cannot be copied to the virtual branch because other commits modified the same files first.</p>
-          <p>Apply the missing commits shown above to resolve conflicts automatically.</p>
-        </InfoCard>
-      </div>
     </Card>
   )
 }

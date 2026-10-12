@@ -1,90 +1,82 @@
-<div class="@container cursor-text rounded-lg bg-card px-4 py-3 ring-1 ring-border select-text" data-testid="commit-message-body">
-  <div class="flex flex-col gap-4 text-[13px] leading-5 text-pretty text-foreground/85 [font-feature-settings:'ss04'] @xl:grid @xl:grid-cols-[8.5rem_minmax(0,54ch)]">
-    <div class="flex flex-col gap-2 @xl:col-span-2 @xl:grid @xl:grid-cols-subgrid">
-      <div class="flex min-w-0 flex-col gap-2 @xl:col-start-2">
-        <p>
-          <span>
-            The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.
-          </span>
-        </p>
-      </div>
+<div class="flex max-w-[90ch] cursor-text flex-col gap-4 pb-1 text-[13px] leading-5 text-foreground/85 select-text [font-feature-settings:'ss04']" data-testid="commit-message-body">
+  <div class="flex flex-col gap-1">
+    <div class="flex min-w-0 flex-col gap-2">
+      <p>
+        <span>
+          The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.
+        </span>
+      </p>
     </div>
-    <div class="flex flex-col gap-2 @xl:col-span-2 @xl:grid @xl:grid-cols-subgrid">
-      <div class="font-medium text-muted-foreground @xl:col-span-2" data-slot="commit-section-label">
-        Retry the connection instead
-      </div>
-      <div class="flex min-w-0 flex-col gap-2 @xl:col-start-2">
-        <ul class="list-disc flex flex-col gap-1 pl-5 marker:text-muted-foreground">
-          <li>
-            <span>
-              wait with exponential backoff, starting at 100 ms and capped at 5 s, for up to 6 attempts
-            </span>
-          </li>
-          <li>
-            <span>
-              retry only transient errors (connection refused or reset)
-            </span>
-          </li>
-          <li>
-            <span>
-              log every retry at debug level
-            </span>
-          </li>
-        </ul>
-        <p>
-          <span>
-            The limits can be tuned in the pool configuration:
-          </span>
-        </p>
-        <pre class="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre">
-          <span>
-            retry: { attempts: 6, maxDelayMs: 5000 }
-          </span>
-        </pre>
-      </div>
+  </div>
+  <div class="flex flex-col gap-1">
+    <div class="font-medium text-foreground/70" data-slot="commit-section-label">
+      Retry the connection instead
     </div>
-    <div class="flex flex-col gap-2 @xl:col-span-2 @xl:grid @xl:grid-cols-subgrid">
-      <div class="font-medium text-muted-foreground" data-slot="commit-section-label">
-        Why
-      </div>
-      <div class="flex min-w-0 flex-col gap-2 @xl:col-start-2">
-        <p>
+    <div class="flex min-w-0 flex-col gap-2">
+      <ul class="list-disc flex flex-col gap-1 pl-5 marker:text-muted-foreground">
+        <li>
           <span>
-            <code class="font-mono text-[0.9em] leading-none text-foreground [overflow-wrap:anywhere]" data-slot="inline-code">
-              createPool
-            </code>
-            in
-            <code class="font-mono text-[0.9em] leading-none text-foreground [overflow-wrap:anywhere]" data-slot="inline-code">
-              db
-              <wbr />
-              /pool
-              <wbr />
-              .js
-            </code>
-            ignored
-            <code class="font-mono text-[0.9em] leading-none text-foreground [overflow-wrap:anywhere]" data-slot="inline-code">
-              POOL
-              <wbr />
-              _RETRY
-              <wbr />
-              _LIMIT
-            </code>
-            , so
-            <code class="font-mono text-[0.9em] leading-none text-foreground [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-explicit="" data-slot="inline-code">
-              retry
-            </code>
-            never ran, unlike the JavaScript client.
+            wait with exponential backoff, starting at 100 ms and capped at 5 s, for up to 6 attempts
           </span>
-        </p>
-      </div>
+        </li>
+        <li>
+          <span>
+            retry only transient errors (connection refused or reset)
+          </span>
+        </li>
+        <li>
+          <span>
+            log every retry at debug level
+          </span>
+        </li>
+      </ul>
+      <p>
+        <span>
+          The limits can be tuned in the pool configuration:
+        </span>
+      </p>
+      <pre class="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre">
+        <span>
+          retry: { attempts: 6, maxDelayMs: 5000 }
+        </span>
+      </pre>
     </div>
-    <div class="flex flex-col gap-2 @xl:col-span-2 @xl:grid @xl:grid-cols-subgrid">
-      <div class="flex min-w-0 flex-col gap-2 @xl:col-start-2">
-        <div class="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
-          <span>
-            Co-Authored-By: Jane Doe <jane@example.com>
-          </span>
-        </div>
+  </div>
+  <div class="flex flex-col gap-1">
+    <div class="font-medium text-foreground/70" data-slot="commit-section-label">
+      Why
+    </div>
+    <div class="flex min-w-0 flex-col gap-2">
+      <p>
+        <span>
+          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+            createPool
+          </code>
+          in
+          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+            db
+            <wbr />
+            /pool.js
+          </code>
+          ignored
+          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+            POOL_RETRY_LIMIT
+          </code>
+          , so
+          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-explicit="" data-slot="inline-code">
+            retry
+          </code>
+          never ran, unlike the JavaScript client.
+        </span>
+      </p>
+    </div>
+  </div>
+  <div class="flex flex-col gap-1">
+    <div class="flex min-w-0 flex-col gap-2">
+      <div class="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
+        <span>
+          Co-Authored-By: Jane Doe <jane@example.com>
+        </span>
       </div>
     </div>
   </div>

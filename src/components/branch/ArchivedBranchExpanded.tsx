@@ -13,7 +13,8 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
   }, [name])
 
   return (
-    <div className="ml-4 border-l-2 border-primary/50 pr-6 pl-2">
+    // neutral rule under the folder icon; the subjects start at the branch name x
+    <div className="ml-8 border-l border-border pr-6">
       {branch.isLoadingCommits
         ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">

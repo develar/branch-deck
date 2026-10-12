@@ -5,12 +5,11 @@ import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommitMessageBody, CommitMessageToggle } from "@/components/commit/CommitMessage"
-import { CommitMetadata } from "@/components/commit/CommitMetadata"
-import { CommitSubject } from "@/components/commit/CommitSubject"
+import { CommitHeader } from "@/components/commit/CommitHeader"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { RowSelection } from "@/hooks/useRowSelection"
-import type { BranchError, CommitSyncStatus } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -34,8 +33,6 @@ export interface CommitListProps<T extends CommitUnion> {
    * The state is owned by the caller: `useRowSelection({ items: commits, getId: getCommitHash })`.
    */
   selection?: RowSelection<T>
-  /** Shows a bar at the left edge of selected rows */
-  highlightSelection?: boolean
   /**
    * Context menu for selectable rows. Called when the menu opens, with the selected commits if the row is selected,
    * otherwise with the row's commit only. Returning no items suppresses the menu.
@@ -60,7 +57,6 @@ export function CommitList<T extends CommitUnion>({
   showAuthor = false,
   highlightTipCommit = false,
   selection,
-  highlightSelection = false,
   contextMenuItems,
   onKeyDown,
   portalTarget,
@@ -128,7 +124,6 @@ export function CommitList<T extends CommitUnion>({
                 isAmendTarget={highlightTipCommit && index === 0}
                 selectable={selectable}
                 selected={selection?.isSelected(hash) === true}
-                highlightSelection={highlightSelection}
                 onRowClick={handleRowClick}
                 getMenuGroups={contextMenuItems !== undefined && selectable ? getMenuGroups : undefined}
                 onMenuOpenChange={handleMenuOpenChange}
@@ -153,7 +148,6 @@ interface CommitRowProps {
   isAmendTarget: boolean
   selectable: boolean
   selected: boolean
-  highlightSelection: boolean
   onRowClick: ((event: MouseEvent, id: string, index: number) => void) | undefined
   /** Set if the row has a context menu */
   getMenuGroups: ((commit: CommitUnion) => MenuItemGroups) | undefined
@@ -162,14 +156,14 @@ interface CommitRowProps {
 }
 
 const CommitRow = memo(function CommitRow(props: CommitRowProps) {
-  const { commit, hash, index, selectable, selected, highlightSelection, onRowClick, getMenuGroups, onMenuOpenChange, renderAfterCommit } = props
+  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onMenuOpenChange, renderAfterCommit } = props
 
   const rowProps = {
     "data-row-id": hash,
     "data-selected": String(selectable && selected),
+    // only selectable rows react to the pointer: hover on a row that does nothing on click is a false affordance
     "className": cn(
-      !selectable && "transition-colors hover:bg-muted",
-      selectable && "relative cursor-pointer select-none hover:bg-muted",
+      selectable && "cursor-pointer select-none hover:bg-muted",
       selectable && selected && "bg-primary/10 hover:bg-primary/15",
     ),
     "onClick": selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
@@ -177,9 +171,6 @@ const CommitRow = memo(function CommitRow(props: CommitRowProps) {
 
   const cell = (
     <td className="bd-padding-list-item">
-      {selectable && selected && highlightSelection && (
-        <div className="absolute top-1 bottom-1 left-0 w-1 rounded-r-sm bg-primary" />
-      )}
       <CommitCellContent {...props} />
       {renderAfterCommit?.(commit, index)}
     </td>
@@ -235,50 +226,42 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
 function CommitCellContent({ commit, variant, branchName, showFileCount, showAuthor, isAmendTarget }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
-  const fileCount = showFileCount ? getFileCount(commit) : undefined
   const subject = getCommitSubject(commit)
   const hasBody = hasCommitMessageBody(subject, commit.message)
   const [expanded, setExpanded] = useState(false)
 
+  const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
+
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <CommitSubject subject={subject} />
-        {hasBody && <CommitMessageToggle expanded={expanded} onToggle={() => setExpanded(value => !value)} />}
-        {status === "Pending" && (
-          <Badge variant="secondary">
-            <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
-            Pending
-          </Badge>
-        )}
-        {status === "Error" && <Badge variant="destructive">Error</Badge>}
-        {status === "Blocked" && <Badge variant="warning">Blocked</Badge>}
-      </div>
-
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <CommitMetadata commit={commit} showAuthor={showAuthor} variant={variant === "status" ? "status" : "compact"} />
-
-        {!!fileCount && (
+      <CommitHeader
+        subject={subject}
+        hash={getCommitHash(commit)}
+        newHash={statusHash}
+        author={showAuthor ? commit.author : undefined}
+        authorTime={commit.authorTime}
+        committerTime={commit.committerTime}
+        fileCount={showFileCount ? getFileCount(commit) : undefined}
+        subjectAddon={(
           <>
-            <span>•</span>
-            <span>{`${fileCount} ${fileCount === 1 ? "file" : "files"}`}</span>
+            {hasBody && <CommitMessageToggle expanded={expanded} onToggle={() => setExpanded(value => !value)} />}
+            {status === "Pending" && (
+              <Badge variant="secondary">
+                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+                Pending
+              </Badge>
+            )}
+            {status === "Error" && <Badge variant="destructive">{error?.MergeConflict ? "Merge conflict" : "Error"}</Badge>}
+            {status === "Blocked" && <Badge variant="warning">Blocked</Badge>}
+            {isAmendTarget && (
+              <Tooltip>
+                <TooltipTrigger render={<Badge variant="info" />}>Amend target</TooltipTrigger>
+                <TooltipContent>Changes will be amended to this commit</TooltipContent>
+              </Tooltip>
+            )}
           </>
         )}
-
-        {status && status !== "Unchanged" && (
-          <>
-            <span>•</span>
-            <span className={statusClassName(status)}>{statusText(status, error)}</span>
-          </>
-        )}
-
-        {isAmendTarget && (
-          <>
-            <span>•</span>
-            <span className="text-info">Changes will be amended to this commit</span>
-          </>
-        )}
-      </div>
+      />
 
       {expanded && <CommitMessageBody message={commit.message} />}
 
@@ -311,23 +294,4 @@ function getFileCount(commit: CommitUnion): number | undefined {
     return commit.fileCount
   }
   return undefined
-}
-
-function statusClassName(status: CommitSyncStatus): string {
-  switch (status) {
-    case "Pending":
-      return "text-muted-foreground/70"
-    case "Error":
-      return "text-destructive"
-    case "Blocked":
-      return "text-warning"
-    case "Created":
-      return "text-success"
-    case "Unchanged":
-      return "text-muted-foreground"
-  }
-}
-
-function statusText(status: CommitSyncStatus, error: BranchError | null | undefined): string {
-  return status === "Error" && error?.MergeConflict ? "Merge Conflict" : status
 }

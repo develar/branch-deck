@@ -1,5 +1,5 @@
 import { GitMergeIcon } from "lucide-react"
-import { CommitInfo } from "@/components/commit/CommitInfo"
+import { CommitHeader } from "@/components/commit/CommitHeader"
 
 export interface ConflictCommitContextProps {
   title?: string
@@ -17,16 +17,13 @@ export function ConflictCommitContext({ title, commitMessage, commitHash, commit
       <GitMergeIcon className="mt-0.5 size-5 shrink-0 text-destructive" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="text-sm font-medium text-foreground">{title || "Cherry-pick conflict"}</p>
-        <p className="text-sm text-muted-foreground">{commitMessage}</p>
-        <div className="flex items-center gap-3">
-          <CommitInfo hash={commitHash} authorTime={commitAuthorTime} committerTime={commitCommitterTime} />
-          {branchName && (
-            <>
-              <span className="text-xs text-muted-foreground">•</span>
-              <span className="text-xs text-muted-foreground">{`Branch: ${branchName}`}</span>
-            </>
-          )}
-        </div>
+        <CommitHeader
+          subject={commitMessage.split("\n", 1)[0]!}
+          hash={commitHash}
+          authorTime={commitAuthorTime}
+          committerTime={commitCommitterTime}
+          extra={branchName ? [<span key="branch">{branchName}</span>] : undefined}
+        />
       </div>
     </div>
   )

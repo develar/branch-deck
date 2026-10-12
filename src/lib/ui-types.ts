@@ -25,21 +25,21 @@ export function subtleBadgeVariant(color: UIColor): SubtleBadgeVariant {
   }
 }
 
-/** Text and border classes for an outline button in a semantic color. */
-export function outlineButtonColorClass(color: UIColor): string {
+/** Text colour of a ghost button, for an action that repeats on every row and must stay quiet. */
+export function ghostButtonColorClass(color: UIColor): string {
   switch (color) {
     case "primary":
-      return "border-primary/50 text-primary hover:bg-primary/10 hover:text-primary"
+      return "text-primary hover:bg-primary/10 hover:text-primary"
     case "success":
-      return "border-success/50 text-success hover:bg-success/10 hover:text-success"
+      return "text-success hover:bg-success/10 hover:text-success"
     case "info":
-      return "border-info/50 text-info hover:bg-info/10 hover:text-info"
+      return "text-info hover:bg-info/10 hover:text-info"
     case "warning":
-      return "border-warning/50 text-warning hover:bg-warning/10 hover:text-warning"
+      return "text-warning hover:bg-warning/10 hover:text-warning"
     case "error":
-      return "border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+      return "text-destructive hover:bg-destructive/10 hover:text-destructive"
     case "secondary":
     case "neutral":
-      return ""
+      return "text-muted-foreground"
   }
 }

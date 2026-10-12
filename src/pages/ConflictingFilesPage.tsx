@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { getConflictMarkerCommits } from "@/components/conflict/conflict-marker-commits"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
+import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
 import { ConflictingFileListCard } from "@/components/conflict/ConflictingFileListCard"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import type { ConflictingFilesWindowData } from "@/types/sub-window"
@@ -18,7 +19,7 @@ export function ConflictingFilesPage() {
             <div className="flex flex-col gap-4">
               {/* Commit context */}
               <Card className="gap-0 py-0">
-                <div className="p-4 sm:px-6">
+                <div className="flex flex-col gap-4 p-4 sm:px-6">
                   <ConflictCommitContext
                     title="Cannot apply commit"
                     commitMessage={conflictData.conflict.commit.message}
@@ -27,6 +28,7 @@ export function ConflictingFilesPage() {
                     commitCommitterTime={conflictData.conflict.commit.committerTime}
                     branchName={conflictData.branchName}
                   />
+                  <ConflictResolutionHint />
                 </div>
               </Card>
 

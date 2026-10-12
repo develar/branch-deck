@@ -169,21 +169,6 @@ export async function waitForCollapsibleCardExpanded(card: Locator): Promise<voi
 }
 
 /**
- * Wait for floating toolbar to appear
- */
-export async function waitForFloatingToolbar(
-  page: Page,
-  timeout = 10000,
-): Promise<Locator> {
-  // The floating toolbar has a 150ms delay before showing
-  await page.waitForTimeout(300)
-
-  const toolbar = page.locator("[data-testid=\"floating-selection-bar\"]")
-  await expect(toolbar).toBeVisible({ timeout })
-  return toolbar
-}
-
-/**
  * Wait until a tab switch has settled: only the selected tab panel is rendered.
  *
  * Base UI keeps the outgoing `Tabs.Panel` mounted until its exit transition ends,

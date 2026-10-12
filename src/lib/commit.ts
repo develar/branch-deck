@@ -43,9 +43,14 @@ export function hasCommitMessageBody(subject: string, message: string): boolean 
 
 // conventional-commit prefix: "feat:", "feat(model):", "fix!:", or a type and one scope word ("docs air:")
 const SUBJECT_PREFIX = /^([a-z][a-z0-9-]*(?:\([^)]+\)| [a-z][\w./-]*)?!?:)\s+(\S.*)$/
+// Branch Deck grouping prefix of a commit that is not stripped by the backend (missing commits): "(feature-auth) …"
+const GROUPING_PREFIX = /^\(([^()\s]+)\)\s+(\S.*)$/
 
-/** Splits a conventional-commit prefix (with its colon) off the subject; `prefix` is null if there is none. */
+/**
+ * Splits a prefix off the subject: a grouping prefix (`(feature-auth) …`, returned without the parentheses) or a
+ * conventional-commit prefix (with its colon). `prefix` is null if there is none.
+ */
 export function splitSubjectPrefix(subject: string): { prefix: string | null, text: string } {
-  const match = SUBJECT_PREFIX.exec(subject)
+  const match = GROUPING_PREFIX.exec(subject) ?? SUBJECT_PREFIX.exec(subject)
   return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
 }

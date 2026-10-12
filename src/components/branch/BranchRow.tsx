@@ -53,7 +53,7 @@ export const BranchRow = memo(function BranchRow({ name, expanded, onToggleExpan
               data-testid="branch-row"
               data-branch-name={name}
               data-state={expanded ? "open" : "closed"}
-              className={cn("group cursor-pointer transition-all hover:bg-muted", expanded && "data-[state=open]:bg-muted")}
+              className={cn("group cursor-pointer transition-all hover:bg-muted", expanded && "data-[state=open]:bg-muted/50")}
               onClick={toggle}
             />
           )}

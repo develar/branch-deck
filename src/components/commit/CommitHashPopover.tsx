@@ -1,6 +1,7 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CommitInfo } from "@/components/commit/CommitInfo"
-import { getCommitMessageBody } from "@/lib/commit"
+import { CommitHeader } from "@/components/commit/CommitHeader"
+import { CommitMessageBody } from "@/components/commit/CommitMessage"
+import { hasCommitMessageBody } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 
 export interface CommitHashPopoverProps {
@@ -11,20 +12,22 @@ export interface CommitHashPopoverProps {
   authorTime?: number
 }
 
-/** Short hash; hovering shows the commit subject, body and info. */
+/** Short hash; hovering shows the commit header (subject and meta line) and its body, as in the commit lists. */
 export function CommitHashPopover({ hash, subject, message, author, authorTime }: CommitHashPopoverProps) {
-  const hasFullMessage = !!message && !!subject && message !== subject && message.includes("\n")
-  const body = hasFullMessage ? getCommitMessageBody(message) : ""
+  const title = subject || message?.split("\n", 1)[0] || "No message available"
+  const hasBody = !!message && hasCommitMessageBody(title, message)
 
   return (
     <Popover>
       <PopoverTrigger openOnHover nativeButton={false} render={<span className="font-mono" />}>
         {formatShortHash(hash)}
       </PopoverTrigger>
-      <PopoverContent className="w-auto min-w-[300px] gap-2 p-3">
-        <p className="text-sm font-medium text-foreground">{subject || message || "No message available"}</p>
-        {hasFullMessage && <div className="text-xs whitespace-pre-wrap text-muted-foreground">{body}</div>}
-        <CommitInfo hash={hash} author={author} authorTime={authorTime} />
+      <PopoverContent
+        collisionPadding={16}
+        className="max-h-[min(24rem,var(--available-height))] w-auto max-w-[min(42rem,calc(100vw-2rem))] min-w-[300px] gap-2 overflow-y-auto overscroll-contain p-3"
+      >
+        <CommitHeader subject={title} hash={hash} author={author} authorTime={authorTime} />
+        {hasBody && <CommitMessageBody message={message} />}
       </PopoverContent>
     </Popover>
   )

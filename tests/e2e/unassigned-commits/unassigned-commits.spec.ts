@@ -138,8 +138,8 @@ baseTest.describe("Unassigned Commits Feature", () => {
       const passwordHashingCommit = page.locator("[data-row-id]:has-text('Implement secure password hashing')")
       await selectCommit(page, passwordHashingCommit)
 
-      // The floating selection bar opens after a short delay; wait for it so the snapshot is deterministic
-      await expect(page.locator("[data-testid=\"floating-selection-bar\"]")).toBeVisible()
+      // the selection's actions appear in the card header
+      await expect(unassignedSection.getByTestId("selection-actions")).toHaveText(/1 selected/)
 
       // Verify selection state
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-one-selected")
@@ -151,10 +151,10 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // Both commits should be selected
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-both-selected")
 
-      // Verify floating selection bar appears
-      const floatingBar = page.locator("[data-testid=\"floating-selection-bar\"]")
-      await expect(floatingBar).toBeVisible()
-      await captureHtmlSnapshot(floatingBar, "floating-selection-bar")
+      // the header counts both commits and offers the grouping action
+      const selectionActions = unassignedSection.getByTestId("selection-actions")
+      await expect(selectionActions).toHaveText(/2 selected/)
+      await captureHtmlSnapshot(selectionActions, "selection-actions")
     })
   })
 

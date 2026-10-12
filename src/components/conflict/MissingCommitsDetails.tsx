@@ -1,11 +1,10 @@
 import { useCallback } from "react"
-import { ExternalLinkIcon, LightbulbIcon } from "lucide-react"
+import { ExternalLinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitList } from "@/components/commit/CommitList"
 import { FileDiffList } from "@/components/conflict/FileDiffList"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import { InfoCard } from "@/components/shared/InfoCard"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
@@ -70,7 +69,7 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
   }
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <Card className="gap-0 overflow-hidden py-0 shadow-none">
       <div className="border-b border-border p-4 sm:px-6">
         <SectionCardHeader
           title="Missing Commits Details"
@@ -78,9 +77,10 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
           itemSingular="commit"
           itemPlural="commits"
           badgeColor="warning"
-          actions={(hasAnyFileDiffs || !isInWindow) && (
+          actions={((hasAnyFileDiffs && isInWindow) || !isInWindow) && (
             <>
-              {hasAnyFileDiffs && <DiffViewToggle />}
+              {/* in the main window the conflicting files above carry the one diff view toggle */}
+              {hasAnyFileDiffs && isInWindow && <DiffViewToggle />}
               {!isInWindow && (
                 <Button size="xs" variant="ghost" onClick={openMissingCommitsWindow}>
                   <ExternalLinkIcon data-icon="inline-start" />
@@ -94,27 +94,6 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
 
       <CommitList commits={missingCommits} variant="detailed" showFileCount renderAfterCommit={renderAfterCommit} />
 
-      <div className="border-t border-border p-4 sm:px-6">
-        <InfoCard title="Resolution Steps" icon={LightbulbIcon} iconClassName="text-warning">
-          <div className="flex flex-col gap-2">
-            <p>To resolve this conflict, you can:</p>
-            <ul className="flex flex-col gap-2 text-foreground">
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5 text-muted-foreground">•</span>
-                <span>Include the missing commits in this branch by changing their prefix to match.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5 text-muted-foreground">•</span>
-                <span>Move the conflicting changes to a different commit or branch.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5 text-muted-foreground">•</span>
-                <span>Exclude this commit from the branch by changing its prefix.</span>
-              </li>
-            </ul>
-          </div>
-        </InfoCard>
-      </div>
     </Card>
   )
 }

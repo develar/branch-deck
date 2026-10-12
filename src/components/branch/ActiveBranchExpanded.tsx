@@ -11,7 +11,8 @@ export interface ActiveBranchExpandedProps {
 export function ActiveBranchExpanded({ branch, highlightTipCommit = false }: ActiveBranchExpandedProps) {
   const genericError = branch.errorDetails?.Generic
   return (
-    <div className="ml-4 border-l-2 border-primary/50 pr-6 pl-2">
+    // neutral rule under the folder icon; the subjects start at the branch name x
+    <div className="ml-8 border-l border-border pr-6">
       {genericError !== undefined
         ? (
             <Alert variant="destructive" className="border-transparent bg-destructive/10">

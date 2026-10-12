@@ -101,7 +101,7 @@ export function InlineInputDialog({
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           {input ?? (
-            <InputGroup className={cn(validationColor === "error" && "border-destructive has-[[data-slot=input-group-control]:focus-visible]:border-destructive has-[[data-slot=input-group-control]:focus-visible]:ring-destructive/20")}>
+            <InputGroup className={cn("bg-background", validationColor === "error" && "border-destructive has-[[data-slot=input-group-control]:focus-visible]:border-destructive has-[[data-slot=input-group-control]:focus-visible]:ring-destructive/20")}>
               {leadingIcon && <InputGroupAddon>{leadingIcon}</InputGroupAddon>}
               <InputGroupInput
                 ref={inputRef}

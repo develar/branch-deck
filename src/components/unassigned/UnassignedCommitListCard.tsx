@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { KeyboardEvent } from "react"
+import { GitBranchIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitList } from "@/components/commit/CommitList"
-import { FloatingSelectionBar } from "@/components/commit/FloatingSelectionBar"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { InlineBranchCreator } from "@/components/unassigned/InlineBranchCreator"
@@ -34,17 +35,6 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
     },
   })
   const { selectedItems, selectedCount, clearSelection } = selection
-
-  // the floating bar is anchored to the first selected row (in list order)
-  const tableRef = useRef<HTMLTableElement>(null)
-  const firstSelectedId = selectedItems.length > 0 ? getCommitHash(selectedItems[0]!) : null
-  const [firstSelectedRowElement, setFirstSelectedRowElement] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    const element = firstSelectedId === null
-      ? null
-      : tableRef.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(firstSelectedId)}"]`) ?? null
-    setFirstSelectedRowElement(element)
-  }, [firstSelectedId, commits])
 
   const activateInlineCreation = useCallback(() => {
     setIsInlineCreationActive(true)
@@ -96,28 +86,33 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
           itemSingular="commit"
           itemPlural="commits"
           badgeColor="neutral"
-          actions={commits.length > 0 && <UnassignedCommitsHelpPopover />}
+          actions={commits.length > 0 && (
+            <>
+              {/* the selection's action lives in the card header, next to what it acts on */}
+              {selectedCount > 0 && !isInlineCreationActive && (
+                <div className="flex items-center gap-2" data-testid="selection-actions">
+                  <span className="text-xs text-muted-foreground">{`${selectedCount} selected`}</span>
+                  <Button size="xs" variant="outline" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={activateInlineCreation}>
+                    <GitBranchIcon data-icon="inline-start" />
+                    Group into Branch
+                  </Button>
+                </div>
+              )}
+              <UnassignedCommitsHelpPopover />
+            </>
+          )}
         />
       </div>
 
-      <FloatingSelectionBar
-        selectedCount={selectedCount}
-        targetElement={firstSelectedRowElement}
-        isInlineCreationActive={isInlineCreationActive}
-        onCreateBranch={activateInlineCreation}
-      />
-
       <CommitList
-        tableRef={tableRef}
         commits={commits}
         variant="compact"
         showAuthor
         selection={selection}
-        highlightSelection={isInlineCreationActive}
         contextMenuItems={contextMenuItems}
         onKeyDown={handleKeyDown}
         portalTarget={isInlineCreationActive && (
-          <div id={portalId} className="relative mb-4 overflow-hidden">
+          <div id={portalId} className="relative overflow-hidden">
             {isCreating && <InlineRowProgressBar />}
             <InlineBranchCreator
               selectedCommits={selectedItems}

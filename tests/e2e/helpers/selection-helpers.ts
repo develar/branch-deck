@@ -51,25 +51,8 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
  * Wait for and click the "Group into Branch" button
  */
 export async function clickGroupIntoBranchButton(page: Page): Promise<void> {
-  // The floating toolbar has a 150ms delay before showing, plus we need time for
-  // the selection state to update and the target element to be computed
-  await page.waitForTimeout(300)
-
-  // Wait for the floating selection bar to appear
-  // It's rendered in a PopoverContent which might be in a portal
-  const createBranchButton = page.locator("button:has-text(\"Group into Branch\")")
-
-  // Debug: Check if any commits are selected (wrap in try-catch to handle navigation)
-  try {
-    const selectedCommits = await page.locator("[data-selected=\"true\"]").count()
-    if (selectedCommits === 0) {
-      console.error("No commits are selected - floating toolbar won't appear")
-    }
-  }
-  catch {
-    // Ignore errors from navigation
-  }
-
+  // the button is in the header of the unassigned commits card while commits are selected
+  const createBranchButton = page.getByTestId("selection-actions").getByRole("button", { name: "Group into Branch" })
   await expect(createBranchButton).toBeVisible()
   await createBranchButton.click()
 }
