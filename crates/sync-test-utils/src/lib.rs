@@ -1,33 +1,25 @@
 //! Test utilities for branch-sync and integration-detection testing.
 
 use anyhow::Result;
+use std::sync::{Arc, Mutex};
 use sync_types::{ProgressReporter, SyncEvent};
-use test_utils::progress_reporter::TestProgressReporter;
 
-/// Wrapper around `TestProgressReporter` that implements `ProgressReporter`.
-/// This avoids the orphan rule since `TestReporter` is local to this crate.
+/// Progress reporter that captures sync events for verification.
 #[derive(Clone)]
-pub struct TestReporter(TestProgressReporter<SyncEvent>);
+pub struct TestReporter {
+  events: Arc<Mutex<Vec<SyncEvent>>>,
+}
 
 impl TestReporter {
-  /// Create a new test reporter
   pub fn new() -> Self {
-    Self(TestProgressReporter::new())
+    Self {
+      events: Arc::new(Mutex::new(Vec::new())),
+    }
   }
 
   /// Get all events that have been sent
   pub fn get_events(&self) -> Vec<SyncEvent> {
-    self.0.get_events()
-  }
-
-  /// Get the number of events
-  pub fn event_count(&self) -> usize {
-    self.0.event_count()
-  }
-
-  /// Clear all events
-  pub fn clear_events(&self) {
-    self.0.clear_events();
+    self.events.lock().unwrap().clone()
   }
 }
 
@@ -39,7 +31,7 @@ impl Default for TestReporter {
 
 impl ProgressReporter for TestReporter {
   fn send(&self, event: SyncEvent) -> Result<()> {
-    self.0.push_event(event);
+    self.events.lock().unwrap().push(event);
     Ok(())
   }
 }

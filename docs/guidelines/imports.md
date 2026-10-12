@@ -132,11 +132,11 @@ use anyhow::Result;
 
 ```rust
 // ❌ Don't re-export test utilities
-pub use test_utils::{TestRepo, TestProgressReporter};
+pub use test_utils::{TestRepo, ConflictTestBuilder};
 
 // ✅ Import directly
 use test_utils::git_test_utils::TestRepo;
-use test_utils::progress_reporter::TestProgressReporter;
+use test_utils::git_test_utils::ConflictTestBuilder;
 ```
 
 ## Frontend Imports

@@ -26,18 +26,19 @@ impl TestRepo {
     let repo_path = dir.path();
     let git_executor = GitCommandExecutor::new();
 
-    // Initialize git repository
+    let repo_path = repo_path.to_str().unwrap();
+
+    // Pin the initial branch: tests assume `master` regardless of the user's `init.defaultBranch`
     git_executor
-      .execute_command(&["init"], repo_path.to_str().unwrap())
+      .execute_command(&["init", "--initial-branch=master"], repo_path)
       .unwrap_or_else(|e| panic!("Git init failed: {e}"));
 
     // Configure git user for the test repo
-    Self::configure_git_user(&git_executor, repo_path.to_str().unwrap()).unwrap();
+    Self::configure_git_user(&git_executor, repo_path).unwrap();
 
-    // Configure merge conflict style
-    git_executor
-      .execute_command(&["config", "merge.conflictstyle", "zdiff3"], repo_path.to_str().unwrap())
-      .unwrap();
+    git_executor.execute_command(&["config", "merge.conflictstyle", "zdiff3"], repo_path).unwrap();
+    // A global signing setup must not make test commits prompt or fail
+    git_executor.execute_command(&["config", "commit.gpgsign", "false"], repo_path).unwrap();
 
     Self { dir, git_executor }
   }
@@ -176,15 +177,17 @@ impl TestRepo {
 
   /// Creates a commit with multiple files
   pub fn create_commit_with_files(&self, message: &str, files: &[(&str, &str)]) -> String {
+    let mut add_args = Vec::with_capacity(files.len() + 2);
+    add_args.extend(["add", "--"]);
     for (filename, content) in files {
       let file_path = self.path().join(filename);
       if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent).unwrap();
       }
       fs::write(&file_path, content).unwrap();
-
-      self.git_executor.execute_command(&["add", filename], self.path_str()).unwrap();
+      add_args.push(filename);
     }
+    self.git_executor.execute_command(&add_args, self.path_str()).unwrap();
 
     self
       .git_executor
@@ -234,18 +237,6 @@ impl TestRepo {
     self
       .git_executor
       .execute_command(&["cherry-pick", commit], self.path_str())
-      .map(|_| self.head())
-      .map_err(|e| e.to_string())
-  }
-
-  /// Cherry-pick a commit with a specific timestamp
-  pub fn cherry_pick_with_timestamp(&self, commit: &str, timestamp: i64) -> Result<String, String> {
-    let date_str = format!("{timestamp} +0000");
-    let env_vars = vec![("GIT_COMMITTER_DATE", date_str.as_str())];
-
-    self
-      .git_executor
-      .execute_command_with_env(&["cherry-pick", commit], self.path_str(), &env_vars)
       .map(|_| self.head())
       .map_err(|e| e.to_string())
   }
@@ -416,15 +407,6 @@ impl TestRepo {
       .map_err(|e| e.to_string())
   }
 
-  /// Delete a branch (safe version, using -d instead of -D)
-  pub fn delete_branch_safe(&self, branch: &str) -> Result<(), String> {
-    self
-      .git_executor
-      .execute_command(&["branch", "-d", branch], self.path_str())
-      .map(|_| ())
-      .map_err(|e| e.to_string())
-  }
-
   /// Add a git note to a commit
   pub fn add_note(&self, commit_hash: &str, note_content: &str) -> Result<(), String> {
     self
@@ -442,46 +424,11 @@ impl TestRepo {
       .map_err(|e| e.to_string())
   }
 
-  /// Add a git note to a commit with a custom ref
-  pub fn add_note_with_ref(&self, notes_ref: &str, commit_hash: &str, note_content: &str) -> Result<(), String> {
-    self
-      .git_executor
-      .execute_command(&["notes", "--ref", notes_ref, "add", "-f", "-m", note_content, commit_hash], self.path_str())
-      .map(|_| ())
-      .map_err(|e| e.to_string())
-  }
-
-  /// Show the note for a commit with a custom ref
-  pub fn show_note_with_ref(&self, notes_ref: &str, commit_hash: &str) -> Result<String, String> {
-    self
-      .git_executor
-      .execute_command(&["notes", "--ref", notes_ref, "show", commit_hash], self.path_str())
-      .map_err(|e| e.to_string())
-  }
-
   /// List all notes in a ref
   pub fn list_notes_with_ref(&self, notes_ref: &str) -> Result<Vec<String>, String> {
     self
       .git_executor
       .execute_command_lines(&["notes", "--ref", notes_ref, "list"], self.path_str())
-      .map_err(|e| e.to_string())
-  }
-
-  /// Remove a note from a commit with a custom ref
-  pub fn remove_note_with_ref(&self, notes_ref: &str, commit_hash: &str) -> Result<(), String> {
-    self
-      .git_executor
-      .execute_command(&["notes", "--ref", notes_ref, "remove", commit_hash], self.path_str())
-      .map(|_| ())
-      .map_err(|e| e.to_string())
-  }
-
-  /// Copy a note from one commit to another with a custom ref
-  pub fn copy_note_with_ref(&self, notes_ref: &str, from_commit: &str, to_commit: &str) -> Result<(), String> {
-    self
-      .git_executor
-      .execute_command(&["notes", "--ref", notes_ref, "copy", "-f", from_commit, to_commit], self.path_str())
-      .map(|_| ())
       .map_err(|e| e.to_string())
   }
 
@@ -567,19 +514,21 @@ impl<'a> ConflictTestBuilder<'a> {
       // For deletion scenarios, create a commit that deletes the specific files from initial commit
       // This represents the "target branch deletes the file" scenario
 
-      // Remove each file that was in the initial state
+      // Remove each file that was in the initial state and stage all deletions at once
+      let mut rm_args = vec!["rm", "--quiet", "--ignore-unmatch", "--"];
       for (filename, _) in &self.initial_files {
         let file_path = self.repo.path().join(filename);
         if file_path.exists() {
           std::fs::remove_file(&file_path).unwrap();
         }
+        rm_args.push(filename);
       }
-
-      // Stage the deletions using GitCommandExecutor
-      for (filename, _) in &self.initial_files {
-        // Try to remove the file from git index
-        // It's OK if this fails (file might already be deleted)
-        let _ = self.repo.git_executor.execute_command(&["rm", filename], self.repo.path_str());
+      if !self.initial_files.is_empty() {
+        self
+          .repo
+          .git_executor
+          .execute_command(&rm_args, self.repo.path_str())
+          .unwrap_or_else(|e| panic!("Failed to stage deletions: {e}"));
       }
 
       // Create a commit with the deletions (may be empty, which is fine for deletion)
