@@ -1,107 +1,100 @@
 use serde::{Deserialize, Serialize};
 
-/// Supported Qwen model configurations
+/// Supported model configurations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Hash)]
 pub enum ModelConfig {
   /// Qwen3-1.7B model (1.7B params) - GGUF quantized format
   #[default]
   Qwen3_17B,
-  /// Qwen2.5-Coder 1.5B model (1.5B params) - Advanced mode, professional features
-  Qwen25Coder15B,
-  /// Qwen2.5-Coder 3B model (3B params) - Best quality but large
-  Qwen25Coder3B,
 }
 
+/// A file that has to be downloaded for a model
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelFile {
+  /// File name inside the model directory
+  pub name: &'static str,
+  pub url: &'static str,
+  /// Approximate size in bytes, shown before the download reports the real length
+  pub approx_size: Option<u32>,
+}
+
+const QWEN3_17B_WEIGHTS: ModelFile = ModelFile {
+  name: "Qwen3-1.7B-Q8_0.gguf",
+  url: "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf",
+  approx_size: Some(1_300_000_000),
+};
+
+const QWEN3_17B_TOKENIZER: ModelFile = ModelFile {
+  name: "tokenizer.json",
+  url: "https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/tokenizer.json",
+  approx_size: None,
+};
+
+const QWEN3_17B_FILES: &[ModelFile] = &[QWEN3_17B_WEIGHTS, QWEN3_17B_TOKENIZER];
+
 impl ModelConfig {
+  /// All supported models
+  pub const ALL: &[ModelConfig] = &[ModelConfig::Qwen3_17B];
+
+  /// Name of the model directory inside the `models` cache directory
   pub fn model_id(&self) -> &'static str {
     match self {
-      ModelConfig::Qwen25Coder15B => "qwen25-coder-15b",
-      ModelConfig::Qwen25Coder3B => "qwen25-coder-3b",
       ModelConfig::Qwen3_17B => "qwen3-17b",
     }
   }
 
   pub fn model_name(&self) -> &'static str {
     match self {
-      ModelConfig::Qwen25Coder15B => "Qwen2.5-Coder-1.5B",
-      ModelConfig::Qwen25Coder3B => "Qwen2.5-Coder-3B",
       ModelConfig::Qwen3_17B => "Qwen3-1.7B",
     }
   }
 
   pub fn model_size(&self) -> &'static str {
     match self {
-      ModelConfig::Qwen25Coder15B => "1.5GB",
-      ModelConfig::Qwen25Coder3B => "3GB",
       ModelConfig::Qwen3_17B => "1.83GB",
     }
   }
 
-  pub fn download_urls(&self) -> Vec<(&'static str, &'static str, Option<u32>)> {
+  /// Every file the model needs, in download order
+  pub fn files(&self) -> &'static [ModelFile] {
     match self {
-      ModelConfig::Qwen25Coder15B => vec![
-        ("config.json", "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/resolve/main/config.json", None),
-        (
-          "model.safetensors",
-          "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/resolve/main/model.safetensors",
-          Some(1_500_000_000),
-        ),
-        (
-          "tokenizer.json",
-          "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/resolve/main/tokenizer.json",
-          None,
-        ),
-        (
-          "tokenizer_config.json",
-          "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/resolve/main/tokenizer_config.json",
-          None,
-        ),
-        ("merges.txt", "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct/resolve/main/merges.txt", None),
-      ],
-      ModelConfig::Qwen25Coder3B => vec![
-        ("config.json", "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/resolve/main/config.json", None),
-        (
-          "model.safetensors",
-          "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/resolve/main/model.safetensors",
-          Some(3_000_000_000),
-        ),
-        ("tokenizer.json", "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/resolve/main/tokenizer.json", None),
-        (
-          "tokenizer_config.json",
-          "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/resolve/main/tokenizer_config.json",
-          None,
-        ),
-        ("merges.txt", "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/resolve/main/merges.txt", None),
-      ],
-
-      ModelConfig::Qwen3_17B => vec![
-        (
-          "Qwen3-1.7B-Q8_0.gguf",
-          "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf",
-          Some(1_300_000_000), // 1.3GB
-        ),
-        ("tokenizer.json", "https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/tokenizer.json", None),
-      ],
+      ModelConfig::Qwen3_17B => QWEN3_17B_FILES,
     }
   }
 
-  pub fn is_qwen3_architecture(&self) -> bool {
-    matches!(self, ModelConfig::Qwen3_17B)
+  /// The GGUF weights file
+  pub fn weights_file(&self) -> &'static ModelFile {
+    match self {
+      ModelConfig::Qwen3_17B => &QWEN3_17B_WEIGHTS,
+    }
   }
 
-  pub fn is_qwen25_architecture(&self) -> bool {
-    matches!(self, ModelConfig::Qwen25Coder15B | ModelConfig::Qwen25Coder3B)
+  pub fn tokenizer_file(&self) -> &'static ModelFile {
+    match self {
+      ModelConfig::Qwen3_17B => &QWEN3_17B_TOKENIZER,
+    }
   }
 
-  pub fn is_gguf_format(&self) -> bool {
-    matches!(self, ModelConfig::Qwen3_17B)
-  }
-
-  /// Returns the maximum context window size in tokens for each model
+  /// Returns the maximum context window size in tokens
   pub fn max_context_tokens(&self) -> usize {
     match self {
       // 32K context window
-      ModelConfig::Qwen25Coder15B | ModelConfig::Qwen25Coder3B | ModelConfig::Qwen3_17B => 32_768,
+      ModelConfig::Qwen3_17B => 32_768,
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::ModelConfig;
+
+  #[test]
+  fn weights_and_tokenizer_are_listed_in_files() {
+    for config in ModelConfig::ALL {
+      let files = config.files();
+      assert!(files.contains(config.weights_file()));
+      assert!(files.contains(config.tokenizer_file()));
+      assert_ne!(config.weights_file().name, config.tokenizer_file().name);
     }
   }
 }

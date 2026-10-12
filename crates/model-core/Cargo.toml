@@ -7,7 +7,6 @@ description = "Core ML inference package for branch name generation"
 [dependencies]
 # ML/AI inference stack (package-specific)
 candle-core = { version = "0.11.0", default-features = false }
-candle-nn = { version = "0.11.0", default-features = false }
 candle-transformers = { version = "0.11.0", default-features = false }
 # Pinned to the version required by candle-core 0.11 (it depends on tokenizers 0.22); bump together with candle.
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
@@ -15,7 +14,6 @@ tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 # Core utilities (shared via workspace)
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 tracing.workspace = true
 
 [features]
@@ -25,9 +23,9 @@ tracing.workspace = true
 default = []
 
 # Individual acceleration features
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
-accelerate = ["candle-core/accelerate", "candle-nn/accelerate", "candle-transformers/accelerate"]
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+metal = ["candle-core/metal", "candle-transformers/metal"]
+accelerate = ["candle-core/accelerate", "candle-transformers/accelerate"]
+cuda = ["candle-core/cuda", "candle-transformers/cuda"]
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

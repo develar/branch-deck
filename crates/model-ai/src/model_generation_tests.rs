@@ -4,9 +4,7 @@ use git_ops::model::CommitInfo;
 use insta::{assert_yaml_snapshot, with_settings};
 use model_core::config::ModelConfig;
 use model_core::prompt::MAX_BRANCH_NAME_LENGTH;
-use model_core::quantized_qwen3::QuantizedQwen3BranchGenerator;
-use model_core::qwen25::Qwen25BranchGenerator;
-use std::collections::HashMap;
+use model_core::quantized_qwen3::{GenerationOptions, QuantizedQwen3BranchGenerator};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -20,41 +18,13 @@ fn get_test_model_paths(model: ModelConfig) -> Result<PathBuf> {
     .or_else(|_| std::env::var("USERPROFILE")) // Windows fallback
     .map_err(|_| anyhow::anyhow!("Could not determine home directory"))?;
 
-  let model_dir = match model {
-    ModelConfig::Qwen25Coder15B => "qwen25-coder-15b",
-    ModelConfig::Qwen25Coder3B => "qwen25-coder-3b",
-    ModelConfig::Qwen3_17B => "qwen3-17b",
-  };
-
-  let model_path = PathBuf::from(home_dir).join("Library/Caches/branch-deck/models").join(model_dir);
+  let model_path = PathBuf::from(home_dir).join("Library/Caches/branch-deck/models").join(model.model_id());
 
   if !model_path.exists() {
     tracing::debug!(path = %model_path.display(), ?model, "Test model not found. Skipping generation tests");
     return Err(anyhow::anyhow!("Test model not found"));
   }
   Ok(model_path)
-}
-
-/// Enum for different generator types
-enum BranchGenerator {
-  Qwen25(Qwen25BranchGenerator),
-  QuantizedQwen3(QuantizedQwen3BranchGenerator),
-}
-
-impl BranchGenerator {
-  async fn generate_branch_name(&mut self, prompt: &str, max_tokens: usize, is_alternative: bool) -> Result<model_core::BranchNameResult> {
-    match self {
-      BranchGenerator::Qwen25(generator) => generator.generate_branch_name(prompt, max_tokens, is_alternative).await,
-      BranchGenerator::QuantizedQwen3(generator) => generator.generate_branch_name(prompt, max_tokens, is_alternative).await,
-    }
-  }
-
-  fn create_prompt(&self, git_output: &str) -> Result<String> {
-    match self {
-      BranchGenerator::Qwen25(generator) => generator.create_prompt(git_output),
-      BranchGenerator::QuantizedQwen3(generator) => generator.create_prompt(git_output),
-    }
-  }
 }
 
 /// Create realistic test data for different scenarios
@@ -450,38 +420,27 @@ fn create_casual_commits_diffs() -> Vec<CommitDiff> {
   ]
 }
 
-#[tokio::test]
-async fn test_model_generation_with_snapshots() {
+#[test]
+fn test_model_generation_with_snapshots() {
   let scenarios = create_test_scenarios();
-  let mut enabled_models = vec![ModelConfig::Qwen3_17B, ModelConfig::Qwen25Coder15B];
+  let mut enabled_models = ModelConfig::ALL.to_vec();
   enabled_models.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
   let modes = vec![(true, "files_only"), (false, "full_diff")];
 
-  // Load all models upfront
-  let mut generators: HashMap<ModelConfig, BranchGenerator> = HashMap::new();
+  // Load all models upfront, in the stable order of `enabled_models`
+  let mut generators: Vec<(ModelConfig, QuantizedQwen3BranchGenerator)> = Vec::new();
 
-  for model in &enabled_models {
-    match get_test_model_paths(*model) {
+  for model in enabled_models {
+    match get_test_model_paths(model) {
       Ok(model_path) => {
-        let generator = match model {
-          ModelConfig::Qwen25Coder15B | ModelConfig::Qwen25Coder3B => {
-            let mut qwen25_gen = Qwen25BranchGenerator::new();
-            if let Err(e) = qwen25_gen.load_model(model_path).await {
-              tracing::warn!(error = %e, "Failed to load Qwen2.5 model. Skipping");
-              continue;
-            }
-            BranchGenerator::Qwen25(qwen25_gen)
-          }
-          ModelConfig::Qwen3_17B => {
-            let mut qwen3_gen = QuantizedQwen3BranchGenerator::new();
-            if let Err(e) = qwen3_gen.load_model(model_path).await {
-              tracing::warn!(error = %e, "Failed to load Quantized Qwen3 model. Skipping");
-              continue;
-            }
-            BranchGenerator::QuantizedQwen3(qwen3_gen)
-          }
-        };
-        generators.insert(*model, generator);
+        let mut generator = QuantizedQwen3BranchGenerator::new();
+        let weights = model_path.join(model.weights_file().name);
+        let tokenizer = model_path.join(model.tokenizer_file().name);
+        if let Err(e) = generator.load_model(&weights, &tokenizer) {
+          tracing::warn!(?model, error = %e, "Failed to load model. Skipping");
+          continue;
+        }
+        generators.push((model, generator));
       }
       Err(_) => {
         tracing::debug!(?model, "Model not found, skipping");
@@ -492,9 +451,7 @@ async fn test_model_generation_with_snapshots() {
   if generators.is_empty() {
     tracing::warn!(
       "No models loaded. Skipping tests. \
-       To run these tests, ensure models are downloaded to: \
-       ~/Library/Caches/branch-deck/models/qwen25-coder-05b or \
-       ~/Library/Caches/branch-deck/models/qwen3-17b"
+       To run these tests, ensure models are downloaded to ~/Library/Caches/branch-deck/models/<model id>"
     );
     return;
   }
@@ -540,11 +497,8 @@ async fn test_model_generation_with_snapshots() {
 
       let mut model_results = Vec::new();
 
-      // Sort models by name to ensure stable iteration order
-      let mut sorted_generators: Vec<_> = generators.iter_mut().collect();
-      sorted_generators.sort_by(|a, b| format!("{:?}", a.0).cmp(&format!("{:?}", b.0)));
-
-      for (model_config, generator) in sorted_generators {
+      // `generators` is already sorted by model name, so the iteration order is stable
+      for (model_config, generator) in &mut generators {
         println!("  Testing with model: {model_config:?}");
 
         // Generate model-specific prompt using the generator
@@ -552,7 +506,13 @@ async fn test_model_generation_with_snapshots() {
 
         // Generate branch name
         let start = Instant::now();
-        match generator.generate_branch_name(&model_prompt, MAX_NEW_TOKENS, false).await {
+        let options = GenerationOptions {
+          max_tokens: MAX_NEW_TOKENS,
+          max_context_tokens: model_config.max_context_tokens(),
+          is_alternative: false,
+          should_cancel: &|| false,
+        };
+        match generator.generate_branch_name(&model_prompt, &options) {
           Ok(generation_result) => {
             let generation_time = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -622,24 +582,11 @@ fn verify_prompt_characteristics(model: ModelConfig, prompt: &str, use_files_onl
   assert!(prompt.len() > 50, "Prompt should have meaningful content");
   assert!(prompt.len() < 10000, "Prompt should be reasonably sized for model context");
 
-  // Model-specific prompt format assertions
-  if model == ModelConfig::Qwen3_17B {
-    // ChatML format assertions (specifically for quantized Qwen3)
-    assert!(prompt.contains("<|im_start|>system"), "ChatML format should have system section");
-    assert!(prompt.contains("<|im_start|>user"), "ChatML format should have user section");
-    assert!(prompt.contains("/no_think"), "ChatML format should have assistant section with think tags");
-    assert!(prompt.contains("Maximum 50 characters"), "Should specify length constraint");
-  } else {
-    // Generic format assertions (for Qwen2.5 and other models)
-    assert!(prompt.contains("Create one branch name"), "Generic prompt should ask for branch name creation");
-    assert!(prompt.contains("Your turn:"), "Generic prompt should have user prompt section");
-  }
-
-  // Model-specific validations
-  if model == ModelConfig::Qwen25Coder15B {
-    // Qwen models are optimized for code understanding
-    assert!(prompt.contains("max 50 characters"), "Should specify branch name length limit");
-  }
+  // ChatML format assertions (quantized Qwen3)
+  assert!(prompt.contains("<|im_start|>system"), "ChatML format should have system section");
+  assert!(prompt.contains("<|im_start|>user"), "ChatML format should have user section");
+  assert!(prompt.contains("/no_think"), "ChatML format should have assistant section with think tags");
+  assert!(prompt.contains("Maximum 50 characters"), "Should specify length constraint");
 
   // The current implementation doesn't include diffs in the prompt
   assert!(!prompt.contains("@@"), "Current implementation doesn't include diff markers");

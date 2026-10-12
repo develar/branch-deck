@@ -1,10 +1,8 @@
 use model_ai::path_provider::ModelPathProvider;
-use model_core::config::ModelConfig;
 use model_tauri::command_error::CommandError;
 use model_tauri::generator::ModelGeneratorState;
 use model_tauri::path_provider::TauriModelPathProvider;
 use serde::Deserialize;
-use std::path::PathBuf;
 use tauri::{AppHandle, State};
 use tracing::{info, instrument, warn};
 
@@ -26,59 +24,74 @@ pub struct CacheClearResult {
 #[instrument(skip(model_state, app))]
 pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app: AppHandle, params: ClearModelCacheParams) -> Result<CacheClearResult, CommandError> {
   let keep_current = params.keep_current;
-  let model_gen = model_state.generator.lock().await;
-  let current_config = model_gen.get_model_config();
-  drop(model_gen);
+  let current_model_id = model_state.model_config.model_id();
 
   let provider = TauriModelPathProvider::new(app);
-  let cache_dir = provider.get_cache_dir().unwrap_or_else(|_| PathBuf::from("."));
-  let models_dir = cache_dir.join("models");
+  // No fallback directory: every subdirectory of `models` gets deleted
+  let models_dir = provider.get_cache_dir()?.join("models");
 
-  let mut cleared_models = Vec::new();
-  let mut total_size_mb = 0u32;
-  let mut errors = Vec::new();
+  let mut result = CacheClearResult {
+    cleared_models: Vec::new(),
+    total_size_mb: 0,
+    errors: Vec::new(),
+  };
 
-  // List all model directories
-  let all_models = vec![ModelConfig::Qwen25Coder15B, ModelConfig::Qwen25Coder3B, ModelConfig::Qwen3_17B];
+  // Every model directory, including those of models that are no longer supported (e.g., `qwen25-*`)
+  let mut entries = match tokio::fs::read_dir(&models_dir).await {
+    Ok(entries) => entries,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(result),
+    Err(e) => return Err(CommandError::new(format!("Failed to read {}: {e}", models_dir.display()))),
+  };
 
-  for model_config in all_models {
-    // Skip current model if requested
-    if keep_current && model_config == current_config {
+  loop {
+    let entry = match entries.next_entry().await {
+      Ok(Some(entry)) => entry,
+      Ok(None) => break,
+      Err(e) => {
+        let msg = format!("Failed to read {}: {e}", models_dir.display());
+        warn!("{}", msg);
+        result.errors.push(msg);
+        break;
+      }
+    };
+
+    let is_dir = entry.file_type().await.is_ok_and(|file_type| file_type.is_dir());
+    if !is_dir {
       continue;
     }
 
-    let model_path = models_dir.join(model_config.model_id());
-    if model_path.exists() {
-      // Calculate directory size
-      match calculate_dir_size(&model_path).await {
-        Ok(size) => {
-          total_size_mb = total_size_mb.saturating_add(u32::try_from(size / 1_000_000).unwrap_or(u32::MAX));
-        }
-        Err(e) => {
-          warn!("Failed to calculate size for {}: {}", model_config.model_name(), e);
-        }
-      }
+    let model_name = entry.file_name().to_string_lossy().into_owned();
+    // Skip current model if requested
+    if keep_current && model_name == current_model_id {
+      continue;
+    }
 
-      // Remove directory
-      match tokio::fs::remove_dir_all(&model_path).await {
-        Ok(()) => {
-          info!("Cleared cache for {}", model_config.model_name());
-          cleared_models.push(model_config.model_name().to_string());
-        }
-        Err(e) => {
-          let msg = format!("Failed to clear {}: {}", model_config.model_name(), e);
-          warn!("{}", msg);
-          errors.push(msg);
-        }
+    let model_path = entry.path();
+    // Calculate directory size
+    match calculate_dir_size(&model_path).await {
+      Ok(size) => {
+        result.total_size_mb = result.total_size_mb.saturating_add(u32::try_from(size / 1_000_000).unwrap_or(u32::MAX));
+      }
+      Err(e) => {
+        warn!("Failed to calculate size for {}: {}", model_name, e);
+      }
+    }
+
+    // Remove directory
+    match tokio::fs::remove_dir_all(&model_path).await {
+      Ok(()) => {
+        info!("Cleared cache for {}", model_name);
+        result.cleared_models.push(model_name);
+      }
+      Err(e) => {
+        let msg = format!("Failed to clear {model_name}: {e}");
+        warn!("{}", msg);
+        result.errors.push(msg);
       }
     }
   }
 
-  Ok(CacheClearResult {
-    cleared_models,
-    total_size_mb,
-    errors,
-  })
+  Ok(result)
 }
 
 fn calculate_dir_size(path: &std::path::Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, std::io::Error>> + Send + '_>> {

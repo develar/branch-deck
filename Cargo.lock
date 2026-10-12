@@ -563,6 +563,7 @@ dependencies = [
  "model-ai",
  "model-core",
  "model-tauri",
+ "model-types",
  "moka",
  "serde",
  "serde_json",
@@ -3787,7 +3788,6 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "serde",
- "specta",
  "tokio",
  "tracing",
 ]
@@ -3798,11 +3798,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "candle-core",
- "candle-nn",
  "candle-transformers",
  "pretty_assertions",
  "serde",
- "serde_json",
  "test-log",
  "tokenizers",
  "tracing",
@@ -3817,6 +3815,7 @@ dependencies = [
  "git-ops",
  "model-ai",
  "model-core",
+ "model-types",
  "serde",
  "serde_json",
  "specta",
@@ -3826,6 +3825,15 @@ dependencies = [
  "test-utils",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "model-types"
+version = "0.1.0"
+dependencies = [
+ "git-ops",
+ "serde",
+ "specta",
 ]
 
 [[package]]
@@ -6854,7 +6862,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "listenfd",
- "model-ai",
+ "model-types",
  "pretty_assertions",
  "remove_dir_all",
  "reqwest",
