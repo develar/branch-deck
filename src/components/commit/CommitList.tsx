@@ -5,13 +5,14 @@ import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
-import { CommitMessageWithPopover } from "@/components/commit/CommitMessageWithPopover"
+import { CommitMessageBody, CommitMessageToggle } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
+import { CommitSubject } from "@/components/commit/CommitSubject"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { BranchError, CommitSyncStatus } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitHash, getCommitSubject } from "@/lib/commit"
+import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
 
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
@@ -235,15 +236,15 @@ function CommitCellContent({ commit, variant, branchName, showFileCount, showAut
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
   const fileCount = showFileCount ? getFileCount(commit) : undefined
+  const subject = getCommitSubject(commit)
+  const hasBody = hasCommitMessageBody(subject, commit.message)
+  const [expanded, setExpanded] = useState(false)
 
   return (
-    <div>
+    <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        <CommitMessageWithPopover
-          subject={getCommitSubject(commit)}
-          message={commit.message}
-          messageClassName="line-clamp-2 text-sm text-foreground"
-        />
+        <CommitSubject subject={subject} />
+        {hasBody && <CommitMessageToggle expanded={expanded} onToggle={() => setExpanded(value => !value)} />}
         {status === "Pending" && (
           <Badge variant="secondary">
             <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
@@ -254,7 +255,7 @@ function CommitCellContent({ commit, variant, branchName, showFileCount, showAut
         {status === "Blocked" && <Badge variant="warning">Blocked</Badge>}
       </div>
 
-      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <CommitMetadata commit={commit} showAuthor={showAuthor} variant={variant === "status" ? "status" : "compact"} />
 
         {!!fileCount && (
@@ -278,6 +279,8 @@ function CommitCellContent({ commit, variant, branchName, showFileCount, showAut
           </>
         )}
       </div>
+
+      {expanded && <CommitMessageBody message={commit.message} />}
 
       {error && (
         <div className="mt-2">

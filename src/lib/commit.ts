@@ -35,3 +35,17 @@ export function getCommitMessageBody(message: string): string {
   }
   return lines.slice(bodyStartIndex).join("\n").trim()
 }
+
+/** Whether the message has a body beyond its subject line. */
+export function hasCommitMessageBody(subject: string, message: string): boolean {
+  return !!message && message !== subject && message.includes("\n")
+}
+
+// conventional-commit prefix: "feat:", "feat(model):", "fix!:", or a type and one scope word ("docs air:")
+const SUBJECT_PREFIX = /^([a-z][a-z0-9-]*(?:\([^)]+\)| [a-z][\w./-]*)?!?:)\s+(\S.*)$/
+
+/** Splits a conventional-commit prefix (with its colon) off the subject; `prefix` is null if there is none. */
+export function splitSubjectPrefix(subject: string): { prefix: string | null, text: string } {
+  const match = SUBJECT_PREFIX.exec(subject)
+  return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
+}

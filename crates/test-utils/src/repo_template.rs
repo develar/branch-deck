@@ -902,11 +902,12 @@ data class User(
         Some(1704135600),
       )
       .commit_with_timestamp(
-        "(JIRA-456) Increase pool size to 50",
+        "(JIRA-456) perf db: increase pool size to 50",
         &[("db/pool.js", "// Database connection pool\nexport const pool = { timeout: 30000, size: 50 }")],
         Some(1704137400),
       )
-      // Multi-line body: hard-wrapped paragraph, list with a continuation line, indented code and a trailer
+      // Multi-line body: hard-wrapped paragraph, list with a continuation line, indented code, a run-in label with code
+      // tokens and a trailer
       .commit_with_timestamp(
         "(JIRA-456) Add connection retry logic
 
@@ -924,13 +925,18 @@ The limits can be tuned in the pool configuration:
 
     retry: { attempts: 6, maxDelayMs: 5000 }
 
+Why: createPool in db/pool.js ignored POOL_RETRY_LIMIT, so `retry` never
+ran, unlike the JavaScript client.
+
 Co-Authored-By: Jane Doe <jane@example.com>",
         &[("db/retry.js", "// Connection retry logic\nexport function retryConnection() {}")],
         Some(1704139200),
       )
-      // Unassigned commit with issue reference
+      // Unassigned commit with issue reference and a body (the full-message toggle in a selectable list)
       .commit_with_timestamp(
-        "Emergency fix for CRITICAL-111",
+        "Emergency fix for CRITICAL-111
+
+Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         &[("fix.js", "// Emergency fix for CRITICAL-111\nexport function emergencyFix() {}")],
         Some(1704141000),
       )

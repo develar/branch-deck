@@ -49,7 +49,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
 - **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
 - **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-rhea`).
-- **Font**: Inter (`@fontsource-variable/inter`, shipped by the Rhea preset), falling back to the system UI font.
+- **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*` features),
+  falling back to the system UI font. Commit bodies enable `ss04` (I/l/1 disambiguation).
 - **Tailwind CSS v4**: via `@tailwindcss/vite`; theme tokens in `src/index.css`.
 - **lucide-react**: icon components.
 - **TypeScript 6**: strict mode, checked with `tsc`.
