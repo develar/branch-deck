@@ -136,8 +136,8 @@ async fn partial_size(temp_path: &Path, filename: &str) -> u64 {
     }
     Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
     Err(e) => {
+      // Download from scratch; the full (200) response truncates the partial file
       warn!("Failed to check partial download metadata: {}", e);
-      let _ = tokio::fs::remove_file(temp_path).await;
       0
     }
   }
@@ -145,8 +145,9 @@ async fn partial_size(temp_path: &Path, filename: &str) -> u64 {
 
 /// Downloads a single file into `<file_path>.download` with progress tracking, then moves it to `file_path`.
 ///
-/// An existing partial download is resumed with a `Range` request. The partial file is left in place on error, so
-/// the next attempt can resume it.
+/// An existing partial download is resumed with a `Range` request. The partial file is left in place on error and on
+/// cancellation (pause), so the next attempt can resume it. It is discarded only when the server rejects the range
+/// (416) or answers a resume request with the full content (200, truncate and restart).
 #[instrument(skip(client, progress, cancelled), fields(filename = %filename, url = %url))]
 async fn download_file(client: &ClientWithMiddleware, url: &str, file_path: &Path, filename: &str, progress: &dyn ProgressReporter, cancelled: Option<&AtomicBool>) -> Result<()> {
   let temp_path = partial_path(file_path);
@@ -261,7 +262,7 @@ fn approx_ratio_u32(numerator: u64, denominator: f64) -> u32 {
 
 /// Download model files with optional cancellation support.
 ///
-/// A failed download keeps its partial file so the next call resumes it; a cancelled download deletes it.
+/// A failed or cancelled (paused) download keeps its partial file so the next call resumes it.
 #[instrument(skip(provider, progress, cancelled), fields(model = %model_config.model_name()))]
 pub async fn download_model_files(model_config: &ModelConfig, provider: &dyn ModelPathProvider, progress: &dyn ProgressReporter, cancelled: Option<Arc<AtomicBool>>) -> Result<()> {
   let model_path = model_dir(provider, *model_config)?;
@@ -298,16 +299,7 @@ pub async fn download_model_files(model_config: &ModelConfig, provider: &dyn Mod
     progress.report_file_started(filename, model_file.approx_size)?;
     info!("Downloading {}...", filename);
 
-    if let Err(e) = download_file(&client, model_file.url, &file_path, filename, progress, cancelled).await {
-      if cancelled.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
-        let temp_path = partial_path(&file_path);
-        if temp_path.exists() {
-          info!("Removing partial download of cancelled {}", filename);
-          let _ = tokio::fs::remove_file(&temp_path).await;
-        }
-      }
-      return Err(e);
-    }
+    download_file(&client, model_file.url, &file_path, filename, progress, cancelled).await?;
     info!("Successfully downloaded {}", filename);
   }
 
