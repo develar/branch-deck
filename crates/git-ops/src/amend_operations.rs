@@ -301,43 +301,10 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
 
   debug!(commit_id = %original_commit_id, "created fixup commit");
 
-  // Step 3: Find the base for rebase (parent of original commit; a root commit rebases everything with --root)
-  let rebase_base = get_commit_parent(git_executor, repo_path, &original_commit_id)?;
-
-  // Step 4: Perform rebase with autosquash to apply the fixup
-  let mut rebase_args = vec!["rebase", "--autosquash"];
-  rebase_args.push(rebase_base.as_deref().unwrap_or("--root"));
-
-  let rebase_result = git_executor.execute_command(&rebase_args, repo_path);
-
-  match rebase_result {
-    Ok(output) => {
-      debug!(output = %output, "autosquash rebase completed successfully");
-    }
-    Err(e) => {
-      // Rebase failed - check if it's due to conflicts
-      let error_msg = e.to_string();
-      if error_msg.contains("conflict") || error_msg.contains("CONFLICT") {
-        // Extract detailed conflict information before aborting rebase
-        match extract_amend_conflict_info(git_executor, repo_path, &original_commit_id) {
-          Ok(conflict_info) => {
-            // Clean up rebase state after extracting conflict data
-            let _ = git_executor.execute_command(&["rebase", "--abort"], repo_path);
-            return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
-          }
-          Err(extract_err) => {
-            // Failed to extract conflict info - fallback to abort and generic error
-            let _ = git_executor.execute_command(&["rebase", "--abort"], repo_path);
-            debug!(error = %extract_err, "failed to extract conflict details");
-            return Err(CopyCommitError::Other(anyhow!(
-              "Rebase conflicts detected when amending commit {original_commit_id}. Conflict analysis failed: {extract_err}"
-            )));
-          }
-        }
-      }
-      // Some other rebase error - propagate it
-      return Err(CopyCommitError::Other(anyhow!("Rebase failed: {error_msg}")));
-    }
+  // Steps 3-4: squash the fixup into the original commit; on any failure undo the fixup commit
+  if let Err(e) = autosquash_fixup(git_executor, repo_path, &original_commit_id) {
+    restore_after_failed_autosquash(git_executor, repo_path, &current_head);
+    return Err(e);
   }
 
   // Step 5: Get the final commit ID that HEAD points to
@@ -352,6 +319,52 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
     amended_commit_id,
     rebased_to_commit: final_commit,
   })
+}
+
+/// Rebase with `--autosquash` so the fixup commit on HEAD is squashed into `original_commit_id`.
+/// On a conflict, the conflict details are extracted while the rebase is still in progress; the caller cleans up.
+#[instrument(skip(git_executor))]
+fn autosquash_fixup(git_executor: &GitCommandExecutor, repo_path: &str, original_commit_id: &str) -> Result<(), CopyCommitError> {
+  // Rebase from the parent of the original commit; a root commit rebases everything with --root
+  let rebase_base = get_commit_parent(git_executor, repo_path, original_commit_id)?;
+  let rebase_args = ["rebase", "--autosquash", rebase_base.as_deref().unwrap_or("--root")];
+
+  let error_msg = match git_executor.execute_command(&rebase_args, repo_path) {
+    Ok(output) => {
+      debug!(output = %output, "autosquash rebase completed successfully");
+      return Ok(());
+    }
+    Err(e) => e.to_string(),
+  };
+
+  if !(error_msg.contains("conflict") || error_msg.contains("CONFLICT")) {
+    return Err(CopyCommitError::Other(anyhow!("Rebase failed: {error_msg}")));
+  }
+
+  match extract_amend_conflict_info(git_executor, repo_path, original_commit_id) {
+    Ok(conflict_info) => Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info)))),
+    Err(extract_err) => {
+      debug!(error = %extract_err, "failed to extract conflict details");
+      Err(CopyCommitError::Other(anyhow!(
+        "Rebase conflicts detected when amending commit {original_commit_id}. Conflict analysis failed: {extract_err}"
+      )))
+    }
+  }
+}
+
+/// Undo a failed fixup + autosquash: abort the rebase if one is in progress and drop the fixup commit,
+/// so the branch is back at `pre_amend_head` and the user's changes are in the working tree, unstaged
+#[instrument(skip(git_executor))]
+fn restore_after_failed_autosquash(git_executor: &GitCommandExecutor, repo_path: &str, pre_amend_head: &str) {
+  // Exits non-zero when no rebase is in progress (e.g. the rebase failed to start), which is fine here
+  if let Ok((output, exit_code)) = git_executor.execute_command_with_status(&["rebase", "--abort"], repo_path)
+    && exit_code != 0
+  {
+    debug!(exit_code, output = %output, "rebase --abort did not run");
+  }
+  if let Err(e) = git_executor.execute_command(&["reset", "--mixed", "-q", pre_amend_head], repo_path) {
+    tracing::warn!(error = %e, pre_amend_head, "failed to restore HEAD after a failed amend");
+  }
 }
 
 /// Extract detailed conflict information when amend rebase fails
