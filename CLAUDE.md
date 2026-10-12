@@ -79,6 +79,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
   `text-destructive`) plus the custom `success`, `warning`, `info` (`text-success`, `bg-warning/10`). **Never** use `dark:`
   variants; the theme is handled by the tokens.
+- **Window and cards** (Islands layering): the page canvas is `bg-muted`; top-level blocks (header, tables, collapsible
+  sections) are white `Card` islands, never `bg-muted`/`bg-background` divs on the canvas. Radii come only from `--radius`
+  in `src/index.css`, never from per-component radius overrides.
 - **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
 - **Icons**: lucide-react components (`<GitBranchIcon />`). Inside `Button`, add `data-icon="inline-start"` (or `inline-end`)
   and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).

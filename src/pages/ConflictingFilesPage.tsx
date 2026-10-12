@@ -17,7 +17,7 @@ export function ConflictingFilesPage() {
         ? (
             <div className="flex flex-col gap-4">
               {/* Commit context */}
-              <Card className="gap-0 bg-muted py-0">
+              <Card className="gap-0 py-0">
                 <div className="p-4 sm:px-6">
                   <ConflictCommitContext
                     title="Cannot apply commit"

@@ -72,7 +72,7 @@ export function BranchCreator() {
             </Alert>
           )
         : hasCompletedSync && branchCount === 0 && unassignedCommitCount === 0 && (
-          <Alert className="bg-muted/50" data-testid="empty-state-alert">
+          <Alert data-testid="empty-state-alert">
             <GitBranchIcon />
             <AlertTitle>No active branches</AlertTitle>
             <AlertDescription className="flex flex-col gap-3">

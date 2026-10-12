@@ -1,5 +1,5 @@
 <div class="flex flex-col gap-6" data-testid="branch-creator-root">
-  <div class="rounded-lg border border-border bg-muted backdrop-blur-sm" data-testid="configuration-header">
+  <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground shadow-sm ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="configuration-header">
     <div class="flex h-14 items-center justify-between gap-4 px-4">
       <div class="flex min-w-0 items-center gap-3">
         <div class="relative inline-flex items-center *:focus-visible:z-10 *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
@@ -34,7 +34,7 @@
       </div>
     </div>
   </div>
-  <div class="alert group/alert relative grid w-full gap-0.5 rounded-2xl border px-4 py-3 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 text-card-foreground bg-muted/50" data-slot="alert" data-testid="empty-state-alert" role="alert">
+  <div class="alert group/alert relative grid w-full gap-0.5 rounded-2xl border px-4 py-3 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 bg-card text-card-foreground" data-slot="alert" data-testid="empty-state-alert" role="alert">
     <svg aria-hidden="true" class="lucide lucide-git-branch" />
     <div class="font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground" data-slot="alert-title">
       No active branches
@@ -59,7 +59,7 @@
       </p>
     </div>
   </div>
-  <div class="overflow-hidden rounded-lg bg-background ring-1 ring-border" data-closed="" data-slot="collapsible" data-state="closed" data-testid="archived-branches-card">
+  <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground shadow-sm ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-closed="" data-size="default" data-slot="collapsible" data-state="closed" data-testid="archived-branches-card">
     <div class="p-4 sm:px-6">
       <button aria-expanded="false" class="group w-full cursor-pointer text-left" data-slot="collapsible-trigger" data-state="closed" tabindex="0" type="button">
         <div class="flex items-center justify-between">
