@@ -22,7 +22,7 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
           <Button
             variant="ghost"
             size="icon-xs"
-            className="shrink-0"
+            className="shrink-0 text-primary hover:text-primary aria-expanded:text-primary"
             aria-label={expanded ? "Collapse" : "Expand"}
             aria-expanded={expanded}
             onClick={(event) => {

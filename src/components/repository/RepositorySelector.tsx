@@ -67,7 +67,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
     <Tooltip>
       <TooltipTrigger render={<FieldGroup />}>
         <Select items={items} value={value} onValueChange={onValueChange} disabled={disabled}>
-          <SelectTrigger size="sm" className="w-3xs" aria-invalid={hasError || undefined}>
+          <SelectTrigger size="sm" className="w-3xs border-border bg-background" aria-invalid={hasError || undefined}>
             <SelectValue placeholder="Select repository..." />
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">

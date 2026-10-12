@@ -48,7 +48,8 @@ Using `cargo test` may lead to incorrect results or miss failures.
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
 - **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
-- **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-nova`).
+- **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-rhea`).
+- **Font**: Inter (`@fontsource-variable/inter`, shipped by the Rhea preset), falling back to the system UI font.
 - **Tailwind CSS v4**: via `@tailwindcss/vite`; theme tokens in `src/index.css`.
 - **lucide-react**: icon components.
 - **TypeScript 6**: strict mode, checked with `tsc`.
@@ -85,8 +86,12 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `toast.add({ type, title, description })` from `@/components/ui/toast` for notifications.
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
-- **shadcn workflow**: add components with `pnpm dlx shadcn@latest add <component>`, then adapt them. The `docs`
-  subcommand currently crashes in this environment.
+- **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt
+  the files. `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3
+  API and pnpm dlx resolves zod 4.
+- **Locally customised ui files**: `alert`, `badge`, `button`, `popover`, `tooltip`, `toast` in `src/components/ui/` carry
+  a `// local customisation: …` header naming the edits. After `add --overwrite` (e.g. a style switch), re-apply them;
+  `git diff HEAD -- src/components/ui` shows what was lost.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
 - **Rust**: Use `snake_case` for all variables and functions.
 - **Imports**: Always use explicit, full module paths. Never use `pub use` re-exports. Examples:
