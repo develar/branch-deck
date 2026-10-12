@@ -79,9 +79,14 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
   `text-destructive`) plus the custom `success`, `warning`, `info` (`text-success`, `bg-warning/10`). **Never** use `dark:`
   variants; the theme is handled by the tokens.
-- **Window and cards** (Islands layering): the page canvas is `bg-muted`; top-level blocks (header, tables, collapsible
-  sections) are white `Card` islands, never `bg-muted`/`bg-background` divs on the canvas. Radii come only from `--radius`
-  in `src/index.css`, never from per-component radius overrides.
+- **Window and cards** (Islands layering, see [UI Theme](docs/design/ui-theme.md)):
+  - the page canvas is `bg-muted`;
+  - top-level blocks (header, tables, collapsible sections, alerts) are stock `Card` islands, or `CollapsibleCard`;
+  - never put `bg-muted`/`bg-background` divs on the canvas, and never recolour a top-level `Card` with `bg-muted`;
+  - nested panels inside a card use `rounded-lg` (`rounded-xl` at most).
+- **Radii** come only from `--radius` (`0.25rem`) in `src/index.css`. Never add radius classes to `src/components/ui/*`
+  or hardcode `rounded-[…]`. To change the feel, change the token. Prefer a coherent token-driven scale over copying
+  IntelliJ pixel values.
 - **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
 - **Icons**: lucide-react components (`<GitBranchIcon />`). Inside `Button`, add `data-icon="inline-start"` (or `inline-end`)
   and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).
@@ -141,6 +146,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
 - [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
+- [UI Theme](docs/design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
