@@ -15,6 +15,7 @@ pnpm dev                  # Run only the Vite frontend (port 1420)
 # Testing
 pnpm test                 # Run all tests (Rust and E2E)
 pnpm test:backend         # Run backend tests with nextest (fast)
+pnpm test:unit            # Run frontend unit tests (vitest, src/**/*.test.ts)
 pnpm test-model-ai        # Run AI model tests (requires --release)
 
 # E2E Testing (Playwright)

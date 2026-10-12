@@ -1,6 +1,6 @@
 import { Fragment, useMemo } from "react"
 import { cn } from "cn"
-import { splitInlineCode } from "@/lib/inline-code"
+import { splitCodeAtBreaks, splitInlineCode } from "@/lib/inline-code"
 import type { InlineSegment } from "@/lib/inline-code"
 import { parseTextSegments, useIssuePatterns } from "@/lib/issue-links"
 import type { CompiledIssuePattern } from "@/lib/issue-links"
@@ -54,12 +54,8 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
     : <span key={index}>{segment.content}</span>)
 }
 
-// break opportunities in long paths and dotted names: before a `/` or `.` that follows a name character (not inside
-// `//`, `./` or Bazel's `...`), and not before a short final extension (`Foo` / `.kt`); CONSTANT_CASE names stay whole
-const CODE_BREAK = /(?<=[^/.])(?=\/)|(?<=[^.])(?=\.(?![./]|\w{1,4}$))/
-
 function InlineCode({ segment }: { segment: InlineSegment }) {
-  const parts = segment.content.split(CODE_BREAK)
+  const parts = splitCodeAtBreaks(segment.content)
   return (
     <code
       data-slot="inline-code"

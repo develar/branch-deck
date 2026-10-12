@@ -81,6 +81,10 @@ function detectCode(text: string, segments: InlineSegment[]) {
     if (core.endsWith("/") && token.startsWith("...", leading + core.length)) {
       core += "..."
     }
+    // the closing parenthesis of a call is part of it: run(), Foo.bar()
+    else if (core.endsWith("(") && token[leading + core.length] === ")") {
+      core += ")"
+    }
     const quoted = token.startsWith("\"")
     const start = match.index + leading
     const adjacent = codeStart !== -1 && start === codeEnd + 1 && leading === 0
@@ -119,4 +123,13 @@ function pushText(content: string, segments: InlineSegment[]) {
   else {
     segments.push({ type: "text", content, explicit: false })
   }
+}
+
+// break opportunities in long paths and dotted names: before a `/` or `.` that follows a name character (not inside
+// `//`, `./` or Bazel's `...`), and not before a short final extension (`Foo` / `.kt`); CONSTANT_CASE names stay whole
+const CODE_BREAK = /(?<=[^/.])(?=\/)|(?<=[^.])(?=\.(?![./]|\w{1,4}$))/
+
+/** Splits a code token at its line-break opportunities: `src/lib/commit.ts` → `src/`, `lib/`, `commit.ts`. */
+export function splitCodeAtBreaks(content: string): string[] {
+  return content.split(CODE_BREAK)
 }

@@ -1,7 +1,9 @@
+// @spec spec/commit/commit-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
-import { findBranchRow, isBranchProcessing } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, isBranchProcessing } from "../helpers/branch-helpers"
+import { waitForTooltip } from "../helpers/wait-helpers"
 import { captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 
 test.describe("Amend Changes Feature", () => {
@@ -158,5 +160,30 @@ test.describe("Amend Changes Feature", () => {
     // Verify the Amend Changes button is enabled when changes are present
     const amendButton = page.getByRole("dialog").locator("button:has-text(\"Amend Changes\")")
     await expect(amendButton).toBeEnabled() // Should be enabled with changes
+  })
+
+  test("should mark the first commit as the amend target while the form is open", async ({ page }) => {
+    const branchRow = findBranchRow(page, "feature-auth")
+    await waitForBranchSyncComplete(page, "feature-auth")
+    await expandBranch(page, branchRow)
+
+    // the commit list follows the branch row; while the form is open, the form row sits between them
+    const commitRow = page.locator("tr[data-row-id]").filter({ hasText: "Add authentication service" })
+    const badge = commitRow.getByText("Amend target", { exact: true })
+    await expect(commitRow).toBeVisible()
+    await expect(badge).toHaveCount(0)
+
+    await openContextMenu(page, branchRow)
+    await clickContextMenuItem(page, "Amend Changes")
+    await page.waitForSelector("[data-testid=\"uncommitted-changes-card\"]")
+    await expect(badge).toBeVisible()
+
+    await badge.hover()
+    await waitForTooltip(page, "Changes will be amended to this commit")
+
+    await page.mouse.move(0, 0)
+    await page.locator("button:has-text(\"Cancel\")").click()
+    await page.waitForSelector("[data-testid=\"uncommitted-changes-card\"]", { state: "detached", timeout: 5000 })
+    await expect(badge).toHaveCount(0)
   })
 })

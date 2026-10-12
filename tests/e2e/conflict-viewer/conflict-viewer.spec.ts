@@ -1,3 +1,4 @@
+// @spec spec/commit/commit-row.spec.md
 import { testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { syncBranches } from "../helpers/sync-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
@@ -84,6 +85,30 @@ test.describe("Conflict Viewer Feature", () => {
 
       // Capture final collapsed state
       await captureHtmlSnapshot(bugFixDetails, "missing-commits-accordion-collapsed-final")
+    })
+  })
+
+  test.describe("Commit Hash Popover", () => {
+    test.beforeEach(async ({ setupConflictRepo }) => {
+      await setupConflictRepo("conflict_branches")
+    })
+
+    test("should show the commit header on hover over the common ancestor hash", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      const hash = bugFixDetails.locator("p", { hasText: "Common ancestor" }).locator("[data-slot=popover-trigger]")
+      await expect(hash).toHaveText(/^[0-9a-f]{7,}$/)
+      const shortHash = (await hash.textContent())!
+
+      await hash.hover()
+      const popover = page.locator("[data-slot=popover-content]")
+      await expect(popover).toBeVisible()
+      // the popover repeats the commit header: the subject above the meta line that starts with the short hash
+      await expect(popover).toContainText("Initial project setup")
+      await expect(popover.locator(".font-mono").first()).toHaveText(shortHash)
     })
   })
 

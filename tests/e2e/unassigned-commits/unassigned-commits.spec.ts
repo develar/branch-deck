@@ -1,6 +1,8 @@
+// @spec spec/commit/commit-row.spec.md
+import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, test as baseTest, expect } from "../fixtures/test-fixtures"
 import { waitForSyncComplete } from "../helpers/sync-helpers"
-import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit } from "../helpers/selection-helpers"
+import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit, shiftSelectCommit, selectAllCommits, openContextMenu, getSelectedCommits } from "../helpers/selection-helpers"
 import { inlineBranchCreator, submitInlineForm, testInputAutoFocus } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot, captureFloatingElementSnapshot } from "../helpers/aria-snapshot-helpers"
 import { waitForPopover } from "../helpers/wait-helpers"
@@ -155,6 +157,73 @@ baseTest.describe("Unassigned Commits Feature", () => {
       const selectionActions = unassignedSection.getByTestId("selection-actions")
       await expect(selectionActions).toHaveText(/2 selected/)
       await captureHtmlSnapshot(selectionActions, "selection-actions")
+    })
+  })
+
+  testWithConflicts.describe("Selection Gestures", () => {
+    // newest first, as the card lists them
+    const SUBJECTS = ["Refactor: Extract configuration constants", "Implement secure password hashing", "Add bcrypt dependency", "Add UserService"]
+
+    testWithConflicts.beforeEach(async ({ page, setupConflictRepo }) => {
+      await setupConflictRepo("conflict_unassigned")
+      await expect(page.getByTestId("unassigned-commits-section").locator("tr[data-row-id]")).toHaveCount(SUBJECTS.length)
+    })
+
+    function commitRow(page: Page, subject: string): Locator {
+      return page.getByTestId("unassigned-commits-section").locator("tr[data-row-id]").filter({ hasText: subject })
+    }
+
+    testWithConflicts("should select a range of rows with Shift+click", async ({ page }) => {
+      await selectCommit(page, commitRow(page, SUBJECTS[0]!))
+      await shiftSelectCommit(commitRow(page, SUBJECTS[2]!))
+
+      await expect(page.getByTestId("selection-actions")).toHaveText(/3 selected/)
+      await expect(getSelectedCommits(page)).toHaveCount(3)
+      await expect(commitRow(page, SUBJECTS[1]!)).toHaveAttribute("data-selected", "true")
+      await expect(commitRow(page, SUBJECTS[3]!)).toHaveAttribute("data-selected", "false")
+    })
+
+    testWithConflicts("should select all rows with Cmd/Ctrl+A and clear the selection with Escape", async ({ page }) => {
+      const table = page.getByTestId("unassigned-commits-section").locator("table")
+      await selectAllCommits(page, table)
+      await expect(page.getByTestId("selection-actions")).toHaveText(/4 selected/)
+      await expect(getSelectedCommits(page)).toHaveCount(SUBJECTS.length)
+
+      await page.keyboard.press("Escape")
+      await expect(page.getByTestId("selection-actions")).toHaveCount(0)
+      await expect(getSelectedCommits(page)).toHaveCount(0)
+    })
+
+    testWithConflicts("should act on all selected commits from the context menu of a selected row", async ({ page }) => {
+      await selectCommit(page, commitRow(page, SUBJECTS[1]!))
+      await multiSelectCommit(page, commitRow(page, SUBJECTS[2]!))
+
+      await openContextMenu(page, commitRow(page, SUBJECTS[1]!))
+      await expect(page.getByRole("menuitem", { name: "Group 2 Commits into Branch" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Copy 2 Commit Hashes" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Copy 2 Commit Messages" })).toBeVisible()
+
+      // Escape closes the menu and keeps the selection
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expect(page.getByTestId("selection-actions")).toHaveText(/2 selected/)
+    })
+
+    testWithConflicts("should act on that commit only from the context menu of a row that is not selected", async ({ page }) => {
+      await selectCommit(page, commitRow(page, SUBJECTS[1]!))
+      await multiSelectCommit(page, commitRow(page, SUBJECTS[2]!))
+
+      const unselectedRow = commitRow(page, SUBJECTS[3]!)
+      await openContextMenu(page, unselectedRow)
+      await expect(page.getByRole("menuitem", { name: "Group into Branch" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Copy Commit Hash" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Copy 2 Commit Hashes" })).toHaveCount(0)
+
+      // opening the menu does not change the selection
+      await expect(unselectedRow).toHaveAttribute("data-selected", "false")
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expect(page.getByTestId("selection-actions")).toHaveText(/2 selected/)
     })
   })
 

@@ -79,6 +79,8 @@ test.describe("Commit message", () => {
     await unassignedRow.getByTestId("commit-message-toggle").click()
     await expect(body).toHaveText("Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.")
     await expect(unassignedRow).toHaveAttribute("data-selected", "false")
+    // issue keys in the body are links, as in the subject
+    await expect(body.getByRole("link", { name: "CRITICAL-112" })).toHaveAttribute("href", "https://jira.example.com/browse/CRITICAL-112")
 
     // reading or selecting the body text does not select the row either
     // near the start: the middle of the text is the CRITICAL-112 link
@@ -89,5 +91,15 @@ test.describe("Commit message", () => {
     // the rest of the row still selects it
     await unassignedRow.getByText("Emergency fix for").click()
     await expect(unassignedRow).toHaveAttribute("data-selected", "true")
+  })
+
+  test("should not select commit rows of a branch", async ({ page }) => {
+    const { commitRow } = await findCommitRow(page)
+    await expect(commitRow.locator("xpath=ancestor::table[1]")).toHaveAttribute("tabindex", "-1")
+    await expect(commitRow).not.toHaveClass(/cursor-pointer/)
+
+    await commitRow.getByText(SUBJECT).click()
+    await expect(commitRow).toHaveAttribute("data-selected", "false")
+    await expect(page.getByTestId("selection-actions")).toHaveCount(0)
   })
 })

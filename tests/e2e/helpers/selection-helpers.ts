@@ -32,6 +32,24 @@ export async function multiSelectCommit(page: Page, commitLocator: Locator): Pro
 }
 
 /**
+ * Shift-click a commit to select the range from the last clicked row to it
+ */
+export async function shiftSelectCommit(commitLocator: Locator): Promise<void> {
+  await commitLocator.scrollIntoViewIfNeeded()
+  await commitLocator.click({ modifiers: ["Shift"] })
+  await expect(commitLocator).toHaveAttribute("data-selected", "true")
+}
+
+/**
+ * Select all rows of a selectable commit table with Cmd/Ctrl+A
+ */
+export async function selectAllCommits(page: Page, table: Locator): Promise<void> {
+  await expect(table).toHaveAttribute("tabindex", "0")
+  await table.focus()
+  await page.keyboard.press("ControlOrMeta+a")
+}
+
+/**
  * Open context menu on an element
  */
 export async function openContextMenu(page: Page, element: Locator): Promise<void> {
