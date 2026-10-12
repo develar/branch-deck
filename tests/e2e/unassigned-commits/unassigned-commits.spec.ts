@@ -138,6 +138,9 @@ baseTest.describe("Unassigned Commits Feature", () => {
       const passwordHashingCommit = page.locator("[data-row-id]:has-text('Implement secure password hashing')")
       await selectCommit(page, passwordHashingCommit)
 
+      // The floating selection bar opens after a short delay; wait for it so the snapshot is deterministic
+      await expect(page.locator("[data-testid=\"floating-selection-bar\"]")).toBeVisible()
+
       // Verify selection state
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-one-selected")
 

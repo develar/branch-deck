@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { syncBranches, waitForSyncComplete } from "../helpers/sync-helpers"
+import { syncBranches } from "../helpers/sync-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
 import { waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
@@ -83,13 +83,12 @@ test.describe("Archived Branches Table", () => {
     // Wait for form to disappear after deletion
     await inlineDeleteConfirmation.waitForHidden(page)
 
-    // Wait for the automatic sync to complete
-    await waitForSyncComplete(page)
+    // The row disappears when the automatic sync reports the remaining archived branches;
+    // waiting for the row (not for the sync button to flip to disabled) is robust when the sync is fast
+    await expect(page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")).not.toBeVisible()
+    await expect(page.locator("[data-testid=\"sync-button\"]")).toBeEnabled()
 
     // Capture HTML snapshot of the archived branches card after deletion
     await captureHtmlSnapshot(card, "archived-branches-after-deletion")
-
-    // Verify the deleted branch is no longer in the list
-    await expect(page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")).not.toBeVisible()
   })
 })
