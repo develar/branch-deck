@@ -36,7 +36,7 @@ git-executor = { path = "../git-executor" }
 test-utils = { path = "../test-utils" }
 sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }
-model-ai = { path = "../model-ai" }
+model-types = { path = "../model-types" }
 tempfile.workspace = true
 fs_extra = "1.3.0"
 remove_dir_all = { version = "1.0", features = ["parallel"] }

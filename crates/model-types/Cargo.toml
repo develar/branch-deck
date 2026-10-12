@@ -1,0 +1,19 @@
+[package]
+name = "model-types"
+version.workspace = true
+edition.workspace = true
+description = "Serializable types shared by the AI commands, the Tauri app and the e2e test server"
+
+[dependencies]
+serde.workspace = true
+specta = { workspace = true, optional = true }
+
+# CommitInfo for SuggestBranchNameParams
+git-ops = { path = "../git-ops" }
+
+[features]
+default = []
+specta = ["dep:specta", "git-ops/specta"]
+
+[lints]
+workspace = true

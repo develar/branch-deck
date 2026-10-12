@@ -18,7 +18,7 @@
     "e2e:regenerate": "cargo run --bin regenerate-templates -p test-server",
     "test": "pnpm run \"/^test:.*/\"",
     "tauri": "tauri",
-    "test-server:dev": "watchexec -w Cargo.toml -w Cargo.lock -w crates/branch-integration -w crates/git-executor -w crates/git-ops -w crates/model-ai -w crates/model-core -w crates/sync-core -w crates/sync-test-utils -w crates/sync-types -w crates/test-server -w crates/test-utils -r -- cargo run -p test-server",
+    "test-server:dev": "watchexec -w Cargo.toml -w Cargo.lock -w crates/branch-integration -w crates/git-executor -w crates/git-ops -w crates/model-types -w crates/sync-core -w crates/sync-test-utils -w crates/sync-types -w crates/test-server -w crates/test-utils -r -- cargo run -p test-server",
     "lint:backend": "cargo fmt --all && cargo clippy --all --allow-dirty --fix",
     "lint:js": "eslint . --fix",
     "lint:typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use model_ai::download::ProgressReporter;
-use model_ai::types::DownloadProgress;
+use model_types::DownloadProgress;
 use tauri::ipc::Channel;
 
 macro_rules! send_progress {

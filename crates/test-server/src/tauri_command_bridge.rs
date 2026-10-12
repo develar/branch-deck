@@ -8,7 +8,7 @@ use axum::{
 };
 use futures::stream::{Stream, StreamExt};
 use git_ops::model::{BranchError, BranchSyncStatus};
-use model_ai::types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
+use model_types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -256,7 +256,7 @@ pub async fn browse_repository(
 // AI Command Handlers
 
 // check_model_status removed - frontend doesn't call it directly
-// Types are now imported from model_ai::types
+// Types are imported from model_types
 
 pub async fn suggest_branch_name_stream(
   State(state): State<Arc<AppState>>,

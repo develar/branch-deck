@@ -172,6 +172,7 @@ crates/
 ├── model-ai/        # AI model inference & domain logic
 ├── model-core/      # Core AI types (e.g. candle, tokenizers)
 ├── model-tauri/     # Tauri integration for AI models
+├── model-types/     # Serializable AI command types (no ML deps; used by test-server)
 ├── test-server/     # E2E mock server
 └── ...
 ```

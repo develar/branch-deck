@@ -57,7 +57,8 @@ moka.workspace = true
 git-ops = { path = "../crates/git-ops", features = ["specta"] }
 git-executor = { path = "../crates/git-executor" }
 model-core = { path = "../crates/model-core" }
-model-ai = { path = "../crates/model-ai", features = ["specta"] }
+model-ai = { path = "../crates/model-ai" }
+model-types = { path = "../crates/model-types", features = ["specta"] }
 tokio.workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

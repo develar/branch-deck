@@ -7,14 +7,11 @@ description = "AI application layer for branch name generation and repository an
 [dependencies]
 # Core utilities (shared via workspace)
 anyhow.workspace = true
-serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-specta = { workspace = true, optional = true }
 
 # Our crates
 model-core = { path = "../model-core" }
-git-ops = { path = "../git-ops" }
 
 # HTTP client and download functionality
 reqwest.workspace = true
@@ -23,13 +20,14 @@ reqwest-retry = "0.9"
 futures-util = "0.3"
 
 [dev-dependencies]
+git-ops = { path = "../git-ops" }
 insta = { version = "1.49", features = ["yaml", "redactions"] }
+serde.workspace = true
 
 [features]
 default = []
 metal = ["model-core/metal"]
 accelerate = ["model-core/accelerate"]
-specta = ["dep:specta", "git-ops/specta"]
 
 [lints]
 workspace = true

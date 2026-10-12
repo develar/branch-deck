@@ -303,7 +303,6 @@ export type MissingCommit = {
 };
 
 export type ModelFilesStatus = {
-	config: boolean,
 	model: boolean,
 	tokenizer: boolean,
 };
