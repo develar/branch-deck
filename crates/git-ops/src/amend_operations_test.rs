@@ -487,10 +487,14 @@ fn test_amend_conflict_in_non_linear_history_returns_merge_conflict_info() -> Re
     "untrimmed target content: {detail:?}"
   );
 
-  // The rebase was aborted. Note: the fixup commit created before the rebase stays on top of the original history.
-  assert_eq!(repo.git.execute_command(&["rev-parse", "HEAD^"], &repo.path)?, head_before);
+  // The rebase was aborted and the fixup commit dropped: the branch is back at the pre-amend HEAD
+  assert_eq!(repo.git.execute_command(&["rev-parse", "HEAD"], &repo.path)?, head_before);
   let (_, rebase_head_exit_code) = repo.git.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "REBASE_HEAD"], &repo.path)?;
   assert_ne!(rebase_head_exit_code, 0, "rebase should be aborted");
+
+  // The uncommitted change is back in the working tree, unstaged
+  assert_eq!(repo.git.execute_command(&["status", "--porcelain", "--", "file1.txt"], &repo.path)?, "M file1.txt");
+  assert_eq!(repo.get_file_content("file1.txt")?, "line 1\nmodified by uncommitted\nline 3\n");
 
   Ok(())
 }
