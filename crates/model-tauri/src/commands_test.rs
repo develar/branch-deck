@@ -10,7 +10,7 @@ fn test_model_status_detection_for_gguf_model() {
   let temp_dir = TempDir::new().unwrap();
   let model_path = temp_dir.path();
 
-  let model_config = ModelConfig::Qwen3_17B;
+  let model_config = ModelConfig::default();
 
   // Initially, no files exist
   let (available, status) = check_model_files_exist(model_config, model_path);
@@ -31,17 +31,17 @@ fn test_model_status_detection_for_gguf_model() {
 }
 
 #[test]
-fn test_model_status_qwen3_17b_specific_filename() {
-  // This test ensures we correctly detect the Qwen3-1.7B-Q8_0.gguf file
+fn test_model_status_requires_model_specific_weights_filename() {
+  // This test ensures we detect the model-specific GGUF weights file (e.g., Qwen3-4B-Instruct-2507-Q4_K_M.gguf)
   // instead of looking for a generic "model.gguf"
   let temp_dir = TempDir::new().unwrap();
   let model_path = temp_dir.path();
 
-  let model_config = ModelConfig::Qwen3_17B;
+  let model_config = ModelConfig::default();
 
   // Create a generic model.gguf file (wrong file)
   fs::write(model_path.join("model.gguf"), "wrong file").unwrap();
-  fs::write(model_path.join("tokenizer.json"), "{}").unwrap();
+  fs::write(model_path.join(model_config.tokenizer_file().name), "{}").unwrap();
 
   // Should NOT detect as available because it's looking for the wrong filename
   let (available, status) = check_model_files_exist(model_config, model_path);
@@ -50,11 +50,11 @@ fn test_model_status_qwen3_17b_specific_filename() {
   assert!(status.tokenizer);
 
   // Now create the correct file
-  fs::write(model_path.join("Qwen3-1.7B-Q8_0.gguf"), "correct model").unwrap();
+  fs::write(model_path.join(model_config.weights_file().name), "correct model").unwrap();
 
   // Should now detect as available
   let (available, status) = check_model_files_exist(model_config, model_path);
   assert!(available);
-  assert!(status.model, "Should detect Qwen3-1.7B-Q8_0.gguf as the model file");
+  assert!(status.model, "Should detect {} as the model file", model_config.weights_file().name);
   assert!(status.tokenizer);
 }

@@ -1,10 +1,11 @@
 import { ExternalLinkIcon, ShieldCheckIcon, SparklesIcon, TriangleAlertIcon } from "lucide-react"
+import { useEffect } from "react"
 import { cn } from "cn"
 import { ModelDownloadProgress } from "@/components/ai/ModelDownloadProgress"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useAIToggle } from "@/hooks/useAIToggle"
 import type { AIError } from "@/stores/model"
-import { useModelStore } from "@/stores/model"
+import { ensureModelStatus, useModelStore } from "@/stores/model"
 
 /**
  * AI status icon next to the inline branch creator buttons: click toggles AI (or retries after an error),
@@ -79,6 +80,25 @@ function AIErrorDetails({ error }: { error: AIError }) {
   )
 }
 
+/** "the <model> model" linked to its Hugging Face page; "a local model" until the backend reports the model */
+function ModelLink() {
+  const modelStatus = useModelStore(state => state.modelStatus)
+  useEffect(ensureModelStatus, [])
+
+  if (modelStatus === null) {
+    return <>a local model</>
+  }
+  return (
+    <>
+      the
+      {" "}
+      <a href={modelStatus.modelUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">{modelStatus.modelName}</a>
+      {" "}
+      model
+    </>
+  )
+}
+
 function AIHelp({ isEnabled }: { isEnabled: boolean }) {
   return (
     <>
@@ -108,11 +128,11 @@ function AIHelp({ isEnabled }: { isEnabled: boolean }) {
           <span className="font-medium">100% Local & Private</span>
         </p>
         <p className="text-muted-foreground">
-          Uses the
+          Uses
           {" "}
-          <a href="https://huggingface.co/Qwen/Qwen3-1.7B-GGUF" target="_blank" rel="noreferrer" className="text-primary hover:underline">Qwen3-1.7B</a>
+          <ModelLink />
           {" "}
-          model running entirely on your machine. No data is sent to any external service.
+          running entirely on your machine. No data is sent to any external service.
         </p>
       </div>
     </>

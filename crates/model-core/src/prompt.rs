@@ -86,7 +86,9 @@ const CHATML_BASE_ROLE: &str = "You are a Git branch name generator.";
 const CHATML_BASE_INSTRUCTIONS: &str = "Output only the branch name. Use lowercase letters, numbers, and hyphens only. Maximum 50 characters.";
 
 /// Create a ChatML-formatted prompt for Qwen3 models
-/// This format uses conversation structure for better results with quantized models
+/// This format uses conversation structure for better results with quantized models.
+/// The prompt ends with `<|im_start|>assistant\n`, as in the official chat template; Qwen3-4B-Instruct-2507
+/// has no thinking mode, so no `/no_think` switch is needed.
 pub fn create_chatml_prompt(git_output: &str, previous_suggestion: Option<&str>) -> Result<String> {
   let mut system_message = String::from(CHATML_BASE_ROLE);
 
@@ -104,11 +106,7 @@ pub fn create_chatml_prompt(git_output: &str, previous_suggestion: Option<&str>)
   system_message.push_str(CHATML_BASE_INSTRUCTIONS);
 
   let prompt = format!(
-    r"<|im_start|>system
-{} /no_think<|im_end|>
-<|im_start|>user
-{}<|im_end|>
-<|im_start|>assistant",
+    "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
     system_message,
     git_output.trim()
   );

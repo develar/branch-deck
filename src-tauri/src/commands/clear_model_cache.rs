@@ -36,7 +36,7 @@ pub async fn clear_model_cache(model_state: State<'_, ModelGeneratorState>, app:
     errors: Vec::new(),
   };
 
-  // Every model directory, including those of models that are no longer supported (e.g., `qwen25-*`)
+  // Every model directory, including those of models that are no longer supported (e.g., `qwen3-17b`, `qwen25-*`)
   let mut entries = match tokio::fs::read_dir(&models_dir).await {
     Ok(entries) => entries,
     Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(result),

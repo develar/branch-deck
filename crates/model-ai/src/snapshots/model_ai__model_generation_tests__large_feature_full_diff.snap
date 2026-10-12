@@ -1,9 +1,0 @@
----
-source: crates/model-ai/src/model_generation_tests.rs
-description: Generated branch names for large_feature in full_diff mode
----
-scenario: large_feature
-mode: full_diff
-commits_count: 5
-files_count: 50
-model_results: []

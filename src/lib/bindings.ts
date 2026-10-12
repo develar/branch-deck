@@ -311,6 +311,8 @@ export type ModelStatus = {
 	available: boolean,
 	modelName: string,
 	modelSize: string,
+	/**  Model card of the model on Hugging Face */
+	modelUrl: string,
 	filesPresent: ModelFilesStatus,
 };
 

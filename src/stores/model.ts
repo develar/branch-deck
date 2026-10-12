@@ -11,7 +11,7 @@ import { setAiMode } from "@/stores/settings/aiSettings"
 export interface ModelInfo {
   /** Display name of the AI model */
   name: string
-  /** Human-readable size of the model (e.g., "1.2 GB") */
+  /** Human-readable size of the model (e.g., "2.5 GB") */
   size: string
 }
 
@@ -27,7 +27,7 @@ export interface AIError {
 export interface ModelState {
   /** Set by `requestDownload` */
   modelInfo: ModelInfo | null
-  /** Result of the last explicit `checkModelStatus` call */
+  /** Result of the last `checkModelStatus` call (model name, size and Hugging Face page, file presence) */
   modelStatus: ModelStatus | null
   isDownloading: boolean
   /** Last download event; `Progress` events are throttled to one store update per second */
@@ -204,15 +204,37 @@ export async function cancelDownload(): Promise<void> {
   }
 }
 
-/** Queries whether the model files are present. Not called automatically (the E2E mock server doesn't implement it). */
+/** Queries the model description and whether the model files are present */
 export async function checkModelStatus(): Promise<ModelStatus | null> {
-  const result = await commands.checkModelStatus()
+  let result: Awaited<ReturnType<typeof commands.checkModelStatus>>
+  try {
+    result = await commands.checkModelStatus()
+  }
+  catch (error) {
+    logError("Failed to check model status", error)
+    return null
+  }
   if (result.status === "error") {
     logError("Failed to check model status", result.error)
     return null
   }
   modelStore.setState({ modelStatus: result.data })
   return result.data
+}
+
+let isModelStatusRequested = false
+
+/** Loads the model status once (e.g., for the model link in the AI help popover); a failed request is retried on the next call */
+export function ensureModelStatus(): void {
+  if (isModelStatusRequested || modelStore.getState().modelStatus !== null) {
+    return
+  }
+  isModelStatusRequested = true
+  void checkModelStatus().then((status) => {
+    if (status === null) {
+      isModelStatusRequested = false
+    }
+  })
 }
 
 export function setAIError(error: unknown): void {

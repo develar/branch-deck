@@ -38,7 +38,7 @@ fn test_create_chatml_prompt_basic() {
   let prompt = result.unwrap();
   assert!(prompt.contains("<|im_start|>system"));
   assert!(prompt.contains("feat: Add OAuth2 integration"));
-  assert!(prompt.ends_with("<|im_start|>assistant"));
+  assert!(prompt.ends_with("<|im_start|>assistant\n"));
 }
 
 #[test]
@@ -207,7 +207,8 @@ fn test_chatml_format_structure() {
   assert!(prompt.contains("<|im_end|>"));
   assert!(prompt.contains("<|im_start|>user"));
   assert!(prompt.contains("fix: resolve null pointer exception"));
-  assert!(prompt.ends_with("<|im_start|>assistant"));
+  assert!(prompt.ends_with("<|im_start|>assistant\n"));
+  assert!(!prompt.contains("/no_think"), "Qwen3-4B-Instruct-2507 has no thinking mode to switch off");
 }
 
 #[test]
@@ -239,5 +240,5 @@ fn test_create_chatml_prompt_alternative() {
   assert!(prompt.contains("Maximum 50 characters"));
   // Still has ChatML structure
   assert!(prompt.contains("<|im_start|>system"));
-  assert!(prompt.ends_with("<|im_start|>assistant"));
+  assert!(prompt.ends_with("<|im_start|>assistant\n"));
 }

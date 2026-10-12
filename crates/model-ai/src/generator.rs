@@ -6,7 +6,8 @@ use model_core::quantized_qwen3::{GenerationOptions, QuantizedQwen3BranchGenerat
 use std::path::PathBuf;
 use tracing::{info, instrument};
 
-pub const MAX_NEW_TOKENS: usize = 1000; // Increased to allow for thinking tags and complete generation
+/// A branch name is one line of at most 50 characters; the model has no thinking mode that needs more room
+pub const MAX_NEW_TOKENS: usize = 128;
 
 /// Error returned by [`ModelBasedBranchGenerator::ensure_model_loaded`] when a model file is not downloaded yet
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

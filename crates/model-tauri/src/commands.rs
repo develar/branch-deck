@@ -16,6 +16,9 @@ pub struct ModelStatus {
   pub model_name: String,
   #[serde(rename = "modelSize")]
   pub model_size: String,
+  /// Model card of the model on Hugging Face
+  #[serde(rename = "modelUrl")]
+  pub model_url: String,
   #[serde(rename = "filesPresent")]
   pub files_present: ModelFilesStatus,
 }
@@ -71,7 +74,8 @@ pub async fn check_model_status(model_state: State<'_, ModelGeneratorState>, app
   Ok(ModelStatus {
     available,
     model_name: model_config.model_name().to_string(),
-    model_size: model_config.model_size().to_string(),
+    model_size: model_config.model_size(),
+    model_url: model_config.model_page_url().to_string(),
     files_present,
   })
 }

@@ -88,7 +88,7 @@ fn format_duration(seconds: u32) -> String {
 
 /// Creates an HTTP client with retry middleware
 fn create_http_client() -> Result<ClientWithMiddleware> {
-  // No overall request timeout: a 1.3 GB download on a slow connection legitimately takes longer than any fixed
+  // No overall request timeout: a 2.5 GB download on a slow connection legitimately takes longer than any fixed
   // limit. A stalled transfer is caught by the read timeout instead.
   let reqwest_client = reqwest::Client::builder()
     .user_agent("branch-deck/0.1.0")
@@ -305,5 +305,94 @@ pub async fn download_model_files(model_config: &ModelConfig, provider: &dyn Mod
 
   progress.report_completed()?;
   info!("All model files downloaded successfully");
+
+  // Only now that the replacement is usable, drop the directories of models the app no longer uses
+  if let Some(models_dir) = model_path.parent() {
+    remove_obsolete_model_dirs(models_dir, model_config.model_id()).await;
+  }
   Ok(())
+}
+
+/// Removes every subdirectory of `models_dir` except `keep_model_id`, returning the names of the removed directories.
+///
+/// Never fails: a missing `models_dir` yields an empty list, and a directory that cannot be removed is logged and
+/// skipped. Plain files are left alone.
+#[instrument]
+pub async fn remove_obsolete_model_dirs(models_dir: &Path, keep_model_id: &str) -> Vec<String> {
+  let mut removed = Vec::new();
+  let mut entries = match tokio::fs::read_dir(models_dir).await {
+    Ok(entries) => entries,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return removed,
+    Err(e) => {
+      warn!("Failed to list model directories in {:?}: {}", models_dir, e);
+      return removed;
+    }
+  };
+
+  loop {
+    let entry = match entries.next_entry().await {
+      Ok(Some(entry)) => entry,
+      Ok(None) => break,
+      Err(e) => {
+        warn!("Failed to read model directory entry in {:?}: {}", models_dir, e);
+        break;
+      }
+    };
+
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if name == keep_model_id {
+      continue;
+    }
+    match entry.file_type().await {
+      Ok(file_type) if file_type.is_dir() => {}
+      Ok(_) => continue,
+      Err(e) => {
+        warn!("Failed to get the file type of {:?}: {}", entry.path(), e);
+        continue;
+      }
+    }
+
+    let path = entry.path();
+    match tokio::fs::remove_dir_all(&path).await {
+      Ok(()) => {
+        info!("Removed obsolete model directory {:?}", path);
+        removed.push(name);
+      }
+      Err(e) => warn!("Failed to remove obsolete model directory {:?}: {}", path, e),
+    }
+  }
+  removed
+}
+
+#[cfg(test)]
+mod tests {
+  use super::remove_obsolete_model_dirs;
+
+  #[tokio::test]
+  async fn remove_obsolete_model_dirs_keeps_current_model_and_files() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let models_dir = temp_dir.path();
+    std::fs::create_dir_all(models_dir.join("qwen3-4b-instruct-2507")).unwrap();
+    std::fs::write(models_dir.join("qwen3-4b-instruct-2507").join("tokenizer.json"), "{}").unwrap();
+    std::fs::create_dir_all(models_dir.join("qwen3-17b").join("nested")).unwrap();
+    std::fs::write(models_dir.join("qwen3-17b").join("Qwen3-1.7B-Q8_0.gguf"), "old").unwrap();
+    std::fs::create_dir_all(models_dir.join("qwen3-06b")).unwrap();
+    std::fs::write(models_dir.join("notes.txt"), "keep").unwrap();
+
+    let mut removed = remove_obsolete_model_dirs(models_dir, "qwen3-4b-instruct-2507").await;
+    removed.sort();
+
+    assert_eq!(removed, vec!["qwen3-06b".to_string(), "qwen3-17b".to_string()]);
+    assert!(models_dir.join("qwen3-4b-instruct-2507").join("tokenizer.json").exists());
+    assert!(!models_dir.join("qwen3-17b").exists());
+    assert!(!models_dir.join("qwen3-06b").exists());
+    assert!(models_dir.join("notes.txt").exists());
+  }
+
+  #[tokio::test]
+  async fn remove_obsolete_model_dirs_ignores_missing_dir() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let removed = remove_obsolete_model_dirs(&temp_dir.path().join("missing"), "qwen3-4b-instruct-2507").await;
+    assert_eq!(removed, Vec::<String>::new());
+  }
 }

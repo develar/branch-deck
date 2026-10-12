@@ -255,8 +255,23 @@ pub async fn browse_repository(
 
 // AI Command Handlers
 
-// check_model_status removed - frontend doesn't call it directly
 // Types are imported from model_types
+
+/// Mock of `check_model_status` (the AI help popover shows the model name and its Hugging Face link)
+pub async fn check_model_status(State(state): State<Arc<AppState>>, axum::extract::Path(repo_id): axum::extract::Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
+  let Some(repo) = state.repositories.get(&repo_id) else {
+    tracing::debug!(repo_id, "Repository not found for check_model_status");
+    return Err(StatusCode::NOT_FOUND);
+  };
+  let available = matches!(*repo.model_state.read().unwrap(), crate::state::ModelState::Downloaded);
+  Ok(Json(serde_json::json!({
+    "available": available,
+    "modelName": "Qwen3-4B-Instruct-2507",
+    "modelSize": "2.5 GB",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507",
+    "filesPresent": { "model": available, "tokenizer": available },
+  })))
+}
 
 pub async fn suggest_branch_name_stream(
   State(state): State<Arc<AppState>>,
@@ -281,8 +296,8 @@ pub async fn suggest_branch_name_stream(
       crate::state::ModelState::NotDownloaded => {
         // Send download required event
         let _ = tx.send(SuggestionProgress::ModelDownloadInProgress {
-          model_name: "Qwen3-1.7B".to_string(),
-          model_size: "1.2 GB".to_string(),
+          model_name: "Qwen3-4B-Instruct-2507".to_string(),
+          model_size: "2.5 GB".to_string(),
         });
       }
       crate::state::ModelState::Downloaded => {
@@ -373,7 +388,7 @@ pub async fn download_model(
 
   // Send the Started event immediately to establish the SSE connection
   // This prevents ERR_EMPTY_RESPONSE if the spawned task doesn't run immediately
-  let _ = tx.send(DownloadProgress::Started { total_files: 3 });
+  let _ = tx.send(DownloadProgress::Started { total_files: 2 });
   tracing::debug!("Sent Started event immediately");
 
   // Clone repo_id for the spawned task
@@ -386,12 +401,8 @@ pub async fn download_model(
     // Small delay after Started event
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // Simulate downloading 3 files
-    let files = vec![
-      ("config.json", 1024),
-      ("model.gguf", 1200 * 1024 * 1024), // 1.2 GB
-      ("tokenizer.json", 512 * 1024),
-    ];
+    // Simulate downloading the files of the real model (`ModelConfig::files`)
+    let files = vec![("Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2_497_281_120), ("tokenizer.json", 11_422_654)];
 
     for (file_name, file_size) in files {
       // Check if cancelled

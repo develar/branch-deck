@@ -49,7 +49,7 @@ pub async fn suggest_branch_name_stream(
         progress
           .send(SuggestionProgress::ModelDownloadInProgress {
             model_name: model_config.model_name().to_string(),
-            model_size: model_config.model_size().to_string(),
+            model_size: model_config.model_size(),
           })
           .ok();
         return Ok(()); // Return success to avoid error notifications in frontend

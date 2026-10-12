@@ -420,7 +420,10 @@ export const tauriMockScript = () => {
         
       case "cancel_model_download":
         return proxyCommandWithRepoId("cancel_model_download", false)  // Returns null, not JSON
-        
+
+      case "check_model_status":
+        return proxyCommandWithRepoId("check_model_status")
+
       default:
         return NOT_HANDLED
     }

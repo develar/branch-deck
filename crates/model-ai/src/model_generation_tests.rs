@@ -1,3 +1,4 @@
+use crate::generator::MAX_NEW_TOKENS;
 use crate::test_utils::{CommitDiff, FileDiff, convert_to_raw_git_format};
 use anyhow::Result;
 use git_ops::model::CommitInfo;
@@ -8,9 +9,6 @@ use model_core::quantized_qwen3::{GenerationOptions, QuantizedQwen3BranchGenerat
 use std::path::PathBuf;
 use std::time::Instant;
 
-// Test configuration
-const MAX_NEW_TOKENS: usize = 1000; // Increased to allow for thinking tags and complete generation
-
 /// Helper to get or download test model paths
 fn get_test_model_paths(model: ModelConfig) -> Result<PathBuf> {
   // Build the model path using the home directory
@@ -18,7 +16,8 @@ fn get_test_model_paths(model: ModelConfig) -> Result<PathBuf> {
     .or_else(|_| std::env::var("USERPROFILE")) // Windows fallback
     .map_err(|_| anyhow::anyhow!("Could not determine home directory"))?;
 
-  let model_path = PathBuf::from(home_dir).join("Library/Caches/branch-deck/models").join(model.model_id());
+  // Tauri's `app_cache_dir` on macOS: `~/Library/Caches/<bundle identifier>` (see `src-tauri/tauri.conf.json`)
+  let model_path = PathBuf::from(home_dir).join("Library/Caches/org.develar.branch-deck/models").join(model.model_id());
 
   if !model_path.exists() {
     tracing::debug!(path = %model_path.display(), ?model, "Test model not found. Skipping generation tests");
@@ -585,7 +584,8 @@ fn verify_prompt_characteristics(model: ModelConfig, prompt: &str, use_files_onl
   // ChatML format assertions (quantized Qwen3)
   assert!(prompt.contains("<|im_start|>system"), "ChatML format should have system section");
   assert!(prompt.contains("<|im_start|>user"), "ChatML format should have user section");
-  assert!(prompt.contains("/no_think"), "ChatML format should have assistant section with think tags");
+  assert!(!prompt.contains("/no_think"), "Qwen3-4B-Instruct-2507 has no thinking mode to switch off");
+  assert!(prompt.ends_with("<|im_start|>assistant\n"), "ChatML format should end with the assistant turn header");
   assert!(prompt.contains("Maximum 50 characters"), "Should specify length constraint");
 
   // The current implementation doesn't include diffs in the prompt
