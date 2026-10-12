@@ -1,0 +1,47 @@
+<div class="z-50 flex origin-(--transform-origin) flex-col rounded-3xl bg-popover text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/5 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 max-h-(--available-height) w-[min(60ch,calc(100vw-2rem))] max-w-none gap-3 overflow-y-auto overscroll-contain p-4" data-align="center" data-base-ui-focusable="" data-open="" data-side="right" data-slot="popover-content" data-testid="commit-message-popover" id="[ID]" role="dialog" tabindex="-1">
+  <span class="text-sm font-medium text-foreground">
+    Add connection retry logic
+  </span>
+  <p class="text-sm leading-relaxed text-foreground/90">
+    <span>
+      The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.
+    </span>
+  </p>
+  <p class="text-sm leading-relaxed text-foreground/90">
+    <span>
+      Retry the connection instead:
+    </span>
+  </p>
+  <ul class="list-disc flex flex-col gap-1.5 pl-5 text-sm leading-relaxed text-foreground/90 marker:text-muted-foreground">
+    <li>
+      <span>
+        wait with exponential backoff, starting at 100 ms and capped at 5 s, for up to 6 attempts
+      </span>
+    </li>
+    <li>
+      <span>
+        retry only transient errors (connection refused or reset)
+      </span>
+    </li>
+    <li>
+      <span>
+        log every retry at debug level
+      </span>
+    </li>
+  </ul>
+  <p class="text-sm leading-relaxed text-foreground/90">
+    <span>
+      The limits can be tuned in the pool configuration:
+    </span>
+  </p>
+  <pre class="shrink-0 overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre">
+    <span>
+      retry: { attempts: 6, maxDelayMs: 5000 }
+    </span>
+  </pre>
+  <div class="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
+    <span>
+      Co-Authored-By: Jane Doe <jane@example.com>
+    </span>
+  </div>
+</div>

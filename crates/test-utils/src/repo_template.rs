@@ -904,8 +904,25 @@ data class User(
         &[("db/pool.js", "// Database connection pool\nexport const pool = { timeout: 30000, size: 50 }")],
         Some(1704137400),
       )
+      // Multi-line body: hard-wrapped paragraph, list with a continuation line, indented code and a trailer
       .commit_with_timestamp(
-        "(JIRA-456) Add connection retry logic",
+        "(JIRA-456) Add connection retry logic
+
+The pool gave up after the first failed connection attempt, so a short
+database restart surfaced as an error for every request that was in
+flight at that moment.
+
+Retry the connection instead:
+- wait with exponential backoff, starting at 100 ms and capped at 5 s,
+  for up to 6 attempts
+- retry only transient errors (connection refused or reset)
+- log every retry at debug level
+
+The limits can be tuned in the pool configuration:
+
+    retry: { attempts: 6, maxDelayMs: 5000 }
+
+Co-Authored-By: Jane Doe <jane@example.com>",
         &[("db/retry.js", "// Connection retry logic\nexport function retryConnection() {}")],
         Some(1704139200),
       )

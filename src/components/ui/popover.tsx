@@ -1,4 +1,4 @@
-// local customisation: `anchor` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal
+// local customisation: `anchor` and `collisionPadding` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
@@ -18,11 +18,12 @@ function PopoverContent({
   side = "bottom",
   sideOffset = 4,
   anchor,
+  collisionPadding,
   ...props
 }: PopoverPrimitive.Popup.Props
   & Pick<
     PopoverPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset" | "anchor"
+    "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding"
   >) {
   return (
     // layout-neutral portal element: the popup is the outermost box (E2E visibility checks)
@@ -33,6 +34,7 @@ function PopoverContent({
         side={side}
         sideOffset={sideOffset}
         anchor={anchor}
+        collisionPadding={collisionPadding}
         className="isolate z-50"
       >
         <PopoverPrimitive.Popup
