@@ -96,6 +96,7 @@ fn get_git_path() -> Result<String, String> {
 }
 
 #[cfg(not(target_os = "macos"))]
+#[expect(clippy::unnecessary_wraps, reason = "same signature as the fallible macOS variant")]
 fn get_git_path() -> Result<String, String> {
   Ok(String::from("git"))
 }
