@@ -15,9 +15,11 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      pr_merged: ${{ steps.release.outputs.pr_merged }}
-      version: ${{ steps.release.outputs.version }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_id: ${{ steps.release.outputs.id }}
     steps:
+      # On merge of the release PR this creates the tag and a draft release; build-tauri fills and publishes it
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
@@ -25,8 +27,9 @@ jobs:
 
   build-tauri:
     needs: release-please
-    if: ${{ needs.release-please.outputs.pr_merged }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     uses: ./.github/workflows/build-tauri.yml
     with:
-      tag_name: v${{ needs.release-please.outputs.version }}
+      tag_name: ${{ needs.release-please.outputs.tag_name }}
+      release_id: ${{ needs.release-please.outputs.release_id }}
     secrets: inherit
