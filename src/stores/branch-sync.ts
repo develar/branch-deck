@@ -57,7 +57,6 @@ export interface Branch {
   readonly summary: string
   /** null = not yet loaded */
   readonly remoteStatus: RemoteStatus | null
-  readonly isPushing: boolean
   readonly allCommitsHaveIssueReferences: boolean
   /** Most frequent author email in this branch's commits */
   readonly myEmail: string | null
@@ -74,6 +73,11 @@ export interface BranchSyncState {
   /** Branch names in backend order */
   branchOrder: string[]
   branches: Record<string, Branch>
+  /**
+   * Names of branches with a push in flight.
+   * Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a running push.
+   */
+  pushingBranches: Readonly<Record<string, true>>
   unassignedCommits: Commit[]
 }
 
@@ -84,6 +88,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   baselineBranch: null,
   branchOrder: [],
   branches: {},
+  pushingBranches: {},
   unassignedCommits: [],
 }))
 
@@ -101,6 +106,10 @@ export function useBranchOrder(): string[] {
 /** A single branch; the component re-renders only when this branch changes. */
 export function useBranch(name: string): Branch | undefined {
   return useStore(branchSyncStore, state => state.branches[name])
+}
+
+export function useIsBranchPushing(name: string): boolean {
+  return useStore(branchSyncStore, state => state.pushingBranches[name] === true)
 }
 
 export function useUnassignedCommits(): Commit[] {
@@ -132,8 +141,21 @@ export function consumeAutoRequests(name: string): void {
     : branch)
 }
 
+export function isBranchPushing(name: string): boolean {
+  return branchSyncStore.getState().pushingBranches[name] === true
+}
+
 export function setBranchPushing(name: string, isPushing: boolean): void {
-  updateBranch(name, branch => branch.isPushing === isPushing ? branch : { ...branch, isPushing })
+  branchSyncStore.setState((state) => {
+    if ((state.pushingBranches[name] === true) === isPushing) {
+      return state
+    }
+    if (isPushing) {
+      return { pushingBranches: { ...state.pushingBranches, [name]: true } }
+    }
+    const { [name]: _, ...pushingBranches } = state.pushingBranches
+    return { pushingBranches }
+  })
 }
 
 export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus): void {
@@ -248,7 +270,10 @@ function handleSyncEvent(event: SyncEvent, options?: SyncOptions): void {
       updateFromIntegrationInfo(event.data.info)
       break
     case "remoteStatusUpdate":
-      setBranchRemoteStatus(event.data.branchName, toRemoteStatus(event.data))
+      // the push result is authoritative: a status computed by the sync mid-push is stale by the time the push ends
+      if (!isBranchPushing(event.data.branchName)) {
+        setBranchRemoteStatus(event.data.branchName, toRemoteStatus(event.data))
+      }
       break
     case "commitsBlocked":
       // not displayed
@@ -256,7 +281,7 @@ function handleSyncEvent(event: SyncEvent, options?: SyncOptions): void {
   }
 }
 
-function createBranchFromGroup(info: GroupedBranchInfo): Branch {
+function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStatus | null): Branch {
   const commitIndex: Record<string, number> = {}
   info.commits.forEach((commit, index) => {
     commitIndex[commit.originalHash] = index
@@ -275,8 +300,7 @@ function createBranchFromGroup(info: GroupedBranchInfo): Branch {
     autoScrollRequested: false,
     latestCommitTime: info.latestCommitTime,
     summary: info.summary,
-    remoteStatus: null,
-    isPushing: false,
+    remoteStatus,
     allCommitsHaveIssueReferences: info.allCommitsHaveIssueReferences,
     myEmail: info.myEmail ?? null,
   }
@@ -285,15 +309,17 @@ function createBranchFromGroup(info: GroupedBranchInfo): Branch {
 /**
  * Reconciles the branch list with the grouping result: backend order, every branch (re)starts in the syncing state
  * (existing ones are reset, which a fresh record keyed by the same name does), branches no longer present are dropped.
+ * The last known remote status is kept until the sync reports a fresh one, so the push button label does not flicker.
  */
 function handleBranchesGrouped(data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"]): void {
+  const previous = branchSyncStore.getState().branches
   const branches: Record<string, Branch> = {}
   const branchOrder: string[] = []
   for (const info of data.branches) {
     if (info.name in branches) {
       continue
     }
-    branches[info.name] = createBranchFromGroup(info)
+    branches[info.name] = createBranchFromGroup(info, previous[info.name]?.remoteStatus ?? null)
     branchOrder.push(info.name)
   }
   branchSyncStore.setState({ baselineBranch: data.baselineBranch, branches, branchOrder })

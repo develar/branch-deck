@@ -1,11 +1,15 @@
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { branchSyncStore, getBranch, setBranchPushing, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
 import { vcsRequestFactory } from "@/stores/repository"
 
 /** Pushes a virtual branch and updates its remote status from the result. Errors are reported with a toast. */
 export async function pushBranch(branchName: string): Promise<void> {
+  if (isBranchPushing(branchName)) {
+    return
+  }
+
   const branch = getBranch(branchName)
   if (branch === undefined) {
     notifyError("Push Failed", `Branch ${branchName} not found`)

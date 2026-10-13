@@ -23,7 +23,7 @@ function isFirstPush(branch: Branch): boolean {
   return branch.remoteStatus != null && !branch.remoteStatus.exists
 }
 
-export function getPushButtonState(branch: Branch, isSyncing: boolean): PushButtonState {
+export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing: boolean): PushButtonState {
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
   const upToDate = isRemoteUpToDate(branch)
@@ -57,10 +57,10 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean): PushButt
     text,
     color: texts != null ? texts.color : "primary",
     tooltip,
-    disabled: branch.isPushing || isSyncing || branch.status === "Syncing" || upToDate,
+    disabled: isPushing || isSyncing || branch.status === "Syncing" || upToDate,
   }
 }
 
-export function usePushButton(branch: Branch, isSyncing: boolean): PushButtonState {
-  return useMemo(() => getPushButtonState(branch, isSyncing), [branch, isSyncing])
+export function usePushButton(branch: Branch, isSyncing: boolean, isPushing: boolean): PushButtonState {
+  return useMemo(() => getPushButtonState(branch, isSyncing, isPushing), [branch, isSyncing, isPushing])
 }
