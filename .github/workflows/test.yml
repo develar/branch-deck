@@ -68,5 +68,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # No tagName/releaseId, so nothing is uploaded to a release in test mode
-          args: ${{ matrix.args }}
+          # No tagName/releaseId, so nothing is uploaded to a release in test mode.
+          # PR builds have no signing key, so skip code and updater signing.
+          args: ${{ matrix.args }} --no-sign
