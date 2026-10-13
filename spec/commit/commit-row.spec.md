@@ -20,6 +20,7 @@ targets:
   - ../../src/lib/inline-code.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/commit/MovableCommitList.tsx
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/components/conflict/ConflictCommitContext.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx
@@ -125,10 +126,11 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save the edited message and stay on the reworded commit`)
 - Escape must cancel the edit and keep the preview open. A click outside must keep the edit.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should cancel the edit with Escape and keep the preview open`)
-- A changed grouping prefix must show a warning that names the new branch, or the unassigned commits.
+- A changed grouping must show a warning that names the new branch, or the unassigned commits. The grouping follows
+  the backend rule: an explicit prefix, else the issue key of the subject.
 - A save that moves the commit to another list must close the preview.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
-  [@test] ../../src/lib/commit.test.ts (`returns the grouping prefix of the subject without the parentheses`, `skips the blank lines before the subject`, `returns null for %j`)
+  [@test] ../../src/lib/commit.test.ts (`returns the explicit prefix of the subject`, `skips the blank lines before the subject`, `groups %j into the prefix branch %j`, `groups %j into the issue branch %j`, `returns null for %j`)
 - The edit and the save must be disabled while a sync runs.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should disable the edit while a sync runs`)
 - A failed save must keep the edit open with the draft and show the error in a toast.
@@ -143,7 +145,7 @@ The commit hash popover shows the same header and body.
 - The save must be refused while a rebase, merge, cherry-pick or revert is in progress.
 - The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal).
 - The save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made in a terminal).
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_a_commit_that_left_the_current_branch`, `refuses_to_move_a_branch_that_moved_meanwhile`)
+  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_a_commit_that_left_the_current_branch`, `refuses_to_move_a_branch_that_moved_meanwhile`, `reword_refuses_an_empty_subject_in_any_rewrite`)
 
 ### Message body
 
@@ -198,19 +200,20 @@ The commit hash popover shows the same header and body.
 - A click on another part of the row must select the row.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
 - Cmd/Ctrl+click must add the row to the selection.
-- The card header must show "N selected" and a "Group into Branch" button while rows are selected.
+- The card header must show "N selected" and a "Move to…" button while rows are selected.
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should verify commit selection states with ARIA snapshots`)
-- Enter must open the inline branch form when rows are selected.
+- Enter must open the inline "Move to…" form when rows are selected.
   [@test] ../../tests/e2e/inline-branch-creator/inline-branch-creator.spec.ts (`should open with Enter key when commits are selected`)
-- Only the rows of the unassigned commits card must be selectable.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not select commit rows of a branch`)
+- The rows of the unassigned commits card and of an expanded branch must be selectable, one list at a time
+  (see [Move Commits](../branch/move-commits.spec.md)).
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
 - Shift+click must select a range of rows.
 - Cmd/Ctrl+A must select all rows, and Escape must clear the selection.
 - The context menu of a selected row must act on all selected commits.
 - The context menu of a row that is not selected must act on that commit only.
 - The context menu must not change the selection.
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should select a range of rows with Shift+click`, `should select all rows with Cmd/Ctrl+A and clear the selection with Escape`, `should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
-- The card header must hide the selection actions while the inline branch form is open.
+- The card header must hide the selection actions while the inline "Move to…" form is open.
 
 ### Commit hash popover
 
@@ -276,7 +279,7 @@ The commit hash popover shows the same header and body.
 - A selected row uses `bg-primary/10`, and `bg-primary/15` on hover.
 - A selected row has no accent bar.
 - A row that is not selectable has no hover tint and keeps the default cursor.
-- The selection actions show `N selected` in muted text, then an outline "Group into Branch" button in the primary colour.
+- The selection actions show `N selected` in muted text, then an outline "Move to…" button in the primary colour.
 
 ### Branch table
 

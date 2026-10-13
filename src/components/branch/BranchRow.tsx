@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense } from "react"
+import { lazy, memo, Suspense, useEffect } from "react"
 import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
@@ -10,10 +10,14 @@ import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
+import { useCommitDropTarget } from "@/hooks/useCommitDrag"
+import { moveCommits } from "@/hooks/useMoveCommits"
 import { useBranch } from "@/stores/branch-sync"
+import { useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
 
+const InlineRenameBranchInput = lazy(() => import("@/components/branch/InlineRenameBranchInput").then(it => ({ default: it.InlineRenameBranchInput })))
 const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineIssueReferenceInput").then(it => ({ default: it.InlineIssueReferenceInput })))
 const InlineAmendChangesInput = lazy(() => import("@/components/branch/InlineAmendChangesInput").then(it => ({ default: it.InlineAmendChangesInput })))
 const InlineUnapplyConfirm = lazy(() => import("@/components/branch/InlineUnapplyConfirm").then(it => ({ default: it.InlineUnapplyConfirm })))
@@ -21,10 +25,14 @@ const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConfli
 
 const columnCount = 4
 
-const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "amend-changes", "unapply"])
+const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply"])
 
 export interface BranchRowProps {
   name: string
+  /** Nested under the row of its issue */
+  nested?: boolean
+  /** Shows the issue the branch belongs to next to its name (no issue row above it) */
+  showIssueKey?: boolean
   expanded: boolean
   onToggleExpanded: (name: string) => void
   setExpanded: (name: string, expanded: boolean) => void
@@ -34,9 +42,22 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, nested = false, showIssueKey = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
+  // commits dragged from another list move here
+  const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
+
+  // commits just moved here: show them (the commit list selects them)
+  const isRevealTarget = useRevealRequest(name) !== null && branch !== undefined
+  useEffect(() => {
+    if (!isRevealTarget) {
+      return
+    }
+    setExpanded(name, true)
+    document.querySelector(`tr[data-branch-name="${CSS.escape(name)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [isRevealTarget, name, setExpanded])
+
   if (branch === undefined) {
     return null
   }
@@ -52,12 +73,20 @@ export const BranchRow = memo(function BranchRow({ name, expanded, onToggleExpan
         expanded={expanded}
         processing={processing}
         group
-        className={cn(expanded && "data-[state=open]:bg-muted/50")}
+        className={cn(
+          expanded && "data-[state=open]:bg-muted/50",
+          dropTarget.canDrop && "outline-1 -outline-offset-1 outline-primary/30 outline-dashed",
+          dropTarget.isOver && "bg-primary/10 outline-2 outline-primary outline-solid hover:bg-primary/10",
+        )}
+        dropTarget={dropTarget.canDrop ? (dropTarget.isOver ? "over" : "ready") : undefined}
+        dropProps={dropTarget.dropProps}
         onToggle={toggle}
         menu={<BranchContextMenuItems name={name} setExpanded={setExpanded} />}
       >
         <BranchNameCell
           name={name}
+          nested={nested}
+          issueKey={showIssueKey ? branch.issueKey : null}
           summary={branch.summary}
           expanded={expanded}
           canExpand={branch.commitCount > 0 || branch.hasError}
@@ -82,6 +111,7 @@ export const BranchRow = memo(function BranchRow({ name, expanded, onToggleExpan
             {processing && <InlineRowProgressBar />}
             <Suspense fallback={null}>
               {activeInline.type === "issue-reference" && <InlineIssueReferenceInput key={`issue-reference:${name}`} branchName={name} />}
+              {activeInline.type === "rename" && <InlineRenameBranchInput key={`rename:${name}`} branchName={name} />}
               {activeInline.type === "amend-changes" && <InlineAmendChangesInput key={`amend-changes:${name}`} branchName={name} />}
               {activeInline.type === "unapply" && <InlineUnapplyConfirm key={`unapply:${name}`} branchName={name} />}
             </Suspense>

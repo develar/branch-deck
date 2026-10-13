@@ -66,8 +66,55 @@ export function getCommitFileCount(commit: CommitUnion): number | undefined {
   return undefined
 }
 
-/** Grouping prefix of a message without the parentheses (`feature-auth` for `(feature-auth) …`), or null: the commit is unassigned. */
-export function getGroupingPrefix(message: string): string | null {
+/** The branch a commit message groups into, mirroring the backend `CommitGrouper`. */
+export interface CommitGroup {
+  branch: string
+  /** An explicit `(branch)` subject prefix, or else the issue key of the subject */
+  origin: "prefix" | "issue"
+}
+
+const AUTOSQUASH_MARKERS = ["fixup!", "squash!", "amend!"]
+
+/**
+ * Splits a subject like the backend `parse_subject`: a git autosquash marker, then a non-empty `(prefix)` at the
+ * very start (unsanitized), then the rest.
+ */
+export function parseSubject(subject: string): { autosquash: string, prefix: string | null, rest: string } {
+  const marker = AUTOSQUASH_MARKERS.find(it => subject.startsWith(it))
+  const body = marker === undefined ? subject : subject.slice(marker.length).trimStart()
+  const autosquash = subject.slice(0, subject.length - body.length)
+  const closeParen = body.startsWith("(") ? body.indexOf(")") : -1
+  if (closeParen > 1) {
+    return { autosquash, prefix: body.slice(1, closeParen), rest: body.slice(closeParen + 1).trimStart() }
+  }
+  return { autosquash, prefix: null, rest: body }
+}
+
+// as `find_issue_range`: an optional `[category]`, an optional `type(scope):`, then `ABC-123` at a word boundary
+const ISSUE_KEY = /^(?:\[[^\]\n]*\]\s*)?(?:[a-z]+(?:\([^)\n]*\))?:\s*)?([A-Z]+-\d+)(?![A-Za-z0-9])/
+
+/** The issue key a subject starts with (`ABC-123` in `[ui] fix(api): ABC-123 …`), or null. */
+export function findIssueKey(subject: string): string | null {
+  return ISSUE_KEY.exec(subject)?.[1] ?? null
+}
+
+/** A valid Git ref name part, as the backend `sanitize_branch_name`: `mockito 5.19` becomes `mockito-5.19`. */
+export function sanitizeBranchName(name: string): string {
+  return name
+    .replace(/^\.+|\.+$/g, "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/[ ~^:?*[\]\\]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "")
+}
+
+/** The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. */
+export function groupFor(message: string): CommitGroup | null {
   const subject = message.trimStart().split("\n", 1)[0]!
-  return GROUPING_PREFIX.exec(subject)?.[1] ?? null
+  const { prefix, rest } = parseSubject(subject)
+  if (prefix !== null) {
+    return { branch: sanitizeBranchName(prefix.trim()), origin: "prefix" }
+  }
+  const issueKey = findIssueKey(rest)
+  return issueKey === null ? null : { branch: issueKey, origin: "issue" }
 }

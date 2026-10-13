@@ -1,5 +1,6 @@
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { CommitList } from "@/components/commit/CommitList"
+import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
+import { useCommitMoveList } from "@/hooks/useCommitMoveList"
 import type { Branch } from "@/stores/branch-sync"
 
 export interface ActiveBranchExpandedProps {
@@ -20,8 +21,19 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false }: Act
             </Alert>
           )
         : branch.commits.length > 0
-          ? <CommitList commits={branch.commits} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} editable />
+          ? <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} />
           : <div className="text-sm text-muted-foreground">No commits found</div>}
+    </div>
+  )
+}
+
+/** The commits of the branch; select them to move them to another branch (or drag them onto one). */
+function BranchCommitList({ branch, highlightTipCommit }: { branch: Branch, highlightTipCommit: boolean }) {
+  const moveList = useCommitMoveList({ commits: branch.commits, sourceBranch: branch.name })
+  return (
+    <div className="flex flex-col gap-2">
+      <CommitSelectionActions moveList={moveList} className="justify-end px-4 sm:px-6" />
+      <MovableCommitList moveList={moveList} commits={branch.commits} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} editable />
     </div>
   )
 }

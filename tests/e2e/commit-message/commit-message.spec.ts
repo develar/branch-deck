@@ -345,13 +345,18 @@ test.describe("Commit message", () => {
     await expect(unassignedRow).toHaveAttribute("data-selected", "true")
   })
 
-  test("should not select commit rows of a branch", async ({ page }) => {
+  test("should select commit rows of a branch, one list at a time", async ({ page }) => {
     const { commitRow } = await findCommitRow(page)
-    await expect(commitRow.locator("xpath=ancestor::table[1]")).toHaveAttribute("tabindex", "-1")
-    await expect(commitRow).not.toHaveClass(/cursor-pointer/)
+    await expect(commitRow.locator("xpath=ancestor::table[1]")).toHaveAttribute("tabindex", "0")
 
     await commitRow.getByText(SUBJECT).click()
+    await expect(commitRow).toHaveAttribute("data-selected", "true")
+    await expect(getBranchDetailsRow(page, BRANCH).getByTestId("selection-actions")).toContainText("1 selected")
+
+    // selecting in another list clears this selection
+    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("[data-row-id]").first()
+    await unassignedRow.getByText("Emergency fix for").click()
+    await expect(unassignedRow).toHaveAttribute("data-selected", "true")
     await expect(commitRow).toHaveAttribute("data-selected", "false")
-    await expect(page.getByTestId("selection-actions")).toHaveCount(0)
   })
 })

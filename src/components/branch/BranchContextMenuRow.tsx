@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { DragEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 
@@ -11,6 +11,14 @@ interface BranchContextMenuRowProps {
   "group"?: boolean
   "className"?: string
   "data-testid"?: string
+  /** Commits from another list are dragged ("ready") or over the row ("over") */
+  "dropTarget"?: "ready" | "over"
+  "dropProps"?: {
+    onDragEnter?: (event: DragEvent) => void
+    onDragOver?: (event: DragEvent) => void
+    onDragLeave?: (event: DragEvent) => void
+    onDrop?: (event: DragEvent) => void
+  }
   "onToggle": () => void
   /** the menu items, rendered only while the menu is open */
   "menu": ReactNode
@@ -19,7 +27,7 @@ interface BranchContextMenuRowProps {
 }
 
 /** Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click. */
-export function BranchContextMenuRow({ name, expanded, processing, group = false, className, "data-testid": testId, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, expanded, processing, group = false, className, "data-testid": testId, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -28,8 +36,10 @@ export function BranchContextMenuRow({ name, expanded, processing, group = false
             data-testid={testId}
             data-branch-name={name}
             data-state={expanded ? "open" : "closed"}
+            data-drop-target={dropTarget}
             className={cn(group && "group", "cursor-pointer transition-all hover:bg-muted", className)}
             onClick={onToggle}
+            {...dropProps}
           />
         )}
       >

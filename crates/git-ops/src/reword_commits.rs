@@ -12,7 +12,8 @@ pub struct RewordCommitParams {
 }
 
 /// Reword multiple commits efficiently using git plumbing commands.
-/// Returns a mapping of old commit IDs to new commit IDs.
+/// Returns a mapping of old commit IDs to new commit IDs for every recreated commit: the reworded ones and the commits
+/// after the oldest of them.
 ///
 /// The trees stay the same, so the working tree and the index are not touched. Fails while a rebase, merge,
 /// cherry-pick or revert is in progress, and if the branch moved while the new commits were created.
@@ -79,8 +80,7 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
 
   info!("Successfully reworded {} commits", rewrite_map.len());
 
-  // Return only the mapping for commits that were actually reworded
-  Ok(id_mapping.into_iter().filter(|(old_id, _)| rewrite_map.contains_key(old_id)).collect())
+  Ok(id_mapping)
 }
 
 /// Fails if git is in the middle of a rebase, merge, cherry-pick or revert: rewriting history then would corrupt it.

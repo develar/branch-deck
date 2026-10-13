@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vitest"
-import { getCommitMessageBody, getGroupingPrefix, hasCommitMessageBody, splitSubjectPrefix } from "@/lib/commit"
+import { findIssueKey, getCommitMessageBody, groupFor, hasCommitMessageBody, sanitizeBranchName, splitSubjectPrefix } from "@/lib/commit"
 
 describe("splitSubjectPrefix", () => {
   it.each([
@@ -53,16 +53,61 @@ describe("hasCommitMessageBody", () => {
   })
 })
 
-describe("getGroupingPrefix", () => {
-  it("returns the grouping prefix of the subject without the parentheses", () => {
-    expect(getGroupingPrefix("(feature-auth) Add login\n\nBody (not-a-prefix) text")).toBe("feature-auth")
+describe("groupFor", () => {
+  it("returns the explicit prefix of the subject", () => {
+    expect(groupFor("(feature-auth) Add login\n\nBody (not-a-prefix) text")).toEqual({ branch: "feature-auth", origin: "prefix" })
   })
 
   it("skips the blank lines before the subject", () => {
-    expect(getGroupingPrefix("\n(feature-auth) Add login")).toBe("feature-auth")
+    expect(groupFor("\n(feature-auth) Add login")).toEqual({ branch: "feature-auth", origin: "prefix" })
   })
 
-  it.each(["Add login", "feat(auth): add login", "(feature-auth)", "Add login\n(feature-auth) in the body"])("returns null for %j", (message) => {
-    expect(getGroupingPrefix(message)).toBeNull()
+  it.each([
+    ["(mockito 5.19) Update", "mockito-5.19"],
+    ["(---test---) Update", "test"],
+    ["(feature-auth)", "feature-auth"],
+    ["fixup! (feat) Fix", "feat"],
+    ["fixup!(feat) Fix", "feat"],
+    ["((nested)) m", "(nested"],
+    ["(feature) ABC-123 Fix", "feature"],
+  ])("groups %j into the prefix branch %j", (message, branch) => {
+    expect(groupFor(message)).toEqual({ branch, origin: "prefix" })
+  })
+
+  it.each([
+    ["ABC-123 Fix", "ABC-123"],
+    ["ABC-123: Fix", "ABC-123"],
+    ["[tag] XYZ-999: Fix", "XYZ-999"],
+    ["fix: ABC-123 Fix", "ABC-123"],
+    ["[cat] feat(api): JKL-012 Add", "JKL-012"],
+    ["fixup! ABC-1 Fix", "ABC-1"],
+    ["() ABC-1 Fix", null],
+  ])("groups %j into the issue branch %j", (message, branch) => {
+    expect(groupFor(message)).toEqual(branch === null ? null : { branch, origin: "issue" })
+  })
+
+  it.each(["Add login", "feat(auth): add login", "Fix bug (critical)", "Fix JIRA-456", "abc-123 Fix", "ABC123-456 Fix", "ABC-12x Fix", "feat!: ABC-1 Fix", "Add login\n(feature-auth) in the body", "Add login\nABC-1 in the body", "fixup! Regular message", "()"])("returns null for %j", (message) => {
+    expect(groupFor(message)).toBeNull()
+  })
+})
+
+describe("sanitizeBranchName", () => {
+  it.each([
+    ["mockito 5.19", "mockito-5.19"],
+    ["---test---", "test"],
+    ["a:b?c", "a-b-c"],
+    [".hidden.", "hidden"],
+    ["/feature/sub/", "feature/sub"],
+    ["/.a", ".a"],
+    ["a  b", "a-b"],
+  ])("sanitizes %j to %j", (name, expected) => {
+    expect(sanitizeBranchName(name)).toBe(expected)
+  })
+})
+
+describe("findIssueKey", () => {
+  it("is null for a key that is not at the start", () => {
+    expect(findIssueKey("Update (ABC-789)")).toBeNull()
+    expect(findIssueKey("prefixABC-123")).toBeNull()
   })
 })

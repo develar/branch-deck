@@ -44,6 +44,42 @@ pub struct GroupedCommits {
   pub branch_emails: HashMap<String, Option<String>>,
 }
 
+/// A commit subject split into the parts that decide its group
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParsedSubject<'a> {
+  /// A git autosquash marker (`fixup!`, `squash!`, `amend!`) with the whitespace after it, or empty
+  pub autosquash: &'a str,
+  /// The unsanitized text of a leading non-empty `(prefix)`
+  pub prefix: Option<&'a str>,
+  /// The subject after the autosquash marker and the prefix
+  pub rest: &'a str,
+}
+
+/// Splits a subject the way the grouper reads it: an explicit `(prefix)` at the start (after an autosquash marker,
+/// so `fixup! (feat) X` stays in `feat`) names the branch; otherwise the rest may still carry an issue key.
+pub fn parse_subject(subject: &str) -> ParsedSubject<'_> {
+  let body = ["fixup!", "squash!", "amend!"]
+    .iter()
+    .find_map(|marker| subject.strip_prefix(marker))
+    .map_or(subject, str::trim_start);
+  let autosquash = &subject[..subject.len() - body.len()];
+  if body.starts_with('(')
+    && let Some(close_paren_pos) = body.find(')')
+    && close_paren_pos > 1
+  {
+    return ParsedSubject {
+      autosquash,
+      prefix: Some(&body[1..close_paren_pos]),
+      rest: body[close_paren_pos + 1..].trim_start(),
+    };
+  }
+  ParsedSubject {
+    autosquash,
+    prefix: None,
+    rest: body,
+  }
+}
+
 /// Struct to incrementally group commits by prefix
 pub struct CommitGrouper {
   /// Unified structure combining commits and author frequencies per branch
@@ -77,47 +113,18 @@ impl CommitGrouper {
     }
     self.commit_count += 1;
 
-    let subject = &commit.subject;
-
-    // Strip git autosquash prefixes (fixup!, squash!, amend!) for grouping purposes
-    // These are used by git rebase --autosquash to combine commits
-    let subject_for_grouping = if let Some(stripped) = subject
-      .strip_prefix("fixup!")
-      .or_else(|| subject.strip_prefix("squash!"))
-      .or_else(|| subject.strip_prefix("amend!"))
-    {
-      stripped.trim_start()
-    } else {
-      subject
-    };
-
-    // First try to find explicit prefix in parentheses using manual parsing (faster than regex)
-    if subject_for_grouping.starts_with('(')
-      && let Some(close_paren_pos) = subject_for_grouping.find(')')
-    {
-      // Extract prefix between parentheses
-      let prefix = &subject_for_grouping[1..close_paren_pos];
-      // Only accept non-empty prefixes
-      if !prefix.is_empty() {
-        // Sanitize the prefix to make it a valid Git branch name
-        let sanitized_prefix = sanitize_branch_name(prefix.trim());
-
-        // Get the rest of the message after the closing parenthesis
-        let rest = &subject_for_grouping[close_paren_pos + 1..];
-        let message_text = rest.trim_start();
-
-        // Set the stripped subject
-        commit.stripped_subject = message_text.to_string();
-
-        // Add commit to unified branch data structure
-        self.branch_data.entry(sanitized_prefix).or_insert_with(BranchData::new).add_commit(commit);
-        return;
-      }
+    let parsed = parse_subject(&commit.subject);
+    if let Some(prefix) = parsed.prefix {
+      // Sanitize the prefix to make it a valid Git branch name
+      let branch_name = sanitize_branch_name(prefix.trim());
+      commit.stripped_subject = parsed.rest.to_string();
+      self.branch_data.entry(branch_name).or_insert_with(BranchData::new).add_commit(commit);
+      return;
     }
 
     // If no explicit parentheses prefix, look for issue number pattern in the subject line
     // Manual parsing for issue pattern (e.g., JIRA-123, ABC-4567)
-    if let Some(issue_number) = find_issue_number(subject_for_grouping) {
+    if let Some(issue_number) = find_issue_number(parsed.rest) {
       // For issue-based grouping, we don't strip anything
       // The subject remains as-is
 

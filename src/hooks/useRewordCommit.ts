@@ -11,12 +11,11 @@ import { getSelectedProject } from "@/stores/repository"
  */
 export async function rewordCommit(commit: CommitUnion, message: string, onReworded: (newCommitId: string) => void): Promise<boolean> {
   const commitId = getCommitHash(commit)
-  let result: Awaited<ReturnType<typeof commands.rewordCommit>>
+  let result: Awaited<ReturnType<typeof commands.rewordCommits>>
   try {
-    result = await commands.rewordCommit({
+    result = await commands.rewordCommits({
       repositoryPath: getSelectedProject()?.path ?? "",
-      commitId,
-      message,
+      rewrites: [{ commitId, message }],
     })
   }
   catch (error) {
@@ -28,7 +27,7 @@ export async function rewordCommit(commit: CommitUnion, message: string, onRewor
     return false
   }
 
-  const { newCommitId } = result.data
+  const newCommitId = result.data.newCommitIds[commitId] ?? commitId
   if (newCommitId !== commitId) {
     onReworded(newCommitId)
     // refresh without auto-expand or auto-scroll

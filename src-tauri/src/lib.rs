@@ -14,11 +14,11 @@ use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
-use commands::create_branch::create_branch_from_commits;
 use commands::menu_commands::update_menu_checkbox;
+use commands::move_commits::move_commits_to_branch;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
-use commands::reword_commit::reword_commit;
+use commands::reword_commit::reword_commits;
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
@@ -49,9 +49,9 @@ pub fn run() {
     get_update_status,
     install_update,
     open_sub_window,
-    create_branch_from_commits,
+    move_commits_to_branch,
     add_issue_reference_to_commits,
-    reword_commit,
+    reword_commits,
     amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,
@@ -141,6 +141,8 @@ pub fn run() {
         .title("BranchDeck")
         .inner_size(1024.0, 900.0)
         .initialization_script(&init_script)
+        // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
+        .disable_drag_drop_handler()
         .build()?;
 
       Ok(())

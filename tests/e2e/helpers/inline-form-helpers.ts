@@ -119,10 +119,10 @@ export async function openBranchCreatorForFirstCommit(page: Page): Promise<void>
  * Common inline branch creator helpers
  */
 export const inlineBranchCreator = {
-  getPortal: (page: Page) => page.locator("#inline-branch-creator-portal"),
-  getInput: (page: Page) => page.locator("#inline-branch-creator-portal input[type=\"text\"]"),
-  getCancelButton: (page: Page) => page.locator("#inline-branch-creator-portal button:has-text('Cancel')"),
-  getAiToggle: (page: Page) => page.locator("#inline-branch-creator-portal button[aria-label=\"AI\"]"),
+  getPortal: (page: Page) => page.getByTestId("inline-branch-target"),
+  getInput: (page: Page) => page.getByTestId("inline-branch-target").locator("input[type=\"text\"]"),
+  getCancelButton: (page: Page) => page.getByTestId("inline-branch-target").locator("button:has-text('Cancel')"),
+  getAiToggle: (page: Page) => page.getByTestId("inline-branch-target").locator("button[aria-label=\"AI\"]"),
 
   async waitForVisible(page: Page): Promise<void> {
     await expect(this.getPortal(page)).toBeVisible({ timeout: 10000 })

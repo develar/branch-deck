@@ -73,8 +73,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_branch_prefix_from_git_config", post(tauri_command_bridge::get_branch_prefix_from_git_config))
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
-    .route("/invoke/reword_commit", post(tauri_command_bridge::reword_commit))
-    .route("/invoke/create_branch_from_commits", post(tauri_command_bridge::create_branch_from_commits))
+    .route("/invoke/reword_commits", post(tauri_command_bridge::reword_commits))
+    .route("/invoke/move_commits_to_branch", post(tauri_command_bridge::move_commits_to_branch))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
@@ -119,6 +119,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     ("conflict_branches", templates::conflict_branches()),
     ("single_unassigned", templates::single_unassigned()),
     ("issue_links", templates::issue_links()),
+    ("issue_split", templates::issue_split()),
     ("long_subjects", templates::long_subjects()),
   ];
 
@@ -200,6 +201,8 @@ pub enum RepositoryTemplate {
   SingleUnassigned,
   #[serde(rename = "issue_links")]
   IssueLinks,
+  #[serde(rename = "issue_split")]
+  IssueSplit,
   #[serde(rename = "long_subjects")]
   LongSubjects,
   #[serde(rename = "archived_branches")]
@@ -222,6 +225,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::ConflictBranches => "conflict_branches",
       RepositoryTemplate::SingleUnassigned => "single_unassigned",
       RepositoryTemplate::IssueLinks => "issue_links",
+      RepositoryTemplate::IssueSplit => "issue_split",
       RepositoryTemplate::LongSubjects => "long_subjects",
       RepositoryTemplate::ArchivedBranches => "archived_branches",
       RepositoryTemplate::AmendChanges => "amend_changes",

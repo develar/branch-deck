@@ -25,7 +25,7 @@ test.describe("Inline Branch Creator Feature", () => {
     // Multi-select second commit
     await multiSelectCommit(page, secondCommit)
 
-    // Click "Group into Branch" button
+    // Click the "Move to…" button
     await clickGroupIntoBranchButton(page)
 
     // Inline branch creator should appear

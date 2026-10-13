@@ -88,14 +88,14 @@ pub async fn add_issue_reference_to_commits(
 }
 
 /// Fails with the error message as the body, which the page mock shows like a Tauri `CommandError`
-pub async fn reword_commit(
+pub async fn reword_commits(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::reword_commit::RewordCommitRequest>,
-) -> Result<Json<sync_core::reword_commit::RewordCommitResult>, (StatusCode, String)> {
+  Json(params): Json<sync_core::reword_commit::RewordCommitsRequest>,
+) -> Result<Json<sync_core::reword_commit::RewordCommitsResult>, (StatusCode, String)> {
   ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
 
-  sync_core::reword_commit::reword_commit_core(&state.git_executor, &params).map(Json).map_err(|e| {
-    tracing::error!("Failed to reword commit: {:#}", e);
+  sync_core::reword_commit::reword_commits_core(&state.git_executor, &params).map(Json).map_err(|e| {
+    tracing::error!("Failed to reword commits: {:#}", e);
     (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
   })
 }
@@ -233,21 +233,17 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   Ok(sse_events(rx, "sync"))
 }
 
-pub async fn create_branch_from_commits(
+/// Fails with the error message as the body, which the page mock shows like a Tauri `CommandError`
+pub async fn move_commits_to_branch(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::create_branch::CreateBranchFromCommitsParams>,
-) -> Result<Json<sync_core::create_branch::RewordResult>, StatusCode> {
-  // Validate that the repository path belongs to a test repository
-  ensure_repository_exists(&state, &params.repository_path)?;
+  Json(params): Json<sync_core::move_commits::MoveCommitsParams>,
+) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
 
-  // Use the shared git executor from state
-  match sync_core::create_branch::do_create_branch_from_commits(&state.git_executor, params) {
-    Ok(result) => Ok(Json(result)),
-    Err(e) => {
-      tracing::error!("Failed to create branch from commits: {}", e);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
+  sync_core::move_commits::move_commits_to_branch_core(&state.git_executor, &params).map(Json).map_err(|e| {
+    tracing::error!("Failed to move commits: {:#}", e);
+    (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
+  })
 }
 
 pub async fn browse_repository(

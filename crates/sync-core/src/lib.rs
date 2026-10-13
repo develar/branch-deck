@@ -4,9 +4,9 @@ pub mod baseline;
 pub mod branch_prefix;
 mod branch_processor;
 pub mod commit_grouper;
-pub mod create_branch;
 pub mod delete_archived_branch;
 pub mod issue_navigation;
+pub mod move_commits;
 pub mod push;
 pub mod remote_status;
 pub mod repository_validation;
@@ -17,8 +17,6 @@ pub mod uncommitted_changes;
 
 #[cfg(test)]
 mod branch_prefix_test;
-#[cfg(test)]
-mod create_branch_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

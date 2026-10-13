@@ -66,11 +66,11 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
 }
 
 /**
- * Wait for and click the "Group into Branch" button
+ * Wait for and click the "Move to…" button of the selection
  */
 export async function clickGroupIntoBranchButton(page: Page): Promise<void> {
-  // the button is in the header of the unassigned commits card while commits are selected
-  const createBranchButton = page.getByTestId("selection-actions").getByRole("button", { name: "Group into Branch" })
+  // the button is in the header of the unassigned commits card (or above the branch commits) while commits are selected
+  const createBranchButton = page.getByTestId("selection-actions").getByRole("button", { name: "Move to…" })
   await expect(createBranchButton).toBeVisible()
   await createBranchButton.click()
 }

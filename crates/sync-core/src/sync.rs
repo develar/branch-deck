@@ -1,6 +1,6 @@
 use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
-use crate::commit_grouper::{CommitGrouper, GroupedCommits};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::issue_navigation::load_issue_navigation_config;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
@@ -15,8 +15,8 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use sync_types::issue_navigation::IssueNavigationConfig;
-use sync_types::{GroupedBranchInfo, ProgressReporter, SyncEvent};
-use sync_utils::issue_pattern::{find_issue_range, has_issue_reference};
+use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
+use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument};
@@ -49,14 +49,9 @@ impl Default for SyncOptions {
   }
 }
 
-/// Compute summary for a branch based on its name and commits
-/// For issue-based branches, extracts the commit message after the issue reference
+/// The summary of a branch that belongs to an issue: the commit message after the issue reference.
 /// Searches in reverse order to skip cleanup commits and find meaningful ones
-fn compute_branch_summary(branch_name: &str, commits: &[Commit]) -> String {
-  if !has_issue_reference(branch_name) || commits.is_empty() {
-    return String::new();
-  }
-
+fn compute_branch_summary(commits: &[Commit]) -> String {
   let mut fallback_summary: Option<String> = None;
 
   // Search commits in reverse order (oldest first) to find a suitable summary
@@ -93,13 +88,38 @@ fn compute_branch_summary(branch_name: &str, commits: &[Commit]) -> String {
   fallback_summary.unwrap_or_default()
 }
 
+/// A branch is an issue branch only while no commit names it with an explicit prefix
+fn branch_origin(commits: &[Commit]) -> BranchOrigin {
+  if commits.iter().any(|c| parse_subject(&c.subject).prefix.is_some()) {
+    BranchOrigin::Prefix
+  } else {
+    BranchOrigin::Issue
+  }
+}
+
+/// The issue of an issue branch is its name, as of a prefix branch named like an issue (`(ABC-123) Fix`); another
+/// prefix branch belongs to an issue when all its commits carry the same key
+fn branch_issue_key(branch_name: &str, origin: BranchOrigin, commits: &[Commit]) -> Option<String> {
+  if origin == BranchOrigin::Issue || find_issue_number(branch_name) == Some(branch_name) {
+    return Some(branch_name.to_string());
+  }
+  let (first, rest) = commits.split_first()?;
+  let key = find_issue_number(&first.stripped_subject)?;
+  rest.iter().all(|c| find_issue_number(&c.stripped_subject) == Some(key)).then(|| key.to_string())
+}
+
 /// Prepare grouped commits for UI display with sorting and metadata
 pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Commit>>, branch_emails: &HashMap<String, Option<String>>) -> Vec<GroupedBranchInfo> {
   let mut grouped_branches_for_ui = Vec::with_capacity(grouped_commits.len());
 
   for (branch_name, commits) in grouped_commits {
-    // Compute summary for issue-based branches
-    let summary = compute_branch_summary(branch_name, commits);
+    let origin = branch_origin(commits);
+    let issue_key = branch_issue_key(branch_name, origin, commits);
+    let summary = if issue_key.is_some() || has_issue_reference(branch_name) {
+      compute_branch_summary(commits)
+    } else {
+      String::new()
+    };
 
     // Single pass to find latest commit time only (author emails are pre-computed)
     let mut latest_commit_time = 0u32;
@@ -120,7 +140,7 @@ pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Com
       all_commits_have_issue_references: {
         if commits.is_empty() {
           false
-        } else if has_issue_reference(branch_name) {
+        } else if origin == BranchOrigin::Issue {
           // If branch is grouped by issue reference, all commits likely have issue references
           // (they were grouped for this reason, so this is a strong heuristic)
           true
@@ -130,6 +150,8 @@ pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Com
         }
       },
       my_email: branch_my_email,
+      origin,
+      issue_key,
       commits: commits
         .iter()
         .rev() // Reverse to show newest commits first within branch

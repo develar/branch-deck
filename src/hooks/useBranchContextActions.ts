@@ -1,10 +1,15 @@
-import { ArchiveXIcon, PenLineIcon, TagIcon } from "lucide-react"
+import { ArchiveXIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
+import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
+import { moveCommits } from "@/hooks/useMoveCommits"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import type { Branch } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 
-/** Context menu of an active branch row: copy actions, then commit actions (issue reference, amend, unapply). */
+/**
+ * Context menu of an active branch row: copy actions, then rename (name an issue branch) and ungroup, then commit
+ * actions (issue reference, amend, unapply).
+ */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
 
@@ -12,6 +17,23 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   if (!canModify) {
     return groups
   }
+
+  const nameActions: MenuItem[] = [
+    {
+      label: branch.origin === "Issue" ? "Name This Branch…" : "Rename…",
+      icon: PencilIcon,
+      onSelect: () => openInline("rename", branch.name),
+    },
+  ]
+  const ungroupLabel = getRemovePrefixLabel(branch.commits)
+  if (branch.origin === "Prefix" && ungroupLabel !== null) {
+    nameActions.push({
+      label: ungroupLabel === "Remove Prefix" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
+      icon: UngroupIcon,
+      onSelect: () => void moveCommits(branch.commits, null),
+    })
+  }
+  groups.push(nameActions)
 
   const commitActions: MenuItem[] = [
     {

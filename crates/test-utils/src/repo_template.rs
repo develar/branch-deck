@@ -307,6 +307,20 @@ pub mod templates {
       .commit_with_timestamp("(docs) fix typo", &[("README.md", "# Docs")], Some(1704126600))
   }
 
+  /// An issue branch whose commits are independent, so any of them can be split off into its own branch,
+  /// a prefix branch and an unassigned commit
+  pub fn issue_split() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("issue_split")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Parser\n")], Some(1704117600))
+      .commit_with_timestamp("ABC-123: Add parser", &[("parser.js", "export function parse() {}")], Some(1704119400))
+      .commit_with_timestamp("ABC-123: Add lexer", &[("lexer.js", "export function lex() {}")], Some(1704121200))
+      .commit_with_timestamp("ABC-123: Add tokens", &[("tokens.js", "export const tokens = []")], Some(1704123000))
+      .commit_with_timestamp("(docs) Update documentation", &[("docs.md", "# Documentation")], Some(1704124800))
+      .commit_with_timestamp("Refactor build script", &[("build.js", "export function build() {}")], Some(1704126600))
+  }
+
   /// Repository with issue navigation configuration for testing issue links
   pub fn issue_links() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes

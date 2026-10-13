@@ -23,17 +23,20 @@ export const commands = {
 	installUpdate: () => typedError<null, CommandError>(__TAURI_INVOKE("install_update")),
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, CommandError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
-	 *  Assigns commits to a branch by prepending a branch prefix to their messages.
-	 *  Uses git plumbing commands to efficiently rewrite commit messages without touching the working directory.
+	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
+	 *  rewrite; the working tree is not touched.
 	 */
-	createBranchFromCommits: (params: CreateBranchFromCommitsParams) => typedError<RewordResult, CommandError>(__TAURI_INVOKE("create_branch_from_commits", { params })),
+	moveCommitsToBranch: (params: MoveCommitsParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
 	 */
 	addIssueReferenceToCommits: (params: AddIssueReferenceParams) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params })),
-	/**  Replaces the message of a commit on the current branch; the commits after it are recreated with the same trees. */
-	rewordCommit: (params: RewordCommitRequest) => typedError<RewordCommitResult, CommandError>(__TAURI_INVOKE("reword_commit", { params })),
+	/**
+	 *  Replaces the messages of commits on the current branch; the commits after the oldest one are recreated with the
+	 *  same trees.
+	 */
+	rewordCommits: (params: RewordCommitsRequest) => typedError<RewordCommitsResult, CommandError>(__TAURI_INVOKE("reword_commits", { params })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
@@ -96,6 +99,13 @@ export type BranchIntegrationInfo = {
 /**  Unified branch integration status */
 export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number | null; confidence: IntegrationConfidence; commitCount: number } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
 
+/**  What groups the commits of a branch */
+export type BranchOrigin = 
+/**  An explicit `(name)` subject prefix */
+"Prefix" | 
+/**  The issue key of the subjects (`ABC-123: ...`), no explicit prefix */
+"Issue";
+
 /**  Branch name suggestion */
 export type BranchSuggestion = {
 	name: string,
@@ -146,6 +156,13 @@ export type CommitInfo = {
 	message: string,
 };
 
+export type CommitRewrite = {
+	/**  The commit on the current branch (the original commit of a virtual branch commit) */
+	commitId: string,
+	/**  The whole new message, the grouping prefix `(branch)` included */
+	message: string,
+};
+
 /**  Status of a commit synchronization. */
 export type CommitSyncStatus = "Pending" | "Created" | "Unchanged" | "Error" | "Blocked";
 
@@ -183,12 +200,6 @@ export type ConflictDetail = {
 	cherryFile: FileInfo | null,
 	baseToTargetDiff: FileDiff,
 	baseToCherryDiff: FileDiff,
-};
-
-export type CreateBranchFromCommitsParams = {
-	repositoryPath: string,
-	branchName: string,
-	commitIds: string[],
 };
 
 export type DeleteArchivedBranchParams = {
@@ -257,6 +268,9 @@ export type GroupedBranchInfo = {
 	allCommitsHaveIssueReferences: boolean,
 	/**  Most frequent author email in this branch's commits */
 	myEmail: string | null,
+	origin: BranchOrigin,
+	/**  The issue the branch belongs to: the name of an issue branch, or the key every commit of a prefix branch carries */
+	issueKey: string | null,
 };
 
 /**  Confidence level for integration detection */
@@ -318,6 +332,30 @@ export type ModelStatus = {
 	filesPresent: ModelFilesStatus,
 };
 
+export type MoveCommitsParams = {
+	repositoryPath: string,
+	/**  Commits on the current branch (the original commits of virtual branch commits) */
+	commitIds: string[],
+	/**
+	 *  The explicit branch prefix to set; `None` removes it, so the commits fall back to their issue branch or to the
+	 *  unassigned commits
+	 */
+	targetBranch: string | null,
+};
+
+export type MoveCommitsResult = {
+	/**  The commits whose message changed, in request order; a commit already in the target branch is not listed */
+	moved: MovedCommit[],
+};
+
+export type MovedCommit = {
+	/**  The request commit id */
+	oldId: string,
+	newId: string,
+	/**  The message before the move, for an undo */
+	previousMessage: string,
+};
+
 export type OpenSubWindowParams = {
 	windowId: string,
 	url: string,
@@ -349,23 +387,14 @@ export type RemoteStatusUpdate = {
 	lastPushTime: number,
 };
 
-export type RewordCommitRequest = {
+export type RewordCommitsRequest = {
 	repositoryPath: string,
-	/**  The commit on the current branch (the original commit of a virtual branch commit) */
-	commitId: string,
-	/**  The whole new message, the grouping prefix `(branch)` included */
-	message: string,
+	rewrites: CommitRewrite[],
 };
 
-export type RewordCommitResult = {
-	/**  Equals the request commit id when the message did not change */
-	newCommitId: string,
-};
-
-export type RewordResult = {
-	success: boolean,
-	message: string,
-	reworded_count: number,
+export type RewordCommitsResult = {
+	/**  Request commit id -> new commit id; a commit that was not recreated maps to its own (full) id */
+	newCommitIds: { [key in string]: string },
 };
 
 /**  Parameters for requesting branch name suggestions */

@@ -80,6 +80,19 @@ pub struct GroupedBranchInfo {
   pub all_commits_have_issue_references: bool,
   /// Most frequent author email in this branch's commits
   pub my_email: Option<String>,
+  pub origin: BranchOrigin,
+  /// The issue the branch belongs to: the name of an issue branch, or the key every commit of a prefix branch carries
+  pub issue_key: Option<String>,
+}
+
+/// What groups the commits of a branch
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum BranchOrigin {
+  /// An explicit `(name)` subject prefix
+  Prefix,
+  /// The issue key of the subjects (`ABC-123: ...`), no explicit prefix
+  Issue,
 }
 
 /// Progress reporter trait that abstracts away Tauri-specific channel

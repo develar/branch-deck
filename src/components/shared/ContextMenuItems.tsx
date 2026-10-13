@@ -1,7 +1,7 @@
 import { Fragment } from "react"
-import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut } from "@/components/ui/context-menu"
+import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from "@/components/ui/context-menu"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
-import type { MenuItemGroups } from "@/lib/menu"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 
 const kbdSymbols: Record<string, string> = {
   meta: "⌘",
@@ -20,25 +20,41 @@ export function ContextMenuItems({ groups }: { groups: MenuItemGroups }) {
     <Fragment key={groupIndex}>
       {groupIndex > 0 && <ContextMenuSeparator />}
       <ContextMenuGroup>
-        {group.map(item => (
-          <ContextMenuItem
-            key={item.label}
-            disabled={item.disabled}
-            variant={item.color ?? "default"}
-            onClick={item.onSelect}
-          >
-            {item.icon && <item.icon />}
-            <span className="truncate">{item.label}</span>
-            {item.kbds && item.kbds.length > 0 && (
-              <ContextMenuShortcut>
-                <KbdGroup>
-                  {item.kbds.map(kbd => <Kbd key={kbd}>{kbdSymbols[kbd] ?? kbd.toUpperCase()}</Kbd>)}
-                </KbdGroup>
-              </ContextMenuShortcut>
-            )}
-          </ContextMenuItem>
-        ))}
+        {group.map(item => <ContextMenuEntry key={item.label} item={item} />)}
       </ContextMenuGroup>
     </Fragment>
   ))
+}
+
+function ContextMenuEntry({ item }: { item: MenuItem }) {
+  if (item.children !== undefined) {
+    return (
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled={item.disabled}>
+          {item.icon && <item.icon />}
+          <span className="truncate">{item.label}</span>
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          {item.children.map(child => <ContextMenuEntry key={child.label} item={child} />)}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+    )
+  }
+  return (
+    <ContextMenuItem
+      disabled={item.disabled}
+      variant={item.color ?? "default"}
+      onClick={item.onSelect}
+    >
+      {item.icon && <item.icon />}
+      <span className="truncate">{item.label}</span>
+      {item.kbds && item.kbds.length > 0 && (
+        <ContextMenuShortcut>
+          <KbdGroup>
+            {item.kbds.map(kbd => <Kbd key={kbd}>{kbdSymbols[kbd] ?? kbd.toUpperCase()}</Kbd>)}
+          </KbdGroup>
+        </ContextMenuShortcut>
+      )}
+    </ContextMenuItem>
+  )
 }

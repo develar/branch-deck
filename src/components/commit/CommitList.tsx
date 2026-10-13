@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import type { ComponentProps, KeyboardEvent, MouseEvent, ReactNode } from "react"
+import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
 import { LoaderCircleIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -10,6 +10,7 @@ import { CommitMessageButton } from "@/components/commit/CommitMessage"
 import { CommitHeader } from "@/components/commit/CommitHeader"
 import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitPreviewHotkey } from "@/hooks/useCommitPreviewHotkey"
 import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
@@ -45,6 +46,13 @@ export interface CommitListProps<T extends CommitUnion> {
   contextMenuItems?: (commits: T[]) => MenuItemGroups
   /** Called before the selection shortcuts; call `preventDefault()` to suppress them */
   onKeyDown?: (event: KeyboardEvent<HTMLTableElement>) => void
+  /**
+   * Makes selectable rows draggable; called when a drag starts with the selected commits if the row is selected,
+   * otherwise with the row's commit only
+   */
+  onDragCommits?: (commits: T[]) => void
+  /** Called when a drag started in this list ends, dropped or not */
+  onDragEnd?: () => void
 
   /** Rendered above the table (e.g. an inline form) */
   portalTarget?: ReactNode
@@ -67,15 +75,17 @@ export function CommitList<T extends CommitUnion>({
   selection,
   contextMenuItems,
   onKeyDown,
+  onDragCommits,
+  onDragEnd,
   portalTarget,
   renderAfterCommit,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
 
   // stable callbacks for the memoized rows, reading the latest props
-  const latestRef = useRef({ selection, contextMenuItems })
+  const latestRef = useRef({ selection, contextMenuItems, onDragCommits, onDragEnd })
   useEffect(() => {
-    latestRef.current = { selection, contextMenuItems }
+    latestRef.current = { selection, contextMenuItems, onDragCommits, onDragEnd }
   })
 
   const getMenuGroups = useCallback((commit: CommitUnion): MenuItemGroups => {
@@ -83,10 +93,19 @@ export function CommitList<T extends CommitUnion>({
     if (contextMenuItems === undefined || selection === undefined) {
       return []
     }
-    const isRowSelected = selection.isSelected(getCommitHash(commit))
-    const commits = isRowSelected && selection.selectedCount > 0 ? selection.selectedItems : [commit as T]
-    return contextMenuItems(commits)
+    return contextMenuItems(getActionCommits(selection, commit))
   }, [])
+
+  const handleDragStart = useCallback((event: DragEvent, commit: CommitUnion) => {
+    const { selection, onDragCommits } = latestRef.current
+    if (selection === undefined || onDragCommits === undefined) {
+      return
+    }
+    const commits = getActionCommits(selection, commit)
+    beginCommitDrag(event, commits.length)
+    onDragCommits(commits)
+  }, [])
+  const handleDragEnd = useCallback(() => latestRef.current.onDragEnd?.(), [])
 
   // a row context menu opened with the mouse leaves the focus on the table; its keys (e.g. Escape) belong to the menu
   const isMenuOpenRef = useRef(false)
@@ -155,6 +174,8 @@ export function CommitList<T extends CommitUnion>({
                 selected={selection?.isSelected(hash) === true}
                 onRowClick={handleRowClick}
                 getMenuGroups={contextMenuItems !== undefined && selectable ? getMenuGroups : undefined}
+                onDragStart={onDragCommits !== undefined && selectable ? handleDragStart : undefined}
+                onDragEnd={handleDragEnd}
                 onMenuOpenChange={handleMenuOpenChange}
                 onOpenPreview={openPreview}
                 renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
@@ -177,6 +198,12 @@ export function CommitList<T extends CommitUnion>({
   )
 }
 
+/** The commits a row action applies to: the selection if the row is selected, otherwise the row's commit only */
+function getActionCommits<T extends CommitUnion>(selection: RowSelection<T>, commit: CommitUnion): T[] {
+  const isRowSelected = selection.isSelected(getCommitHash(commit))
+  return isRowSelected && selection.selectedCount > 0 ? selection.selectedItems : [commit as T]
+}
+
 interface CommitRowProps {
   commit: CommitUnion
   hash: string
@@ -191,13 +218,16 @@ interface CommitRowProps {
   onRowClick: ((event: MouseEvent, id: string, index: number) => void) | undefined
   /** Set if the row has a context menu */
   getMenuGroups: ((commit: CommitUnion) => MenuItemGroups) | undefined
+  /** Set if the row is draggable */
+  onDragStart: ((event: DragEvent, commit: CommitUnion) => void) | undefined
+  onDragEnd: () => void
   onMenuOpenChange: (open: boolean) => void
   onOpenPreview: (hash: string) => void
   renderAfterCommit: ((commit: CommitUnion, index: number) => ReactNode) | undefined
 }
 
 const CommitRow = memo(function CommitRow(props: CommitRowProps) {
-  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onMenuOpenChange, renderAfterCommit } = props
+  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onDragStart, onDragEnd, onMenuOpenChange, renderAfterCommit } = props
 
   const rowProps = {
     "data-row-id": hash,
@@ -208,6 +238,9 @@ const CommitRow = memo(function CommitRow(props: CommitRowProps) {
       selectable && selected && "bg-primary/10 hover:bg-primary/15",
     ),
     "onClick": selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
+    ...(onDragStart === undefined
+      ? {}
+      : { draggable: true, onDragStart: (event: DragEvent) => onDragStart(event, commit), onDragEnd }),
   }
 
   const cell = (

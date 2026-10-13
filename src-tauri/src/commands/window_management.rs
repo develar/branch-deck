@@ -58,6 +58,8 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
     .resizable(true)
     .skip_taskbar(true)
     .initialization_script(&init_script)
+    // the native file drop handler would swallow HTML5 drag and drop (on Windows)
+    .disable_drag_drop_handler()
     .build()?;
 
   Ok(())

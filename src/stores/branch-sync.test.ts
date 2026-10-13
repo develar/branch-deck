@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
-import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
 
 const { syncEvents } = vi.hoisted(() => ({ syncEvents: { current: [] as SyncEvent[] } }))
 
@@ -42,6 +42,8 @@ function group(name: string): GroupedBranchInfo {
     summary: "subject",
     allCommitsHaveIssueReferences: false,
     myEmail: null,
+    origin: "Prefix",
+    issueKey: null,
   }
 }
 
@@ -108,5 +110,38 @@ describe("sync during a push", () => {
     expect(known).not.toBeNull()
     expect(getBranch("a")!.remoteStatus).toBe(known)
     expect(getBranch("b")!.remoteStatus).toBeNull()
+  })
+})
+
+describe("branch table rows", () => {
+  function grouped(...branches: [name: string, origin: "Prefix" | "Issue", issueKey: string | null][]): SyncEvent {
+    return {
+      type: "branchesGrouped",
+      data: {
+        branches: branches.map(([name, origin, issueKey]) => ({ ...group(name), origin, issueKey })),
+        baselineBranch: "origin/master",
+      },
+    }
+  }
+
+  async function rowsOf(event: SyncEvent): Promise<string[]> {
+    syncEvents.current = [event]
+    await syncBranches()
+    return getBranchTableRows()
+  }
+
+  it("nests the branches of an issue under the issue branch, wherever it is in the order", async () => {
+    const rows = await rowsOf(grouped(["lexer", "Prefix", "ABC-1"], ["other", "Prefix", null], ["ABC-1", "Issue", "ABC-1"], ["parser", "Prefix", "ABC-1"]))
+    expect(rows).toEqual(["b:other", "b:ABC-1", "n:lexer", "n:parser"])
+  })
+
+  it("heads the branches of an issue without a branch of its own with an issue row", async () => {
+    const rows = await rowsOf(grouped(["other", "Prefix", null], ["lexer", "Prefix", "ABC-1"], ["parser", "Prefix", "ABC-1"]))
+    expect(rows).toEqual(["b:other", "i:2:ABC-1", "n:lexer", "n:parser"])
+  })
+
+  it("shows a single branch of an issue without a branch of its own with a chip", async () => {
+    const rows = await rowsOf(grouped(["lexer", "Prefix", "ABC-1"], ["XYZ-2", "Issue", "XYZ-2"]))
+    expect(rows).toEqual(["c:lexer", "b:XYZ-2"])
   })
 })

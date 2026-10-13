@@ -1,13 +1,27 @@
+import { useState } from "react"
+import { GitBranchPlusIcon } from "lucide-react"
+import { cn } from "cn"
 import { Card } from "@/components/ui/card"
 import { BranchRow } from "@/components/branch/BranchRow"
+import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
+import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
+import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import { syncBranches, useBranchOrder } from "@/stores/branch-sync"
+import type { CommitDrag } from "@/stores/commit-move"
+import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
+import { syncBranches, useBranchTableRows } from "@/stores/branch-sync"
 
-/** Table of active virtual branches. Subscribes to the branch order only; each row subscribes to its own branch. */
+/** Drop target key that no list has, so commits from every list can be dropped on the "new branch" zone */
+const NEW_BRANCH_TARGET = "\u0000new-branch"
+
+/**
+ * Table of active virtual branches, the branches of an issue nested under it. Subscribes to the row list only; each
+ * row subscribes to its own branch.
+ */
 export function BranchTableCard() {
-  const branchOrder = useBranchOrder()
+  const rows = useBranchTableRows()
   const { expandedKeys, toggleExpanded, setExpanded } = useRowExpansion()
 
   // "Sync" menu item
@@ -15,12 +29,13 @@ export function BranchTableCard() {
     void syncBranches()
   })
 
-  if (branchOrder.length === 0) {
+  if (rows.length === 0) {
     return null
   }
 
   return (
     <Card className="gap-0 py-0">
+      <NewBranchDropZone />
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="border-b border-border bg-muted/50">
@@ -32,18 +47,65 @@ export function BranchTableCard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {branchOrder.map(name => (
-              <BranchRow
-                key={name}
-                name={name}
-                expanded={expandedKeys.has(name)}
-                onToggleExpanded={toggleExpanded}
-                setExpanded={setExpanded}
-              />
-            ))}
+            {rows.map((row) => {
+              const name = row.slice(2)
+              if (row.startsWith("i:")) {
+                const separator = name.indexOf(":")
+                return <IssueFamilyRow key={row} issueKey={name.slice(separator + 1)} branchCount={Number(name.slice(0, separator))} />
+              }
+              return (
+                <BranchRow
+                  key={name}
+                  name={name}
+                  nested={row.startsWith("n:")}
+                  showIssueKey={row.startsWith("c:")}
+                  expanded={expandedKeys.has(name)}
+                  onToggleExpanded={toggleExpanded}
+                  setExpanded={setExpanded}
+                />
+              )
+            })}
           </tbody>
         </table>
       </div>
     </Card>
+  )
+}
+
+/** Shown while commits are dragged: dropping them opens the "Move to…" form for a new branch here. */
+function NewBranchDropZone() {
+  const [dropped, setDropped] = useState<CommitDrag | null>(null)
+  const dropTarget = useCommitDropTarget(NEW_BRANCH_TARGET, setDropped)
+
+  if (dropped !== null) {
+    return (
+      <div className="border-b border-border">
+        <InlineBranchTarget
+          commits={dropped.commits}
+          sourceBranch={dropped.sourceKey === UNASSIGNED_SOURCE ? null : dropped.sourceKey}
+          isActive
+          onCancel={() => setDropped(null)}
+          onSuccess={() => setDropped(null)}
+        />
+      </div>
+    )
+  }
+  if (!dropTarget.canDrop) {
+    return null
+  }
+  return (
+    <div className="p-3" {...dropTarget.dropProps}>
+      <div
+        data-testid="new-branch-drop-zone"
+        data-drop-target={dropTarget.isOver ? "over" : "ready"}
+        className={cn(
+          "flex items-center justify-center gap-2 rounded-lg border border-dashed border-primary/50 py-4 text-sm text-primary",
+          dropTarget.isOver && "border-primary bg-primary/10",
+        )}
+      >
+        <GitBranchPlusIcon className="size-4" />
+        Drop here to move the commits to a new branch
+      </div>
+    </div>
   )
 }

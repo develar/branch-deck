@@ -37,7 +37,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       await expect(passwordHashingCommit).toBeVisible()
       await selectCommit(page, passwordHashingCommit)
 
-      // Click "Group into Branch" button
+      // Click the "Move to…" button
       await clickGroupIntoBranchButton(page)
 
       // Inline branch creator should appear
@@ -78,7 +78,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       await expect(passwordHashingCommit).toBeVisible()
       await selectCommit(page, passwordHashingCommit)
 
-      // Click "Group into Branch" button
+      // Click the "Move to…" button
       await clickGroupIntoBranchButton(page)
 
       // Inline branch creator should appear
@@ -199,7 +199,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       await multiSelectCommit(page, commitRow(page, SUBJECTS[2]!))
 
       await openContextMenu(page, commitRow(page, SUBJECTS[1]!))
-      await expect(page.getByRole("menuitem", { name: "Group 2 Commits into Branch" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Move 2 Commits to Branch…" })).toBeVisible()
       await expect(page.getByRole("menuitem", { name: "Copy 2 Commit Hashes" })).toBeVisible()
       await expect(page.getByRole("menuitem", { name: "Copy 2 Commit Messages" })).toBeVisible()
 
@@ -215,7 +215,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
       const unselectedRow = commitRow(page, SUBJECTS[3]!)
       await openContextMenu(page, unselectedRow)
-      await expect(page.getByRole("menuitem", { name: "Group into Branch" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Move to Branch…" })).toBeVisible()
       await expect(page.getByRole("menuitem", { name: "Copy Commit Hash" })).toBeVisible()
       await expect(page.getByRole("menuitem", { name: "Copy 2 Commit Hashes" })).toHaveCount(0)
 

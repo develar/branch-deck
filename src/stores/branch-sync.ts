@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { BranchError, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
+import type { BranchError, BranchOrigin, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { UserError } from "@/lib/git/vcs-request"
 import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
@@ -60,6 +60,10 @@ export interface Branch {
   readonly allCommitsHaveIssueReferences: boolean
   /** Most frequent author email in this branch's commits */
   readonly myEmail: string | null
+  /** Grouped by an explicit `(name)` prefix, or by the issue key of the subjects */
+  readonly origin: BranchOrigin
+  /** The issue the branch belongs to: its own name for an issue branch, the key all commits carry for a prefix branch */
+  readonly issueKey: string | null
 }
 
 type MutableBranch = { -readonly [K in keyof Branch]: Branch[K] }
@@ -103,6 +107,79 @@ export function useBranchOrder(): string[] {
   return useStore(branchSyncStore, useShallow(state => state.branchOrder))
 }
 
+/**
+ * A row of the branch table, encoded as a string so the row list compares shallowly:
+ * - `b:<name>` a branch
+ * - `n:<name>` a branch nested under its issue (the issue branch, or an issue row)
+ * - `c:<name>` a branch of an issue that has no other branch: shown with an issue chip
+ * - `i:<count>:<key>` an issue row heading `count` nested branches, for an issue without a branch of its own
+ */
+export type BranchTableRow = string
+
+function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
+  const { branchOrder, branches } = state
+  // the prefix branches of each issue (an issue branch is named after its key)
+  const families = new Map<string, string[]>()
+  for (const name of branchOrder) {
+    const issueKey = branches[name]?.issueKey
+    if (issueKey != null && issueKey !== name) {
+      const family = families.get(issueKey)
+      if (family === undefined) {
+        families.set(issueKey, [name])
+      }
+      else {
+        family.push(name)
+      }
+    }
+  }
+
+  const rows: BranchTableRow[] = []
+  const placed = new Set<string>()
+  const placeFamily = (issueKey: string) => {
+    for (const child of families.get(issueKey) ?? []) {
+      rows.push(`n:${child}`)
+      placed.add(child)
+    }
+  }
+  for (const name of branchOrder) {
+    if (placed.has(name)) {
+      continue
+    }
+    const issueKey = branches[name]?.issueKey ?? null
+    if (issueKey === null || issueKey === name) {
+      rows.push(`b:${name}`)
+      placed.add(name)
+      if (issueKey === name) {
+        placeFamily(issueKey)
+      }
+      continue
+    }
+    // placed under the issue branch, wherever that is in the order
+    if (branches[issueKey] !== undefined) {
+      continue
+    }
+    const family = families.get(issueKey)!
+    if (family.length === 1) {
+      rows.push(`c:${name}`)
+      placed.add(name)
+    }
+    else {
+      rows.push(`i:${family.length}:${issueKey}`)
+      placeFamily(issueKey)
+    }
+  }
+  return rows
+}
+
+/** The branch table rows: newest first, the branches of an issue nested under it. */
+export function useBranchTableRows(): BranchTableRow[] {
+  return useStore(branchSyncStore, useShallow(branchTableRowsIn))
+}
+
+export function getBranchTableRows(): BranchTableRow[] {
+  return branchTableRowsIn(branchSyncStore.getState())
+}
+
 /** A single branch; the component re-renders only when this branch changes. */
 export function useBranch(name: string): Branch | undefined {
   return useStore(branchSyncStore, state => state.branches[name])
@@ -118,6 +195,24 @@ export function useUnassignedCommits(): Commit[] {
 
 export function getBranch(name: string): Branch | undefined {
   return branchSyncStore.getState().branches[name]
+}
+
+function moveTargetsIn(state: BranchSyncState, sourceBranch: string | null, limit: number): string[] {
+  const issueKey = sourceBranch === null ? null : (state.branches[sourceBranch]?.issueKey ?? null)
+  const candidates = state.branchOrder.filter(name => name !== sourceBranch)
+  // `branchOrder` is newest first; the branches of the same issue go first
+  const sameIssue = issueKey === null ? [] : candidates.filter(name => state.branches[name]?.issueKey === issueKey)
+  const others = candidates.filter(name => !sameIssue.includes(name))
+  return [...sameIssue, ...others].slice(0, limit)
+}
+
+/** Branches to offer as a move target for commits of `sourceBranch` (null: unassigned): the same issue first, then the newest. */
+export function useMoveTargets(sourceBranch: string | null, limit: number): string[] {
+  return useStore(branchSyncStore, useShallow(state => moveTargetsIn(state, sourceBranch, limit)))
+}
+
+export function getMoveTargets(sourceBranch: string | null, limit: number): string[] {
+  return moveTargetsIn(branchSyncStore.getState(), sourceBranch, limit)
 }
 
 // ---- branch updates ----
@@ -303,6 +398,8 @@ function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStat
     remoteStatus,
     allCommitsHaveIssueReferences: info.allCommitsHaveIssueReferences,
     myEmail: info.myEmail ?? null,
+    origin: info.origin,
+    issueKey: info.issueKey ?? null,
   }
 }
 

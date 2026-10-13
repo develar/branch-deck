@@ -9,7 +9,7 @@ import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitFileCount, getCommitHash, getCommitSubject, getGroupingPrefix, hasCommitMessageBody } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject, groupFor, hasCommitMessageBody } from "@/lib/commit"
 import { isMac } from "@/lib/platform"
 import { useBranchSync } from "@/stores/branch-sync"
 
@@ -238,15 +238,15 @@ function KeyHint({ keys, children }: { keys: ReactNode, children: ReactNode }) {
   )
 }
 
-/** Warns that a changed grouping prefix moves the commit to another branch (or out of every branch). */
+/** Warns that a changed subject moves the commit to another branch (or out of every branch). */
 function PrefixChangeHint({ before, after }: { before: string, after: string }) {
-  const prefix = getGroupingPrefix(after)
-  if (prefix === getGroupingPrefix(before)) {
+  const branch = groupFor(after)?.branch ?? null
+  if (branch === (groupFor(before)?.branch ?? null)) {
     return <span>The first line is the subject</span>
   }
   return (
     <span data-testid="commit-prefix-change" className="text-warning">
-      {prefix === null ? "Saving moves the commit to the unassigned commits" : `Saving moves the commit to the branch ${prefix}`}
+      {branch === null ? "Saving moves the commit to the unassigned commits" : `Saving moves the commit to the branch ${branch}`}
     </span>
   )
 }

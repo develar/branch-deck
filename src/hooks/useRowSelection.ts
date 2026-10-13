@@ -17,6 +17,8 @@ export interface RowSelection<T> {
   selectedCount: number
   isSelected: (id: string) => boolean
   clearSelection: () => void
+  /** Replaces the selection (e.g. with the commits just moved into the list) */
+  selectIds: (ids: Iterable<string>) => void
   /** Desktop-style click: plain = select only this row, Cmd/Ctrl = toggle, Shift = range from the last clicked row (Cmd/Ctrl+Shift adds the range) */
   handleRowClick: (event: MouseEvent, id: string, index: number) => void
   /** Cmd/Ctrl+A toggles select all, Escape clears a non-empty selection */
@@ -61,6 +63,11 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
 
   const clearSelection = useCallback(() => {
     setSelectedIds(emptySelection)
+  }, [])
+
+  const selectIds = useCallback((ids: Iterable<string>) => {
+    const next = new Set(ids)
+    setSelectedIds(next.size === 0 ? emptySelection : next)
   }, [])
 
   const handleRowClick = useCallback((event: MouseEvent, id: string, index: number) => {
@@ -124,6 +131,7 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
     selectedCount,
     isSelected,
     clearSelection,
+    selectIds,
     handleRowClick,
     handleKeyDown,
     getAnchorId,
