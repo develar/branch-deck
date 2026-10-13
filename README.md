@@ -1,68 +1,66 @@
 # Branch Deck
 
-Branch Deck is a workaround for [performance](https://github.com/gitbutlerapp/gitbutler/issues/3235) 
-[issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) with [GitButler](https://gitbutler.com) on large repositories.
+Work on one branch, get a real Git branch per feature. Branch Deck groups your commits by a `(name)` prefix or an issue
+key in the subject and cherry-picks each group into its own branch, ready to push and review.
 
-Automatically create Git branches from commits with prefixed messages. Organize your work into separate branches without manual branch management.
+Branch Deck started as a workaround for [performance](https://github.com/gitbutlerapp/gitbutler/issues/3235)
+[issues](https://github.com/gitbutlerapp/gitbutler/issues/9018) with [GitButler](https://gitbutler.com) on large
+repositories: all operations run through the Git CLI.
 
-![Branch Deck Screenshot](branch-deck-screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/branch-deck-dark.png">
+  <img alt="Branch Deck: unassigned commits and virtual branches grouped by prefix and issue key" src="docs/screenshots/branch-deck-light.png">
+</picture>
 
-## What It Does
+## Features
 
-Branch Deck creates Git branches from your commits based on message prefixes. Commits with the same prefix get cherry-picked into their own dedicated branch.
+- **Branches from commit messages**: `(feature-auth) Add login` and `IJPL-163558: Fix observability` become the branches
+  `username/virtual/feature-auth` and `username/virtual/IJPL-163558`. `fixup!`, `squash!` and `amend!` commits follow
+  their target.
+- **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection, with branch
+  name suggestions from an on-device AI model, or move commits to an existing branch.
+- **Conflict viewer**: when grouping changes the order of dependent commits, Branch Deck shows the conflicting files in a
+  3-way merge view and lists the missing commits.
+- **Integration detection**: merged, rebased and squashed branches are detected and archived automatically.
+- **Push and remote status** per branch, with push or create remote in one click.
+- **Commit editing**: preview a commit with Space, reword its message, amend uncommitted changes into a branch, split
+  or unapply a branch.
+- **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation
+  (`.idea/vcs.xml`).
+- Auto-sync when the window gets focus, auto-update, light and dark theme.
 
 ## How It Works
 
-Branch Deck analyzes your commit history and creates separate branches based on commit message patterns. There are two distinct kinds of “prefixes” to be aware of:
+Two kinds of prefix are involved:
 
-- Commit message grouping prefix: Text like `(feature-auth)` at the start of a commit subject. This is used only to group commits on the main branch (HEAD). It is not persisted on virtual/archived branches and not present after integration into main.
-- Branch prefix (git config): The namespace (e.g. `username`) configured via `git config branchdeck.branchPrefix`. This becomes the first path segment under `refs/heads`, e.g. `refs/heads/username/...`.
+- **Commit message prefix**: text like `(feature-auth)` at the start of a commit subject on your main branch (HEAD). It
+  only groups commits: the cherry-picked commits on the virtual branch are stored without it (`Add login`, not
+  `(feature-auth) Add login`).
+- **Branch prefix**: the namespace set with `git config branchdeck.branchPrefix username`. It becomes the first path
+  segment of every branch, e.g. `refs/heads/username/virtual/feature-auth`.
 
-### Explicit Prefixes (commit messages)
-Use the `(name)` format in your commit messages on main:
-- Commits prefixed with `(feature-auth)` are grouped into a virtual branch at `username/virtual/feature-auth`
-- Commits prefixed with `(bugfix-login)` are grouped into `username/virtual/bugfix-login`
+Grouping rules, checked on the first line of the commit message:
 
-When Branch Deck creates or updates those virtual branches, the cherry-picked commit subjects are stored without the grouping prefix (e.g. `Add login`, not `(feature-auth) Add login`).
+1. An explicit `(name)` prefix wins.
+2. Otherwise an issue key (`JIRA-123`, `ABC-456`) groups the commit; a leading `[subsystem]` tag is ignored, so
+   `[threading] IJPL-163558: Fix observability` goes to `IJPL-163558`.
+3. Commits with neither stay on the main branch as unassigned.
 
-### Issue Numbers
-If no explicit prefix is found, Branch Deck automatically detects issue numbers (e.g., `JIRA-123`, `ABC-456`) in the first line of the commit message on main:
-- Commits with `IJPL-163558: Fix observability` are grouped into `username/virtual/IJPL-163558`
-- Commits with `[threading] IJPL-163558: Fix observability` also go to `username/virtual/IJPL-163558`
-- Square bracket prefixes like `[subsystem]` are ignored when grouping by issue numbers
-- Multiple commits with the same issue number are grouped together
-- Issue numbers must be in the first line of the commit message
-
-### Priority
-- Explicit prefixes `(name)` take precedence over issue numbers
-- Commits without either pattern remain on the main branch
-
-### Virtual and Archived Branch Layout
-See [docs/design/virtual-branches.md](docs/design/virtual-branches.md) for details about branch structure and storage.
-
-This allows you to maintain a clean, organized Git history while working on multiple features simultaneously.
+See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout and storage.
 
 ### Current Limitations
 
-- Sub-branches not yet supported: Nested branch structures (e.g., `(feature-auth/oauth)`) are not currently implemented.
-
-## Why Branch Deck?
-
-- **Simple**: Just add `(name)` prefixes or use issue numbers in your commit messages
-- **Automatic**: Creates actual Git branches without manual branch management
-- **Organized**: Each feature gets its own clean branch automatically
-- **Flexible**: Work on multiple features simultaneously in one working directory
+- Nested branches (e.g. `(feature-auth/oauth)`) are not supported yet.
 
 ## Installation
 
-[Download the latest release](https://github.com/develar/branch-deck/releases/latest)
+[Download the latest release](https://github.com/develar/branch-deck/releases/latest) for macOS (Apple silicon), Windows or Linux.
 
 ## Documentation
 
-For technical architecture and design decisions:
-- [Virtual Branches Architecture](docs/design/virtual-branches.md) - How the branch management system works
-- [Integration Detection](docs/design/integration-detection.md) - How we detect merged branches
-- [All Design Docs](docs/design/) - Complete technical documentation
+- [Virtual Branches](docs/design/virtual-branches.md) — how commits are grouped and cherry-picked
+- [Integration Detection](docs/design/integration-detection.md) — how merged branches are detected
+- [All design docs](docs/design/)
 
 ## Contributing
 
