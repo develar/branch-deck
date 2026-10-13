@@ -810,6 +810,40 @@ data class User(
       .commit_with_timestamp("Fix critical bug", &[("bugfix.txt", "Critical bug fix for production issue")], Some(1704121200)) // This is the single unassigned commit
   }
 
+  /// Branches with long names and long commit subjects, for checking that the branch table
+  /// gives the commit title the free width and truncates only the title (issue #72).
+  pub fn long_subjects() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("long_subjects")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "(IJPL-219027) SettingSyncPluginManager: add setting sync plugin manager that installs, enables and reconciles plugins across machines",
+        &[("plugin-manager.kt", "class SettingSyncPluginManager")],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(IJPL-219027) feat(settings-sync): persist the plugin state snapshot between restarts and apply it on startup",
+        &[("plugin-state.kt", "class PluginStateSnapshot")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(IJPL-215166) test: add UI test that enables a plugin with a dependency on an optional module and verifies the restart prompt",
+        &[("plugin-ui-test.kt", "class EnablePluginTest")],
+        Some(1704121200),
+      )
+      .commit_with_timestamp(
+        "(IJPL-219674) build: add intellij.platform.plugins.parser.impl to the project model and wire it into the platform loader",
+        &[("project-model.xml", "<module name=\"intellij.platform.plugins.parser.impl\" />")],
+        Some(1704123000),
+      )
+      .commit_with_timestamp(
+        "(a-really-long-branch-name-for-a-small-refactoring) refactor: narrow down types for buildPluginIdMap so that callers no longer need unchecked casts",
+        &[("plugin-id-map.kt", "fun buildPluginIdMap()")],
+        Some(1704124800),
+      )
+      .commit_with_timestamp("(docs) fix typo", &[("README.md", "# Docs")], Some(1704126600))
+  }
+
   /// Repository with issue navigation configuration for testing issue links
   pub fn issue_links() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes

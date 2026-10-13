@@ -14,7 +14,7 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
   const status = useStatusBadge(branch)
   const exceptional = status.color === "error" || status.color === "warning"
   return (
-    <div className="w-40">
+    <div>
       <Popover>
         <PopoverTrigger
           openOnHover

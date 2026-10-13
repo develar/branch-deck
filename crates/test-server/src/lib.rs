@@ -116,6 +116,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     ("conflict_branches", templates::conflict_branches()),
     ("single_unassigned", templates::single_unassigned()),
     ("issue_links", templates::issue_links()),
+    ("long_subjects", templates::long_subjects()),
   ];
 
   // Build all templates in parallel
@@ -196,6 +197,8 @@ pub enum RepositoryTemplate {
   SingleUnassigned,
   #[serde(rename = "issue_links")]
   IssueLinks,
+  #[serde(rename = "long_subjects")]
+  LongSubjects,
   #[serde(rename = "archived_branches")]
   ArchivedBranches,
   #[serde(rename = "amend_changes")]
@@ -216,6 +219,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::ConflictBranches => "conflict_branches",
       RepositoryTemplate::SingleUnassigned => "single_unassigned",
       RepositoryTemplate::IssueLinks => "issue_links",
+      RepositoryTemplate::LongSubjects => "long_subjects",
       RepositoryTemplate::ArchivedBranches => "archived_branches",
       RepositoryTemplate::AmendChanges => "amend_changes",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",

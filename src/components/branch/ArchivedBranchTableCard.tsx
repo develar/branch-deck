@@ -57,9 +57,9 @@ export function ArchivedBranchTableCard() {
         <thead className="border-b border-border bg-muted/50">
           <tr>
             <TableHeader>Branch Name</TableHeader>
-            <TableHeader className="hidden sm:table-cell">Status</TableHeader>
-            <TableHeader className="hidden sm:table-cell">Integrated</TableHeader>
-            <TableHeader>Actions</TableHeader>
+            <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
+            <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Integrated</TableHeader>
+            <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -113,13 +113,13 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
             simplified
             onToggleExpanded={toggle}
           />
-          <td className="hidden px-6 py-4 sm:table-cell">
+          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
             <ArchivedBranchStatusBadge branch={branch} />
           </td>
-          <td className="hidden px-6 py-4 sm:table-cell">
+          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
             <ArchivedDateCell branch={branch} />
           </td>
-          <td className="px-6 py-4">
+          <td className="w-px px-4 py-4 whitespace-nowrap">
             <CopyButton text={() => name} tooltip="Copy full branch name" alwaysVisible />
           </td>
         </ContextMenuTrigger>

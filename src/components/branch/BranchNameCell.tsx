@@ -17,7 +17,7 @@ export interface BranchNameCellProps {
 export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   return (
-    <td className="max-w-xs px-6 py-4">
+    <td className="w-full max-w-0 px-6 py-4">
       <div className="flex min-w-0 items-center gap-2">
         {canExpand && (
           <Button

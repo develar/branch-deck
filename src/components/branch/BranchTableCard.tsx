@@ -26,9 +26,9 @@ export function BranchTableCard() {
           <thead className="border-b border-border bg-muted/50">
             <tr>
               <TableHeader>Branch Name</TableHeader>
-              <TableHeader className="hidden sm:table-cell">Commits</TableHeader>
-              <TableHeader className="hidden sm:table-cell">Status</TableHeader>
-              <TableHeader>Actions</TableHeader>
+              <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
+              <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
+              <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

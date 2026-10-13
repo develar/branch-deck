@@ -21,6 +21,7 @@ fn main() -> anyhow::Result<()> {
     ("conflict_unassigned", templates::conflict_unassigned()),
     ("conflict_branches", templates::conflict_branches()),
     ("issue_links", templates::issue_links()),
+    ("long_subjects", templates::long_subjects()),
   ];
 
   for (name, template) in templates_to_create {

@@ -65,15 +65,15 @@ export const BranchRow = memo(function BranchRow({ name, expanded, onToggleExpan
             canExpand={branch.commitCount > 0 || branch.hasError}
             onToggleExpanded={toggle}
           />
-          <td className="hidden px-6 py-4 sm:table-cell">
+          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
             <span className="text-sm text-muted-foreground">
               {branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}
             </span>
           </td>
-          <td className="hidden px-6 py-4 sm:table-cell">
+          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
             <BranchStatusBadge branch={branch} />
           </td>
-          <td className="px-6 py-4">
+          <td className="w-px px-4 py-4 whitespace-nowrap">
             <BranchActions branch={branch} />
           </td>
         </ContextMenuTrigger>
