@@ -1,18 +1,30 @@
 // @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, expandBranch, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { inlineBranchCreator } from "../helpers/inline-form-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
 const BRANCH = "JIRA-456"
 const SUBJECT = "Add connection retry logic"
 
-/** Expands the branch and returns the row of the commit with its full-message toggle. */
+/** Expands the branch and returns the row of the commit with its full-message button. */
 async function findCommitRow(page: Page): Promise<{ commitRow: Locator, toggle: Locator }> {
   await expandBranch(page, findBranchRow(page, BRANCH))
   const commitRow = getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: SUBJECT })
   return { commitRow, toggle: commitRow.getByTestId("commit-message-toggle") }
+}
+
+function getPreview(page: Page): Locator {
+  // not by the dialog role: the inline branch form has it too
+  return page.getByTestId("commit-preview")
+}
+
+/** The preview takes the focus a frame after it opens; its keys only work from then on. */
+async function expectPreviewFocused(preview: Locator) {
+  await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
 }
 
 test.describe("Commit message", () => {
@@ -23,15 +35,20 @@ test.describe("Commit message", () => {
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
   })
 
-  test("should expand the body inline and reflow it into paragraphs, lists and code", async ({ page }) => {
+  test("should open the full message in a preview and reflow it into paragraphs, lists and code", async ({ page }) => {
     const { commitRow, toggle } = await findCommitRow(page)
-    const body = commitRow.getByTestId("commit-message-body")
-    await expect(body).toHaveCount(0)
+    // rows don't render the body
+    await expect(commitRow.getByTestId("commit-message-body")).toHaveCount(0)
+    await expect(toggle).toHaveAccessibleName("Show full commit message")
+    await expect(toggle).toHaveAttribute("aria-haspopup", "dialog")
 
     await toggle.click()
-    await expect(toggle).toHaveAttribute("aria-expanded", "true")
-    await expect(toggle).toHaveAccessibleName("Hide full commit message")
+    const preview = getPreview(page)
+    await expect(preview).toBeVisible()
+    await expect(preview.getByRole("heading")).toHaveText(SUBJECT)
+    const body = preview.getByTestId("commit-message-body")
     await expect(body).toBeVisible()
+    await expectPreviewFocused(preview)
 
     await captureHtmlSnapshot(body, "commit-message-body")
 
@@ -61,9 +78,112 @@ test.describe("Commit message", () => {
 
     await expect(body.getByText("Co-Authored-By: Jane Doe <jane@example.com>")).toBeVisible()
 
-    await toggle.click()
-    await expect(toggle).toHaveAttribute("aria-expanded", "false")
-    await expect(body).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(preview).toHaveCount(0)
+  })
+
+  test("should open the preview of the hovered commit with Space and step through the list with the arrows", async ({ page }) => {
+    const { commitRow } = await findCommitRow(page)
+    await commitRow.hover()
+    await page.keyboard.press("Space")
+
+    const preview = getPreview(page)
+    const title = preview.getByRole("heading")
+    const position = preview.getByTestId("commit-preview-position")
+    await expect(title).toHaveText(SUBJECT)
+    await expect(position).toHaveText("1 / 3")
+    await expectPreviewFocused(preview)
+
+    // the pointer now rests on the backdrop; the arrows page through the commits of the branch
+    await page.keyboard.press("ArrowDown")
+    await expect(title).toHaveText("perf db: increase pool size to 50")
+    await expect(position).toHaveText("2 / 3")
+    // a commit without a body still shows its whole subject
+    await expect(preview.getByText("No description")).toBeVisible()
+    await page.keyboard.press("ArrowUp")
+    await page.keyboard.press("ArrowUp")
+    await expect(title).toHaveText(SUBJECT)
+    await expect(position).toHaveText("1 / 3")
+
+    await page.keyboard.press("Space")
+    await expect(preview).toHaveCount(0)
+  })
+
+  test("should open the preview of the last clicked unassigned row with Space and keep the selection", async ({ page }) => {
+    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
+    await unassignedRow.getByText("Emergency fix for").click()
+    await expect(unassignedRow).toHaveAttribute("data-selected", "true")
+
+    // away from every row: the focused list falls back to its last clicked row
+    await page.mouse.move(0, 0)
+    await page.keyboard.press("Space")
+    const preview = getPreview(page)
+    await expect(preview.getByRole("heading")).toHaveText("Emergency fix for CRITICAL-111")
+    await expectPreviewFocused(preview)
+
+    await page.keyboard.press("ArrowDown")
+    await page.keyboard.press("Escape")
+    await expect(preview).toHaveCount(0)
+    await expect(unassignedRow).toHaveAttribute("data-selected", "true")
+    await expect(page.getByTestId("selection-actions")).toContainText("1 selected")
+  })
+
+  test("should keep Space in a text field", async ({ page }) => {
+    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
+    await unassignedRow.getByText("Emergency fix for").click()
+    await page.keyboard.press("Enter")
+    const input = inlineBranchCreator.getInput(page)
+    await expect(input).toBeFocused()
+
+    // the pointer rests on a commit row, yet Space types into the focused field
+    await unassignedRow.hover()
+    await input.fill("")
+    await page.keyboard.type("hot fix")
+    await expect(input).toHaveValue("hot fix")
+    await expect(getPreview(page)).toHaveCount(0)
+  })
+
+  test("should leave Space to a button focused from the keyboard", async ({ page }) => {
+    const { commitRow } = await findCommitRow(page)
+    const branchRow = findBranchRow(page, BRANCH)
+    const folderButton = branchRow.getByRole("button", { name: "Collapse" })
+    await commitRow.hover()
+
+    // the click that expanded the branch left the focus on the folder button; Tab away and back, without the pointer
+    await folderButton.focus()
+    await page.keyboard.press("Shift+Tab")
+    await page.keyboard.press("Tab")
+    await expect(folderButton).toBeFocused()
+
+    await page.keyboard.press("Space")
+    await verifyBranchState(branchRow, "closed")
+    await expect(getPreview(page)).toHaveCount(0)
+  })
+
+  test("should keep the preview on its commit across a sync", async ({ page }) => {
+    await page.getByTestId("sync-settings-button").click()
+    await page.getByRole("switch").click()
+    await expect(page.getByRole("switch")).toBeChecked()
+    await page.keyboard.press("Escape")
+
+    const { commitRow } = await findCommitRow(page)
+    await commitRow.hover()
+    await page.keyboard.press("Space")
+    const preview = getPreview(page)
+    await expectPreviewFocused(preview)
+    await page.keyboard.press("ArrowDown")
+    await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
+
+    // auto-sync on focus replaces the commit objects while the preview is open
+    const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
+    await emitTauriEvent(page, "tauri://focus")
+    await syncResponse
+    await expect(page.getByTestId("sync-button")).toBeEnabled()
+
+    await expect(preview.getByRole("heading")).toHaveText("perf db: increase pool size to 50")
+    await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
+    await page.keyboard.press("ArrowDown")
+    await expect(preview.getByTestId("commit-preview-position")).toHaveText("3 / 3")
   })
 
   test("should dim a conventional-commit prefix of the subject", async ({ page }) => {
@@ -74,7 +194,7 @@ test.describe("Commit message", () => {
 
   test("should not change the row selection", async ({ page }) => {
     const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
-    const body = unassignedRow.getByTestId("commit-message-body")
+    const body = getPreview(page).getByTestId("commit-message-body")
 
     await unassignedRow.getByTestId("commit-message-toggle").click()
     await expect(body).toHaveText("Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.")
@@ -85,6 +205,8 @@ test.describe("Commit message", () => {
     // reading or selecting the body text does not select the row either
     // near the start: the middle of the text is the CRITICAL-112 link
     await body.locator("p").click({ position: { x: 4, y: 4 } })
+    await page.keyboard.press("Escape")
+    await expect(body).toHaveCount(0)
     await expect(unassignedRow).toHaveAttribute("data-selected", "false")
     await expect(page.getByTestId("selection-actions")).toHaveCount(0)
 

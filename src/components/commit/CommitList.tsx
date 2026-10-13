@@ -1,17 +1,19 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import type { ComponentProps, KeyboardEvent, MouseEvent, ReactNode, Ref } from "react"
+import type { ComponentProps, KeyboardEvent, MouseEvent, ReactNode } from "react"
 import { LoaderCircleIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CommitMessageBody, CommitMessageToggle } from "@/components/commit/CommitMessage"
+import { CommitMessageButton } from "@/components/commit/CommitMessage"
 import { CommitHeader } from "@/components/commit/CommitHeader"
+import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import { useCommitPreviewHotkey } from "@/hooks/useCommitPreviewHotkey"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
 
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
@@ -45,10 +47,12 @@ export interface CommitListProps<T extends CommitUnion> {
   portalTarget?: ReactNode
   /** Rendered at the end of each commit cell; keep it stable (`useCallback`) so rows stay memoized */
   renderAfterCommit?: (commit: T, index: number) => ReactNode
-  tableRef?: Ref<HTMLTableElement>
 }
 
-/** Commit table used by the branch tables, the unassigned commits card and the conflict views. */
+/**
+ * Commit table used by the branch tables, the unassigned commits card and the conflict views.
+ * Space (over a row, or on the last clicked row of the focused table) and the row's message button open the commit preview.
+ */
 export function CommitList<T extends CommitUnion>({
   commits,
   variant = "compact",
@@ -61,7 +65,6 @@ export function CommitList<T extends CommitUnion>({
   onKeyDown,
   portalTarget,
   renderAfterCommit,
-  tableRef,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
 
@@ -87,10 +90,26 @@ export function CommitList<T extends CommitUnion>({
     isMenuOpenRef.current = open
   }, [])
 
+  // the preview follows the commit, not its index, across a sync
+  const [previewHash, setPreviewHash] = useState<string | null>(null)
+  const previewIndex = previewHash === null ? -1 : commits.findIndex(commit => getCommitHash(commit) === previewHash)
+  // a commit gone after a sync closes the preview for good
+  if (previewHash !== null && previewIndex === -1) {
+    setPreviewHash(null)
+  }
+  const openPreview = useCallback((hash: string) => {
+    if (!isMenuOpenRef.current) {
+      setPreviewHash(hash)
+    }
+  }, [])
+  const tableRef = useRef<HTMLTableElement>(null)
+  useCommitPreviewHotkey(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, openPreview)
+
   const handleRowClick = selection?.handleRowClick
   const handleKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
-    // React bubbles events from portals (row context menus, popovers) through the component tree; only handle keys pressed in the table
-    if (isMenuOpenRef.current || !event.currentTarget.contains(event.target as Node)) {
+    // React bubbles events from portals (row context menus, popovers) through the component tree; only handle keys pressed in the table.
+    // The preview takes the focus a frame after it opens; until then, its keys (Escape, arrows) must not reach the selection.
+    if (isMenuOpenRef.current || previewIndex !== -1 || !event.currentTarget.contains(event.target as Node)) {
       return
     }
     onKeyDown?.(event)
@@ -127,12 +146,22 @@ export function CommitList<T extends CommitUnion>({
                 onRowClick={handleRowClick}
                 getMenuGroups={contextMenuItems !== undefined && selectable ? getMenuGroups : undefined}
                 onMenuOpenChange={handleMenuOpenChange}
+                onOpenPreview={openPreview}
                 renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
               />
             )
           })}
         </tbody>
       </table>
+      <CommitPreviewDialog
+        commits={commits}
+        index={previewIndex}
+        onIndexChange={index => setPreviewHash(getCommitHash(commits[index]!))}
+        onClose={() => setPreviewHash(null)}
+        showAuthor={showAuthor}
+        showFileCount={showFileCount}
+        showNewHash={variant === "status"}
+      />
     </div>
   )
 }
@@ -152,6 +181,7 @@ interface CommitRowProps {
   /** Set if the row has a context menu */
   getMenuGroups: ((commit: CommitUnion) => MenuItemGroups) | undefined
   onMenuOpenChange: (open: boolean) => void
+  onOpenPreview: (hash: string) => void
   renderAfterCommit: ((commit: CommitUnion, index: number) => ReactNode) | undefined
 }
 
@@ -223,12 +253,11 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
   )
 }
 
-function CommitCellContent({ commit, variant, branchName, showFileCount, showAuthor, isAmendTarget }: CommitRowProps) {
+function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, isAmendTarget, onOpenPreview }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
   const subject = getCommitSubject(commit)
   const hasBody = hasCommitMessageBody(subject, commit.message)
-  const [expanded, setExpanded] = useState(false)
 
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
 
@@ -236,15 +265,15 @@ function CommitCellContent({ commit, variant, branchName, showFileCount, showAut
     <div className="flex flex-col gap-1">
       <CommitHeader
         subject={subject}
-        hash={getCommitHash(commit)}
+        hash={hash}
         newHash={statusHash}
         author={showAuthor ? commit.author : undefined}
         authorTime={commit.authorTime}
         committerTime={commit.committerTime}
-        fileCount={showFileCount ? getFileCount(commit) : undefined}
+        fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
         subjectAddon={(
           <>
-            {hasBody && <CommitMessageToggle expanded={expanded} onToggle={() => setExpanded(value => !value)} />}
+            {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
             {status === "Pending" && (
               <Badge variant="secondary">
                 <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
@@ -262,8 +291,6 @@ function CommitCellContent({ commit, variant, branchName, showFileCount, showAut
           </>
         )}
       />
-
-      {expanded && <CommitMessageBody message={commit.message} />}
 
       {error && (
         <div className="mt-2">
@@ -284,14 +311,4 @@ function CommitCellContent({ commit, variant, branchName, showFileCount, showAut
       )}
     </div>
   )
-}
-
-function getFileCount(commit: CommitUnion): number | undefined {
-  if ("fileDiffs" in commit && commit.fileDiffs?.length) {
-    return commit.fileDiffs.length
-  }
-  if ("fileCount" in commit && typeof commit.fileCount === "number") {
-    return commit.fileCount
-  }
-  return undefined
 }

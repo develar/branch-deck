@@ -21,6 +21,8 @@ export interface RowSelection<T> {
   handleRowClick: (event: MouseEvent, id: string, index: number) => void
   /** Cmd/Ctrl+A toggles select all, Escape clears a non-empty selection */
   handleKeyDown: (event: KeyboardEvent) => void
+  /** Id of the last clicked row (the Shift+click anchor), or null before the first click */
+  getAnchorId: () => string | null
 }
 
 const emptySelection: ReadonlySet<string> = new Set()
@@ -114,6 +116,7 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
   }, [selectedCount])
 
   const isSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds])
+  const getAnchorId = useCallback(() => lastClickedIdRef.current, [])
 
   return {
     selectedIds,
@@ -123,5 +126,6 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
     clearSelection,
     handleRowClick,
     handleKeyDown,
+    getAnchorId,
   }
 }

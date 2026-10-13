@@ -1,6 +1,6 @@
 ---
 name: Commit Row
-description: Requirements for the commit row, its inline message body and the commit hash popover.
+description: Requirements for the commit row, the commit preview with the message body and the commit hash popover.
 style: plain-1
 targets:
   - ../../src/components/commit/CommitList.tsx
@@ -8,6 +8,8 @@ targets:
   - ../../src/components/commit/CommitSubject.tsx
   - ../../src/components/commit/CommitMetadata.tsx
   - ../../src/components/commit/CommitMessage.tsx
+  - ../../src/components/commit/CommitPreviewDialog.tsx
+  - ../../src/hooks/useCommitPreviewHotkey.ts
   - ../../src/components/commit/CommitHashPopover.tsx
   - ../../src/components/commit/LinkedText.tsx
   - ../../src/lib/commit.ts
@@ -24,20 +26,21 @@ targets:
 # Commit Row
 
 Status: Implemented
-Date: 2026-10-12
+Date: 2026-10-13
 
 ## Summary
 
 A commit row shows one commit in a branch table, in the unassigned commits card or in a conflict view.
 The row has a subject line above a meta line.
-An icon button expands the full commit message inline, below the subject.
+Space or an icon button opens the full commit message in a centered preview, as Quick Look does.
 The commit hash popover shows the same header and body.
 
 ## Goals
 
 - Show every commit with one row anatomy in every view.
 - Keep a collapsed row to two lines: the subject and the metadata.
-- Make a long commit message easy to read inline, without a dialog.
+- Make a long commit message easy to read in a focused preview, from the keyboard or the mouse.
+- Keep the list layout still: reading a message must not push the other rows down.
 - Show exceptions as badges. Routine states stay quiet.
 - Give a hover tint and a selection tint only to rows that react to a click.
 
@@ -79,14 +82,36 @@ The commit hash popover shows the same header and body.
 - A row must show the stripped subject when the backend supplies one.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
 
+### Commit preview
+
+- A row must show the message button only when the message has more lines than the subject.
+- The message button must be an icon button with `aria-haspopup="dialog"` and the label "Show full commit message".
+- The message button must open the preview of its commit.
+- The row must not render the body.
+- The preview must show the whole subject, the meta line and the body.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+- Space must open the preview of the commit row under the pointer.
+- ↑ and ↓ must show the previous and the next commit of the same list, and the preview must show the position as `2 / 3`.
+- The preview of a commit without a body must show its subject and "No description".
+- Space and Escape must close the preview.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the hovered commit with Space and step through the list with the arrows`)
+- Without a row under the pointer, Space must open the preview of the last clicked row of the focused list.
+- The preview must not change the selection.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the last clicked unassigned row with Space and keep the selection`)
+- Space must keep its own meaning in a text field, a menu and another dialog.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep Space in a text field`)
+- A focused button must keep Space unless the pointer moved after the button got the focus.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should leave Space to a button focused from the keyboard`, `should open the preview of the hovered commit with Space and step through the list with the arrows`)
+- Space over a row of a list nested in a conflict view must open one preview, for the nested row.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should open one preview for a missing commit nested in a conflict row`)
+- The preview must keep showing its commit after a sync.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep the preview on its commit across a sync`)
+- The preview must close when a sync removes its commit.
+
 ### Message body
 
-- A row must show the body toggle only when the message has more lines than the subject.
 - The body must start at the first line after the subject that is not blank.
-- The toggle must be an icon button with `aria-expanded`.
-- The toggle label must be "Show full commit message" or "Hide full commit message".
-- The row must render the body only while the body is expanded.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should expand the body inline and reflow it into paragraphs, lists and code`)
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../src/lib/commit.test.ts (`is true for a message with lines after the subject`, `is false for a message that equals the subject`, `is false for a one-line message that differs from a stripped subject`, `is false for an empty message`, `skips the blank lines after the subject`, `returns an empty body for a one-line message`)
 - The body must join hard-wrapped lines into one paragraph.
 - A blank line must start a new block.
@@ -100,13 +125,13 @@ The commit hash popover shows the same header and body.
 - A last block of git trailers must show as a separate trailer block.
 - A block of trailers that is not the last block must stay prose.
 - The body must treat CRLF line endings as LF.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should expand the body inline and reflow it into paragraphs, lists and code`)
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../src/lib/commit-message.test.ts (`joins hard-wrapped lines into one paragraph`, `starts a new block after a blank line`, `turns lines with -, * and • markers into one bullet list without the markers`, `turns lines with 1. markers into an ordered list`, `keeps the number of the first item of an ordered list with 1) markers`, `starts a new list when bullets change to numbers`, `keeps a continuation line in its list item`, `keeps lines indented by four spaces verbatim, without the common indent`, `keeps lines indented by a tab verbatim, without the tab`, `keeps a fenced block verbatim with its blank lines and without the fences`, `runs an unclosed fence to the end of the body`, `turns a last block of git trailers into a trailers block`, `joins an indented trailer continuation line to its trailer`, `accepts a cherry-pick note as a trailer`, `keeps a trailer-shaped block that is not the last block as a paragraph`, `keeps a last block as a paragraph when one of its lines is not a trailer`, `treats CRLF line endings like LF`)
 - A paragraph that is only `Label:` must become a section label above the next blocks.
 - A paragraph that starts with a short `Label: ` must become a section label above its remaining text.
 - A `Label:` paragraph without a following content block must stay a paragraph.
 - The trailers must form the last section, without a label.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should expand the body inline and reflow it into paragraphs, lists and code`)
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../src/lib/commit-message.test.ts (`turns a paragraph that is only Label: into the label of the next blocks`, `turns a short run-in Label: into a label above the rest of the paragraph`, `keeps a run-in label longer than 20 characters as prose`, `keeps a Label: paragraph without a following block as a paragraph`, `keeps a Label: paragraph followed only by trailers as a paragraph`, `puts the trailers into the last, unlabelled section`, `adds unlabelled blocks to the current section`)
 - Issue keys in the body must become links.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
@@ -117,7 +142,7 @@ The commit hash popover shows the same header and body.
 - The body must show detected paths, file names, flags, calls, CONSTANT_CASE, snake_case and camelCase as code.
 - Names from the stoplist (`JavaScript`, `GitHub`, `macOS`) must stay prose.
 - Preformatted blocks and trailers must not detect code.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should expand the body inline and reflow it into paragraphs, lists and code`)
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../src/lib/inline-code.test.ts (`shows text in backticks as explicit code without the backticks`, `detects a %s as code`, `keeps %s as prose`)
 - A PascalCase name must be code only when it has three or more humps.
 - A token in double quotes must stay prose.
@@ -131,8 +156,8 @@ The commit hash popover shows the same header and body.
 
 ### Selection
 
-- A click on the body toggle must not change the selection.
-- A click in the expanded body must not change the selection.
+- A click on the message button must not change the selection.
+- A click in the preview body must not change the selection.
 - A click on another part of the row must select the row.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
 - Cmd/Ctrl+click must add the row to the selection.
@@ -176,16 +201,25 @@ The commit hash popover shows the same header and body.
 - The subject uses `text-sm font-medium text-foreground`.
 - The prefix uses `font-mono text-xs text-muted-foreground`.
 - The meta line uses `text-xs text-muted-foreground`. The hashes use the monospace font.
-- The body toggle follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
-- The toggle is muted. It becomes `text-foreground` on hover and while the body is expanded.
+- The message button follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
+- The message button is muted. It becomes `text-foreground` on hover.
 - Issue links are muted and become `text-foreground` on hover.
-- Badges follow the toggle: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `info` Amend target.
+- Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `info` Amend target.
 
-### Expanded body
+### Commit preview
 
-- The body has no panel. It stays on the row surface and shares the left edge of the subject.
+- The preview is a centered dialog on the blurred backdrop, at most 56rem wide and `min(80vh, 48rem)` high.
+- The header shows the whole subject, without the two-line clamp, above the meta line. A `border-border` rule separates it.
+- Only the body scrolls. The body has the focus, so PageUp and PageDown scroll it. ↑ and ↓ belong to the navigation.
+- A newly shown commit starts at the top of its body.
+- The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,
+  in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
+- The selection tint of a row never grows with the message: the row stays two lines.
+
+### Message body
+
 - The body is at most `90ch` wide.
-- The body text is 13/20px `text-foreground/85` with the `ss04` font feature.
+- The body text is 14/24px `text-foreground/85` with the `ss04` font feature in the preview, and 13/20px in the hash popover.
 - A section label is a small `font-medium text-foreground/70` heading above its blocks.
 - Sections have a 16px gap. Blocks in a section have an 8px gap.
 - Lists have a 20px indent and muted markers.
@@ -222,13 +256,16 @@ The commit hash popover shows the same header and body.
 ## Testing / Local Run
 
 - `pnpm test:unit` runs the unit tests of the parser, the code detection and the subject prefix in `src/lib`.
-- `pnpm e2e` runs the E2E tests. The tests in `tests/e2e/commit-message` cover the row body.
+- `pnpm e2e` runs the E2E tests. The tests in `tests/e2e/commit-message` cover the commit preview and its body.
 
 ## Open Questions / Risks
 
 - No test covers the Pending, Blocked and generic Error badges. No backend path in the mock server emits them.
 - No test covers the body, the height limit or a commit without a subject in the commit hash popover.
 - No test checks that the subject does not detect code.
+- No test covers a sync that removes the previewed commit: the test server cannot change a repository during a test.
+- Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
+  ↓ right after Space is lost.
 - No test checks that the card header hides the selection actions while the inline branch form is open.
 - No test covers the generic error alert or the conflict pages in a separate window.
 - Code detection is heuristic. A false positive sets a prose word in the monospace font. Add such words to the stoplist.
@@ -242,3 +279,7 @@ The commit hash popover shows the same header and body.
 - Branch Deck reflows the body into proportional prose, lists and code blocks.
 - A layout like the man page `.TP` macro put the section labels in a side gutter. That layout was tried and dropped.
 - The section labels now stack above their blocks.
+- The body was first expanded inline below the subject. It pushed the other rows down, and the selection tint of a
+  selected row covered the whole body. The preview replaced it.
+- The preview follows macOS Quick Look (Space opens and closes it, the arrows step through the items) and the peek
+  of Linear (Space acts on the hovered item).

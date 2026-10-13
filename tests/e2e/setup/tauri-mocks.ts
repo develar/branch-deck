@@ -279,13 +279,32 @@ export const tauriMockScript = () => {
   /**
    * Handle event plugin commands
    */
-  function handleEventCommand(cmd: string): any {
+  // listeners registered with `listen`; a test fires them with `window.__e2eEmitTauriEvent` (`emitTauriEvent` in sync-helpers)
+  const eventListeners = new Map<number, { event: string, handler: (event: any) => void }>()
+  let nextEventId = 1
+  ;(window as any).__e2eEmitTauriEvent = (event: string, payload: unknown) => {
+    for (const [id, listener] of eventListeners) {
+      if (listener.event === event) {
+        listener.handler({ event, id, payload })
+      }
+    }
+  }
+
+  function handleEventCommand(cmd: string, payload: any): any {
     const [, action] = cmd.split("|")
     
     switch (action) {
-      case "listen":
-        // Return a mock unlisten function
-        return () => {}
+      case "listen": {
+        const id = nextEventId++
+        if (typeof payload?.handler === "function") {
+          eventListeners.set(id, { event: payload.event, handler: payload.handler })
+        }
+        return id
+      }
+
+      case "unlisten":
+        eventListeners.delete(payload?.eventId)
+        return null
         
       case "emit":
         return null

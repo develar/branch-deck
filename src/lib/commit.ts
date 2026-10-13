@@ -54,3 +54,14 @@ export function splitSubjectPrefix(subject: string): { prefix: string | null, te
   const match = GROUPING_PREFIX.exec(subject) ?? SUBJECT_PREFIX.exec(subject)
   return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
 }
+
+/** Number of changed files, if the commit shape carries it. */
+export function getCommitFileCount(commit: CommitUnion): number | undefined {
+  if ("fileDiffs" in commit && commit.fileDiffs?.length) {
+    return commit.fileDiffs.length
+  }
+  if ("fileCount" in commit && typeof commit.fileCount === "number") {
+    return commit.fileCount
+  }
+  return undefined
+}

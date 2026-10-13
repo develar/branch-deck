@@ -100,3 +100,10 @@ export async function waitForSyncComplete(page: Page, timeout = 10000): Promise<
   // Wait for sync to complete (button becomes enabled again)
   await expect(syncButton).toBeEnabled({ timeout })
 }
+
+/** Fires the Tauri event listeners of the page mock, e.g. `tauri://focus` (the window gained focus, auto-sync listens to it). */
+export async function emitTauriEvent(page: Page, event: string, payload: unknown = null): Promise<void> {
+  await page.evaluate(([event, payload]) => {
+    (window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown) => void }).__e2eEmitTauriEvent(event as string, payload)
+  }, [event, payload] as const)
+}

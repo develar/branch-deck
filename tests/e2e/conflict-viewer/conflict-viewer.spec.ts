@@ -88,6 +88,29 @@ test.describe("Conflict Viewer Feature", () => {
     })
   })
 
+  test.describe("Commit Preview", () => {
+    test.beforeEach(async ({ setupConflictRepo }) => {
+      await setupConflictRepo("conflict_branches")
+    })
+
+    test("should open one preview for a missing commit nested in a conflict row", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      // the missing commit row sits inside the row of the conflicting commit; both match `:hover`
+      const missingCommitRow = bugFixDetails.locator("tr[data-row-id] tr[data-row-id]").filter({ hasText: "Add UserService" })
+      await missingCommitRow.hover()
+      await page.keyboard.press("Space")
+
+      const preview = page.getByTestId("commit-preview")
+      await expect(preview).toHaveCount(1)
+      await expect(preview.getByRole("heading")).toHaveText("Add UserService")
+      await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 2")
+    })
+  })
+
   test.describe("Commit Hash Popover", () => {
     test.beforeEach(async ({ setupConflictRepo }) => {
       await setupConflictRepo("conflict_branches")
