@@ -1,4 +1,5 @@
-use super::amend_operations::{AmendToCommitParams, amend_to_commit_in_main};
+use super::amend_operations::{AmendResult, AmendToCommitParams, amend_to_commit_in_main};
+use super::copy_commit::CopyCommitError;
 use anyhow::Result;
 use std::fs;
 use test_log::test;
@@ -30,6 +31,26 @@ fn read_file(repo: &TestRepo, filename: &str) -> Result<String> {
   Ok(fs::read_to_string(repo.path().join(filename))?)
 }
 
+fn amend(repo: &TestRepo, original_commit_id: &str, files: &[&str]) -> Result<AmendResult, CopyCommitError> {
+  let params = AmendToCommitParams {
+    original_commit_id: original_commit_id.to_string(),
+    files: files.iter().map(ToString::to_string).collect(),
+  };
+  amend_to_commit_in_main(repo.git_executor(), repo_path(repo), params)
+}
+
+/// `file1.txt` of a two-commit repo was amended into `original_commit`, which got a new ID
+fn assert_file1_amended(repo: &TestRepo, result: &AmendResult, original_commit: &str) -> Result<()> {
+  assert_ne!(result.amended_commit_id, "");
+  assert_ne!(result.rebased_to_commit, "");
+  assert_ne!(result.amended_commit_id, original_commit);
+
+  // The file was amended and the commit count is still the same
+  assert_eq!(read_file(repo, "file1.txt")?, "amended content");
+  assert_eq!(commit_count(repo)?, 2);
+  Ok(())
+}
+
 #[test]
 fn test_amend_to_commit_basic() -> Result<()> {
   let repo = TestRepo::new();
@@ -43,23 +64,9 @@ fn test_amend_to_commit_basic() -> Result<()> {
   // Modify file and stage for amend
   stage_file(&repo, "file1.txt", "amended content")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1.clone(),
-    files: vec!["file1.txt".to_string()],
-  };
+  let result = amend(&repo, &commit1, &["file1.txt"])?;
 
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
-
-  // Verify the operation succeeded
-  assert_ne!(result.amended_commit_id, "");
-  assert_ne!(result.rebased_to_commit, "");
-  assert_ne!(result.amended_commit_id, commit1);
-
-  // Verify the file was amended
-  assert_eq!(read_file(&repo, "file1.txt")?, "amended content");
-
-  // Verify commit count is still the same
-  assert_eq!(commit_count(&repo)?, 2);
+  assert_file1_amended(&repo, &result, &commit1)?;
 
   Ok(())
 }
@@ -71,13 +78,8 @@ fn test_amend_no_uncommitted_changes() {
   // Create initial commit
   let commit1 = repo.create_commit("Initial commit", "file1.txt", "initial content");
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1,
-    files: vec!["file1.txt".to_string()],
-  };
-
   // Should fail because there are no uncommitted changes
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params);
+  let result = amend(&repo, &commit1, &["file1.txt"]);
   assert!(result.is_err());
 
   let error = result.unwrap_err().to_string();
@@ -94,12 +96,7 @@ fn test_amend_preserves_commit_metadata() -> Result<()> {
   // Modify file and stage for amend
   stage_file(&repo, "file1.txt", "amended content")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1.clone(),
-    files: vec!["file1.txt".to_string()],
-  };
-
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
+  let result = amend(&repo, &commit1, &["file1.txt"])?;
 
   // Verify original author information was preserved in amended commit
   // The original commit was created by "Test User" so that should be preserved
@@ -129,12 +126,7 @@ fn test_working_directory_preserved() -> Result<()> {
   // Add staged changes for amend
   stage_file(&repo, "file1.txt", "amended content")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1,
-    files: vec!["file1.txt".to_string()],
-  };
-
-  amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
+  amend(&repo, &commit1, &["file1.txt"])?;
 
   // Verify uncommitted file still exists (working directory preserved)
   assert!(uncommitted_file.exists());
@@ -156,24 +148,10 @@ fn test_amend_with_unstaged_changes() -> Result<()> {
   // Modify file WITHOUT staging (simulates IntelliJ IDEA workflow)
   write_file(&repo, "file1.txt", "amended content")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1.clone(),
-    files: vec!["file1.txt".to_string()],
-  };
-
   // Should succeed with -a flag auto-staging the changes
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
+  let result = amend(&repo, &commit1, &["file1.txt"])?;
 
-  // Verify the operation succeeded
-  assert_ne!(result.amended_commit_id, "");
-  assert_ne!(result.rebased_to_commit, "");
-  assert_ne!(result.amended_commit_id, commit1);
-
-  // Verify the file was amended
-  assert_eq!(read_file(&repo, "file1.txt")?, "amended content");
-
-  // Verify commit count is still the same
-  assert_eq!(commit_count(&repo)?, 2);
+  assert_file1_amended(&repo, &result, &commit1)?;
 
   Ok(())
 }
@@ -196,13 +174,8 @@ fn test_amend_with_mixed_staged_unstaged_changes() -> Result<()> {
   fs::write(&new_file, "new file content")?;
   repo.git_executor().execute_command(&["add", "file3.txt"], repo_path(&repo))?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1.clone(),
-    files: vec!["file1.txt".to_string(), "file3.txt".to_string()],
-  };
-
   // Should succeed with -a flag handling both staged and unstaged changes
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
+  let result = amend(&repo, &commit1, &["file1.txt", "file3.txt"])?;
 
   // Verify the operation succeeded
   assert_ne!(result.amended_commit_id, "");
@@ -224,12 +197,7 @@ fn test_error_handling_invalid_commit() -> Result<()> {
   // Add uncommitted changes
   stage_file(&repo, "file1.txt", "amended content")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: "invalid_commit_hash".to_string(),
-    files: vec!["file1.txt".to_string()],
-  };
-
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params);
+  let result = amend(&repo, "invalid_commit_hash", &["file1.txt"]);
   assert!(result.is_err());
 
   Ok(())
@@ -249,13 +217,8 @@ fn test_amend_with_multiple_subsequent_commits() -> Result<()> {
   // Add uncommitted changes to amend to the first commit
   stage_file(&repo, "file1.txt", "initial amended")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit1,
-    files: vec!["file1.txt".to_string()],
-  };
-
   // This should fail due to conflicts or succeed with rebasing
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params);
+  let result = amend(&repo, &commit1, &["file1.txt"]);
 
   match result {
     Ok(_) => {
@@ -289,13 +252,8 @@ fn test_amend_with_intervening_commits_modifying_same_file() -> Result<()> {
   // Add uncommitted changes to amend to the original commit
   stage_file(&repo, "shared.txt", "original content with new amendments")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: original_commit.clone(),
-    files: vec!["shared.txt".to_string()],
-  };
-
   // This should succeed with our new implementation
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
+  let result = amend(&repo, &original_commit, &["shared.txt"])?;
 
   // Verify the operation succeeded
   assert_ne!(result.amended_commit_id, "");
@@ -332,13 +290,8 @@ fn test_amend_multiple_files_optimization() -> Result<()> {
   stage_file(&repo, "file2.txt", "amended content2")?;
   stage_file(&repo, "file3.txt", "amended content3")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: original_commit.clone(),
-    files: vec!["file1.txt".to_string(), "file2.txt".to_string(), "file3.txt".to_string()],
-  };
-
   // Should use the optimized batch processing for multiple files
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params)?;
+  let result = amend(&repo, &original_commit, &["file1.txt", "file2.txt", "file3.txt"])?;
 
   // Verify the operation succeeded
   assert_ne!(result.amended_commit_id, "");
@@ -369,13 +322,8 @@ fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
   // Add conflicting uncommitted changes to the same lines
   stage_file(&repo, "file1.txt", "line 1\nmodified by uncommitted\nline 3")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit_to_amend.clone(),
-    files: vec!["file1.txt".to_string()],
-  };
-
   // Attempt to amend - should fail with conflict
-  let result = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params);
+  let result = amend(&repo, &commit_to_amend, &["file1.txt"]);
 
   // Should return an error due to conflicts
   assert!(result.is_err());
@@ -439,13 +387,9 @@ fn test_amend_conflict_in_non_linear_history_returns_merge_conflict_info() -> Re
   // Conflicting uncommitted change to the same line
   write_file(&repo, "file1.txt", "line 1\nmodified by uncommitted\nline 3\n")?;
 
-  let params = AmendToCommitParams {
-    original_commit_id: commit_to_amend.clone(),
-    files: vec!["file1.txt".to_string()],
-  };
-  let error = amend_to_commit_in_main(repo.git_executor(), repo_path(&repo), params).expect_err("amend should conflict");
+  let error = amend(&repo, &commit_to_amend, &["file1.txt"]).expect_err("amend should conflict");
 
-  let crate::copy_commit::CopyCommitError::BranchError(crate::model::BranchError::MergeConflict(conflict_info)) = error else {
+  let CopyCommitError::BranchError(crate::model::BranchError::MergeConflict(conflict_info)) = error else {
     panic!("expected MergeConflictInfo, got {error:?}");
   };
   assert_eq!(conflict_info.original_parent.hash, commit_to_amend);

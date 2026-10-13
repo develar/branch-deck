@@ -132,6 +132,29 @@ mod auto_update_impl {
   }
 }
 
+#[cfg(feature = "auto-update")]
+fn lock_state(update_state: &SharedUpdateState) -> Result<std::sync::MutexGuard<'_, UpdateState>, CommandError> {
+  update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))
+}
+
+/// Records `error` as the update status and returns it, or the lock failure if the state cannot be locked
+#[cfg(feature = "auto-update")]
+fn record_error(update_state: &SharedUpdateState, error: CommandError) -> CommandError {
+  match update_state.lock() {
+    Ok(mut state) => {
+      state.info.status = UpdateStatus::Error(error.message.clone());
+      error
+    }
+    Err(_) => CommandError::new("Failed to lock state"),
+  }
+}
+
+#[cfg(not(feature = "auto-update"))]
+fn auto_update_disabled<T>() -> Result<T, CommandError> {
+  error!("Auto-update feature is not enabled");
+  Err(CommandError::new("Auto-update feature is not enabled in this build"))
+}
+
 // Always export these commands regardless of feature flags
 #[tauri::command]
 #[specta::specta]
@@ -144,31 +167,25 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
 
     // Set status to checking
     {
-      let mut state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
+      let mut state = lock_state(&update_state)?;
       state.info.status = UpdateStatus::Checking;
     }
 
     match auto_update_impl::perform_update_check(&app_handle, &update_state).await {
       Ok(update_info) => {
-        let mut state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
+        let mut state = lock_state(&update_state)?;
         state.info = update_info.clone();
         Ok(update_info)
       }
       Err(e) => {
         error!("Update check failed: {e:?}");
-        let m = format!("Update check failed: {e:#}");
-        let mut state = update_state.lock().map_err(|_| CommandError::new("Failed to lock state"))?;
-        state.info.status = UpdateStatus::Error(m.clone());
-        Err(CommandError::new(m))
+        Err(record_error(&update_state, CommandError::new(format!("Update check failed: {e:#}"))))
       }
     }
   }
 
   #[cfg(not(feature = "auto-update"))]
-  {
-    error!("Auto-update feature is not enabled");
-    Err(CommandError::new("Auto-update feature is not enabled in this build"))
-  }
+  auto_update_disabled()
 }
 
 #[tauri::command]
@@ -180,7 +197,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
   {
     // Get the pending update and downloaded bytes
     let (update, bytes) = {
-      let mut state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
+      let mut state = lock_state(&update_state)?;
 
       if state.pending_update.is_none() || state.downloaded_bytes.is_none() {
         let error = "No update available to install".to_string();
@@ -196,9 +213,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
     info!("Installing update");
     if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| CommandError::new(format!("Failed to install update: {e}")))).await {
       error!("{e}");
-      let mut state = update_state.lock().map_err(|_| CommandError::new("Failed to lock state"))?;
-      state.info.status = UpdateStatus::Error(e.message.clone());
-      return Err(e);
+      return Err(record_error(&update_state, e));
     }
 
     // Restart the app after installation (never returns)
@@ -207,26 +222,22 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
   }
 
   #[cfg(not(feature = "auto-update"))]
-  {
-    error!("Auto-update feature is not enabled");
-    Err(CommandError::new("Auto-update feature is not enabled in this build"))
-  }
+  auto_update_disabled()
 }
 
+// jscpd:ignore-start: every command repeats this attribute stack and the feature-gated body split
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
+// jscpd:ignore-end
 pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
   #[cfg(feature = "auto-update")]
   {
-    let state = update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))?;
+    let state = lock_state(&update_state)?;
     Ok(state.info.clone())
   }
 
   #[cfg(not(feature = "auto-update"))]
-  {
-    error!("Auto-update feature is not enabled");
-    Err(CommandError::new("Auto-update feature is not enabled in this build"))
-  }
+  auto_update_disabled()
 }

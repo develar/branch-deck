@@ -266,15 +266,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       tracing::info!("Populated NO_REPO store with invalid path: {}", path);
     }
 
-    let repo = TestRepository {
-      id: id.clone(),
-      path: path.clone(),
-      store,
-      model_state,
-      download_cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    };
-
-    state.repositories.insert(id.clone(), repo);
+    insert_repository(&state, &id, &path, store, model_state);
     // Don't insert into path_to_id for NO_REPO
 
     tracing::info!("Created NO_REPO repository with id: {}", id);
@@ -326,20 +318,23 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     );
   }
 
-  let repo = TestRepository {
-    id: id.clone(),
-    path: path.clone(),
-    store,
-    model_state,
-    download_cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-  };
-
-  state.repositories.insert(id.clone(), repo);
+  insert_repository(&state, &id, &path, store, model_state);
   state.path_to_id.insert(path.clone(), id.clone());
 
   tracing::info!("Created repository with id: {} at path: {}", id, path);
 
   Ok(Json(CreateRepositoryResponse { id, path }))
+}
+
+fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<String, serde_json::Value>, model_state: Arc<std::sync::RwLock<state::ModelState>>) {
+  let repo = TestRepository {
+    id: id.to_string(),
+    path: path.to_string(),
+    store,
+    model_state,
+    download_cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+  };
+  state.repositories.insert(id.to_string(), repo);
 }
 
 pub async fn get_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {

@@ -1,4 +1,5 @@
 import { testWithUnassigned, expect } from "../fixtures/test-fixtures"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import { selectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
 import { inlineBranchCreator, openBranchCreatorForFirstCommit } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
@@ -17,6 +18,23 @@ import {
 } from "../helpers/ai-test-helpers"
 
 const test = testWithUnassigned
+
+/** Model not downloaded; the frontend shows Enable/Not now (aiMode "initial"), and the download takes 5 minutes */
+const SLOW_DOWNLOAD_SETUP: SetupRepoOptions = {
+  modelState: "not_downloaded",
+  initialStoreValues: {
+    ai: {
+      aiMode: "initial",
+      simulateSlowDownload: true,
+    },
+  },
+}
+
+const AI_ENABLED_SETUP: SetupRepoOptions = {
+  initialStoreValues: {
+    ai: { aiMode: "enabled" },
+  },
+}
 
 test.describe("Inline Branch Creator - AI Features", () => {
   test("should show AI initial prompt when AI has never been configured", async ({ page, setupUnassignedRepo }) => {
@@ -70,15 +88,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
   })
 
   test("should start model download when clicking 'Enable'", async ({ page, setupUnassignedRepo }) => {
-    await setupUnassignedRepo({
-      modelState: "not_downloaded", // Explicitly set model not downloaded
-      initialStoreValues: {
-        ai: {
-          aiMode: "initial", // Frontend needs this to show Enable/Not now buttons
-          simulateSlowDownload: true, // Enable 5-minute download simulation
-        },
-      },
-    })
+    await setupUnassignedRepo(SLOW_DOWNLOAD_SETUP)
 
     await openBranchCreatorForFirstCommit(page)
 
@@ -122,11 +132,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
   test("should show AI suggestions after model download completes", async ({ page, setupUnassignedRepo }) => {
     // Pre-set AI as enabled (simulating completed download)
-    await setupUnassignedRepo({
-      initialStoreValues: {
-        ai: { aiMode: "enabled" },
-      },
-    })
+    await setupUnassignedRepo(AI_ENABLED_SETUP)
 
     await openBranchCreatorForFirstCommit(page)
 
@@ -146,11 +152,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
   test("should toggle AI on/off via sparkles icon", async ({ page, setupUnassignedRepo }) => {
     // Pre-set AI as enabled
-    await setupUnassignedRepo({
-      initialStoreValues: {
-        ai: { aiMode: "enabled" },
-      },
-    })
+    await setupUnassignedRepo(AI_ENABLED_SETUP)
 
     await openBranchCreatorForFirstCommit(page)
 
@@ -199,11 +201,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
   test("should populate branch name input with selected suggestion", async ({ page, setupUnassignedRepo }) => {
     // Pre-set AI as enabled
-    await setupUnassignedRepo({
-      initialStoreValues: {
-        ai: { aiMode: "enabled" },
-      },
-    })
+    await setupUnassignedRepo(AI_ENABLED_SETUP)
 
     await openBranchCreatorForFirstCommit(page)
 
@@ -223,15 +221,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
   })
 
   test("should show download progress in popover when hovering pulsing icon", async ({ page, setupUnassignedRepo }) => {
-    await setupUnassignedRepo({
-      modelState: "not_downloaded",
-      initialStoreValues: {
-        ai: {
-          aiMode: "initial",
-          simulateSlowDownload: true,
-        },
-      },
-    })
+    await setupUnassignedRepo(SLOW_DOWNLOAD_SETUP)
 
     await openBranchCreatorForFirstCommit(page)
 
@@ -253,15 +243,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
   })
 
   test("should pause and resume model download", async ({ page, setupUnassignedRepo }) => {
-    await setupUnassignedRepo({
-      modelState: "not_downloaded",
-      initialStoreValues: {
-        ai: {
-          aiMode: "initial",
-          simulateSlowDownload: true,
-        },
-      },
-    })
+    await setupUnassignedRepo(SLOW_DOWNLOAD_SETUP)
 
     await openBranchCreatorForFirstCommit(page)
 
@@ -299,11 +281,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
   test("should regenerate suggestions when commit selection changes", async ({ page, setupUnassignedRepo }) => {
     // Pre-set AI as enabled
-    await setupUnassignedRepo({
-      initialStoreValues: {
-        ai: { aiMode: "enabled" },
-      },
-    })
+    await setupUnassignedRepo(AI_ENABLED_SETUP)
 
     // Select first commit
     await openBranchCreatorForFirstCommit(page)

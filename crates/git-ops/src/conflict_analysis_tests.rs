@@ -19,6 +19,31 @@ fn count_commits(git_executor: &GitCommandExecutor, repo_path: &str, from_commit
   output.trim().parse::<u32>().map_err(|e| anyhow!("Failed to parse commit count: {e}"))
 }
 
+/// Diffs of `files` in `commit` from `batch_get_file_diffs`, which must return this commit only
+fn commit_file_diffs(test_repo: &TestRepo, commit: &str, files: &[&str]) -> Vec<FileDiff> {
+  let commit_files_map = vec![(commit.to_string(), files.iter().map(ToString::to_string).collect())];
+  let mut all_diffs =
+    batch_get_file_diffs(test_repo.git_executor(), test_repo.path().to_str().unwrap(), &commit_files_map).unwrap_or_else(|e| panic!("batch_get_file_diffs failed: {e}"));
+  assert_eq!(all_diffs.len(), 1);
+  all_diffs.remove(commit).unwrap()
+}
+
+/// Writes `content` as a blob with `git hash-object -w` and returns its OID
+fn write_blob(test_repo: &TestRepo, content: &[u8]) -> String {
+  let output = Command::new("git")
+    .args(["hash-object", "-w", "--stdin"])
+    .current_dir(test_repo.path())
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .spawn()
+    .and_then(|mut child| {
+      child.stdin.as_mut().unwrap().write_all(content)?;
+      child.wait_with_output()
+    })
+    .expect("Failed to create blob");
+  String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 #[test]
 fn test_parse_cat_file_header() {
   assert_eq!(parse_cat_file_header("abc123def456 blob 1024"), Some(("abc123def456".to_string(), 1024)));
@@ -74,7 +99,6 @@ fn test_get_files_content_at_commit_missing_file() {
 #[test]
 fn test_batch_get_file_diffs_single_commit() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit
   let _commit1 = test_repo.create_commit("Initial commit", "test.kt", "class Test {}");
@@ -83,19 +107,7 @@ fn test_batch_get_file_diffs_single_commit() {
   let commit2 = test_repo.create_commit("Add method", "test.kt", "class Test {\n  fun hello() {}\n}");
 
   // Get file diffs using batch function
-  let files = vec!["test.kt".to_string()];
-  let commit_files_map = vec![(commit2.clone(), files)];
-  let result = batch_get_file_diffs(git_executor, test_repo.path().to_str().unwrap(), &commit_files_map);
-
-  if let Err(e) = &result {
-    tracing::error!(error = %e, "Error in test_batch_get_file_diffs_single_commit");
-  }
-
-  assert!(result.is_ok());
-  let all_diffs = result.unwrap();
-  assert_eq!(all_diffs.len(), 1);
-
-  let diffs = all_diffs.get(&commit2).unwrap();
+  let diffs = commit_file_diffs(&test_repo, &commit2, &["test.kt"]);
   assert_eq!(diffs.len(), 1);
 
   let diff = &diffs[0];
@@ -110,7 +122,6 @@ fn test_batch_get_file_diffs_single_commit() {
 #[test]
 fn test_batch_get_file_diffs_with_hunk_format() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit
   let _commit1 = test_repo.create_commit("Initial commit", "test.rs", "fn main() {\n    println!(\"Hello\");\n}");
@@ -119,15 +130,7 @@ fn test_batch_get_file_diffs_with_hunk_format() {
   let commit2 = test_repo.create_commit("Add more prints", "test.rs", "fn main() {\n    println!(\"Hello, World!\");\n    println!(\"Goodbye\");\n}");
 
   // Get file diffs using batch function
-  let files = vec!["test.rs".to_string()];
-  let commit_files_map = vec![(commit2.clone(), files)];
-  let result = batch_get_file_diffs(git_executor, test_repo.path().to_str().unwrap(), &commit_files_map);
-
-  assert!(result.is_ok());
-  let all_diffs = result.unwrap();
-  assert_eq!(all_diffs.len(), 1);
-
-  let diffs = all_diffs.get(&commit2).unwrap();
+  let diffs = commit_file_diffs(&test_repo, &commit2, &["test.rs"]);
   assert_eq!(diffs.len(), 1);
 
   let diff = &diffs[0];
@@ -148,7 +151,6 @@ fn test_batch_get_file_diffs_with_hunk_format() {
 #[test]
 fn test_get_file_diffs_multiple_files() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit with both files
   test_repo.create_commit_with_files("Initial commit with both files", &[("file1.txt", "Content 1"), ("file2.txt", "Content 2")]);
@@ -175,19 +177,7 @@ fn test_get_file_diffs_multiple_files() {
   }
 
   // Get diffs for both files
-  let files = vec!["file1.txt".to_string(), "file2.txt".to_string()];
-  let commit_files_map = vec![(commit_hash.clone(), files)];
-  let result = batch_get_file_diffs(git_executor, test_repo.path().to_str().unwrap(), &commit_files_map);
-
-  if let Err(e) = &result {
-    tracing::error!(error = %e, "Error in test_get_file_diffs_multiple_files");
-  }
-
-  assert!(result.is_ok());
-  let all_diffs = result.unwrap();
-  assert_eq!(all_diffs.len(), 1);
-
-  let diffs = all_diffs.get(&commit_hash).unwrap();
+  let diffs = commit_file_diffs(&test_repo, &commit_hash, &["file1.txt", "file2.txt"]);
   assert_eq!(diffs.len(), 2);
 
   // Check first file
@@ -236,7 +226,6 @@ fn test_find_merge_base() {
 #[test]
 fn test_get_file_diffs_new_file() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit
   let _commit1 = test_repo.create_commit("Initial commit", "existing.txt", "existing content");
@@ -245,16 +234,8 @@ fn test_get_file_diffs_new_file() {
   let commit_hash = test_repo.create_commit("Add new file", "new_file.txt", "New file content");
 
   // Get diff for the new file
-  let files = vec!["new_file.txt".to_string()];
-  let commit_files_map = vec![(commit_hash.clone(), files)];
-  let result = batch_get_file_diffs(git_executor, test_repo.path().to_str().unwrap(), &commit_files_map);
-
   // Should succeed with empty old content
-  assert!(result.is_ok());
-  let all_diffs = result.unwrap();
-  assert_eq!(all_diffs.len(), 1);
-
-  let diffs = all_diffs.get(&commit_hash).unwrap();
+  let diffs = commit_file_diffs(&test_repo, &commit_hash, &["new_file.txt"]);
   assert_eq!(diffs.len(), 1);
 
   let diff = &diffs[0];
@@ -626,31 +607,9 @@ fn test_batch_cat_file_with_null_termination() {
   let git_executor = &GitCommandExecutor::new();
 
   // Create multiple blobs
-  let output1 = Command::new("git")
-    .args(["hash-object", "-w", "--stdin"])
-    .current_dir(test_repo.path())
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .spawn()
-    .and_then(|mut child| {
-      child.stdin.as_mut().unwrap().write_all(b"Content with\nnewline")?;
-      child.wait_with_output()
-    })
-    .expect("Failed to create blob1");
-  let oid1 = String::from_utf8_lossy(&output1.stdout).trim().to_string();
+  let oid1 = write_blob(&test_repo, b"Content with\nnewline");
 
-  let output2 = Command::new("git")
-    .args(["hash-object", "-w", "--stdin"])
-    .current_dir(test_repo.path())
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .spawn()
-    .and_then(|mut child| {
-      child.stdin.as_mut().unwrap().write_all(b"Normal content")?;
-      child.wait_with_output()
-    })
-    .expect("Failed to create blob2");
-  let oid2 = String::from_utf8_lossy(&output2.stdout).trim().to_string();
+  let oid2 = write_blob(&test_repo, b"Normal content");
 
   // Test batch cat-file
   let oids = vec![oid1.as_str(), oid2.as_str()];
@@ -667,18 +626,7 @@ fn test_error_handling_batch_cat_file_missing_objects() {
   let git_executor = &GitCommandExecutor::new();
 
   // Create one valid blob
-  let output = Command::new("git")
-    .args(["hash-object", "-w", "--stdin"])
-    .current_dir(test_repo.path())
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .spawn()
-    .and_then(|mut child| {
-      child.stdin.as_mut().unwrap().write_all(b"Valid content")?;
-      child.wait_with_output()
-    })
-    .expect("Failed to create blob");
-  let valid_oid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+  let valid_oid = write_blob(&test_repo, b"Valid content");
 
   // Test with mix of valid and invalid OIDs
   let oids = vec![

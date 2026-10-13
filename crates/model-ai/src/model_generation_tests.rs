@@ -1,11 +1,10 @@
 use crate::generator::MAX_NEW_TOKENS;
-use crate::test_utils::{CommitDiff, FileDiff, convert_to_raw_git_format};
 use anyhow::Result;
-use git_ops::model::CommitInfo;
 use insta::{assert_yaml_snapshot, with_settings};
 use model_core::config::ModelConfig;
 use model_core::prompt::MAX_BRANCH_NAME_LENGTH;
 use model_core::quantized_qwen3::{GenerationOptions, QuantizedQwen3BranchGenerator};
+use model_core::test_utils::{CommitDiff, CommitInfo, FileDiff, convert_to_raw_git_format};
 use std::path::PathBuf;
 use std::time::Instant;
 

@@ -1,0 +1,2 @@
+# Fixture file contents read with include_str!: keep the bytes (LF, trailing spaces, no final newline) on checkout
+* -text

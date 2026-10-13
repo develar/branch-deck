@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use test_server::get_test_repos_dir;
 use test_utils::repo_template::templates;
 
 fn main() -> anyhow::Result<()> {
@@ -38,15 +38,4 @@ fn main() -> anyhow::Result<()> {
 
   println!("Test repository templates regenerated successfully!");
   Ok(())
-}
-
-fn get_test_repos_dir() -> PathBuf {
-  // Get the path relative to the project root
-  let current_exe = std::env::current_exe().expect("Failed to get current executable path");
-  let project_root = current_exe
-    .ancestors()
-    .find(|p| p.join("Cargo.toml").exists() && p.join("tests").exists())
-    .expect("Failed to find project root");
-
-  project_root.join("tests").join("test-repos")
 }

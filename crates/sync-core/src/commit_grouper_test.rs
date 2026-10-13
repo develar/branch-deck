@@ -1,5 +1,6 @@
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use git_ops::commit_list::Commit;
+use indexmap::IndexMap;
 use test_log::test;
 
 /// Helper function to create a test commit with minimal required fields
@@ -64,6 +65,17 @@ fn test_prefix_regex_patterns() {
   }
 }
 
+/// Finishes grouping and checks that the commits fell into exactly two branches, none unassigned
+fn finish_into_two_groups(grouper: CommitGrouper) -> IndexMap<String, Vec<Commit>> {
+  let GroupedCommits {
+    branches: grouped, unassigned, ..
+  } = grouper.finish();
+
+  assert_eq!(grouped.len(), 2, "Should have 2 groups");
+  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+  grouped
+}
+
 #[test]
 fn test_group_commits_with_issue_numbers() {
   let mut grouper = CommitGrouper::new();
@@ -73,12 +85,7 @@ fn test_group_commits_with_issue_numbers() {
   grouper.add_commit(create_test_commit("2", "XYZ-1001: Improve performance"));
   grouper.add_commit(create_test_commit("3", "IJPL-163558: Enhance logging"));
 
-  let GroupedCommits {
-    branches: grouped, unassigned, ..
-  } = grouper.finish();
-
-  assert_eq!(grouped.len(), 2, "Should have 2 groups");
-  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+  let grouped = finish_into_two_groups(grouper);
 
   // Check IJPL-163558 group
   assert!(grouped.contains_key("IJPL-163558"));
@@ -403,12 +410,7 @@ fn test_autosquash_commits_with_issue_numbers() {
   grouper.add_commit(create_test_commit("3", "fixup! JIRA-123: Fix authentication bug"));
   grouper.add_commit(create_test_commit("4", "squash! ABC-456: Update documentation"));
 
-  let GroupedCommits {
-    branches: grouped, unassigned, ..
-  } = grouper.finish();
-
-  assert_eq!(grouped.len(), 2, "Should have 2 groups");
-  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+  let grouped = finish_into_two_groups(grouper);
 
   // Check JIRA-123 group
   assert!(grouped.contains_key("JIRA-123"));
@@ -434,12 +436,7 @@ fn test_autosquash_commits_with_square_brackets_and_issue() {
   grouper.add_commit(create_test_commit("4", "squash! [database] XYZ-789: Update schema"));
   grouper.add_commit(create_test_commit("5", "amend! [subsystem] ISSUE-123: Do stuff"));
 
-  let GroupedCommits {
-    branches: grouped, unassigned, ..
-  } = grouper.finish();
-
-  assert_eq!(grouped.len(), 2, "Should have 2 groups");
-  assert_eq!(unassigned.len(), 0, "Should have no unassigned commits");
+  let grouped = finish_into_two_groups(grouper);
 
   // Check ISSUE-123 group
   assert!(grouped.contains_key("ISSUE-123"));

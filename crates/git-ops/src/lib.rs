@@ -14,6 +14,9 @@ pub mod reword_commits;
 mod amend_operations_test;
 
 #[cfg(test)]
+mod cherry_pick_test_utils;
+
+#[cfg(test)]
 mod commit_utils_test;
 
 #[cfg(test)]

@@ -3,20 +3,27 @@ use crate::test_utils::{CommitDiff, CommitInfo, FileDiff, convert_to_raw_git_for
 use pretty_assertions::assert_eq;
 use test_log::test;
 
+/// Raw git log output for commits with the given messages and no file changes
+fn git_output_for(messages: &[&str]) -> String {
+  let commits: Vec<CommitInfo> = messages
+    .iter()
+    .enumerate()
+    .map(|(index, message)| CommitInfo {
+      message: message.to_string(),
+      hash: format!("hash{index}"),
+    })
+    .collect();
+  convert_to_raw_git_format(&commits, &[])
+}
+
+/// Generic prompt for commits with the given messages and no file changes
+fn generic_prompt_for(messages: &[&str]) -> String {
+  create_generic_prompt(&git_output_for(messages)).unwrap()
+}
+
 #[test]
 fn test_create_generic_prompt_basic() {
-  let commits = vec![CommitInfo {
-    message: "feat: Add user authentication".to_string(),
-    hash: "abc123".to_string(),
-  }];
-
-  let diffs = vec![];
-
-  let git_output = convert_to_raw_git_format(&commits, &diffs);
-  let result = create_generic_prompt(&git_output);
-  assert!(result.is_ok());
-
-  let prompt = result.unwrap();
+  let prompt = generic_prompt_for(&["feat: Add user authentication"]);
   assert!(prompt.contains("feat: Add user authentication"));
   assert!(prompt.contains("Create one branch name"));
   assert!(prompt.contains("Your turn:"));
@@ -24,15 +31,7 @@ fn test_create_generic_prompt_basic() {
 
 #[test]
 fn test_create_chatml_prompt_basic() {
-  let commits = vec![CommitInfo {
-    message: "feat: Add OAuth2 integration".to_string(),
-    hash: "def456".to_string(),
-  }];
-
-  let diffs = vec![];
-
-  let git_output = convert_to_raw_git_format(&commits, &diffs);
-  let result = create_chatml_prompt(&git_output, None);
+  let result = create_chatml_prompt(&git_output_for(&["feat: Add OAuth2 integration"]), None);
   assert!(result.is_ok());
 
   let prompt = result.unwrap();
@@ -43,14 +42,7 @@ fn test_create_chatml_prompt_basic() {
 
 #[test]
 fn test_generic_prompt_includes_examples() {
-  let commits = vec![];
-  let diffs = vec![];
-
-  let git_output = convert_to_raw_git_format(&commits, &diffs);
-  let result = create_generic_prompt(&git_output);
-  assert!(result.is_ok());
-
-  let prompt = result.unwrap();
+  let prompt = generic_prompt_for(&[]);
   assert!(prompt.contains("Create one branch name"));
   assert!(prompt.contains("Example:"));
   assert!(prompt.contains("Update payment gateway"));
@@ -59,24 +51,7 @@ fn test_generic_prompt_includes_examples() {
 
 #[test]
 fn test_prompt_with_multiple_commits() {
-  let commits = vec![
-    CommitInfo {
-      message: "feat: Add login functionality".to_string(),
-      hash: "123".to_string(),
-    },
-    CommitInfo {
-      message: "fix: Handle edge case in auth flow".to_string(),
-      hash: "456".to_string(),
-    },
-  ];
-
-  let diffs = vec![];
-
-  let git_output = convert_to_raw_git_format(&commits, &diffs);
-  let result = create_generic_prompt(&git_output);
-  assert!(result.is_ok());
-
-  let prompt = result.unwrap();
+  let prompt = generic_prompt_for(&["feat: Add login functionality", "fix: Handle edge case in auth flow"]);
   assert!(prompt.contains("feat: Add login functionality"));
   assert!(prompt.contains("fix: Handle edge case in auth flow"));
 }

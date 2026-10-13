@@ -29,7 +29,11 @@ pnpm test-server:dev      # Run the E2E mock server with auto-restart (requires 
 pnpm lint                 # Run all linting and formatting
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
 pnpm lint:frontend        # ESLint + tsc type-check of the React/TypeScript code
+pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 ```
+
+Fix a clone reported by `lint:cpd` with a helper, constant or fixture. Wrap code in `// jscpd:ignore-start` /
+`// jscpd:ignore-end` only when the duplication is intentional, and say why in the comment.
 
 If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
 the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.

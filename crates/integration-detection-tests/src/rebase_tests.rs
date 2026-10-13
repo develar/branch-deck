@@ -220,9 +220,20 @@ fn test_batch_archive_with_naming_conflicts() {
 #[test]
 fn test_same_day_rearchiving_with_conflict_resolution() {
   use branch_integration::archive::batch_archive_inactive_branches;
-  use branch_integration::common::get_all_branch_data;
+  use branch_integration::common::{BranchData, get_all_branch_data};
 
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
+  let archive_issue_branch = |branch_data: &BranchData| {
+    batch_archive_inactive_branches(
+      &git_executor,
+      local_repo.path().to_str().unwrap(),
+      "user",
+      &["user/virtual/123".to_string()],
+      &branch_data.virtual_commits,
+      &branch_data.archived_today_names,
+    )
+    .unwrap()
+  };
 
   // Scenario: Working on issue #123 multiple times in the same day
 
@@ -232,15 +243,7 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
 
   // Get branch data and archive it
   let branch_data = get_all_branch_data(&git_executor, local_repo.path().to_str().unwrap(), "user").unwrap();
-  let first_archive = batch_archive_inactive_branches(
-    &git_executor,
-    local_repo.path().to_str().unwrap(),
-    "user",
-    &["user/virtual/123".to_string()],
-    &branch_data.virtual_commits,
-    &branch_data.archived_today_names,
-  )
-  .unwrap();
+  let first_archive = archive_issue_branch(&branch_data);
 
   assert_eq!(first_archive.len(), 1);
   let first_archive_name = first_archive.keys().next().unwrap();
@@ -277,15 +280,7 @@ fn test_same_day_rearchiving_with_conflict_resolution() {
   );
 
   // Archive the second version - should get suffix
-  let second_archive = batch_archive_inactive_branches(
-    &git_executor,
-    local_repo.path().to_str().unwrap(),
-    "user",
-    &["user/virtual/123".to_string()],
-    &branch_data.virtual_commits,
-    &branch_data.archived_today_names,
-  )
-  .unwrap();
+  let second_archive = archive_issue_branch(&branch_data);
 
   assert_eq!(second_archive.len(), 1);
   let second_archive_name = second_archive.keys().next().unwrap();
@@ -318,10 +313,10 @@ fn test_partial_integration_detection_with_rebase_strategy() {
 #[test(tokio::test)]
 async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   use super::test_helpers::options_with_strategy;
+  use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
   use branch_integration::cache::CacheOps;
   use sync_core::sync::{SyncOptions, sync_branches};
   use sync_test_utils::TestReporter;
-  use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
 
@@ -360,30 +355,9 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   // Step 3: Set up cache status for archived branches
   let cache_ops = CacheOps::new(&git_executor, local_repo.path().to_str().unwrap());
 
-  // Create integrated cache entries
-  let integrated_info = BranchIntegrationInfo {
-    name: "test-branch".to_string(),
-    summary: String::new(),
-    status: BranchIntegrationStatus::Integrated {
-      integrated_at: Some(0),
-      confidence: IntegrationConfidence::High,
-      commit_count: 1,
-    },
-  };
-  // Write integrated cache directly
-
-  // Create not-integrated cache entry
-  let not_integrated_info = BranchIntegrationInfo {
-    name: "test-branch".to_string(),
-    summary: String::new(),
-    status: BranchIntegrationStatus::NotIntegrated {
-      total_commit_count: 1,
-      integrated_count: 0,
-      orphaned_count: 1,
-      integrated_at: None,
-    },
-  };
-  // Write not-integrated cache directly
+  // Create integrated and not-integrated cache entries
+  let integrated_info = integrated_cache_info();
+  let not_integrated_info = not_integrated_cache_info(1, 0, 1);
 
   cache_ops.write(&commit1, &integrated_info).unwrap(); // old + integrated = should be deleted
   cache_ops.write(&commit2, &integrated_info).unwrap(); // recent + integrated = should remain (not old enough)

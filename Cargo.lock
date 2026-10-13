@@ -3781,7 +3781,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-util",
- "git-ops",
  "insta",
  "model-core",
  "reqwest",

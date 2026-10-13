@@ -1,23 +1,55 @@
 use crate::commit_list::*;
-use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
-/// Collects the commits ahead of `baseline_branch` into a Vec
-fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<Vec<Commit>> {
-  let mut commits = Vec::new();
-  get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
-    commits.push(commit);
-    Ok(())
-  })?;
-  Ok(commits)
+/// A repo with an initial commit and `origin/master` pointing at it
+fn repo_with_origin_master() -> TestRepo {
+  let test_repo = TestRepo::new();
+  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+  test_repo
+}
+
+fn commits_ahead(test_repo: &TestRepo, baseline_branch: &str) -> Vec<Commit> {
+  get_commit_list(test_repo.git_executor(), test_repo.path().to_str().unwrap(), baseline_branch).unwrap()
+}
+
+fn assert_subjects(commits: &[Commit], expected: &[&str]) {
+  assert_eq!(commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), expected);
+}
+
+/// Prefixed and unprefixed commits on top of HEAD
+fn create_mixed_commits(test_repo: &TestRepo) {
+  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
+  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+  test_repo.create_commit("Regular commit without prefix", "regular.txt", "regular content");
+  test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
+}
+
+const MIXED_SUBJECTS: [&str; 4] = [
+  "(feature-auth) Add authentication",
+  "(bugfix-login) Fix login issue",
+  "Regular commit without prefix",
+  "(ui-components) Add button",
+];
+
+fn create_auth_and_login_commits(test_repo: &TestRepo) {
+  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
+  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+}
+
+/// The commits of a repo with one commit ahead of `origin/master` that carries `note`
+fn single_commit_with_note(note: &str) -> Vec<Commit> {
+  let test_repo = repo_with_origin_master();
+  let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
+  test_repo.add_note(&commit_hash, note).unwrap();
+  commits_ahead(&test_repo, "origin/master")
 }
 
 #[test]
 fn test_get_commit_list_local_repository() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create initial commit on master
   test_repo.create_commit("Initial commit", "README.md", "# Test");
@@ -29,49 +61,23 @@ fn test_get_commit_list_local_repository() {
   test_repo.checkout("feature").unwrap();
 
   // Add commits with prefixes on feature branch
-  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
-  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
-  test_repo.create_commit("Regular commit", "regular.txt", "regular content");
-  test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
+  create_mixed_commits(&test_repo);
 
   // Should work with local master branch (no remote needed)
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
-
-  assert_eq!(commits.len(), 4);
-  assert_eq!(commits[0].subject, "(feature-auth) Add authentication");
-  assert_eq!(commits[1].subject, "(bugfix-login) Fix login issue");
-  assert_eq!(commits[2].subject, "Regular commit");
-  assert_eq!(commits[3].subject, "(ui-components) Add button");
+  let commits = commits_ahead(&test_repo, "master");
+  assert_subjects(&commits, &MIXED_SUBJECTS);
 }
 
 #[test]
 fn test_get_commit_list_with_origin() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-
-  // Simulate origin/master at initial commit
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
-
-  // Add commits with different patterns
-  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
-  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
-  test_repo.create_commit("Regular commit without prefix", "regular.txt", "regular content");
-  test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
+  let test_repo = repo_with_origin_master();
+  create_mixed_commits(&test_repo);
 
   // Get commits ahead of origin/master
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  let commits = commits_ahead(&test_repo, "origin/master");
 
-  // Should return all 4 commits (including the one without prefix)
-  assert_eq!(commits.len(), 4);
-
-  // Verify commits are in chronological order (oldest first due to --reverse)
-  assert_eq!(commits[0].subject, "(feature-auth) Add authentication");
-  assert_eq!(commits[1].subject, "(bugfix-login) Fix login issue");
-  assert_eq!(commits[2].subject, "Regular commit without prefix");
-  assert_eq!(commits[3].subject, "(ui-components) Add button");
+  // All 4 commits (including the one without prefix) in chronological order (oldest first due to --reverse)
+  assert_subjects(&commits, &MIXED_SUBJECTS);
 
   // Verify other fields are populated
   assert_ne!(commits[0].id, "");
@@ -83,12 +89,7 @@ fn test_get_commit_list_with_origin() {
 
 #[test]
 fn test_get_commit_list_with_merges() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+  let test_repo = repo_with_origin_master();
 
   // Create feature branch
   test_repo.create_branch("feature").unwrap();
@@ -106,47 +107,30 @@ fn test_get_commit_list_with_merges() {
   test_repo.create_commit("(post-merge) After merge", "post.txt", "post");
 
   // Get commits - should exclude the merge commit
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  let commits = commits_ahead(&test_repo, "origin/master");
 
   // Should have 3 commits (feature, master change, post-merge) - merge commit excluded
-  assert_eq!(commits.len(), 3);
-  assert_eq!(commits[0].subject, "(feature) Add feature");
-  assert_eq!(commits[1].subject, "(master) Master change");
-  assert_eq!(commits[2].subject, "(post-merge) After merge");
+  assert_subjects(&commits, &["(feature) Add feature", "(master) Master change", "(post-merge) After merge"]);
 }
 
 #[test]
 fn test_get_commit_list_empty_range() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-
-  // Set origin/master to current HEAD (no commits ahead)
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
-
-  // Get commits - should be empty
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  // origin/master is at HEAD, so no commits are ahead
+  let test_repo = repo_with_origin_master();
+  let commits = commits_ahead(&test_repo, "origin/master");
   assert_eq!(commits.len(), 0);
 }
 
 #[test]
 fn test_parse_commit_with_multiline_message() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+  let test_repo = repo_with_origin_master();
 
   // Create commit with multiline message
   let multiline_message = "(feature) Add feature\n\nThis is a detailed description\nwith multiple lines.";
   // Use create_commit which handles the message properly
   test_repo.create_commit(multiline_message, "test.txt", "test content");
 
-  // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  let commits = commits_ahead(&test_repo, "origin/master");
 
   assert_eq!(commits.len(), 1);
   // Check that subject contains only the first line
@@ -157,21 +141,8 @@ fn test_parse_commit_with_multiline_message() {
 
 #[test]
 fn test_commit_with_notes() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
-
-  // Create a commit
-  let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
-
-  // Add a note with the v-commit-v1: prefix
-  test_repo.add_note(&commit_hash, "v-commit-v1:abc123def456").unwrap();
-
-  // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  // A note with the v-commit-v1: prefix
+  let commits = single_commit_with_note("v-commit-v1:abc123def456");
 
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0].subject, "(feature) Add feature");
@@ -180,21 +151,8 @@ fn test_commit_with_notes() {
 
 #[test]
 fn test_commit_with_non_mapping_notes() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
-
-  // Create a commit
-  let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
-
-  // Add a note without the v-commit-v1: prefix
-  test_repo.add_note(&commit_hash, "This is just a regular note").unwrap();
-
-  // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  // A note without the v-commit-v1: prefix
+  let commits = single_commit_with_note("This is just a regular note");
 
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0].note, Some("This is just a regular note".to_string()));
@@ -203,7 +161,6 @@ fn test_commit_with_non_mapping_notes() {
 #[test]
 fn test_get_commit_list_with_main_branch() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create initial commit
   let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
@@ -211,46 +168,30 @@ fn test_get_commit_list_with_main_branch() {
   // Create origin/main instead of origin/master
   test_repo.create_branch_at("origin/main", &initial_commit).unwrap();
 
-  // Add commits
-  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
-  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+  create_auth_and_login_commits(&test_repo);
 
-  // Get commits ahead of origin/main
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/main").unwrap();
-
-  assert_eq!(commits.len(), 2);
-  assert_eq!(commits[0].subject, "(feature-auth) Add authentication");
-  assert_eq!(commits[1].subject, "(bugfix-login) Fix login issue");
+  let commits = commits_ahead(&test_repo, "origin/main");
+  assert_subjects(&commits, &["(feature-auth) Add authentication", "(bugfix-login) Fix login issue"]);
 }
 
 #[test]
 fn test_get_commit_list_on_baseline_branch() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create initial commit
   test_repo.create_commit("Initial commit", "README.md", "# Test");
 
   // Add commits while on master branch (the baseline)
-  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
-  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
+  create_auth_and_login_commits(&test_repo);
 
   // Should get all commits except the initial one when on baseline branch
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "master").unwrap();
-
-  assert_eq!(commits.len(), 2);
-  assert_eq!(commits[0].subject, "(feature-auth) Add authentication");
-  assert_eq!(commits[1].subject, "(bugfix-login) Fix login issue");
+  let commits = commits_ahead(&test_repo, "master");
+  assert_subjects(&commits, &["(feature-auth) Add authentication", "(bugfix-login) Fix login issue"]);
 }
 
 #[test]
 fn test_git_log_format_debug() {
-  let test_repo = TestRepo::new();
-  let _git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+  let test_repo = repo_with_origin_master();
 
   // Create a commit with a note
   let commit1 = test_repo.create_commit("First feature", "feature1.txt", "content1");
@@ -296,29 +237,19 @@ fn test_git_log_format_debug() {
 
 #[test]
 fn test_get_commit_list_streaming() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit on master
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
-
-  // Add commits with different patterns
-  test_repo.create_commit("(feature-auth) Add authentication", "auth.js", "auth code");
-  test_repo.create_commit("(bugfix-login) Fix login issue", "login.js", "login fix");
-  test_repo.create_commit("Regular commit without prefix", "regular.txt", "regular content");
-  test_repo.create_commit("(ui-components) Add button", "button.js", "button code");
+  let test_repo = repo_with_origin_master();
+  create_mixed_commits(&test_repo);
 
   // Collect commits using handler method
   let mut streamed_commits = Vec::new();
-  get_commit_list_with_handler(&git_executor, test_repo.path().to_str().unwrap(), "origin/master", |commit| {
+  get_commit_list_with_handler(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "origin/master", |commit| {
     streamed_commits.push(commit);
     Ok(())
   })
   .unwrap();
 
   // Get commits using regular method for comparison
-  let regular_commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  let regular_commits = commits_ahead(&test_repo, "origin/master");
 
   // Should have the same commits
   assert_eq!(streamed_commits.len(), regular_commits.len());
@@ -334,20 +265,12 @@ fn test_get_commit_list_streaming() {
   }
 
   // Verify order and content
-  assert_eq!(streamed_commits[0].subject, "(feature-auth) Add authentication");
-  assert_eq!(streamed_commits[1].subject, "(bugfix-login) Fix login issue");
-  assert_eq!(streamed_commits[2].subject, "Regular commit without prefix");
-  assert_eq!(streamed_commits[3].subject, "(ui-components) Add button");
+  assert_subjects(&streamed_commits, &MIXED_SUBJECTS);
 }
 
 #[test]
 fn test_get_commit_list_streaming_with_notes() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+  let test_repo = repo_with_origin_master();
 
   // Create commits and add notes
   let commit1 = test_repo.create_commit("(feature) First feature", "feature1.txt", "content1");
@@ -357,13 +280,8 @@ fn test_get_commit_list_streaming_with_notes() {
   test_repo.add_note(&commit1, "v-commit-v1:abc123").unwrap();
   test_repo.add_note(&commit2, "v-commit-v1:def456").unwrap();
 
-  // Collect commits using handler method
-  let mut streamed_commits = Vec::new();
-  get_commit_list_with_handler(&git_executor, test_repo.path().to_str().unwrap(), "origin/master", |commit| {
-    streamed_commits.push(commit);
-    Ok(())
-  })
-  .unwrap();
+  // Collect commits (get_commit_list streams through get_commit_list_with_handler)
+  let streamed_commits = commits_ahead(&test_repo, "origin/master");
 
   assert_eq!(streamed_commits.len(), 2);
 
@@ -374,12 +292,7 @@ fn test_get_commit_list_streaming_with_notes() {
 
 #[test]
 fn test_multiple_commits_with_notes() {
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-
-  // Create initial commit
-  let initial_commit = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_branch_at("origin/master", &initial_commit).unwrap();
+  let test_repo = repo_with_origin_master();
 
   // Create multiple commits
   let commit1 = test_repo.create_commit("(feature) First feature", "feature1.txt", "content1");
@@ -391,8 +304,7 @@ fn test_multiple_commits_with_notes() {
   test_repo.add_note(&commit2, "v-commit-v1:def456").unwrap();
   test_repo.add_note(&commit3, "v-commit-v1:ghi789").unwrap();
 
-  // Get commits
-  let commits = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/master").unwrap();
+  let commits = commits_ahead(&test_repo, "origin/master");
 
   // Debug output
   for (i, commit) in commits.iter().enumerate() {

@@ -13,6 +13,7 @@ export default tseslint.config(
       "target/**",
       "src-tauri/target/**",
       "tests/results/**",
+      "tests/test-repos/**",
       "playwright-report/**",
       "**/migration-backup/**",
       "**/.tools/**",

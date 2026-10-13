@@ -35,6 +35,16 @@ pub struct Commit {
   pub mapped_commit_id: Option<String>, // Extracted from note if it has the `notes::PREFIX` prefix
 }
 
+/// Collects the commits ahead of `baseline_branch` into a Vec (prefer `get_commit_list_with_handler` for large ranges)
+pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Vec<Commit>> {
+  let mut commits = Vec::new();
+  get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
+    commits.push(commit);
+    Ok(())
+  })?;
+  Ok(commits)
+}
+
 /// Get list of commits between baseline branch and HEAD with a custom handler
 /// This is the most memory efficient approach as it processes commits one by one
 #[instrument(skip(git_executor, commit_handler))]

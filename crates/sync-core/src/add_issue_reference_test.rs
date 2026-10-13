@@ -1,41 +1,44 @@
-use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
+use crate::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use test_utils::git_test_utils::TestRepo;
 
+/// Creates one commit per `(message, filename, content)` and returns them in creation order
+fn create_commits(test_repo: &TestRepo, commits: &[(&str, &str, &str)]) -> Vec<CommitInfo> {
+  commits
+    .iter()
+    .map(|(message, filename, content)| CommitInfo {
+      hash: test_repo.create_commit(message, filename, content),
+      message: message.to_string(),
+    })
+    .collect()
+}
+
+fn add_issue_reference(test_repo: &TestRepo, branch_name: &str, commits: Vec<CommitInfo>, issue_reference: &str) -> Result<AddIssueReferenceResult, String> {
+  let params = AddIssueReferenceParams {
+    repository_path: test_repo.path().to_str().unwrap().to_string(),
+    branch_name: branch_name.to_string(),
+    commits,
+    issue_reference: issue_reference.to_string(),
+  };
+  add_issue_reference_to_commits_core(test_repo.git_executor(), params)
+}
+
 #[tokio::test]
 async fn test_add_issue_reference_basic() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create commits with a branch prefix
-  let hash1 = test_repo.create_commit("(feature-auth) Add authentication", "auth.rs", "// auth code");
-  let hash2 = test_repo.create_commit("(feature-auth) Add login endpoint", "login.rs", "// login code");
-  let hash3 = test_repo.create_commit("(feature-auth) Add logout endpoint", "logout.rs", "// logout code");
+  let commits = create_commits(
+    &test_repo,
+    &[
+      ("(feature-auth) Add authentication", "auth.rs", "// auth code"),
+      ("(feature-auth) Add login endpoint", "login.rs", "// login code"),
+      ("(feature-auth) Add logout endpoint", "logout.rs", "// logout code"),
+    ],
+  );
 
-  let commits = vec![
-    CommitInfo {
-      hash: hash1,
-      message: "(feature-auth) Add authentication".to_string(),
-    },
-    CommitInfo {
-      hash: hash2,
-      message: "(feature-auth) Add login endpoint".to_string(),
-    },
-    CommitInfo {
-      hash: hash3,
-      message: "(feature-auth) Add logout endpoint".to_string(),
-    },
-  ];
-
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature-auth".to_string(),
-    commits,
-    issue_reference: "AUTH-123".to_string(),
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params).unwrap();
+  let result = add_issue_reference(&test_repo, "feature-auth", commits, "AUTH-123").unwrap();
 
   assert!(result.success);
   assert_eq!(result.updated_count, 3);
@@ -51,36 +54,18 @@ async fn test_add_issue_reference_basic() {
 #[tokio::test]
 async fn test_add_issue_reference_skips_existing() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create commits, some already with issue references
-  let hash1 = test_repo.create_commit("(feature-auth) AUTH-999 Already has reference", "file1.rs", "content");
-  let hash2 = test_repo.create_commit("(feature-auth) Add login endpoint", "file2.rs", "content");
-  let hash3 = test_repo.create_commit("(feature-auth) JIRA-456 Another existing reference", "file3.rs", "content");
+  let commits = create_commits(
+    &test_repo,
+    &[
+      ("(feature-auth) AUTH-999 Already has reference", "file1.rs", "content"),
+      ("(feature-auth) Add login endpoint", "file2.rs", "content"),
+      ("(feature-auth) JIRA-456 Another existing reference", "file3.rs", "content"),
+    ],
+  );
 
-  let commits = vec![
-    CommitInfo {
-      hash: hash1,
-      message: "(feature-auth) AUTH-999 Already has reference".to_string(),
-    },
-    CommitInfo {
-      hash: hash2,
-      message: "(feature-auth) Add login endpoint".to_string(),
-    },
-    CommitInfo {
-      hash: hash3,
-      message: "(feature-auth) JIRA-456 Another existing reference".to_string(),
-    },
-  ];
-
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature-auth".to_string(),
-    commits,
-    issue_reference: "AUTH-123".to_string(),
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params).unwrap();
+  let result = add_issue_reference(&test_repo, "feature-auth", commits, "AUTH-123").unwrap();
 
   assert!(result.success);
   assert_eq!(result.updated_count, 1); // Only the middle commit was updated
@@ -96,31 +81,14 @@ async fn test_add_issue_reference_skips_existing() {
 #[tokio::test]
 async fn test_add_issue_reference_no_branch_prefix() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create commits without branch prefix
-  let hash1 = test_repo.create_commit("Add authentication", "auth.rs", "// auth code");
-  let hash2 = test_repo.create_commit("Fix login bug", "login.rs", "// login fix");
+  let commits = create_commits(
+    &test_repo,
+    &[("Add authentication", "auth.rs", "// auth code"), ("Fix login bug", "login.rs", "// login fix")],
+  );
 
-  let commits = vec![
-    CommitInfo {
-      hash: hash1,
-      message: "Add authentication".to_string(),
-    },
-    CommitInfo {
-      hash: hash2,
-      message: "Fix login bug".to_string(),
-    },
-  ];
-
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature-auth".to_string(),
-    commits,
-    issue_reference: "AUTH-123".to_string(),
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params).unwrap();
+  let result = add_issue_reference(&test_repo, "feature-auth", commits, "AUTH-123").unwrap();
 
   assert!(result.success);
   assert_eq!(result.updated_count, 2);
@@ -135,80 +103,35 @@ async fn test_add_issue_reference_no_branch_prefix() {
 #[tokio::test]
 async fn test_add_issue_reference_validation() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
+  let commits = create_commits(&test_repo, &[("Test commit", "test.rs", "test content")]);
 
-  let hash = test_repo.create_commit("Test commit", "test.rs", "test content");
-
-  let commits = vec![CommitInfo {
-    hash: hash.clone(),
-    message: "Test commit".to_string(),
-  }];
-
-  // Test invalid issue reference format - contains invalid characters
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature".to_string(),
-    commits: commits.clone(),
-    issue_reference: "AUTH_123".to_string(), // Underscore not allowed
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params);
-  assert!(result.is_err());
-  assert!(result.unwrap_err().contains("only contain letters, numbers, and hyphens"));
+  // Test invalid issue reference format - contains invalid characters (underscore not allowed)
+  let error = add_issue_reference(&test_repo, "feature", commits.clone(), "AUTH_123").unwrap_err();
+  assert!(error.contains("only contain letters, numbers, and hyphens"));
 
   // Test invalid format - no hyphen
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature".to_string(),
-    commits: commits.clone(),
-    issue_reference: "AUTH123".to_string(),
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params);
-  assert!(result.is_err());
-  assert!(result.unwrap_err().contains("must be in format like ABC-123"));
+  let error = add_issue_reference(&test_repo, "feature", commits.clone(), "AUTH123").unwrap_err();
+  assert!(error.contains("must be in format like ABC-123"));
 
   // Test invalid format - empty parts
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature".to_string(),
-    commits: commits.clone(),
-    issue_reference: "AUTH-".to_string(),
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params);
-  assert!(result.is_err());
-  assert!(result.unwrap_err().contains("must be in format like ABC-123"));
+  let error = add_issue_reference(&test_repo, "feature", commits, "AUTH-").unwrap_err();
+  assert!(error.contains("must be in format like ABC-123"));
 }
 
 #[tokio::test]
 async fn test_add_issue_reference_all_skipped() {
   let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
 
   // Create commits that all have issue references
-  let hash1 = test_repo.create_commit("(feature) ISSUE-111 First commit", "file1.rs", "content");
-  let hash2 = test_repo.create_commit("(feature) BUG-222 Second commit", "file2.rs", "content");
+  let commits = create_commits(
+    &test_repo,
+    &[
+      ("(feature) ISSUE-111 First commit", "file1.rs", "content"),
+      ("(feature) BUG-222 Second commit", "file2.rs", "content"),
+    ],
+  );
 
-  let commits = vec![
-    CommitInfo {
-      hash: hash1,
-      message: "(feature) ISSUE-111 First commit".to_string(),
-    },
-    CommitInfo {
-      hash: hash2,
-      message: "(feature) BUG-222 Second commit".to_string(),
-    },
-  ];
-
-  let params = AddIssueReferenceParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "feature".to_string(),
-    commits,
-    issue_reference: "NEW-123".to_string(),
-  };
-
-  let result = add_issue_reference_to_commits_core(&git_executor, params).unwrap();
+  let result = add_issue_reference(&test_repo, "feature", commits, "NEW-123").unwrap();
 
   assert!(result.success);
   assert_eq!(result.updated_count, 0);

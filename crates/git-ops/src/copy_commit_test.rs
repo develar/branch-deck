@@ -1,8 +1,6 @@
-use crate::cache::TreeIdCache;
-use crate::cherry_pick::perform_fast_cherry_pick_with_context;
+use crate::cherry_pick_test_utils::{cherry_pick, cherry_pick_scenario};
 use crate::copy_commit::CopyCommitError;
 use crate::model::{BranchError, MergeConflictInfo};
-use git_executor::git_command_executor::GitCommandExecutor;
 
 use test_log::test;
 use test_utils::git_test_utils::{ConflictTestBuilder, TestRepo};
@@ -34,7 +32,6 @@ fn assert_merge_conflict_and_print(result: Result<String, CopyCommitError>, expe
 #[test]
 fn test_perform_merge_displays_conflict_diffs() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit with realistic code content
   let initial_content = "function calculateTotal(items) {\n  let total = 0;\n  for (let item of items) {\n    total += item.price;\n}\n  return total;\n}";
@@ -49,15 +46,7 @@ fn test_perform_merge_displays_conflict_diffs() {
     .build();
 
   // Attempt the fast cherry-pick, which should have conflicts
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let result = cherry_pick_scenario(&test_repo, &scenario);
 
   // Test that the error is reported with structured data
   let conflict_info = assert_merge_conflict_and_print(result, "calculator.js");
@@ -81,7 +70,6 @@ fn test_perform_merge_displays_conflict_diffs() {
 #[test]
 fn test_perform_merge_with_context_lines() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create content for showing context
   let initial_content = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n";
@@ -96,15 +84,7 @@ fn test_perform_merge_with_context_lines() {
     .build();
 
   // Attempt the fast cherry-pick, which should have conflicts
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let result = cherry_pick_scenario(&test_repo, &scenario);
 
   // Test that the error shows context lines
   let conflict_info = assert_merge_conflict_and_print(result, "file.txt");
@@ -119,7 +99,6 @@ fn test_perform_merge_with_context_lines() {
 #[test]
 fn test_perform_merge_success_no_conflicts() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit
   let initial_hash = test_repo.create_commit("Initial commit", "base.txt", "base content\n");
@@ -132,8 +111,7 @@ fn test_perform_merge_success_no_conflicts() {
   let cherry_hash = test_repo.create_commit("Cherry changes", "cherry.txt", "cherry content\n");
 
   // Attempt the fast cherry-pick, which should succeed
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_hash, &base_hash, &|_| {}, &cache);
+  let result = cherry_pick(&test_repo, &cherry_hash, &base_hash);
 
   // Should succeed without conflicts
   assert!(result.is_ok());
@@ -146,7 +124,6 @@ fn test_perform_merge_success_no_conflicts() {
 #[test]
 fn test_perform_merge_isolates_specific_commit_changes() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial state (master branch)
   let initial_hash = test_repo.create_commit("Initial commit", "README.md", "# Project\n");
@@ -181,8 +158,7 @@ fn test_perform_merge_isolates_specific_commit_changes() {
   );
 
   // Perform the fast cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &commit_258_hash, &initial_hash, &|_| {}, &cache);
+  let result = cherry_pick(&test_repo, &commit_258_hash, &initial_hash);
 
   // Should succeed without conflicts
   assert!(result.is_ok(), "Merge should succeed without conflicts");

@@ -1,19 +1,46 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
+use crate::sync::{SyncOptions, prepare_branches_for_ui, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::Commit;
+use git_ops::commit_list::{Commit, get_commit_list};
+use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
+use sync_test_utils::TestReporter;
+use sync_types::SyncEvent;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
-/// Collects the commits ahead of `baseline_branch` into a Vec
-fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<Vec<git_ops::commit_list::Commit>> {
-  let mut commits = Vec::new();
-  git_ops::commit_list::get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
-    commits.push(commit);
-    Ok(())
-  })?;
-  Ok(commits)
+/// Runs a sync with the `test` branch prefix and returns the events it reported
+async fn sync_events(git_executor: &GitCommandExecutor, test_repo: &TestRepo) -> anyhow::Result<Vec<SyncEvent>> {
+  let progress = TestReporter::new();
+  sync_branches(git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
+  Ok(progress.get_events())
+}
+
+/// A repo with a single "Initial commit" on master
+fn repo_with_initial_commit() -> TestRepo {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test Project");
+  test_repo
+}
+
+/// A commit for `prepare_branches_for_ui`, which reads only the subjects and timestamps
+fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timestamp: u32) -> Commit {
+  Commit {
+    id: hash.to_string(),
+    subject: subject.to_string(),
+    stripped_subject: stripped_subject.to_string(),
+    message: subject.to_string(),
+    author_name: "Test Author".to_string(),
+    author_email: "test@example.com".to_string(),
+    author_timestamp: timestamp,
+    committer_timestamp: timestamp,
+    parent_id: None,
+    tree_id: "tree123".to_string(),
+    note: None,
+    mapped_commit_id: None,
+  }
 }
 
 // Helper function for tests
@@ -341,8 +368,6 @@ fn test_conflict_unassigned_template() {
 
 #[test]
 fn test_prefix_stripping_in_sync_branches() {
-  use sync_test_utils::TestReporter;
-
   let test_repo = TestRepo::new();
 
   // Create initial commit and baseline
@@ -359,16 +384,7 @@ fn test_prefix_stripping_in_sync_branches() {
   let progress_reporter = TestReporter::new();
 
   let rt = tokio::runtime::Runtime::new().unwrap();
-  let result = rt.block_on(async {
-    crate::sync::sync_branches(
-      &git_executor,
-      test_repo.path().to_str().unwrap(),
-      "test-prefix",
-      progress_reporter,
-      crate::sync::SyncOptions::default(),
-    )
-    .await
-  });
+  let result = rt.block_on(async { sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test-prefix", progress_reporter, SyncOptions::default()).await });
 
   assert!(result.is_ok(), "Sync should succeed: {:?}", result.err());
 
@@ -410,18 +426,11 @@ fn test_prefix_stripping_in_sync_branches() {
 
 // Database-based commit reuse tests
 
-use sync_test_utils::TestReporter;
-
 #[tokio::test]
 async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
-  use crate::sync::{SyncOptions, sync_branches};
-  use sync_types::SyncEvent;
-
-  let test_repo = TestRepo::new();
+  // master is the baseline branch
+  let test_repo = repo_with_initial_commit();
   let git_executor = GitCommandExecutor::new();
-
-  // Create a baseline branch (master)
-  test_repo.create_commit("Initial commit", "README.md", "# Test Project");
 
   // Create initial commits with branch prefixes
   // Important: Each commit modifies different files to avoid conflicts
@@ -429,15 +438,13 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   test_repo.create_commit("(feature-cache) Add caching", "cache/cache.txt", "cache content");
 
   // First sync - should create virtual branches
-  let progress = TestReporter::new();
-  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
+  let events = sync_events(&git_executor, &test_repo).await?;
 
   // Verify git directory exists
   let git_dir = test_repo.path().join(".git");
   assert!(git_dir.exists(), ".git directory should exist");
 
   // Check what branches were grouped
-  let events = progress.get_events();
   let mut branches_found = Vec::new();
 
   for event in &events {
@@ -460,11 +467,9 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   test_repo.create_commit("(feature-auth) Add user model", "auth/user.txt", "user model");
 
   // Second sync - should reuse existing commits and only process the new one
-  let progress2 = TestReporter::new();
-  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress2.clone(), SyncOptions::default()).await?;
+  let events = sync_events(&git_executor, &test_repo).await?;
 
   // Check that the auth branch was updated but cache wasn't
-  let events = progress2.get_events();
 
   // Count how many commits were created vs reused
   let mut created_count = 0;
@@ -493,20 +498,12 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()> {
-  use crate::sync::{SyncOptions, sync_branches};
-  use sync_types::SyncEvent;
-
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test Project");
+  let test_repo = repo_with_initial_commit();
   for branch in ["a", "b", "c", "d"] {
     test_repo.create_commit(&format!("({branch}) Change {branch}"), &format!("{branch}.txt"), branch);
   }
 
-  let progress = TestReporter::new();
-  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
-
-  let events = progress.get_events();
+  let events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
   // Phase 1 events are sent sequentially, in this order, before any branch task starts
   assert!(matches!(events[0], SyncEvent::IssueNavigationConfig { .. }), "{:?}", events[0]);
   assert!(matches!(events[1], SyncEvent::UnassignedCommits { .. }), "{:?}", events[1]);
@@ -531,17 +528,8 @@ async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()
 
 #[tokio::test]
 async fn test_zero_commit_sync_clears_branch_set() -> anyhow::Result<()> {
-  use crate::sync::{SyncOptions, sync_branches};
-  use sync_types::SyncEvent;
-
-  let test_repo = TestRepo::new();
-  let git_executor = GitCommandExecutor::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test Project");
-
-  let progress = TestReporter::new();
-  sync_branches(&git_executor, test_repo.path().to_str().unwrap(), "test", progress.clone(), SyncOptions::default()).await?;
-
-  let events = progress.get_events();
+  let test_repo = repo_with_initial_commit();
+  let events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
   let grouped: Vec<_> = events
     .iter()
     .filter_map(|e| match e {
@@ -590,29 +578,6 @@ fn test_detect_baseline_branch_scenarios() {
 
 #[test]
 fn test_prepare_branches_for_ui_issue_references() {
-  use crate::sync::prepare_branches_for_ui;
-  use git_ops::commit_list::Commit;
-  use indexmap::IndexMap;
-  use std::collections::HashMap;
-
-  // Helper function to create a test commit
-  fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timestamp: u32) -> Commit {
-    Commit {
-      id: hash.to_string(),
-      subject: subject.to_string(),
-      stripped_subject: stripped_subject.to_string(),
-      message: subject.to_string(),
-      author_name: "Test Author".to_string(),
-      author_email: "test@example.com".to_string(),
-      author_timestamp: timestamp,
-      committer_timestamp: timestamp,
-      parent_id: None,
-      tree_id: "tree123".to_string(),
-      note: None,
-      mapped_commit_id: None,
-    }
-  }
-
   let mut grouped_commits = IndexMap::new();
   let mut branch_emails = HashMap::new();
 
@@ -674,29 +639,6 @@ fn test_prepare_branches_for_ui_issue_references() {
 
 #[test]
 fn test_prepare_branches_for_ui_mixed_commits() {
-  use crate::sync::prepare_branches_for_ui;
-  use git_ops::commit_list::Commit;
-  use indexmap::IndexMap;
-  use std::collections::HashMap;
-
-  // Helper function to create a test commit
-  fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timestamp: u32) -> Commit {
-    Commit {
-      id: hash.to_string(),
-      subject: subject.to_string(),
-      stripped_subject: stripped_subject.to_string(),
-      message: subject.to_string(),
-      author_name: "Test Author".to_string(),
-      author_email: "test@example.com".to_string(),
-      author_timestamp: timestamp,
-      committer_timestamp: timestamp,
-      parent_id: None,
-      tree_id: "tree123".to_string(),
-      note: None,
-      mapped_commit_id: None,
-    }
-  }
-
   let mut grouped_commits = IndexMap::new();
   let mut branch_emails = HashMap::new();
 

@@ -2,9 +2,9 @@ import { lazy, memo, Suspense } from "react"
 import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
 import { BranchActions } from "@/components/branch/BranchActions"
+import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
@@ -46,42 +46,35 @@ export const BranchRow = memo(function BranchRow({ name, expanded, onToggleExpan
 
   return (
     <>
-      <ContextMenu disabled={processing}>
-        <ContextMenuTrigger
-          render={(
-            <tr
-              data-testid="branch-row"
-              data-branch-name={name}
-              data-state={expanded ? "open" : "closed"}
-              className={cn("group cursor-pointer transition-all hover:bg-muted", expanded && "data-[state=open]:bg-muted/50")}
-              onClick={toggle}
-            />
-          )}
-        >
-          <BranchNameCell
-            name={name}
-            summary={branch.summary}
-            expanded={expanded}
-            canExpand={branch.commitCount > 0 || branch.hasError}
-            onToggleExpanded={toggle}
-          />
-          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-            <span className="text-sm text-muted-foreground">
-              {branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}
-            </span>
-          </td>
-          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-            <BranchStatusBadge branch={branch} />
-          </td>
-          <td className="w-px px-4 py-4 whitespace-nowrap">
-            <BranchActions branch={branch} />
-          </td>
-        </ContextMenuTrigger>
-        {/* the inline form opened from the menu takes the focus */}
-        <ContextMenuContent finalFocus={false}>
-          <BranchContextMenuItems name={name} setExpanded={setExpanded} />
-        </ContextMenuContent>
-      </ContextMenu>
+      <BranchContextMenuRow
+        data-testid="branch-row"
+        name={name}
+        expanded={expanded}
+        processing={processing}
+        group
+        className={cn(expanded && "data-[state=open]:bg-muted/50")}
+        onToggle={toggle}
+        menu={<BranchContextMenuItems name={name} setExpanded={setExpanded} />}
+      >
+        <BranchNameCell
+          name={name}
+          summary={branch.summary}
+          expanded={expanded}
+          canExpand={branch.commitCount > 0 || branch.hasError}
+          onToggleExpanded={toggle}
+        />
+        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+          <span className="text-sm text-muted-foreground">
+            {branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}
+          </span>
+        </td>
+        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+          <BranchStatusBadge branch={branch} />
+        </td>
+        <td className="w-px px-4 py-4 whitespace-nowrap">
+          <BranchActions branch={branch} />
+        </td>
+      </BranchContextMenuRow>
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
         <tr>

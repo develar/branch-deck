@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense } from "react"
 import { ChevronDownIcon, Trash2Icon } from "lucide-react"
 import { cn } from "cn"
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
+import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { ArchivedBranchExpanded } from "@/components/branch/ArchivedBranchExpanded"
 import { ArchivedBranchesHelpPopover } from "@/components/branch/ArchivedBranchesHelpPopover"
 import { ArchivedBranchStatusBadge } from "@/components/branch/ArchivedBranchStatusBadge"
@@ -90,44 +90,32 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 
   return (
     <>
-      <ContextMenu disabled={processing}>
-        <ContextMenuTrigger
-          render={(
-            <tr
-              data-branch-name={name}
-              data-state={expanded ? "open" : "closed"}
-              className={cn(
-                "cursor-pointer transition-all hover:bg-muted",
-                expanded && "bg-muted",
-                branch.isLoadingCommits && "animate-pulse",
-              )}
-              onClick={toggle}
-            />
-          )}
-        >
-          <BranchNameCell
-            name={name}
-            summary={branch.summary}
-            expanded={expanded}
-            canExpand={branch.type !== "placeholder"}
-            simplified
-            onToggleExpanded={toggle}
-          />
-          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-            <ArchivedBranchStatusBadge branch={branch} />
-          </td>
-          <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-            <ArchivedDateCell branch={branch} />
-          </td>
-          <td className="w-px px-4 py-4 whitespace-nowrap">
-            <CopyButton text={() => name} tooltip="Copy full branch name" alwaysVisible />
-          </td>
-        </ContextMenuTrigger>
-        {/* the inline form opened from the menu takes the focus */}
-        <ContextMenuContent finalFocus={false}>
-          <ContextMenuItems groups={getArchivedContextMenuItems(name)} />
-        </ContextMenuContent>
-      </ContextMenu>
+      <BranchContextMenuRow
+        name={name}
+        expanded={expanded}
+        processing={processing}
+        className={cn(expanded && "bg-muted", branch.isLoadingCommits && "animate-pulse")}
+        onToggle={toggle}
+        menu={<ContextMenuItems groups={getArchivedContextMenuItems(name)} />}
+      >
+        <BranchNameCell
+          name={name}
+          summary={branch.summary}
+          expanded={expanded}
+          canExpand={branch.type !== "placeholder"}
+          simplified
+          onToggleExpanded={toggle}
+        />
+        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+          <ArchivedBranchStatusBadge branch={branch} />
+        </td>
+        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+          <ArchivedDateCell branch={branch} />
+        </td>
+        <td className="w-px px-4 py-4 whitespace-nowrap">
+          <CopyButton text={() => name} tooltip="Copy full branch name" alwaysVisible />
+        </td>
+      </BranchContextMenuRow>
 
       {activeInline !== null && (
         <tr>

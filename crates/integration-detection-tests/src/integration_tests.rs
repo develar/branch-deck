@@ -1,4 +1,4 @@
-use super::test_helpers::{options_with_strategy, setup_test_repos, verify_detection_cache_works};
+use super::test_helpers::{detected_branch_info, integrated_branch_names, setup_test_repos, sync_user_branches, verify_detection_cache_works};
 use branch_integration::archive::get_archived_branch_commits;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -6,7 +6,6 @@ use git_ops::model::to_final_branch_name;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use tracing::debug;
@@ -32,18 +31,8 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   }
 
   // Step 5: Run sync to create virtual branches
-  let progress_reporter = TestReporter::new();
-  let result = rt.block_on(async {
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter,
-      options_with_strategy(DetectionStrategy::All),
-    )
-    .await
-  });
-  assert!(result.is_ok(), "Initial sync should succeed");
+  rt.block_on(sync_user_branches(&git_executor, &local_repo, DetectionStrategy::All))
+    .expect("Initial sync should succeed");
 
   // Verify branches were created
   for (branch_name, _) in branch_names {
@@ -138,30 +127,15 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   }
 
   // Step 9: Run sync again - should detect integrated branches
-  let progress_reporter2 = TestReporter::new();
-  let result = rt.block_on(async {
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter2.clone(),
-      options_with_strategy(DetectionStrategy::All),
-    )
-    .await
-  });
-  assert!(result.is_ok(), "Second sync should succeed");
+  let progress_reporter2 = rt
+    .block_on(sync_user_branches(&git_executor, &local_repo, DetectionStrategy::All))
+    .expect("Second sync should succeed");
 
   // Check for integrated branches detection
   let events = progress_reporter2.get_events();
 
   // Collect all integrated branches from individual events
-  let integrated_branches: Vec<_> = events
-    .iter()
-    .filter_map(|e| match e {
-      SyncEvent::BranchIntegrationDetected { info } if matches!(info.status, sync_types::branch_integration::BranchIntegrationStatus::Integrated { .. }) => Some(info.name.clone()),
-      _ => None,
-    })
-    .collect();
+  let integrated_branches = integrated_branch_names(&events);
 
   assert_eq!(integrated_branches.len(), branch_names.len(), "Should detect all branches as integrated");
 
@@ -176,13 +150,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
 
       // Check if we have a timestamp
       // Find the integration info to get the timestamp
-      let integration_info = events
-        .iter()
-        .find_map(|e| match e {
-          SyncEvent::BranchIntegrationDetected { info } if info.name == **integrated_branch => Some(info),
-          _ => None,
-        })
-        .expect("Should find integration info");
+      let integration_info = detected_branch_info(&events, integrated_branch);
 
       if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {
         if let Some(integrated_date) = integrated_at {
@@ -328,25 +296,13 @@ fn test_integration_timestamp_accuracy() {
 
   // Check integrated branch detection
   let events = progress_reporter2.get_events();
-  let integrated_branches: Vec<String> = events
-    .iter()
-    .filter_map(|e| match e {
-      SyncEvent::BranchIntegrationDetected { info } if matches!(info.status, sync_types::branch_integration::BranchIntegrationStatus::Integrated { .. }) => Some(info.name.clone()),
-      _ => None,
-    })
-    .collect();
+  let integrated_branches = integrated_branch_names(&events);
 
   assert_eq!(integrated_branches.len(), 1, "Should detect one integrated branch");
   let branch = &integrated_branches[0];
 
   // Find the integration info for verification
-  let integration_info = events
-    .iter()
-    .find_map(|e| match e {
-      SyncEvent::BranchIntegrationDetected { info } if info.name == *branch => Some(info),
-      _ => None,
-    })
-    .expect("Should find integration info");
+  let integration_info = detected_branch_info(&events, branch);
 
   // Verify the timestamp is close to merge time, not current time
   let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");

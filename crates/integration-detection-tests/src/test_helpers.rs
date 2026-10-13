@@ -7,7 +7,7 @@ use std::time::Instant;
 use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
-use sync_types::branch_integration::BranchIntegrationStatus;
+use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use test_utils::git_test_utils::TestRepo;
 use tracing::{debug, info};
 
@@ -40,6 +40,80 @@ pub fn options_with_strategy(strategy: DetectionStrategy) -> SyncOptions {
 /// Helper to list all detection notes using `TestRepo` API
 fn list_detection_notes(repo: &TestRepo) -> Vec<String> {
   repo.list_notes_with_ref(branch_integration::cache::NOTES_REF).unwrap_or_default()
+}
+
+/// Syncs the "user" branches of `repo` with the given detection strategy and returns the reporter with the sync events
+pub async fn sync_user_branches(git_executor: &GitCommandExecutor, repo: &TestRepo, strategy: DetectionStrategy) -> Result<TestReporter> {
+  let progress_reporter = TestReporter::new();
+  sync_branches(
+    git_executor,
+    repo.path().to_str().unwrap(),
+    "user",
+    progress_reporter.clone(),
+    options_with_strategy(strategy),
+  )
+  .await?;
+  Ok(progress_reporter)
+}
+
+/// Names of the branches reported by `BranchIntegrationDetected` events, integrated or orphaned
+pub fn detected_branch_names(events: &[SyncEvent]) -> Vec<String> {
+  events
+    .iter()
+    .filter_map(|e| match e {
+      SyncEvent::BranchIntegrationDetected { info } => Some(info.name.clone()),
+      _ => None,
+    })
+    .collect()
+}
+
+/// Names of the branches reported as integrated by `BranchIntegrationDetected` events
+pub fn integrated_branch_names(events: &[SyncEvent]) -> Vec<String> {
+  events
+    .iter()
+    .filter_map(|e| match e {
+      SyncEvent::BranchIntegrationDetected { info } if matches!(info.status, BranchIntegrationStatus::Integrated { .. }) => Some(info.name.clone()),
+      _ => None,
+    })
+    .collect()
+}
+
+/// Integration info of the detected branch `name`
+pub fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a BranchIntegrationInfo {
+  events
+    .iter()
+    .find_map(|e| match e {
+      SyncEvent::BranchIntegrationDetected { info } if info.name == name => Some(info),
+      _ => None,
+    })
+    .expect("Should find integration info")
+}
+
+/// Detection cache entry of a fully integrated branch
+pub fn integrated_cache_info() -> BranchIntegrationInfo {
+  BranchIntegrationInfo {
+    name: "test-branch".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::Integrated {
+      integrated_at: Some(0),
+      confidence: IntegrationConfidence::High,
+      commit_count: 1,
+    },
+  }
+}
+
+/// Detection cache entry of a branch whose commits are partly or not at all integrated
+pub fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> BranchIntegrationInfo {
+  BranchIntegrationInfo {
+    name: "test-branch".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::NotIntegrated {
+      total_commit_count,
+      integrated_count,
+      orphaned_count,
+      integrated_at: None,
+    },
+  }
 }
 
 /// Verify that detection cache is working correctly after an initial detection run
@@ -194,7 +268,6 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
 
   rt.block_on(async {
     use branch_integration::common::get_all_branch_data;
-    use sync_types::SyncEvent;
 
     // Test scenario where only some commits from a branch are integrated
     let (upstream_repo, local_repo, git_executor) = setup_test_repos();
@@ -208,16 +281,7 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
     local_repo.create_commit("(feature-partial) Add feature 3", "feature3.js", "// feature 3");
 
     // Sync to create virtual branch
-    let progress_reporter = TestReporter::new();
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter,
-      options_with_strategy(strategy),
-    )
-    .await
-    .unwrap();
+    sync_user_branches(&git_executor, &local_repo, strategy).await.unwrap();
 
     // Push branch to upstream
     local_repo.push("origin", "user/virtual/feature-partial").unwrap();
@@ -269,28 +333,13 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
     }
 
     // Run sync again with the specific strategy
-    let progress_reporter2 = TestReporter::new();
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter2.clone(),
-      options_with_strategy(strategy),
-    )
-    .await
-    .unwrap();
+    let progress_reporter2 = sync_user_branches(&git_executor, &local_repo, strategy).await.unwrap();
 
     // Check for orphaned branches detection (not fully integrated)
     let events = progress_reporter2.get_events();
 
     // Collect all orphaned branches from individual events
-    let orphaned_branches: Vec<_> = events
-      .iter()
-      .filter_map(|e| match e {
-        SyncEvent::BranchIntegrationDetected { info } => Some(info.name.clone()),
-        _ => None,
-      })
-      .collect();
+    let orphaned_branches = detected_branch_names(&events);
 
     assert!(!orphaned_branches.is_empty(), "Should detect partially integrated branch as orphaned");
 
@@ -334,26 +383,11 @@ pub fn test_partial_integration_detection_with_strategy(strategy: DetectionStrat
     assert!(cache_note.is_ok(), "Detection cache should be created for branch");
 
     // Run sync once more to verify cache is used
-    let progress_reporter3 = TestReporter::new();
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter3.clone(),
-      options_with_strategy(strategy),
-    )
-    .await
-    .unwrap();
+    let progress_reporter3 = sync_user_branches(&git_executor, &local_repo, strategy).await.unwrap();
 
     // Should get same orphaned result (from cache this time)
     let events3 = progress_reporter3.get_events();
-    let orphaned_cached = events3
-      .iter()
-      .filter_map(|e| match e {
-        SyncEvent::BranchIntegrationDetected { info } => Some(info.name.clone()),
-        _ => None,
-      })
-      .any(|b| b.contains("feature-partial"));
+    let orphaned_cached = detected_branch_names(&events3).iter().any(|b| b.contains("feature-partial"));
     assert!(orphaned_cached, "Should still detect partial integration from cache");
   });
 }

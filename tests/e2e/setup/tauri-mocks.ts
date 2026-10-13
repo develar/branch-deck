@@ -181,53 +181,6 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * Handle sync_branches command with SSE progress
-   */
-  async function handleSyncBranches(payload: any): Promise<any> {
-    const progress = payload.progress
-    
-    debug("[Test Mock] sync_branches called with params:", payload.params)
-    debug("[Test Mock] progress.onmessage type:", typeof progress.onmessage)
-    
-    try {
-      // Extract params, excluding the progress channel which can't be serialized
-      const requestPayload = payload.params
-      
-      // Call the test server's sync_branches endpoint with SSE
-      const response = await fetch("http://localhost:3030/invoke/sync_branches", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "text/event-stream"
-        },
-        body: JSON.stringify(requestPayload),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Sync branches failed: ${response.statusText}`)
-      }
-
-      // Read the SSE stream
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error("No response body")
-      }
-
-      await parseSSEStream(reader, (event) => {
-        if (progress.onmessage) {
-          progress.onmessage(event)
-        }
-      })
-
-      return null
-    }
-    catch (error) {
-      console.error("[Test Mock] Error in sync_branches:", error)
-      throw error
-    }
-  }
-
-  /**
    * Handle store plugin commands
    */
   function handleStoreCommand(cmd: string, payload: any): any {
@@ -459,7 +412,7 @@ export const tauriMockScript = () => {
     // Special async commands
     "sync_branches": async (_cmd: string, payload: any) => {
       if (payload && payload.progress) {
-        return handleSyncBranches(payload)
+        return handleStreamingCommand("sync_branches", payload)
       }
       // Fallback to proxy if no progress channel
       return proxyToTestServer("sync_branches", payload)

@@ -2,11 +2,10 @@
 
 use super::integration_tests::test_integration_workflow_helper;
 use super::test_helpers::{
-  IntegrationMethod, UpdateMethod, get_commit_timestamp, options_with_strategy, setup_test_repos, verify_archived_branches_listed, verify_detection_cache_works,
+  IntegrationMethod, UpdateMethod, detected_branch_info, detected_branch_names, get_commit_timestamp, setup_test_repos, sync_user_branches, verify_archived_branches_listed,
+  verify_detection_cache_works,
 };
 use branch_integration::strategy::DetectionStrategy;
-use sync_core::sync::sync_branches;
-use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use sync_types::branch_integration::IntegrationConfidence;
 use test_log::test;
@@ -41,18 +40,8 @@ fn test_squash_merge_detection() {
   local_repo.create_commit("(feature-squash) Add function two", "feature.js", "function one() {}\nfunction two() {}");
 
   // Sync to create virtual branch with notes
-  let progress_reporter = TestReporter::new();
-  let result = rt.block_on(async {
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter,
-      options_with_strategy(DetectionStrategy::All),
-    )
-    .await
-  });
-  assert!(result.is_ok());
+  rt.block_on(sync_user_branches(&git_executor, &local_repo, DetectionStrategy::All))
+    .expect("Initial sync failed");
 
   // Push branch
   local_repo.push("origin", "user/virtual/feature-squash").unwrap();
@@ -88,18 +77,9 @@ fn test_squash_merge_detection() {
   // Run sync again - this should detect the integrated branch
   println!("\n=== Running second sync to detect squash merge integration ===");
 
-  let progress_reporter2 = TestReporter::new();
-  let result = rt.block_on(async {
-    sync_branches(
-      &git_executor,
-      local_repo.path().to_str().unwrap(),
-      "user",
-      progress_reporter2.clone(),
-      options_with_strategy(DetectionStrategy::All),
-    )
-    .await
-  });
-  assert!(result.is_ok(), "Second sync failed: {result:?}");
+  let progress_reporter2 = rt
+    .block_on(sync_user_branches(&git_executor, &local_repo, DetectionStrategy::All))
+    .expect("Second sync failed");
 
   // Should detect as integrated (High confidence due to message match)
   let events = progress_reporter2.get_events();
@@ -150,13 +130,7 @@ fn test_squash_merge_detection() {
   // No need to check database mappings
 
   // Collect all integrated branches from individual events
-  let integrated_branches: Vec<_> = events
-    .iter()
-    .filter_map(|e| match e {
-      SyncEvent::BranchIntegrationDetected { info } => Some(info.name.clone()),
-      _ => None,
-    })
-    .collect();
+  let integrated_branches = detected_branch_names(&events);
 
   assert!(!integrated_branches.is_empty(), "Should detect squash-merged branch as integrated");
 
@@ -167,13 +141,7 @@ fn test_squash_merge_detection() {
   // (Squash merges are detected by finding commit messages in baseline)
   if let Some(branch) = squash_branch {
     // Need to find the actual integration info for the branch
-    let integration_info = events
-      .iter()
-      .find_map(|e| match e {
-        SyncEvent::BranchIntegrationDetected { info } if info.name == **branch => Some(info),
-        _ => None,
-      })
-      .expect("Should find integration info");
+    let integration_info = detected_branch_info(&events, branch);
 
     if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { confidence, integrated_at, .. } = &integration_info.status {
       assert_eq!(*confidence, IntegrationConfidence::High);

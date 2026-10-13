@@ -6,12 +6,12 @@ use test_log::test;
 /// Cached-status-based cleanup during detection deletes only fully integrated branches older than retention
 #[test(tokio::test)]
 async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
+  use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
   use branch_integration::cache::CacheOps;
   use branch_integration::detector::{DetectConfig, detect_integrated_branches};
   use branch_integration::strategy::DetectionStrategy;
   use sync_core::baseline::detect_baseline_branch;
   use sync_test_utils::TestReporter;
-  use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 
   // Set up repos and executor
   let (_upstream_repo, local_repo, git_executor) = crate::test_helpers::setup_test_repos();
@@ -49,28 +49,8 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   let recent_integrated_tip = tip(&recent_integrated);
 
   // Create cache entries
-  let integrated_info = BranchIntegrationInfo {
-    name: "test-branch".to_string(),
-    summary: String::new(),
-    status: BranchIntegrationStatus::Integrated {
-      integrated_at: Some(0),
-      confidence: IntegrationConfidence::High,
-      commit_count: 1,
-    },
-  };
-  // Write integrated cache directly
-
-  let not_integrated_info = BranchIntegrationInfo {
-    name: "test-branch".to_string(),
-    summary: String::new(),
-    status: BranchIntegrationStatus::NotIntegrated {
-      total_commit_count: 3,
-      integrated_count: 1,
-      orphaned_count: 2,
-      integrated_at: None,
-    },
-  };
-  // Write not-integrated cache directly
+  let integrated_info = integrated_cache_info();
+  let not_integrated_info = not_integrated_cache_info(3, 1, 2);
 
   cache_ops.write(&old_integrated_tip, &integrated_info).unwrap();
   cache_ops.write(&old_orphaned_tip, &not_integrated_info).unwrap();

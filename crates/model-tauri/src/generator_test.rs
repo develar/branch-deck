@@ -49,10 +49,7 @@ mod tests {
       .current_dir(repo_path)
       .output()
       .unwrap();
-    let commit2_hash = String::from_utf8(Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo_path).output().unwrap().stdout)
-      .unwrap()
-      .trim()
-      .to_string();
+    let commit2_hash = test_repo.head();
 
     // Delete a file
     Command::new("git").args(["rm", "config.js"]).current_dir(repo_path).output().unwrap();
@@ -61,10 +58,7 @@ mod tests {
       .current_dir(repo_path)
       .output()
       .unwrap();
-    let commit3_hash = String::from_utf8(Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo_path).output().unwrap().stdout)
-      .unwrap()
-      .trim()
-      .to_string();
+    let commit3_hash = test_repo.head();
 
     let commits = vec![
       CommitInfo {
@@ -111,10 +105,7 @@ mod tests {
       .current_dir(repo_path)
       .output()
       .unwrap();
-    let commit_hash = String::from_utf8(Command::new("git").args(["rev-parse", "HEAD"]).current_dir(repo_path).output().unwrap().stdout)
-      .unwrap()
-      .trim()
-      .to_string();
+    let commit_hash = test_repo.head();
 
     let commits = vec![CommitInfo {
       hash: commit_hash,

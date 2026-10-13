@@ -1,16 +1,30 @@
-use super::cache::TreeIdCache;
-use super::cherry_pick::perform_fast_cherry_pick_with_context;
-use super::copy_commit::CopyCommitError;
-use super::model::BranchError;
-use git_executor::git_command_executor::GitCommandExecutor;
+use super::cherry_pick_test_utils::{cherry_pick, expect_merge_conflict};
+use super::model::ConflictDetail;
 use pretty_assertions::assert_eq;
 use test_log::test;
-use test_utils::git_test_utils::{ConflictTestBuilder, TestRepo, setup_deletion_conflict};
+use test_utils::git_test_utils::{ConflictScenario, ConflictTestBuilder, TestRepo, setup_deletion_conflict};
+
+/// Expects the scenario to conflict in exactly one file and returns that file's conflict
+fn expect_single_file_conflict(test_repo: &TestRepo, scenario: &ConflictScenario) -> ConflictDetail {
+  let mut conflict_info = expect_merge_conflict(test_repo, scenario);
+  assert_eq!(conflict_info.conflicting_files.len(), 1);
+  conflict_info.conflicting_files.remove(0)
+}
+
+/// The cherry side's `init` block in both `EternalEventStealer` conflicts: the event check moved to a new event type
+const TRANSFERRED_WRITE_ACTION_INIT: &str = r"init {
+  IdeEventQueue.getInstance().addPostEventListener(
+    { event ->
+      if (event is InternalThreading.TransferredWriteActionEvent) {
+        specialEvents.add(TransferredWriteActionWrapper(event))
+    }
+      false
+  }, disposable)
+}";
 
 #[test]
 fn test_conflict_hunks_extraction() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -20,135 +34,97 @@ fn test_conflict_hunks_extraction() {
     .build();
 
   // Attempt cherry-pick which should create a conflict
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
 
-  // Verify it's a conflict
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    // Check that we have conflicting files
-    assert_eq!(conflict_info.conflicting_files.len(), 1);
-    let conflict_detail = &conflict_info.conflicting_files[0];
+  // Verify the file name
+  assert_eq!(conflict_detail.file, "test.txt");
 
-    // Verify the file name
-    assert_eq!(conflict_detail.file, "test.txt");
+  // Debug: log conflict detail
+  tracing::debug!(?conflict_detail, "Conflict detail");
 
-    // Debug: log conflict detail
-    tracing::debug!(?conflict_detail, "Conflict detail");
+  // Verify we have a full diff
+  let file_diff = &conflict_detail.file_diff;
+  // old_file should be empty (to show conflict markers as additions)
+  assert_eq!(file_diff.old_file.content, "");
+  assert!(file_diff.new_file.content.contains("<<<<<<<"), "new_file should contain conflict markers");
 
-    // Verify we have a full diff
-    let file_diff = &conflict_detail.file_diff;
-    // old_file should be empty (to show conflict markers as additions)
-    assert_eq!(file_diff.old_file.content, "");
-    assert!(file_diff.new_file.content.contains("<<<<<<<"), "new_file should contain conflict markers");
+  // Verify we have conflict hunks in file_diff
+  assert!(!file_diff.hunks.is_empty(), "Should have conflict hunks in file_diff");
 
-    // Verify we have conflict hunks in file_diff
-    assert!(!file_diff.hunks.is_empty(), "Should have conflict hunks in file_diff");
+  // Check that conflict hunks contain zdiff3 conflict markers
+  let has_conflict_markers = file_diff.hunks.iter().any(|hunk| {
+    hunk.contains("<<<<<<<") && 
+            hunk.contains("|||||||") && // zdiff3 includes base 
+            hunk.contains("=======") && 
+            hunk.contains(">>>>>>>")
+  });
+  assert!(has_conflict_markers, "Conflict hunks should contain zdiff3 conflict markers");
 
-    // Check that conflict hunks contain zdiff3 conflict markers
-    let has_conflict_markers = file_diff.hunks.iter().any(|hunk| {
-      hunk.contains("<<<<<<<") && 
-              hunk.contains("|||||||") && // zdiff3 includes base 
-              hunk.contains("=======") && 
-              hunk.contains(">>>>>>>")
-    });
-    assert!(has_conflict_markers, "Conflict hunks should contain zdiff3 conflict markers");
+  // Verify the conflict content references the actual conflicting lines
+  let has_target_change = file_diff.hunks.iter().any(|hunk| hunk.contains("line2 modified by target"));
+  let has_cherry_change = file_diff.hunks.iter().any(|hunk| hunk.contains("line2 modified by cherry"));
+  let has_base_content = file_diff.hunks.iter().any(|hunk| hunk.contains("line2")); // Original line2
 
-    // Verify the conflict content references the actual conflicting lines
-    let has_target_change = file_diff.hunks.iter().any(|hunk| hunk.contains("line2 modified by target"));
-    let has_cherry_change = file_diff.hunks.iter().any(|hunk| hunk.contains("line2 modified by cherry"));
-    let has_base_content = file_diff.hunks.iter().any(|hunk| hunk.contains("line2")); // Original line2
+  assert!(has_target_change, "Conflict hunks should contain target branch changes");
+  assert!(has_cherry_change, "Conflict hunks should contain cherry-pick changes");
+  assert!(has_base_content, "Conflict hunks should contain base content (zdiff3)");
 
-    assert!(has_target_change, "Conflict hunks should contain target branch changes");
-    assert!(has_cherry_change, "Conflict hunks should contain cherry-pick changes");
-    assert!(has_base_content, "Conflict hunks should contain base content (zdiff3)");
-
-    // Log conflict hunks for debugging
-    tracing::debug!("Conflict hunks for test.txt:");
-    for (i, hunk) in file_diff.hunks.iter().enumerate() {
-      tracing::debug!(hunk_number = i + 1, hunk, "Conflict hunk");
-    }
-  } else {
-    panic!("Expected MergeConflict error, got: {result:?}");
+  // Log conflict hunks for debugging
+  tracing::debug!("Conflict hunks for test.txt:");
+  for (i, hunk) in file_diff.hunks.iter().enumerate() {
+    tracing::debug!(hunk_number = i + 1, hunk, "Conflict hunk");
   }
 }
 
 #[test]
 fn test_delete_modify_conflict() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Use the helper function for deletion conflict setup
   let scenario = setup_deletion_conflict(&test_repo);
 
   // Attempt cherry-pick which should create a conflict
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
+  let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
+
+  // Verify the file name
+  assert_eq!(conflict_detail.file, "delete_me.txt");
+
+  // Verify we have a full diff showing the modification
+  let file_diff = &conflict_detail.file_diff;
+  // In delete/modify conflict: old_file is empty (deleted in target), new_file has conflict content with markers
+  assert_eq!(file_diff.old_file.content, ""); // Target branch deleted the file
+
+  // Debug: print content to understand what we're getting
+  println!("Delete/modify conflict new_file content: '{}'", file_diff.new_file.content);
+
+  // For delete/modify conflicts, git might output the cherry content directly without standard conflict markers
+  // since one side is deleted. Check if it contains the cherry content.
+  assert!(
+    file_diff.new_file.content.contains("modified content") || file_diff.new_file.content.contains("<<<<<<<"),
+    "new_file should contain conflict content for delete/modify conflict"
   );
 
-  // Verify it's a conflict
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    // Check that we have conflicting files
-    assert_eq!(conflict_info.conflicting_files.len(), 1);
-    let conflict_detail = &conflict_info.conflicting_files[0];
+  // For delete/modify conflicts, we should have diff hunks in file_diff
+  assert!(!file_diff.hunks.is_empty(), "Should have conflict hunks for delete/modify conflict");
+  // The file is absent in the target, so the conflict content is a new file
+  assert!(
+    file_diff.hunks[0].starts_with("--- /dev/null\n+++ b/delete_me.txt\n@@ -0,0 +1"),
+    "conflict hunk should add the file: {}",
+    file_diff.hunks[0]
+  );
+  // Base -> target deletes the file
+  let deletion_hunk = &conflict_detail.base_to_target_diff.hunks[0];
+  assert!(
+    deletion_hunk.starts_with("--- a/delete_me.txt\n+++ /dev/null\n@@ "),
+    "base to target should delete the file: {deletion_hunk}"
+  );
 
-    // Verify the file name
-    assert_eq!(conflict_detail.file, "delete_me.txt");
-
-    // Verify we have a full diff showing the modification
-    let file_diff = &conflict_detail.file_diff;
-    // In delete/modify conflict: old_file is empty (deleted in target), new_file has conflict content with markers
-    assert_eq!(file_diff.old_file.content, ""); // Target branch deleted the file
-
-    // Debug: print content to understand what we're getting
-    println!("Delete/modify conflict new_file content: '{}'", file_diff.new_file.content);
-
-    // For delete/modify conflicts, git might output the cherry content directly without standard conflict markers
-    // since one side is deleted. Check if it contains the cherry content.
-    assert!(
-      file_diff.new_file.content.contains("modified content") || file_diff.new_file.content.contains("<<<<<<<"),
-      "new_file should contain conflict content for delete/modify conflict"
-    );
-
-    // For delete/modify conflicts, we should have diff hunks in file_diff
-    assert!(!file_diff.hunks.is_empty(), "Should have conflict hunks for delete/modify conflict");
-    // The file is absent in the target, so the conflict content is a new file
-    assert!(
-      file_diff.hunks[0].starts_with("--- /dev/null\n+++ b/delete_me.txt\n@@ -0,0 +1"),
-      "conflict hunk should add the file: {}",
-      file_diff.hunks[0]
-    );
-    // Base -> target deletes the file
-    let deletion_hunk = &conflict_detail.base_to_target_diff.hunks[0];
-    assert!(
-      deletion_hunk.starts_with("--- a/delete_me.txt\n+++ /dev/null\n@@ "),
-      "base to target should delete the file: {deletion_hunk}"
-    );
-
-    println!("Delete/modify conflict detail: {conflict_detail:?}");
-  } else {
-    panic!("Expected MergeConflict error, got: {result:?}");
-  }
+  println!("Delete/modify conflict detail: {conflict_detail:?}");
 }
 
 #[test]
 fn test_no_conflict_no_hunks() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit
   let initial_commit_hash = test_repo.create_commit("Initial commit", "base.txt", "base content\n");
@@ -163,8 +139,7 @@ fn test_no_conflict_no_hunks() {
   let cherry_commit_hash = test_repo.create_commit("Cherry-pick", "cherry.txt", "cherry content\n");
 
   // Attempt cherry-pick - should succeed without conflicts
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(git_executor, test_repo.path().to_str().unwrap(), &cherry_commit_hash, &target_commit_hash, &|_| {}, &cache);
+  let result = cherry_pick(&test_repo, &cherry_commit_hash, &target_commit_hash);
 
   // Should succeed
   assert!(result.is_ok(), "Cherry-pick should succeed without conflicts");
@@ -173,7 +148,6 @@ fn test_no_conflict_no_hunks() {
 #[test]
 fn test_get_merge_conflict_content_with_markers() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -183,59 +157,41 @@ fn test_get_merge_conflict_content_with_markers() {
     .build();
 
   // This function is not public, so we'll test it indirectly through the cherry-pick process
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
 
-  // Verify it's a conflict and check the file_diff content
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    assert_eq!(conflict_info.conflicting_files.len(), 1);
-    let conflict_detail = &conflict_info.conflicting_files[0];
+  // Verify we have the conflict file_diff
+  let file_diff = &conflict_detail.file_diff;
 
-    // Verify we have the conflict file_diff
-    let file_diff = &conflict_detail.file_diff;
+  // The new_file content should contain conflict markers
+  let conflict_content = &file_diff.new_file.content;
 
-    // The new_file content should contain conflict markers
-    let conflict_content = &file_diff.new_file.content;
+  // Check for standard conflict markers
+  assert!(conflict_content.contains("<<<<<<<"), "Should contain conflict start marker");
+  assert!(conflict_content.contains("======="), "Should contain conflict separator");
+  assert!(conflict_content.contains(">>>>>>>"), "Should contain conflict end marker");
 
-    // Check for standard conflict markers
-    assert!(conflict_content.contains("<<<<<<<"), "Should contain conflict start marker");
-    assert!(conflict_content.contains("======="), "Should contain conflict separator");
-    assert!(conflict_content.contains(">>>>>>>"), "Should contain conflict end marker");
+  // Check that both target and cherry content are present
+  assert!(conflict_content.contains("hello from target"), "Should contain target branch content");
+  assert!(conflict_content.contains("hello from cherry"), "Should contain cherry-pick content");
 
-    // Check that both target and cherry content are present
-    assert!(conflict_content.contains("hello from target"), "Should contain target branch content");
-    assert!(conflict_content.contains("hello from cherry"), "Should contain cherry-pick content");
+  // Content is untrimmed: indentation and the final newline are preserved
+  assert!(conflict_content.starts_with("function hello() {\n"), "content: {conflict_content:?}");
+  assert!(conflict_content.contains("\n  console.log('hello from target');\n"), "content: {conflict_content:?}");
+  assert!(conflict_content.ends_with("}\n"), "content: {conflict_content:?}");
 
-    // Content is untrimmed: indentation and the final newline are preserved
-    assert!(conflict_content.starts_with("function hello() {\n"), "content: {conflict_content:?}");
-    assert!(conflict_content.contains("\n  console.log('hello from target');\n"), "content: {conflict_content:?}");
-    assert!(conflict_content.ends_with("}\n"), "content: {conflict_content:?}");
+  // Verify hunks are properly formatted for git-diff-view
+  assert!(!file_diff.hunks.is_empty(), "Should have diff hunks");
+  let hunk = &file_diff.hunks[0];
+  assert!(hunk.contains("@@"), "Hunk should contain @@ markers");
+  assert!(hunk.contains('+'), "Hunk should show added lines with conflict markers");
 
-    // Verify hunks are properly formatted for git-diff-view
-    assert!(!file_diff.hunks.is_empty(), "Should have diff hunks");
-    let hunk = &file_diff.hunks[0];
-    assert!(hunk.contains("@@"), "Hunk should contain @@ markers");
-    assert!(hunk.contains('+'), "Hunk should show added lines with conflict markers");
-
-    println!("Conflict content with markers:\n{conflict_content}");
-    println!("Diff hunk:\n{hunk}");
-  } else {
-    panic!("Expected MergeConflict error, got: {result:?}");
-  }
+  println!("Conflict content with markers:\n{conflict_content}");
+  println!("Diff hunk:\n{hunk}");
 }
 
 #[test]
 fn test_conflict_detail_file_diff_structure() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -254,73 +210,57 @@ fn test_conflict_detail_file_diff_structure() {
     .build();
 
   // Perform cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
+  let conflict_info = expect_merge_conflict(&test_repo, &scenario);
+  let conflict_detail = &conflict_info.conflicting_files[0];
+
+  // Test file_diff structure (shows original -> conflict content)
+  let file_diff = &conflict_detail.file_diff;
+
+  // old_file should be empty (to show conflict markers as additions)
+  assert_eq!(file_diff.old_file.content, "");
+  assert_eq!(file_diff.old_file.file_name, "main.js");
+  assert_eq!(file_diff.old_file.file_lang, "js");
+
+  // new_file should contain the conflict content with markers
+  let conflict_content = &file_diff.new_file.content;
+  assert!(conflict_content.contains("<<<<<<<"));
+  assert!(conflict_content.contains("======="));
+  assert!(conflict_content.contains(">>>>>>>"));
+  assert!(conflict_content.contains("let x = 10;")); // target content
+  assert!(conflict_content.contains("let x = 100;")); // cherry content
+
+  // Test 3-way merge view structure
+  assert!(conflict_detail.base_file.is_some());
+  assert!(conflict_detail.target_file.is_some());
+  assert!(conflict_detail.cherry_file.is_some());
+
+  let base_file = conflict_detail.base_file.as_ref().unwrap();
+  let target_file = conflict_detail.target_file.as_ref().unwrap();
+  let cherry_file = conflict_detail.cherry_file.as_ref().unwrap();
+
+  // Verify 3-way content
+  assert_eq!(base_file.content, "// Main function\nfunction main() {\n  let x = 1;\n  let y = 2;\n  return x + y;\n}\n");
+  assert_eq!(
+    target_file.content,
+    "// Main function\nfunction main() {\n  let x = 10;\n  let y = 20;\n  return x + y;\n}\n"
+  );
+  assert_eq!(
+    cherry_file.content,
+    "// Main function\nfunction main() {\n  let x = 100;\n  let y = 200;\n  return x + y;\n}\n"
   );
 
-  // Verify conflict structure
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    let conflict_detail = &conflict_info.conflicting_files[0];
+  // Verify diff hunks for 3-way view
+  assert_ne!(conflict_detail.base_to_target_diff.hunks, [] as [std::string::String; 0]);
+  assert_ne!(conflict_detail.base_to_cherry_diff.hunks, [] as [std::string::String; 0]);
 
-    // Test file_diff structure (shows original -> conflict content)
-    let file_diff = &conflict_detail.file_diff;
-
-    // old_file should be empty (to show conflict markers as additions)
-    assert_eq!(file_diff.old_file.content, "");
-    assert_eq!(file_diff.old_file.file_name, "main.js");
-    assert_eq!(file_diff.old_file.file_lang, "js");
-
-    // new_file should contain the conflict content with markers
-    let conflict_content = &file_diff.new_file.content;
-    assert!(conflict_content.contains("<<<<<<<"));
-    assert!(conflict_content.contains("======="));
-    assert!(conflict_content.contains(">>>>>>>"));
-    assert!(conflict_content.contains("let x = 10;")); // target content
-    assert!(conflict_content.contains("let x = 100;")); // cherry content
-
-    // Test 3-way merge view structure
-    assert!(conflict_detail.base_file.is_some());
-    assert!(conflict_detail.target_file.is_some());
-    assert!(conflict_detail.cherry_file.is_some());
-
-    let base_file = conflict_detail.base_file.as_ref().unwrap();
-    let target_file = conflict_detail.target_file.as_ref().unwrap();
-    let cherry_file = conflict_detail.cherry_file.as_ref().unwrap();
-
-    // Verify 3-way content
-    assert_eq!(base_file.content, "// Main function\nfunction main() {\n  let x = 1;\n  let y = 2;\n  return x + y;\n}\n");
-    assert_eq!(
-      target_file.content,
-      "// Main function\nfunction main() {\n  let x = 10;\n  let y = 20;\n  return x + y;\n}\n"
-    );
-    assert_eq!(
-      cherry_file.content,
-      "// Main function\nfunction main() {\n  let x = 100;\n  let y = 200;\n  return x + y;\n}\n"
-    );
-
-    // Verify diff hunks for 3-way view
-    assert_ne!(conflict_detail.base_to_target_diff.hunks, [] as [std::string::String; 0]);
-    assert_ne!(conflict_detail.base_to_cherry_diff.hunks, [] as [std::string::String; 0]);
-
-    println!("File diff old (target): {}", file_diff.old_file.content);
-    println!("File diff new (conflict): {}", file_diff.new_file.content);
-    println!("Hunks: {:?}", file_diff.hunks);
-  } else {
-    panic!("Expected MergeConflict error, got: {result:?}");
-  }
+  println!("File diff old (target): {}", file_diff.old_file.content);
+  println!("File diff new (conflict): {}", file_diff.new_file.content);
+  println!("Hunks: {:?}", file_diff.hunks);
 }
 
 #[test]
 fn test_multiple_conflicting_files_with_markers() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Use ConflictTestBuilder to set up the conflict scenario with multiple files
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -339,52 +279,36 @@ fn test_multiple_conflicting_files_with_markers() {
     .build();
 
   // Perform cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let conflict_info = expect_merge_conflict(&test_repo, &scenario);
+  assert_eq!(conflict_info.conflicting_files.len(), 2);
 
-  // Verify multiple conflicts
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    assert_eq!(conflict_info.conflicting_files.len(), 2);
+  // Check both files have conflict markers
+  for conflict_detail in &conflict_info.conflicting_files {
+    let file_diff = &conflict_detail.file_diff;
+    let conflict_content = &file_diff.new_file.content;
 
-    // Check both files have conflict markers
-    for conflict_detail in &conflict_info.conflicting_files {
-      let file_diff = &conflict_detail.file_diff;
-      let conflict_content = &file_diff.new_file.content;
+    assert!(conflict_content.contains("<<<<<<<"), "File {} should contain conflict markers", conflict_detail.file);
+    assert!(conflict_content.contains("======="), "File {} should contain conflict separator", conflict_detail.file);
+    assert!(conflict_content.contains(">>>>>>>"), "File {} should contain conflict end marker", conflict_detail.file);
 
-      assert!(conflict_content.contains("<<<<<<<"), "File {} should contain conflict markers", conflict_detail.file);
-      assert!(conflict_content.contains("======="), "File {} should contain conflict separator", conflict_detail.file);
-      assert!(conflict_content.contains(">>>>>>>"), "File {} should contain conflict end marker", conflict_detail.file);
-
-      if conflict_detail.file == "file1.txt" {
-        assert!(conflict_content.contains("line2 target"));
-        assert!(conflict_content.contains("line2 cherry"));
-      } else if conflict_detail.file == "file2.txt" {
-        assert!(conflict_content.contains("content2 target"));
-        assert!(conflict_content.contains("content2 cherry"));
-      }
-
-      // Verify hunks exist for git-diff-view
-      assert!(!file_diff.hunks.is_empty(), "File {} should have diff hunks", conflict_detail.file);
-
-      println!("Conflict in {}: {}", conflict_detail.file, conflict_content);
+    if conflict_detail.file == "file1.txt" {
+      assert!(conflict_content.contains("line2 target"));
+      assert!(conflict_content.contains("line2 cherry"));
+    } else if conflict_detail.file == "file2.txt" {
+      assert!(conflict_content.contains("content2 target"));
+      assert!(conflict_content.contains("content2 cherry"));
     }
-  } else {
-    panic!("Expected MergeConflict error, got: {result:?}");
+
+    // Verify hunks exist for git-diff-view
+    assert!(!file_diff.hunks.is_empty(), "File {} should have diff hunks", conflict_detail.file);
+
+    println!("Conflict in {}: {}", conflict_detail.file, conflict_content);
   }
 }
 
 #[test]
 fn test_conflict_with_empty_file() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -394,43 +318,27 @@ fn test_conflict_with_empty_file() {
     .build();
 
   // Perform cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let conflict_info = expect_merge_conflict(&test_repo, &scenario);
+  let conflict_detail = &conflict_info.conflicting_files[0];
 
-  // Verify conflict with proper content
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    let conflict_detail = &conflict_info.conflicting_files[0];
+  let file_diff = &conflict_detail.file_diff;
+  let conflict_content = &file_diff.new_file.content;
 
-    let file_diff = &conflict_detail.file_diff;
-    let conflict_content = &file_diff.new_file.content;
+  // Should have conflict markers and both contents
+  assert!(conflict_content.contains("<<<<<<<"));
+  assert!(conflict_content.contains("target content"));
+  assert!(conflict_content.contains("cherry content"));
+  assert!(conflict_content.contains(">>>>>>>"));
 
-    // Should have conflict markers and both contents
-    assert!(conflict_content.contains("<<<<<<<"));
-    assert!(conflict_content.contains("target content"));
-    assert!(conflict_content.contains("cherry content"));
-    assert!(conflict_content.contains(">>>>>>>"));
+  // old_file should be empty (to show conflict markers as additions)
+  assert_eq!(file_diff.old_file.content, "");
 
-    // old_file should be empty (to show conflict markers as additions)
-    assert_eq!(file_diff.old_file.content, "");
-
-    println!("Empty file conflict: {conflict_content}");
-  } else {
-    panic!("Expected MergeConflict error, got: {result:?}");
-  }
+  println!("Empty file conflict: {conflict_content}");
 }
 
 #[test]
 fn test_zdiff3_style_conflict_markers() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create initial commit with a more complex file
   let initial_content = r#"class EternalEventStealer {
@@ -456,42 +364,10 @@ fun enable() {
 }"#;
 
   // Create target branch - modify the event handling logic and add enabled check
-  let target_content = r#"class EternalEventStealer {
-private var enabled = false
-private var counter = 0
-
-init {
-  IdeEventQueue.getInstance().addPostEventListener(
-    { event ->
-      if (enabled && event.toString().contains("RunnableWithTransferredWriteAction")) {
-        val specialDispatchEvent = SpecialDispatchEvent(event)
-        specialEvents.add(specialDispatchEvent)
-        IdeEventQueue.getInstance().doPostEvent(specialDispatchEvent, true)
-        return@addPostEventListener true
-    }
-      false
-  }, disposable)
-}
-
-fun enable() {
-  enabled = true
-}
-}"#;
+  let target_content = &initial_content.replace("if (event.toString()", "if (enabled && event.toString()");
 
   // Create cherry-pick - different change to event handling
-  let cherry_content = r"class EternalEventStealer {
-private var counter = 0
-
-init {
-  IdeEventQueue.getInstance().addPostEventListener(
-    { event ->
-      if (event is InternalThreading.TransferredWriteActionEvent) {
-        specialEvents.add(TransferredWriteActionWrapper(event))
-    }
-      false
-  }, disposable)
-}
-}";
+  let cherry_content = &format!("class EternalEventStealer {{\nprivate var counter = 0\n\n{TRANSFERRED_WRITE_ACTION_INIT}\n}}");
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -501,50 +377,32 @@ init {
     .build();
 
   // Attempt cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
+  let conflict_content = &conflict_detail.file_diff.new_file.content;
 
-  // Should produce conflicts
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    assert_eq!(conflict_info.conflicting_files.len(), 1);
-    let conflict_detail = &conflict_info.conflicting_files[0];
-    let conflict_content = &conflict_detail.file_diff.new_file.content;
+  // Verify zdiff3 style markers (includes base content with |||||||)
+  assert!(conflict_content.contains("<<<<<<<"), "Should contain conflict start marker");
+  assert!(conflict_content.contains("|||||||"), "Should contain base separator for zdiff3 style");
+  assert!(conflict_content.contains("======="), "Should contain conflict separator");
+  assert!(conflict_content.contains(">>>>>>>"), "Should contain conflict end marker");
 
-    // Verify zdiff3 style markers (includes base content with |||||||)
-    assert!(conflict_content.contains("<<<<<<<"), "Should contain conflict start marker");
-    assert!(conflict_content.contains("|||||||"), "Should contain base separator for zdiff3 style");
-    assert!(conflict_content.contains("======="), "Should contain conflict separator");
-    assert!(conflict_content.contains(">>>>>>>"), "Should contain conflict end marker");
+  // Verify that old_file content is empty (to show markers as additions)
+  assert_eq!(conflict_detail.file_diff.old_file.content, "", "old_file should be empty");
 
-    // Verify that old_file content is empty (to show markers as additions)
-    assert_eq!(conflict_detail.file_diff.old_file.content, "", "old_file should be empty");
+  // Debug output to see what's being generated
+  tracing::debug!(length = conflict_content.len(), "Conflict content length");
+  tracing::debug!(count = conflict_detail.file_diff.hunks.len(), "Number of hunks");
+  tracing::debug!(hunks = ?conflict_detail.file_diff.hunks, "Hunks");
 
-    // Debug output to see what's being generated
-    tracing::debug!(length = conflict_content.len(), "Conflict content length");
-    tracing::debug!(count = conflict_detail.file_diff.hunks.len(), "Number of hunks");
-    tracing::debug!(hunks = ?conflict_detail.file_diff.hunks, "Hunks");
-
-    // Verify hunks show conflict markers as additions
-    assert!(!conflict_detail.file_diff.hunks.is_empty(), "Should have hunks");
-    let hunk_content = conflict_detail.file_diff.hunks.join("\n");
-    assert!(hunk_content.contains("+<<<<<<<"), "Conflict markers should appear as additions");
-  } else {
-    panic!("Expected MergeConflict error");
-  }
+  // Verify hunks show conflict markers as additions
+  assert!(!conflict_detail.file_diff.hunks.is_empty(), "Should have hunks");
+  let hunk_content = conflict_detail.file_diff.hunks.join("\n");
+  assert!(hunk_content.contains("+<<<<<<<"), "Conflict markers should appear as additions");
 }
 
 #[test]
 fn test_complex_multi_region_conflict() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Create a file with multiple distinct regions that will conflict
   let initial_content = r"function processEvent(event) {
@@ -605,44 +463,26 @@ return result;
     .build();
 
   // Attempt cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
-  );
+  let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
+  let conflict_content = &conflict_detail.file_diff.new_file.content;
 
-  // Should produce conflicts
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    assert_eq!(conflict_info.conflicting_files.len(), 1);
-    let conflict_detail = &conflict_info.conflicting_files[0];
-    let conflict_content = &conflict_detail.file_diff.new_file.content;
+  // Count conflict regions (each <<<<<<< marks a new conflict)
+  let conflict_start_count = conflict_content.matches("<<<<<<<").count();
+  tracing::debug!(conflict_content, "Conflict content");
+  tracing::debug!(conflict_start_count, "Number of conflict regions found");
+  // Git merge-tree may combine nearby conflicts into a single region
+  assert!(conflict_start_count >= 1, "Should have at least 1 conflict region, found {conflict_start_count}");
 
-    // Count conflict regions (each <<<<<<< marks a new conflict)
-    let conflict_start_count = conflict_content.matches("<<<<<<<").count();
-    tracing::debug!(conflict_content, "Conflict content");
-    tracing::debug!(conflict_start_count, "Number of conflict regions found");
-    // Git merge-tree may combine nearby conflicts into a single region
-    assert!(conflict_start_count >= 1, "Should have at least 1 conflict region, found {conflict_start_count}");
-
-    // Verify content from both branches is present
-    assert!(conflict_content.contains("isValid()"), "Should contain target branch validation");
-    assert!(conflict_content.contains("TypeError"), "Should contain cherry-pick type check");
-    assert!(conflict_content.contains("handleEventAsync"), "Should contain cherry-pick async call");
-    assert!(conflict_content.contains("notifyCompletion"), "Should contain target branch cleanup");
-  } else {
-    panic!("Expected MergeConflict error");
-  }
+  // Verify content from both branches is present
+  assert!(conflict_content.contains("isValid()"), "Should contain target branch validation");
+  assert!(conflict_content.contains("TypeError"), "Should contain cherry-pick type check");
+  assert!(conflict_content.contains("handleEventAsync"), "Should contain cherry-pick async call");
+  assert!(conflict_content.contains("notifyCompletion"), "Should contain target branch cleanup");
 }
 
 #[test]
 fn test_real_world_kotlin_conflict() {
   let test_repo = TestRepo::new();
-  let git_executor = &GitCommandExecutor::new();
 
   // Simulate the real-world IntelliJ IDEA conflict scenario
   // Initial state - original code structure
@@ -676,51 +516,12 @@ fun disable() {
 }"#;
 
   // Target branch - adds enabled check
-  let target_content = r#"private class EternalEventStealer(disposable: Disposable) {
-@Volatile
-private var enabled = false
-private var counter = 0
-
-private val specialEvents = LinkedBlockingQueue<ForcedEvent>()
-
-init {
-  IdeEventQueue.getInstance().addPostEventListener(
-    { event ->
-      if (enabled && event.toString().contains(",runnable=${ThreadingSupport.RunnableWithTransferredWriteAction.NAME}")) {
-        val specialDispatchEvent = SpecialDispatchEvent(event)
-        specialEvents.add(specialDispatchEvent)
-        IdeEventQueue.getInstance().doPostEvent(specialDispatchEvent, true)
-        return@addPostEventListener true
-    }
-      false
-  }, disposable)
-}
-
-fun enable() {
-  enabled = true
-}
-
-fun disable() {
-  enabled = false
-}
-}"#;
+  let target_content = &initial_content.replace("if (event.toString()", "if (enabled && event.toString()");
 
   // Cherry-pick - major refactoring with new event type
-  let cherry_content = r"private class EternalEventStealer(disposable: Disposable) {
-private var counter = 0
-
-private val specialEvents = LinkedBlockingQueue<ForcedEvent>()
-
-init {
-  IdeEventQueue.getInstance().addPostEventListener(
-    { event ->
-      if (event is InternalThreading.TransferredWriteActionEvent) {
-        specialEvents.add(TransferredWriteActionWrapper(event))
-    }
-      false
-  }, disposable)
-}
-}";
+  let cherry_content = &format!(
+    "private class EternalEventStealer(disposable: Disposable) {{\nprivate var counter = 0\n\nprivate val specialEvents = LinkedBlockingQueue<ForcedEvent>()\n\n{TRANSFERRED_WRITE_ACTION_INIT}\n}}"
+  );
 
   // Use ConflictTestBuilder to set up the conflict scenario
   let scenario = ConflictTestBuilder::new(&test_repo)
@@ -730,39 +531,22 @@ init {
     .build();
 
   // Attempt cherry-pick
-  let cache = TreeIdCache::new();
-  let result = perform_fast_cherry_pick_with_context(
-    git_executor,
-    test_repo.path().to_str().unwrap(),
-    &scenario.cherry_commit,
-    &scenario.target_commit,
-    &|_| {},
-    &cache,
+  let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
+  let conflict_content = &conflict_detail.file_diff.new_file.content;
+
+  // Verify specific patterns from the real conflict
+  assert!(conflict_content.contains("enabled &&"), "Should contain target's enabled check");
+  assert!(
+    conflict_content.contains("InternalThreading.TransferredWriteActionEvent"),
+    "Should contain cherry's new event type"
   );
+  tracing::debug!(conflict_content, "Real world conflict content");
+  tracing::debug!(count = conflict_content.matches("<<<<<<<").count(), "Number of conflict regions found");
 
-  // Should produce conflicts
-  assert!(result.is_err());
-  if let Err(CopyCommitError::BranchError(BranchError::MergeConflict(conflict_info))) = result {
-    assert_eq!(conflict_info.conflicting_files.len(), 1);
-    let conflict_detail = &conflict_info.conflicting_files[0];
-    let conflict_content = &conflict_detail.file_diff.new_file.content;
+  // Verify empty old_file content
+  assert_eq!(conflict_detail.file_diff.old_file.content, "", "old_file should be empty");
 
-    // Verify specific patterns from the real conflict
-    assert!(conflict_content.contains("enabled &&"), "Should contain target's enabled check");
-    assert!(
-      conflict_content.contains("InternalThreading.TransferredWriteActionEvent"),
-      "Should contain cherry's new event type"
-    );
-    tracing::debug!(conflict_content, "Real world conflict content");
-    tracing::debug!(count = conflict_content.matches("<<<<<<<").count(), "Number of conflict regions found");
-
-    // Verify empty old_file content
-    assert_eq!(conflict_detail.file_diff.old_file.content, "", "old_file should be empty");
-
-    tracing::debug!("Real-world conflict captured successfully");
-  } else {
-    panic!("Expected MergeConflict error");
-  }
+  tracing::debug!("Real-world conflict captured successfully");
 }
 
 // Tests for batch commit info functionality that's part of merge conflict handling

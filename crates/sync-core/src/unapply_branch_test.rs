@@ -1,5 +1,5 @@
 use crate::baseline::detect_baseline_branch;
-use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
+use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, unapply_branch_core};
 use anyhow::Result;
 use git_ops::model::to_final_branch_name;
 use test_log::test;
@@ -24,6 +24,30 @@ fn create_test_repo_with_virtual_branch() -> Result<(TestRepo, Vec<String>)> {
   Ok((test_repo, vec![commit1_id, commit2_id]))
 }
 
+/// Unapplies `original_commit_ids` of `branch_name` (branch prefix `test-user`) against the detected baseline
+fn unapply(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>) -> Result<UnapplyBranchResult> {
+  let params = UnapplyBranchParams {
+    repository_path: test_repo.path().to_str().unwrap().to_string(),
+    branch_name: branch_name.to_string(),
+    branch_prefix: "test-user".to_string(),
+    original_commit_ids,
+  };
+
+  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
+  unapply_branch_core(test_repo.git_executor(), params, &baseline_branch)
+}
+
+fn assert_unapply_fails(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>, expected_error: &str) {
+  let error = unapply(test_repo, branch_name, original_commit_ids).expect_err("unapply should fail").to_string();
+  assert!(error.contains(expected_error), "error should contain {expected_error:?}: {error}");
+}
+
+/// The virtual branch is gone and the unapplied branch took its place
+fn assert_branch_moved(test_repo: &TestRepo, virtual_branch_name: &str, result: &UnapplyBranchResult) {
+  assert!(!test_repo.branch_exists(virtual_branch_name), "Virtual branch should have been moved");
+  assert!(test_repo.branch_exists(&result.unapplied_branch_name), "Unapplied branch should exist");
+}
+
 #[test]
 fn test_unapply_single_commit() -> Result<()> {
   let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
@@ -32,26 +56,14 @@ fn test_unapply_single_commit() -> Result<()> {
   // Use the first original commit
   let commit_to_unapply = &original_commits[0];
 
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name.clone(),
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec![commit_to_unapply.clone()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch)?;
+  let result = unapply(&test_repo, &virtual_branch_name, vec![commit_to_unapply.clone()])?;
 
   // Verify the result
   assert_eq!(result.commits_removed.len(), 1);
   assert_eq!(result.commits_removed[0], *commit_to_unapply);
   assert!(result.unapplied_branch_name.starts_with("test-user/unapplied/feature"));
 
-  // Verify virtual branch was moved
-  assert!(!test_repo.branch_exists(&virtual_branch_name), "Virtual branch should have been moved");
-
-  // Verify unapplied branch exists
-  assert!(test_repo.branch_exists(&result.unapplied_branch_name), "Unapplied branch should exist");
+  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
 
   // Verify HEAD was reset (the commit should no longer be in HEAD)
   let head_commits = test_repo
@@ -67,15 +79,7 @@ fn test_unapply_multiple_commits() -> Result<()> {
   let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
   let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
 
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name.clone(),
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: original_commits.clone(),
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch)?;
+  let result = unapply(&test_repo, &virtual_branch_name, original_commits)?;
 
   // Verify the result
   assert_eq!(result.commits_removed.len(), 2);
@@ -95,18 +99,7 @@ fn test_unapply_non_virtual_branch_fails() -> Result<()> {
   let (test_repo, _) = create_test_repo_with_virtual_branch()?;
 
   // Try to unapply a non-virtual branch (master)
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "master".to_string(),
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec!["dummy".to_string()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch);
-
-  assert!(result.is_err());
-  assert!(result.unwrap_err().to_string().contains("Can only unapply virtual branches"));
+  assert_unapply_fails(&test_repo, "master", vec!["dummy".to_string()], "Can only unapply virtual branches");
 
   Ok(())
 }
@@ -115,18 +108,7 @@ fn test_unapply_non_virtual_branch_fails() -> Result<()> {
 fn test_unapply_nonexistent_branch_fails() -> Result<()> {
   let (test_repo, _) = create_test_repo_with_virtual_branch()?;
 
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: "test-user/virtual/nonexistent".to_string(),
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec!["dummy".to_string()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch);
-
-  assert!(result.is_err());
-  assert!(result.unwrap_err().to_string().contains("does not exist"));
+  assert_unapply_fails(&test_repo, "test-user/virtual/nonexistent", vec!["dummy".to_string()], "does not exist");
 
   Ok(())
 }
@@ -136,18 +118,7 @@ fn test_unapply_empty_commit_list_fails() -> Result<()> {
   let (test_repo, _) = create_test_repo_with_virtual_branch()?;
   let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
 
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name,
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec![], // Empty list
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch);
-
-  assert!(result.is_err());
-  assert!(result.unwrap_err().to_string().contains("No commits provided to unapply"));
+  assert_unapply_fails(&test_repo, &virtual_branch_name, vec![], "No commits provided to unapply");
 
   Ok(())
 }
@@ -160,18 +131,12 @@ fn test_unapply_current_branch_fails() -> Result<()> {
   // Switch to the virtual branch
   test_repo.checkout(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
 
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name,
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec!["dummy".to_string()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch);
-
-  assert!(result.is_err());
-  assert!(result.unwrap_err().to_string().contains("Cannot unapply the currently checked out branch"));
+  assert_unapply_fails(
+    &test_repo,
+    &virtual_branch_name,
+    vec!["dummy".to_string()],
+    "Cannot unapply the currently checked out branch",
+  );
 
   Ok(())
 }
@@ -185,15 +150,7 @@ fn test_unapply_branch_naming_collision() -> Result<()> {
   let head_commit = test_repo.head();
   test_repo.create_branch_at("test-user/unapplied/feature", &head_commit).map_err(|e| anyhow::anyhow!(e))?;
 
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name,
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec![original_commits[0].clone()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch)?;
+  let result = unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()])?;
 
   // Should have created a suffixed name to avoid collision
   assert!(result.unapplied_branch_name.ends_with("-1") || result.unapplied_branch_name.ends_with("-2"));
@@ -208,18 +165,12 @@ fn test_unapply_invalid_commit_ids() -> Result<()> {
   let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
 
   // Use commit IDs that don't exist in the virtual branch
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name,
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec!["nonexistent1".to_string(), "nonexistent2".to_string()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch);
-
-  assert!(result.is_err());
-  assert!(result.unwrap_err().to_string().contains("are not found in HEAD"));
+  assert_unapply_fails(
+    &test_repo,
+    &virtual_branch_name,
+    vec!["nonexistent1".to_string(), "nonexistent2".to_string()],
+    "are not found in HEAD",
+  );
 
   Ok(())
 }
@@ -242,26 +193,14 @@ fn test_unapply_non_consecutive_commits() -> Result<()> {
   test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
 
   // Try to drop the first and third commits (non-consecutive)
-  let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: virtual_branch_name.clone(),
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids: vec![commit1_id.clone(), commit3_id.clone()],
-  };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  let result = unapply_branch_core(test_repo.git_executor(), params, &baseline_branch)?;
+  let result = unapply(&test_repo, &virtual_branch_name, vec![commit1_id.clone(), commit3_id.clone()])?;
 
   // Verify the result
   assert_eq!(result.commits_removed.len(), 2);
   assert!(result.commits_removed.contains(&commit1_id));
   assert!(result.commits_removed.contains(&commit3_id));
 
-  // Verify virtual branch was moved
-  assert!(!test_repo.branch_exists(&virtual_branch_name), "Virtual branch should have been moved");
-
-  // Verify unapplied branch exists
-  assert!(test_repo.branch_exists(&result.unapplied_branch_name), "Unapplied branch should exist");
+  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
 
   // Verify that HEAD now only contains the commits we didn't drop
   let head_log = test_repo

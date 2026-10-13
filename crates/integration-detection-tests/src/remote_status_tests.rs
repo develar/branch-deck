@@ -86,6 +86,16 @@ impl TestScenario {
     self.local_repo.push("origin", "main").unwrap();
   }
 
+  /// Resets the remote `branch` to `base`, cherry-picks `commits` onto it and fetches the result
+  fn rebuild_remote_branch(&self, branch: &str, base: &str, commits: &[String]) {
+    self.upstream_repo.checkout(branch).unwrap();
+    self.upstream_repo.reset_hard(base).unwrap();
+    for commit in commits {
+      self.upstream_repo.cherry_pick(commit).unwrap();
+    }
+    self.local_repo.fetch_prune("origin").unwrap();
+  }
+
   async fn run_sync(&self, branch_prefix: &str) -> TestReporter {
     let progress_reporter = TestReporter::new();
     let result = sync_branches(
@@ -224,12 +234,7 @@ async fn test_real_io_mockk_update_bug_scenario() {
   scenario.simulate_commit_merge_to_master(&commits[0]);
 
   // Setup remote branch based on OLD master with both commits
-  scenario.upstream_repo.checkout("user/virtual/io-mockk-update").unwrap();
-  scenario.upstream_repo.reset_hard(&main_base).unwrap();
-  scenario.upstream_repo.cherry_pick(&commits[0]).unwrap();
-  scenario.upstream_repo.cherry_pick(&commits[1]).unwrap();
-
-  scenario.local_repo.fetch_prune("origin").unwrap();
+  scenario.rebuild_remote_branch("user/virtual/io-mockk-update", &main_base, &commits);
   scenario.local_repo.checkout("development").unwrap();
 
   // Run sync and verify
@@ -298,12 +303,7 @@ async fn test_new_commit_after_baseline_merge() {
   scenario.simulate_commit_merge_to_master(&commits[0]);
 
   // Setup remote branch with both commits based on OLD master
-  scenario.upstream_repo.checkout("user/virtual/feature").unwrap();
-  scenario.upstream_repo.reset_hard(&main_base).unwrap();
-  scenario.upstream_repo.cherry_pick(&commits[0]).unwrap();
-  scenario.upstream_repo.cherry_pick(&commits[1]).unwrap();
-
-  scenario.local_repo.fetch_prune("origin").unwrap();
+  scenario.rebuild_remote_branch("user/virtual/feature", &main_base, &commits);
 
   // Add a new commit locally (creates new unpushed commit)
   scenario.local_repo.checkout("development").unwrap();

@@ -11,7 +11,8 @@ use git_ops::model::{BranchError, BranchSyncStatus};
 use model_types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
 use serde::Deserialize;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, RwLock};
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
@@ -25,6 +26,18 @@ use crate::state::AppState;
 // Helper function to find a repository by its path
 fn find_repository_by_path(state: &AppState, path: &str) -> Option<String> {
   state.path_to_id.get(path).map(|entry| entry.value().clone())
+}
+
+/// Streams the events sent to `rx` as SSE events named `event_name`, with a keep-alive every second
+fn sse_events<T>(rx: mpsc::UnboundedReceiver<T>, event_name: &'static str) -> Sse<impl Stream<Item = Result<Event, Infallible>>>
+where
+  T: serde::Serialize + std::fmt::Debug + Send + 'static,
+{
+  let stream = UnboundedReceiverStream::new(rx).map(move |event| {
+    tracing::debug!(?event, event_name, "Sending SSE event");
+    Ok(Event::default().event(event_name).data(serde_json::to_string(&event).unwrap()))
+  });
+  Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
 }
 
 /// Runs blocking work off the async runtime; a failed task or closure is logged and answered with 500
@@ -204,10 +217,7 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
     }
   }
 
-  // Convert the receiver into a stream of SSE events
-  let stream = UnboundedReceiverStream::new(rx).map(|event| Ok(Event::default().event("sync").data(serde_json::to_string(&event).unwrap())));
-
-  Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
+  Ok(sse_events(rx, "sync"))
 }
 
 pub async fn create_branch_from_commits(
@@ -342,10 +352,7 @@ pub async fn suggest_branch_name_stream(
     }
   });
 
-  // Convert to SSE stream
-  let stream = UnboundedReceiverStream::new(rx).map(|event| Ok(Event::default().event("suggestion").data(serde_json::to_string(&event).unwrap())));
-
-  Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
+  Ok(sse_events(rx, "suggestion"))
 }
 
 pub async fn download_model(
@@ -405,13 +412,7 @@ pub async fn download_model(
     let files = vec![("Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2_497_281_120), ("tokenizer.json", 11_422_654)];
 
     for (file_name, file_size) in files {
-      // Check if cancelled
-      if download_cancelled.load(std::sync::atomic::Ordering::SeqCst) {
-        // Update model state back to NotDownloaded
-        if let Ok(mut model_state) = model_state_lock.write() {
-          *model_state = crate::state::ModelState::NotDownloaded;
-        }
-        let _ = tx.send(DownloadProgress::Cancelled);
+      if is_download_cancelled(&download_cancelled, &model_state_lock, &tx) {
         return;
       }
 
@@ -435,13 +436,7 @@ pub async fn download_model(
       );
 
       for i in 1..=chunks {
-        // Check if cancelled
-        if download_cancelled.load(std::sync::atomic::Ordering::SeqCst) {
-          // Update model state back to NotDownloaded
-          if let Ok(mut model_state) = model_state_lock.write() {
-            *model_state = crate::state::ModelState::NotDownloaded;
-          }
-          let _ = tx.send(DownloadProgress::Cancelled);
+        if is_download_cancelled(&download_cancelled, &model_state_lock, &tx) {
           return;
         }
 
@@ -472,16 +467,20 @@ pub async fn download_model(
     let _ = tx.send(DownloadProgress::Completed);
   });
 
-  // Convert to SSE stream
-  tracing::debug!("Creating SSE stream for download_model");
-  let stream = UnboundedReceiverStream::new(rx).map(|event| {
-    tracing::debug!(?event, "Sending SSE event");
-    Ok(Event::default().event("download").data(serde_json::to_string(&event).unwrap()))
-  });
-
   tracing::debug!("Returning SSE response for download_model");
-  // Add keep-alive to prevent connection from closing
-  Ok(Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive")))
+  Ok(sse_events(rx, "download"))
+}
+
+/// When the download was cancelled, resets the model state to `NotDownloaded` and sends the `Cancelled` event
+fn is_download_cancelled(download_cancelled: &AtomicBool, model_state_lock: &RwLock<crate::state::ModelState>, tx: &mpsc::UnboundedSender<DownloadProgress>) -> bool {
+  if !download_cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+    return false;
+  }
+  if let Ok(mut model_state) = model_state_lock.write() {
+    *model_state = crate::state::ModelState::NotDownloaded;
+  }
+  let _ = tx.send(DownloadProgress::Cancelled);
+  true
 }
 
 pub async fn cancel_model_download(

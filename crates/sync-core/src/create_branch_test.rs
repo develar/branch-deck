@@ -1,17 +1,21 @@
 use crate::create_branch::{CreateBranchFromCommitsParams, do_create_branch_from_commits};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_list::get_commit_list;
 use pretty_assertions::{assert_eq, assert_ne};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
-/// Collects the commits ahead of `baseline_branch` into a Vec
-fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> anyhow::Result<Vec<git_ops::commit_list::Commit>> {
-  let mut commits = Vec::new();
-  git_ops::commit_list::get_commit_list_with_handler(git_executor, repo_path, baseline_branch, |commit| {
-    commits.push(commit);
-    Ok(())
-  })?;
-  Ok(commits)
+/// Creates a branch named `feature` from `commit_id`, which does not exist in a repo with one commit, and returns the error
+fn create_branch_from_unknown_commit(commit_id: &str) -> String {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+
+  let params = CreateBranchFromCommitsParams {
+    repository_path: test_repo.path().to_str().unwrap().to_string(),
+    branch_name: "feature".to_string(),
+    commit_ids: vec![commit_id.to_string()],
+  };
+  do_create_branch_from_commits(test_repo.git_executor(), params).unwrap_err()
 }
 
 #[test]
@@ -57,18 +61,7 @@ fn test_create_branch_from_commits_basic() {
 
 #[test]
 fn test_create_branch_with_short_unknown_commit_id_does_not_panic() {
-  let test_repo = TestRepo::new();
-  let repo_path = test_repo.path().to_str().unwrap();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-
-  let git_executor = GitCommandExecutor::new();
-  let params = CreateBranchFromCommitsParams {
-    repository_path: repo_path.to_string(),
-    branch_name: "feature".to_string(),
-    commit_ids: vec!["abc".to_string()],
-  };
-
-  let error = do_create_branch_from_commits(&git_executor, params).unwrap_err();
+  let error = create_branch_from_unknown_commit("abc");
   assert!(error.contains("abc"), "error should name the commit: {error}");
 }
 
@@ -200,22 +193,8 @@ fn test_create_branch_with_multiline_messages() {
 
 #[test]
 fn test_create_branch_nonexistent_commit() {
-  let test_repo = TestRepo::new();
-  let repo_path = test_repo.path().to_str().unwrap();
-
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-
-  let git_executor = GitCommandExecutor::new();
-
-  let params = CreateBranchFromCommitsParams {
-    repository_path: repo_path.to_string(),
-    branch_name: "feature".to_string(),
-    commit_ids: vec!["1234567890abcdef1234567890abcdef12345678".to_string()],
-  };
-
-  let result = do_create_branch_from_commits(&git_executor, params);
-  assert!(result.is_err());
-  assert!(result.unwrap_err().contains("Failed to get commit message"));
+  let error = create_branch_from_unknown_commit("1234567890abcdef1234567890abcdef12345678");
+  assert!(error.contains("Failed to get commit message"));
 }
 
 #[test]

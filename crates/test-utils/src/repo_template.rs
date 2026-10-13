@@ -130,6 +130,20 @@ pub mod templates {
   use std::path::Path;
   use std::process::Command;
 
+  // File contents of the conflict scenarios, successive versions of one Kotlin project
+  const BUILD_GRADLE: &str = include_str!("../fixtures/conflict/build.gradle.kts");
+  const BUILD_GRADLE_BCRYPT: &str = include_str!("../fixtures/conflict/build.gradle.bcrypt.kts");
+  const USER_SERVICE_PATH: &str = "src/main/kotlin/com/example/service/UserService.kt";
+  const USER_SERVICE: &str = include_str!("../fixtures/conflict/UserService.kt");
+  const USER_SERVICE_AUTH: &str = include_str!("../fixtures/conflict/UserService.auth.kt");
+  const USER_SERVICE_CACHE: &str = include_str!("../fixtures/conflict/UserService.cache.kt");
+  const USER_SERVICE_JWT: &str = include_str!("../fixtures/conflict/UserService.jwt.kt");
+  const USER_SERVICE_BCRYPT: &str = include_str!("../fixtures/conflict/UserService.bcrypt.kt");
+  const APP_CONFIG: &str = include_str!("../fixtures/conflict/AppConfig.kt");
+  const ROLES: &str = include_str!("../fixtures/conflict/Roles.kt");
+
+  const ISSUE_LINKS_VCS_XML: &str = include_str!("../fixtures/issue_links/vcs.xml");
+
   /// Simple repository with 2 commits using branch prefix
   pub fn simple() -> RepoTemplate {
     simple_template(true)
@@ -183,602 +197,51 @@ pub mod templates {
         &[
           ("README.md", "# Test Repository\n\nGenerated test repository for Branch Deck conflict demonstration.\n"),
           (".gitignore", "*.class\nbuild/\n.gradle/\n.idea/\n*.iml\n"),
-          (
-            "build.gradle.kts",
-            r#"plugins {
-    kotlin("jvm") version "1.9.20"
-    id("org.springframework.boot") version "3.1.5"
-}
-
-dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
-}
-"#,
-          ),
+          ("build.gradle.kts", BUILD_GRADLE),
         ],
         Some(1704117600),
+      )
+      // Unassigned commit: pushed in the unassigned scenario, the base of the branches in the other
+      .commit_with_timestamp("Add UserService", &[(USER_SERVICE_PATH, USER_SERVICE)], Some(1704119400))
+      // feature-auth commit that syncs cleanly
+      .commit_with_timestamp(
+        "(feature-auth) Add authentication to UserService",
+        &[(USER_SERVICE_PATH, USER_SERVICE_AUTH)],
+        Some(1704121200),
       );
 
     match scenario_type {
       "unassigned" => {
-        // Create unassigned commits scenario
+        // Create unassigned commits scenario. Its bcrypt UserService has unindented blank lines, unlike the branches
+        // scenario; keep them so the generated repository and its commit hashes stay the same
+        let user_service_bcrypt = USER_SERVICE_BCRYPT.replace("\n    \n", "\n\n");
         template = template
-          // Unassigned commit that will be pushed
-          .commit_with_timestamp(
-            "Add UserService",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    
-    fun getUser(id: String): User? = users[id]
-    
-    fun createUser(name: String, email: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email
-        )
-        users[user.id] = user
-        return user
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String
-)"#,
-            )],
-            Some(1704119400),
-          )
-          // Auth feature commits
-          .commit_with_timestamp(
-            "(feature-auth) Add authentication to UserService",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    private val tokens = mutableMapOf<String, String>() // token -> userId
-    
-    fun getUser(id: String): User? = users[id]
-    
-    fun createUser(name: String, email: String, password: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email,
-            passwordHash = hashPassword(password)
-        )
-        users[user.id] = user
-        return user
-    }
-    
-    fun authenticate(email: String, password: String): String? {
-        val user = users.values.find { it.email == email }
-        return if (user != null && verifyPassword(password, user.passwordHash)) {
-            val token = generateToken()
-            tokens[token] = user.id
-            token
-        } else null
-    }
-    
-    fun getUserByToken(token: String): User? {
-        val userId = tokens[token] ?: return null
-        return users[userId]
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
-    private fun hashPassword(password: String): String = password.reversed() // Simple fake hash
-    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String,
-    val passwordHash: String = ""
-)"#,
-            )],
-            Some(1704121200),
-          )
           // Cache feature commits
-          .commit_with_timestamp(
-            "(feature-cache) Add caching to UserService",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    private val tokens = mutableMapOf<String, String>() // token -> userId
-    private val cache = mutableMapOf<String, User>() // Simple cache
-    
-    fun getUser(id: String): User? {
-        // Check cache first
-        cache[id]?.let { return it }
-        
-        // Load from storage and cache
-        val user = users[id]
-        if (user != null) {
-            cache[id] = user
-        }
-        return user
-    }
-    
-    fun createUser(name: String, email: String, password: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email,
-            passwordHash = hashPassword(password),
-            cached = false
-        )
-        users[user.id] = user
-        cache[user.id] = user.copy(cached = true)
-        return user
-    }
-    
-    fun authenticate(email: String, password: String): String? {
-        val user = users.values.find { it.email == email }
-        return if (user != null && verifyPassword(password, user.passwordHash)) {
-            val token = generateToken()
-            tokens[token] = user.id
-            token
-        } else null
-    }
-    
-    fun getUserByToken(token: String): User? {
-        val userId = tokens[token] ?: return null
-        return getUser(userId) // Uses cached version
-    }
-    
-    fun clearCache() {
-        cache.clear()
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
-    private fun hashPassword(password: String): String = password.reversed()
-    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String,
-    val passwordHash: String = "",
-    val cached: Boolean = false
-)"#,
-            )],
-            Some(1704123000),
-          )
+          .commit_with_timestamp("(feature-cache) Add caching to UserService", &[(USER_SERVICE_PATH, USER_SERVICE_CACHE)], Some(1704123000))
           // Auth depends on cache - will conflict when grouped
-          .commit_with_timestamp(
-            "(feature-auth) Add JWT tokens using cache",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-import java.util.Base64
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    private val tokens = mutableMapOf<String, String>()
-    private val cache = mutableMapOf<String, User>()
-    private val jwtCache = mutableMapOf<String, JwtToken>() // Cache JWT tokens
-    
-    fun getUser(id: String): User? {
-        cache[id]?.let { return it }
-        
-        val user = users[id]
-        if (user != null) {
-            cache[id] = user
-        }
-        return user
-    }
-    
-    fun createUser(name: String, email: String, password: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email,
-            passwordHash = hashPassword(password),
-            cached = false
-        )
-        users[user.id] = user
-        cache[user.id] = user.copy(cached = true)
-        return user
-    }
-    
-    fun authenticate(email: String, password: String): String? {
-        val user = users.values.find { it.email == email }
-        return if (user != null && verifyPassword(password, user.passwordHash)) {
-            // Check JWT cache first
-            val cachedJwt = jwtCache[user.id]
-            if (cachedJwt != null && !cachedJwt.isExpired()) {
-                return cachedJwt.token
-            }
-            
-            // Generate new JWT
-            val jwt = generateJWT(user.id)
-            jwtCache[user.id] = jwt
-            jwt.token
-        } else null
-    }
-    
-    fun getUserByToken(token: String): User? {
-        // Check if it's a JWT token
-        if (token.startsWith("jwt.")) {
-            val userId = decodeJWT(token)
-            return userId?.let { getUser(it) }
-        }
-        
-        // Legacy token support
-        val userId = tokens[token] ?: return null
-        return getUser(userId)
-    }
-    
-    fun clearCache() {
-        cache.clear()
-        jwtCache.clear()
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
-    private fun hashPassword(password: String): String = password.reversed()
-    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
-    
-    private fun generateJWT(userId: String): JwtToken {
-        val token = "jwt.${Base64.getEncoder().encodeToString(userId.toByteArray())}.${System.currentTimeMillis()}"
-        return JwtToken(token, System.currentTimeMillis() + 3600000)
-    }
-    
-    private fun decodeJWT(token: String): String? {
-        return try {
-            val parts = token.split(".")
-            if (parts.size >= 2) {
-                String(Base64.getDecoder().decode(parts[1]))
-            } else null
-        } catch (e: Exception) {
-            null
-        }
-    }
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String,
-    val passwordHash: String = "",
-    val cached: Boolean = false
-)
-
-data class JwtToken(
-    val token: String,
-    val expiresAt: Long
-) {
-    fun isExpired(): Boolean = System.currentTimeMillis() > expiresAt
-}"#,
-            )],
-            Some(1704124800),
-          )
+          .commit_with_timestamp("(feature-auth) Add JWT tokens using cache", &[(USER_SERVICE_PATH, USER_SERVICE_JWT)], Some(1704124800))
           // Add unassigned commits that depend on each other (for conflict testing)
-          .commit_with_timestamp(
-            "Add bcrypt dependency",
-            &[(
-              "build.gradle.kts",
-              r#"plugins {
-    kotlin("jvm") version "1.9.20"
-    id("org.springframework.boot") version "3.1.5"
-}
-
-dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("org.mindrot:jbcrypt:0.4")
-}
-"#,
-            )],
-            Some(1704124800),
-          )
-          .commit_with_timestamp(
-            "Implement secure password hashing",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-import org.mindrot.jbcrypt.BCrypt
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    private val tokens = mutableMapOf<String, String>() // token -> userId
-
-    fun getUser(id: String): User? = users[id]
-
-    fun createUser(name: String, email: String, password: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email,
-            passwordHash = BCrypt.hashpw(password, BCrypt.gensalt()) // Using bcrypt
-        )
-        users[user.id] = user
-        return user
-    }
-
-    fun authenticate(email: String, password: String): String? {
-        val user = users.values.find { it.email == email }
-        return if (user != null && BCrypt.checkpw(password, user.passwordHash)) {
-            val token = generateToken()
-            tokens[token] = user.id
-            token
-        } else null
-    }
-
-    fun getUserByToken(token: String): User? {
-        val userId = tokens[token] ?: return null
-        return users[userId]
-    }
-
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String,
-    val passwordHash: String = ""
-)"#,
-            )],
-            Some(1704126600),
-          )
+          .commit_with_timestamp("Add bcrypt dependency", &[("build.gradle.kts", BUILD_GRADLE_BCRYPT)], Some(1704124800))
+          .commit_with_timestamp("Implement secure password hashing", &[(USER_SERVICE_PATH, user_service_bcrypt.as_str())], Some(1704126600))
           // Unassigned refactoring
           .commit_with_timestamp(
             "Refactor: Extract configuration constants",
-            &[(
-              "src/main/kotlin/com/example/config/AppConfig.kt",
-              r#"package com.example.config
-
-object AppConfig {
-    const val JWT_EXPIRY_MS = 3600000L // 1 hour
-    const val CACHE_SIZE_LIMIT = 1000
-    const val TOKEN_PREFIX = "jwt."
-}"#,
-            )],
+            &[("src/main/kotlin/com/example/config/AppConfig.kt", APP_CONFIG)],
             Some(1704128400),
           );
       }
       "branches" => {
         // Create branches with conflicts scenario - matching E2E test expectations
         template = template
-          // Unassigned base commit
-          .commit_with_timestamp(
-            "Add UserService",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    
-    fun getUser(id: String): User? = users[id]
-    
-    fun createUser(name: String, email: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email
-        )
-        users[user.id] = user
-        return user
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String
-)"#,
-            )],
-            Some(1704119400),
-          )
-          // feature-auth commits that sync cleanly
-          .commit_with_timestamp(
-            "(feature-auth) Add authentication to UserService",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    private val tokens = mutableMapOf<String, String>() // token -> userId
-    
-    fun getUser(id: String): User? = users[id]
-    
-    fun createUser(name: String, email: String, password: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email,
-            passwordHash = hashPassword(password)
-        )
-        users[user.id] = user
-        return user
-    }
-    
-    fun authenticate(email: String, password: String): String? {
-        val user = users.values.find { it.email == email }
-        return if (user != null && verifyPassword(password, user.passwordHash)) {
-            val token = generateToken()
-            tokens[token] = user.id
-            token
-        } else null
-    }
-    
-    fun getUserByToken(token: String): User? {
-        val userId = tokens[token] ?: return null
-        return users[userId]
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
-    private fun hashPassword(password: String): String = password.reversed() // Simple fake hash
-    private fun verifyPassword(password: String, hash: String): Boolean = password.reversed() == hash
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String,
-    val passwordHash: String = ""
-)"#,
-            )],
-            Some(1704121200),
-          )
           .commit_with_timestamp(
             "(feature-auth) Add user roles and permissions",
-            &[(
-              "src/main/kotlin/com/example/model/Roles.kt",
-              r#"package com.example.model
-
-enum class Role {
-    ADMIN, USER, GUEST
-}
-
-data class Permission(
-    val resource: String,
-    val actions: Set<String>
-)
-
-object RolePermissions {
-    val permissions = mapOf(
-        Role.ADMIN to setOf(
-            Permission("users", setOf("read", "write", "delete")),
-            Permission("settings", setOf("read", "write"))
-        ),
-        Role.USER to setOf(
-            Permission("users", setOf("read")),
-            Permission("settings", setOf("read"))
-        ),
-        Role.GUEST to setOf(
-            Permission("users", setOf("read"))
-        )
-    )
-    
-    fun hasPermission(role: Role, resource: String, action: String): Boolean {
-        return permissions[role]?.any { 
-            it.resource == resource && it.actions.contains(action) 
-        } ?: false
-    }
-}"#,
-            )],
+            &[("src/main/kotlin/com/example/model/Roles.kt", ROLES)],
             Some(1704123000),
           )
           // Unassigned commit (bcrypt dependency) - expected by E2E test
-          .commit_with_timestamp(
-            "Add bcrypt dependency",
-            &[(
-              "build.gradle.kts",
-              r#"plugins {
-    kotlin("jvm") version "1.9.20"
-    id("org.springframework.boot") version "3.1.5"
-}
-
-dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("org.mindrot:jbcrypt:0.4")
-}
-"#,
-            )],
-            Some(1704124800),
-          )
+          .commit_with_timestamp("Add bcrypt dependency", &[("build.gradle.kts", BUILD_GRADLE_BCRYPT)], Some(1704124800))
           // bug-fix branch that depends on bcrypt (will conflict)
-          .commit_with_timestamp(
-            "(bug-fix) Implement secure password hashing",
-            &[(
-              "src/main/kotlin/com/example/service/UserService.kt",
-              r#"package com.example.service
-
-import org.springframework.stereotype.Service
-import org.mindrot.jbcrypt.BCrypt
-
-@Service
-class UserService {
-    private val users = mutableMapOf<String, User>()
-    private val tokens = mutableMapOf<String, String>() // token -> userId
-    
-    fun getUser(id: String): User? = users[id]
-    
-    fun createUser(name: String, email: String, password: String): User {
-        val user = User(
-            id = generateId(),
-            name = name,
-            email = email,
-            passwordHash = BCrypt.hashpw(password, BCrypt.gensalt()) // Using bcrypt
-        )
-        users[user.id] = user
-        return user
-    }
-    
-    fun authenticate(email: String, password: String): String? {
-        val user = users.values.find { it.email == email }
-        return if (user != null && BCrypt.checkpw(password, user.passwordHash)) {
-            val token = generateToken()
-            tokens[token] = user.id
-            token
-        } else null
-    }
-    
-    fun getUserByToken(token: String): User? {
-        val userId = tokens[token] ?: return null
-        return users[userId]
-    }
-    
-    private fun generateId(): String = "user-${System.currentTimeMillis()}"
-    private fun generateToken(): String = "token-${System.currentTimeMillis()}"
-}
-
-data class User(
-    val id: String,
-    val name: String,
-    val email: String,
-    val passwordHash: String = ""
-)"#,
-            )],
-            Some(1704126600),
-          );
+          .commit_with_timestamp("(bug-fix) Implement secure password hashing", &[(USER_SERVICE_PATH, USER_SERVICE_BCRYPT)], Some(1704126600));
       }
       _ => unreachable!(),
     }
@@ -854,30 +317,7 @@ data class User(
         "Initial project setup",
         &[
           ("README.md", "# Test Repository\n\nRepository for testing issue link navigation.\n"),
-          (
-            ".idea/vcs.xml",
-            r##"<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="IssueNavigationConfiguration">
-    <option name="links">
-      <list>
-        <IssueNavigationLink>
-          <option name="issueRegexp" value="\b[A-Z]+-\d+\b" />
-          <option name="linkRegexp" value="https://jira.example.com/browse/$0" />
-        </IssueNavigationLink>
-        <IssueNavigationLink>
-          <option name="issueRegexp" value="GH-(\d+)" />
-          <option name="linkRegexp" value="https://github.com/example/repo/issues/$1" />
-        </IssueNavigationLink>
-        <IssueNavigationLink>
-          <option name="issueRegexp" value="#(\d+)" />
-          <option name="linkRegexp" value="https://github.com/example/repo/issues/$1" />
-        </IssueNavigationLink>
-      </list>
-    </option>
-  </component>
-</project>"##,
-          ),
+          (".idea/vcs.xml", ISSUE_LINKS_VCS_XML),
         ],
         Some(1704117600),
       )
