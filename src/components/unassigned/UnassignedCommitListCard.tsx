@@ -108,6 +108,7 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
         commits={commits}
         variant="compact"
         showAuthor
+        editable
         selection={selection}
         contextMenuItems={contextMenuItems}
         onKeyDown={handleKeyDown}

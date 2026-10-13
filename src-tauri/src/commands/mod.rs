@@ -7,6 +7,7 @@ pub mod create_branch;
 pub mod menu_commands;
 pub mod push;
 pub mod repository_browser;
+pub mod reword_commit;
 pub mod suggest_branch_name;
 pub mod sync_branches;
 pub mod unapply_branch;

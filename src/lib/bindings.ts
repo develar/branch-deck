@@ -32,6 +32,8 @@ export const commands = {
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
 	 */
 	addIssueReferenceToCommits: (params: AddIssueReferenceParams) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params })),
+	/**  Replaces the message of a commit on the current branch; the commits after it are recreated with the same trees. */
+	rewordCommit: (params: RewordCommitRequest) => typedError<RewordCommitResult, CommandError>(__TAURI_INVOKE("reword_commit", { params })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
@@ -345,6 +347,19 @@ export type RemoteStatusUpdate = {
 	myUnpushedCount: number,
 	/**  Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed) */
 	lastPushTime: number,
+};
+
+export type RewordCommitRequest = {
+	repositoryPath: string,
+	/**  The commit on the current branch (the original commit of a virtual branch commit) */
+	commitId: string,
+	/**  The whole new message, the grouping prefix `(branch)` included */
+	message: string,
+};
+
+export type RewordCommitResult = {
+	/**  Equals the request commit id when the message did not change */
+	newCommitId: string,
 };
 
 export type RewordResult = {

@@ -3,7 +3,8 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
@@ -28,8 +29,10 @@ async function expectPreviewFocused(preview: Locator) {
 }
 
 test.describe("Commit message", () => {
+  let repo: TestRepositoryBuilder
+
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links")
+    repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
     // the unassigned commits card can render after the branches and push the commit list down
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
@@ -161,11 +164,7 @@ test.describe("Commit message", () => {
   })
 
   test("should keep the preview on its commit across a sync", async ({ page }) => {
-    await page.getByTestId("sync-settings-button").click()
-    await page.getByRole("switch").click()
-    await expect(page.getByRole("switch")).toBeChecked()
-    await page.keyboard.press("Escape")
-
+    await enableAutoSyncOnFocus(page)
     const { commitRow } = await findCommitRow(page)
     await commitRow.hover()
     await page.keyboard.press("Space")
@@ -175,15 +174,95 @@ test.describe("Commit message", () => {
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
 
     // auto-sync on focus replaces the commit objects while the preview is open
-    const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
-    await emitTauriEvent(page, "tauri://focus")
-    await syncResponse
-    await expect(page.getByTestId("sync-button")).toBeEnabled()
+    await syncOnWindowFocus(page)
 
     await expect(preview.getByRole("heading")).toHaveText("perf db: increase pool size to 50")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
     await page.keyboard.press("ArrowDown")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("3 / 3")
+  })
+
+  test("should close the preview when a sync removes its commit", async ({ page }) => {
+    await enableAutoSyncOnFocus(page)
+    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
+    const hash = await unassignedRow.getAttribute("data-row-id")
+    await unassignedRow.getByTestId("commit-message-toggle").click()
+    const preview = getPreview(page)
+    await expectPreviewFocused(preview)
+
+    // the message is reworded in a terminal, so the commit gets a new hash
+    const newHash = await repo.reword(hash!, "Emergency fix for CRITICAL-111\n\nSkip the cache warm-up until CRITICAL-112 is fixed upstream.")
+    await syncOnWindowFocus(page)
+
+    await expect(preview).toHaveCount(0)
+    await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
+    // the preview of the reworded commit shows the new body
+    await unassignedRow.getByTestId("commit-message-toggle").click()
+    await expect(preview.getByTestId("commit-message-body")).toHaveText("Skip the cache warm-up until CRITICAL-112 is fixed upstream.")
+  })
+
+  test.describe("editing", () => {
+    const PERF_SUBJECT = "perf db: increase pool size to 50"
+
+    /** Opens the preview of the second JIRA-456 commit (no body) and starts editing it with E. */
+    async function editPerfCommit(page: Page): Promise<{ preview: Locator, editor: Locator }> {
+      await expandBranch(page, findBranchRow(page, BRANCH))
+      await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).hover()
+      await page.keyboard.press("Space")
+      const preview = getPreview(page)
+      await expectPreviewFocused(preview)
+      await page.keyboard.press("e")
+      const editor = preview.getByTestId("commit-message-editor")
+      await expect(editor).toBeFocused()
+      return { preview, editor }
+    }
+
+    test("should save the edited message and stay on the reworded commit", async ({ page }) => {
+      const { preview, editor } = await editPerfCommit(page)
+      // the raw message, the grouping prefix included
+      await expect(editor).toHaveValue(`(${BRANCH}) ${PERF_SUBJECT}`)
+
+      await editor.fill(`(${BRANCH}) perf db: increase pool size to 64\n\nThe load test saturated 50 connections.`)
+      await page.keyboard.press("ControlOrMeta+Enter")
+
+      await expect(editor).toHaveCount(0)
+      await expect(preview.getByRole("heading")).toHaveText("perf db: increase pool size to 64")
+      await expect(preview.getByTestId("commit-message-body")).toHaveText("The load test saturated 50 connections.")
+      await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
+      await expectPreviewFocused(preview)
+
+      await page.keyboard.press("Escape")
+      await expect(getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: "perf db: increase pool size to 64" })).toBeVisible()
+    })
+
+    test("should cancel the edit with Escape and keep the preview open", async ({ page }) => {
+      const { preview, editor } = await editPerfCommit(page)
+      await editor.fill("Something else")
+
+      await page.keyboard.press("Escape")
+      await expect(editor).toHaveCount(0)
+      await expect(preview.getByRole("heading")).toHaveText(PERF_SUBJECT)
+      await expectPreviewFocused(preview)
+
+      await page.keyboard.press("Escape")
+      await expect(preview).toHaveCount(0)
+    })
+
+    test("should warn that a changed grouping prefix moves the commit, and move it", async ({ page }) => {
+      const { preview, editor } = await editPerfCommit(page)
+      const hint = preview.getByTestId("commit-prefix-change")
+      await expect(hint).toHaveCount(0)
+
+      await editor.fill(`(JIRA-789) ${PERF_SUBJECT}`)
+      await expect(hint).toHaveText("Saving moves the commit to the branch JIRA-789")
+      await editor.fill(PERF_SUBJECT)
+      await expect(hint).toHaveText("Saving moves the commit to the unassigned commits")
+
+      await preview.getByRole("button", { name: /Save/ }).click()
+      // the commit left the branch list, so its preview closes
+      await expect(preview).toHaveCount(0)
+      await expect(page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: PERF_SUBJECT })).toBeVisible()
+    })
   })
 
   test("should dim a conventional-commit prefix of the subject", async ({ page }) => {

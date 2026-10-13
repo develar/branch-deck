@@ -65,3 +65,9 @@ export function getCommitFileCount(commit: CommitUnion): number | undefined {
   }
   return undefined
 }
+
+/** Grouping prefix of a message without the parentheses (`feature-auth` for `(feature-auth) …`), or null: the commit is unassigned. */
+export function getGroupingPrefix(message: string): string | null {
+  const subject = message.trimStart().split("\n", 1)[0]!
+  return GROUPING_PREFIX.exec(subject)?.[1] ?? null
+}

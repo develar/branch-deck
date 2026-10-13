@@ -20,7 +20,7 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false }: Act
             </Alert>
           )
         : branch.commits.length > 0
-          ? <CommitList commits={branch.commits} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} />
+          ? <CommitList commits={branch.commits} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} editable />
           : <div className="text-sm text-muted-foreground">No commits found</div>}
     </div>
   )

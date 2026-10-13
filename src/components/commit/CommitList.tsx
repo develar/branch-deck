@@ -11,6 +11,7 @@ import { CommitHeader } from "@/components/commit/CommitHeader"
 import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { useCommitPreviewHotkey } from "@/hooks/useCommitPreviewHotkey"
+import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
@@ -29,6 +30,8 @@ export interface CommitListProps<T extends CommitUnion> {
   showAuthor?: boolean
   /** Marks the first commit as the amend target */
   highlightTipCommit?: boolean
+  /** The commits are on the current branch: the preview can edit their messages */
+  editable?: boolean
 
   /**
    * Makes the rows selectable (click, Cmd/Ctrl+click, Shift+click, Cmd/Ctrl+A, Escape).
@@ -60,6 +63,7 @@ export function CommitList<T extends CommitUnion>({
   showFileCount = false,
   showAuthor = false,
   highlightTipCommit = false,
+  editable = false,
   selection,
   contextMenuItems,
   onKeyDown,
@@ -90,18 +94,24 @@ export function CommitList<T extends CommitUnion>({
     isMenuOpenRef.current = open
   }, [])
 
-  // the preview follows the commit, not its index, across a sync
-  const [previewHash, setPreviewHash] = useState<string | null>(null)
-  const previewIndex = previewHash === null ? -1 : commits.findIndex(commit => getCommitHash(commit) === previewHash)
-  // a commit gone after a sync closes the preview for good
-  if (previewHash !== null && previewIndex === -1) {
-    setPreviewHash(null)
+  // the preview follows the commit, not its index, across a sync; after an edit, it waits for the reworded commit (`nextHash`)
+  const [preview, setPreview] = useState<{ hash: string, nextHash?: string } | null>(null)
+  let previewIndex = preview === null ? -1 : commits.findIndex(commit => getCommitHash(commit) === preview.hash)
+  if (preview !== null && previewIndex === -1) {
+    const nextHash = preview.nextHash
+    previewIndex = nextHash === undefined ? -1 : commits.findIndex(commit => getCommitHash(commit) === nextHash)
+    // a commit gone after a sync (also a reworded one that moved to another list) closes the preview for good
+    setPreview(previewIndex === -1 ? null : { hash: nextHash! })
   }
   const openPreview = useCallback((hash: string) => {
     if (!isMenuOpenRef.current) {
-      setPreviewHash(hash)
+      setPreview({ hash })
     }
   }, [])
+  const { rewordCommit } = useRewordCommit()
+  const saveMessage = (commit: CommitUnion, message: string) => rewordCommit(commit, message, (newCommitId) => {
+    setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
+  })
   const tableRef = useRef<HTMLTableElement>(null)
   useCommitPreviewHotkey(tableRef, () => latestRef.current.selection?.getAnchorId() ?? null, openPreview)
 
@@ -156,8 +166,9 @@ export function CommitList<T extends CommitUnion>({
       <CommitPreviewDialog
         commits={commits}
         index={previewIndex}
-        onIndexChange={index => setPreviewHash(getCommitHash(commits[index]!))}
-        onClose={() => setPreviewHash(null)}
+        onIndexChange={index => setPreview({ hash: getCommitHash(commits[index]!) })}
+        onClose={() => setPreview(null)}
+        onSaveMessage={editable ? saveMessage : undefined}
         showAuthor={showAuthor}
         showFileCount={showFileCount}
         showNewHash={variant === "status"}

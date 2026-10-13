@@ -6,6 +6,7 @@ use axum::{
   routing::{get, post},
 };
 use dashmap::DashMap;
+use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -62,6 +63,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories", post(create_repository))
     .route("/repositories/{id}", get(get_repository))
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
+    .route("/repositories/{id}/reword", post(reword_commit))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -71,6 +73,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_branch_prefix_from_git_config", post(tauri_command_bridge::get_branch_prefix_from_git_config))
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
+    .route("/invoke/reword_commit", post(tauri_command_bridge::reword_commit))
     .route("/invoke/create_branch_from_commits", post(tauri_command_bridge::create_branch_from_commits))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
@@ -344,6 +347,34 @@ pub async fn get_repository(axum::extract::Path(id): axum::extract::Path<String>
         "path": repo.path,
     }))),
     None => Err(StatusCode::UNPROCESSABLE_ENTITY),
+  }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewordCommitRequest {
+  commit_id: String,
+  message: String,
+}
+
+/// Rewrites the message of a commit and recreates its descendants, as `git rebase -i` in a terminal would:
+/// lets an E2E test change a repository behind the app's back. Returns the new commit id.
+pub async fn reword_commit(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<RewordCommitRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+  let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let rewrites = vec![RewordCommitParams {
+    commit_id: request.commit_id.clone(),
+    new_message: request.message,
+  }];
+  match reword_commits_batch(&state.git_executor, &path, rewrites) {
+    Ok(mapping) => Ok(Json(serde_json::json!({ "newCommitId": mapping.get(&request.commit_id) }))),
+    Err(e) => {
+      tracing::error!("Failed to reword commit {}: {}", request.commit_id, e);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
   }
 }
 

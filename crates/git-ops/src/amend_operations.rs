@@ -156,7 +156,7 @@ where
   // Capture previous HEAD tree before updating ref to determine if index needs refresh
   let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
 
-  update_ref_plumbing(git_executor, repo_path, main_branch, &current_parent).map_err(CopyCommitError::Other)?;
+  update_ref_plumbing(git_executor, repo_path, main_branch, &current_parent, None).map_err(CopyCommitError::Other)?;
 
   // Fast path: only refresh index if the HEAD tree actually changed
   let new_head_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
@@ -575,7 +575,7 @@ fn amend_root_commit(
 
   // Update the branch ref to the new tip, refreshing the index only when the HEAD tree changed
   let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
-  update_ref_plumbing(git_executor, repo_path, current_branch, &current_parent).map_err(CopyCommitError::Other)?;
+  update_ref_plumbing(git_executor, repo_path, current_branch, &current_parent, None).map_err(CopyCommitError::Other)?;
   let new_head_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
   if prev_head_tree != new_head_tree {
     let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &current_parent], repo_path);

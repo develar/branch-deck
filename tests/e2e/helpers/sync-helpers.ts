@@ -107,3 +107,20 @@ export async function emitTauriEvent(page: Page, event: string, payload: unknown
     (window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown) => void }).__e2eEmitTauriEvent(event as string, payload)
   }, [event, payload] as const)
 }
+
+/** Turns on "Auto-sync on focus" in the sync settings popover. */
+export async function enableAutoSyncOnFocus(page: Page): Promise<void> {
+  await page.getByTestId("sync-settings-button").click()
+  const autoSyncSwitch = page.getByRole("switch")
+  await autoSyncSwitch.click()
+  await expect(autoSyncSwitch).toBeChecked()
+  await page.keyboard.press("Escape")
+}
+
+/** Gives the window the focus and waits for the auto-sync it starts (see `enableAutoSyncOnFocus`). */
+export async function syncOnWindowFocus(page: Page): Promise<void> {
+  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
+  await emitTauriEvent(page, "tauri://focus")
+  await syncResponse
+  await expect(page.locator("[data-testid=\"sync-button\"]")).toBeEnabled()
+}

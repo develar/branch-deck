@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vitest"
-import { getCommitMessageBody, hasCommitMessageBody, splitSubjectPrefix } from "@/lib/commit"
+import { getCommitMessageBody, getGroupingPrefix, hasCommitMessageBody, splitSubjectPrefix } from "@/lib/commit"
 
 describe("splitSubjectPrefix", () => {
   it.each([
@@ -50,5 +50,19 @@ describe("hasCommitMessageBody", () => {
 
   it("is false for an empty message", () => {
     expect(hasCommitMessageBody("", "")).toBe(false)
+  })
+})
+
+describe("getGroupingPrefix", () => {
+  it("returns the grouping prefix of the subject without the parentheses", () => {
+    expect(getGroupingPrefix("(feature-auth) Add login\n\nBody (not-a-prefix) text")).toBe("feature-auth")
+  })
+
+  it("skips the blank lines before the subject", () => {
+    expect(getGroupingPrefix("\n(feature-auth) Add login")).toBe("feature-auth")
+  })
+
+  it.each(["Add login", "feat(auth): add login", "(feature-auth)", "Add login\n(feature-auth) in the body"])("returns null for %j", (message) => {
+    expect(getGroupingPrefix(message)).toBeNull()
   })
 })

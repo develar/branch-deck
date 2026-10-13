@@ -18,6 +18,7 @@ use commands::create_branch::create_branch_from_commits;
 use commands::menu_commands::update_menu_checkbox;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
+use commands::reword_commit::reword_commit;
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
@@ -50,6 +51,7 @@ pub fn run() {
     open_sub_window,
     create_branch_from_commits,
     add_issue_reference_to_commits,
+    reword_commit,
     amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,

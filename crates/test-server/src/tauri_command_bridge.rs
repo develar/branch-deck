@@ -87,6 +87,21 @@ pub async fn add_issue_reference_to_commits(
   }
 }
 
+pub async fn reword_commit(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::reword_commit::RewordCommitRequest>,
+) -> Result<Json<sync_core::reword_commit::RewordCommitResult>, StatusCode> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+
+  match sync_core::reword_commit::reword_commit_core(&state.git_executor, &params) {
+    Ok(result) => Ok(Json(result)),
+    Err(e) => {
+      tracing::error!("Failed to reword commit: {:#}", e);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
 #[derive(Deserialize)]
 pub struct ValidateRepositoryPathRequest {
   path: String,

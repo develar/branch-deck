@@ -2,6 +2,7 @@ use crate::commit_utils::{create_commit_with_metadata, get_commit_info, prefetch
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
+use std::path::Path;
 use tracing::{debug, info, instrument};
 
 #[derive(Debug, Clone)]
@@ -12,6 +13,9 @@ pub struct RewordCommitParams {
 
 /// Reword multiple commits efficiently using git plumbing commands.
 /// Returns a mapping of old commit IDs to new commit IDs.
+///
+/// The trees stay the same, so the working tree and the index are not touched. Fails while a rebase, merge,
+/// cherry-pick or revert is in progress, and if the branch moved while the new commits were created.
 #[instrument(skip(git_executor))]
 pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
   if rewrites.is_empty() {
@@ -19,6 +23,8 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
   }
 
   info!("Rewording {} commits", rewrites.len());
+
+  ensure_no_operation_in_progress(git_executor, repo_path)?;
 
   // Get current branch
   let current_branch = get_current_branch(git_executor, repo_path)?;
@@ -66,13 +72,40 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
   }
 
   // Update the branch to point to the new tip
-  let new_tip = id_mapping.get(&original_tip).cloned().unwrap_or(original_tip);
-  update_branch_ref(git_executor, repo_path, &current_branch, &new_tip)?;
+  let new_tip = id_mapping.get(&original_tip).cloned().unwrap_or_else(|| original_tip.clone());
+  // a commit made meanwhile (e.g. in a terminal) is not dropped: the update fails instead
+  update_branch_ref(git_executor, repo_path, &current_branch, &new_tip, Some(&original_tip))
+    .map_err(|e| anyhow!("Branch {current_branch} changed while rewording, sync and try again: {e:#}"))?;
 
   info!("Successfully reworded {} commits", rewrite_map.len());
 
   // Return only the mapping for commits that were actually reworded
   Ok(id_mapping.into_iter().filter(|(old_id, _)| rewrite_map.contains_key(old_id)).collect())
+}
+
+/// Fails if git is in the middle of a rebase, merge, cherry-pick or revert: rewriting history then would corrupt it.
+pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
+  const MARKERS: [(&str, &str); 5] = [
+    ("rebase-merge", "a rebase"),
+    ("rebase-apply", "a rebase"),
+    ("MERGE_HEAD", "a merge"),
+    ("CHERRY_PICK_HEAD", "a cherry-pick"),
+    ("REVERT_HEAD", "a revert"),
+  ];
+
+  let mut args = vec!["rev-parse"];
+  for (marker, _) in MARKERS {
+    args.push("--git-path");
+    args.push(marker);
+  }
+  // one path per marker, relative to the repository directory (or absolute in a linked worktree)
+  let paths = git_executor.execute_command_lines(&args, repo_path)?;
+  for ((_, operation), path) in MARKERS.iter().zip(paths) {
+    if Path::new(repo_path).join(path).exists() {
+      return Err(anyhow!("Cannot rewrite commits while {operation} is in progress"));
+    }
+  }
+  Ok(())
 }
 
 fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
@@ -129,9 +162,13 @@ fn get_commits_to_process(git_executor: &GitCommandExecutor, repo_path: &str, re
   Ok((commits_with_parents, tip, range))
 }
 
-pub fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str) -> Result<()> {
+/// Points the branch at `new_commit_id`. With `expected_commit_id`, fails unless the branch still points at it.
+pub fn update_branch_ref(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, new_commit_id: &str, expected_commit_id: Option<&str>) -> Result<()> {
   let ref_name = format!("refs/heads/{branch_name}");
-  let args = vec!["update-ref", &ref_name, new_commit_id];
+  let mut args = vec!["update-ref", &ref_name, new_commit_id];
+  if let Some(expected_commit_id) = expected_commit_id {
+    args.push(expected_commit_id);
+  }
 
   git_executor.execute_command(&args, repo_path)?;
 

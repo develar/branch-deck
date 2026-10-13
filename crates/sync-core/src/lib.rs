@@ -10,6 +10,7 @@ pub mod issue_navigation;
 pub mod push;
 pub mod remote_status;
 pub mod repository_validation;
+pub mod reword_commit;
 pub mod sync;
 pub mod unapply_branch;
 pub mod uncommitted_changes;
