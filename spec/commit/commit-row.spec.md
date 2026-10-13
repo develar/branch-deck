@@ -130,15 +130,20 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
   [@test] ../../src/lib/commit.test.ts (`returns the grouping prefix of the subject without the parentheses`, `skips the blank lines before the subject`, `returns null for %j`)
 - The edit and the save must be disabled while a sync runs.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should disable the edit while a sync runs`)
+- A failed save must keep the edit open with the draft and show the error in a toast.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit open with an error when the commit changed meanwhile`)
 - E must work in any keyboard layout (the physical key).
+- The save hint must name the platform shortcut: `⌘↵` on macOS, `Ctrl+Enter` elsewhere.
 - The save must replace only the message: the commits after it are recreated with the same trees, and the working
   tree and the index stay as they are.
 - The message must be cleaned up as `git commit` does: LF line endings, no trailing whitespace, no blank lines around.
 - An unchanged message must keep the commit.
 - A message without a subject line must be refused.
 - The save must be refused while a rebase, merge, cherry-pick or revert is in progress.
+- The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal).
 - The save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made in a terminal).
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_to_move_a_branch_that_moved_meanwhile`)
+  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_a_commit_that_left_the_current_branch`, `refuses_to_move_a_branch_that_moved_meanwhile`)
 
 ### Message body
 
@@ -249,7 +254,7 @@ The commit hash popover shows the same header and body.
 - An editable preview ends the footer with a ghost `xs` button `E Edit`.
 - While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
   The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and
-  `Esc Cancel` and a primary `xs` button `Save ⌘↵` on the right. The button shows a spinner while saving.
+  `Esc Cancel` and a primary `xs` button `Save ⌘↵` (`Save Ctrl+Enter` outside macOS) on the right. The button shows a spinner while saving.
 - The selection tint of a row never grows with the message: the row stays two lines.
 
 ### Message body
@@ -302,8 +307,6 @@ The commit hash popover shows the same header and body.
 - Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
   ↓ right after Space is lost.
 - No test checks that the card header hides the selection actions while the inline branch form is open.
-- No test covers the disabled edit during a sync, or a failed save in the UI (the edit stays open with an error toast).
-- The amend flow still moves the branch without checking that it did not move meanwhile.
 - No test covers the generic error alert or the conflict pages in a separate window.
 - Code detection is heuristic. A false positive sets a prose word in the monospace font. Add such words to the stoplist.
 - Reflow can join lines that the author aligned by hand. An indent of four spaces keeps such lines verbatim.

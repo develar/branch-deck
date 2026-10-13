@@ -20,27 +20,31 @@ use crate::commit_utils::{create_commit_with_metadata, get_commit_info, prefetch
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_merge_conflict_info};
 use crate::model::{BranchError, MergeConflictInfo};
-use crate::reword_commits::update_branch_ref as update_ref_plumbing;
+use crate::reword_commits::{get_current_branch, update_branch_ref as update_ref_plumbing};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Generic function to rewrite commit history with a transform function
-/// This is the core rewriting logic used by both amend and drop operations
+/// This is the core rewriting logic used by both amend and drop operations.
+/// Rewrites the checked out branch; fails if it moved meanwhile (e.g. a commit made in a terminal).
 #[instrument(skip(git_executor, transform, cache))]
 fn rewrite_commits<F>(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   start_commit: &str, // The commit to start rewriting from (exclusive)
-  main_branch: &str,
   transform: F,
   cache: &TreeIdCache,
 ) -> Result<String, CopyCommitError>
 where
   F: Fn(&str) -> Result<RewriteAction, CopyCommitError>,
 {
+  let current_branch = get_current_branch(git_executor, repo_path).map_err(CopyCommitError::Other)?;
+  // the tip to rewrite, read once: the branch is moved only if it still points at it
+  let original_head = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?.trim().to_string();
+
   // Get all commits and their first parents from start to HEAD (excluding start)
   // Using --parents lets us avoid per-commit parent lookups.
-  let range = format!("{start_commit}..HEAD");
+  let range = format!("{start_commit}..{original_head}");
   let commits_with_parents_lines = git_executor
     .execute_command_lines(&["rev-list", "--first-parent", "--reverse", "--parents", &range], repo_path)
     .map_err(CopyCommitError::Other)?;
@@ -156,29 +160,23 @@ where
   // Capture previous HEAD tree before updating ref to determine if index needs refresh
   let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
 
-  update_ref_plumbing(git_executor, repo_path, main_branch, &current_parent, None).map_err(CopyCommitError::Other)?;
+  update_ref_plumbing(git_executor, repo_path, &current_branch, &current_parent, Some(&original_head))
+    .map_err(|e| CopyCommitError::Other(anyhow!("Branch {current_branch} changed while rewriting, sync and try again: {e:#}")))?;
 
   // Fast path: only refresh index if the HEAD tree actually changed
   let new_head_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
   if prev_head_tree != new_head_tree {
-    // If current branch equals main_branch, refresh the index to match HEAD without touching worktree
-    let current_branch_result = git_executor.execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path);
-    if let Ok(current_branch) = current_branch_result {
-      let current_branch = current_branch.trim();
-      if current_branch == main_branch {
-        // Reset index to match new HEAD, but preserve working directory
-        let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &current_parent], repo_path);
-      }
-    }
+    // Reset index to match new HEAD, but preserve working directory
+    let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &current_parent], repo_path);
   }
 
   Ok(current_parent)
 }
 
-/// Drop specified commits from HEAD while preserving working directory changes
+/// Drop specified commits from HEAD (the checked out branch) while preserving working directory changes
 /// Uses the generic `rewrite_commits` function
 #[instrument(skip(git_executor))]
-pub fn drop_commits_from_head(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String], main_branch: &str) -> Result<String, CopyCommitError> {
+pub fn drop_commits_from_head(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String]) -> Result<String, CopyCommitError> {
   if commit_ids_to_drop.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No commits specified to drop")));
   }
@@ -214,7 +212,6 @@ pub fn drop_commits_from_head(git_executor: &GitCommandExecutor, repo_path: &str
     git_executor,
     repo_path,
     &base_commit,
-    main_branch,
     |commit| if drop_set.contains(commit) { Ok(RewriteAction::Skip) } else { Ok(RewriteAction::Keep) },
     &cache,
   )
@@ -498,9 +495,7 @@ fn compute_amended_tree(git_executor: &GitCommandExecutor, repo_path: &str, orig
 #[instrument(skip(git_executor, cache))]
 fn fast_amend_linear(git_executor: &GitCommandExecutor, repo_path: &str, original_commit_id: &str, files: &[String], cache: &TreeIdCache) -> Result<AmendResult, CopyCommitError> {
   // Get the current branch to use for ref updates
-  let current_branch = git_executor
-    .execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path)
-    .map_err(CopyCommitError::Other)?;
+  let current_branch = get_current_branch(git_executor, repo_path).map_err(CopyCommitError::Other)?;
 
   // Compute the amended tree for the original commit
   let amended_tree = compute_amended_tree(git_executor, repo_path, original_commit_id, files, cache)?;
@@ -514,7 +509,6 @@ fn fast_amend_linear(git_executor: &GitCommandExecutor, repo_path: &str, origina
     git_executor,
     repo_path,
     &parent,
-    &current_branch,
     |commit| {
       if commit == original_commit_id {
         Ok(RewriteAction::Modify(amended_tree.clone()))
@@ -552,9 +546,11 @@ fn amend_root_commit(
 ) -> Result<AmendResult, CopyCommitError> {
   let original_commit = get_commit_info(git_executor, repo_path, original_commit_id)?;
   let amended_commit_id = create_commit_with_metadata(git_executor, repo_path, amended_tree, None, &original_commit, &original_commit.message)?;
+  // the tip to rewrite, read once: the branch is moved only if it still points at it
+  let original_head = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path)?.trim().to_string();
 
   // Replay the descendants on top of the amended root, using prefetched commit info to avoid per-commit git calls
-  let range = format!("{original_commit_id}..HEAD");
+  let range = format!("{original_commit_id}..{original_head}");
   let descendants = git_executor
     .execute_command_lines(&["rev-list", "--first-parent", "--reverse", &range], repo_path)
     .map_err(CopyCommitError::Other)?;
@@ -575,7 +571,8 @@ fn amend_root_commit(
 
   // Update the branch ref to the new tip, refreshing the index only when the HEAD tree changed
   let prev_head_tree = git_executor.resolve_tree_id(repo_path, "HEAD").map_err(CopyCommitError::Other)?;
-  update_ref_plumbing(git_executor, repo_path, current_branch, &current_parent, None).map_err(CopyCommitError::Other)?;
+  update_ref_plumbing(git_executor, repo_path, current_branch, &current_parent, Some(&original_head))
+    .map_err(|e| CopyCommitError::Other(anyhow!("Branch {current_branch} changed while amending, sync and try again: {e:#}")))?;
   let new_head_tree = cache.get_tree_id(git_executor, repo_path, &current_parent)?;
   if prev_head_tree != new_head_tree {
     let _ = git_executor.execute_command(&["reset", "--mixed", "-q", &current_parent], repo_path);

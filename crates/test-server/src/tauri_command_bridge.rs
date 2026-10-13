@@ -87,19 +87,17 @@ pub async fn add_issue_reference_to_commits(
   }
 }
 
+/// Fails with the error message as the body, which the page mock shows like a Tauri `CommandError`
 pub async fn reword_commit(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::reword_commit::RewordCommitRequest>,
-) -> Result<Json<sync_core::reword_commit::RewordCommitResult>, StatusCode> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+) -> Result<Json<sync_core::reword_commit::RewordCommitResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
 
-  match sync_core::reword_commit::reword_commit_core(&state.git_executor, &params) {
-    Ok(result) => Ok(Json(result)),
-    Err(e) => {
-      tracing::error!("Failed to reword commit: {:#}", e);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
+  sync_core::reword_commit::reword_commit_core(&state.git_executor, &params).map(Json).map_err(|e| {
+    tracing::error!("Failed to reword commit: {:#}", e);
+    (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
+  })
 }
 
 #[derive(Deserialize)]

@@ -204,13 +204,19 @@ test.describe("Commit message", () => {
   test.describe("editing", () => {
     const PERF_SUBJECT = "perf db: increase pool size to 50"
 
-    /** Opens the preview of the second JIRA-456 commit (no body) and starts editing it with E. */
-    async function editPerfCommit(page: Page): Promise<{ preview: Locator, editor: Locator }> {
+    /** Opens the preview of the second JIRA-456 commit (no body) with Space. */
+    async function openPerfCommit(page: Page): Promise<Locator> {
       await expandBranch(page, findBranchRow(page, BRANCH))
       await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).hover()
       await page.keyboard.press("Space")
       const preview = getPreview(page)
       await expectPreviewFocused(preview)
+      return preview
+    }
+
+    /** Opens the preview of the second JIRA-456 commit and starts editing it with E. */
+    async function editPerfCommit(page: Page): Promise<{ preview: Locator, editor: Locator }> {
+      const preview = await openPerfCommit(page)
       await page.keyboard.press("e")
       const editor = preview.getByTestId("commit-message-editor")
       await expect(editor).toBeFocused()
@@ -246,6 +252,51 @@ test.describe("Commit message", () => {
 
       await page.keyboard.press("Escape")
       await expect(preview).toHaveCount(0)
+    })
+
+    test("should keep the edit open with an error when the commit changed meanwhile", async ({ page }) => {
+      const { preview, editor } = await editPerfCommit(page)
+      const hash = await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).getAttribute("data-row-id")
+      const draft = `(${BRANCH}) perf db: increase pool size to 64`
+      await editor.fill(draft)
+
+      // the commit is reworded in a terminal meanwhile, so it left the branch
+      await repo.reword(hash!, `(${BRANCH}) ${PERF_SUBJECT} connections`)
+      await page.keyboard.press("ControlOrMeta+Enter")
+
+      await expect(page.getByText("Failed to Edit the Commit Message")).toBeVisible()
+      await expect(page.getByText(/is no longer on the current branch, sync and try again/)).toBeVisible()
+      await expect(editor).toHaveValue(draft)
+      await expect(editor).toBeEnabled()
+      await expect(preview).toBeVisible()
+    })
+
+    test("should disable the edit while a sync runs", async ({ page }) => {
+      await enableAutoSyncOnFocus(page)
+      const preview = await openPerfCommit(page)
+      const editButton = preview.getByRole("button", { name: /Edit/ })
+      await expect(editButton).toBeEnabled()
+
+      // hold the auto-sync on focus until the checks are done
+      let releaseSync!: () => void
+      const syncHeld = new Promise<void>((resolve) => {
+        releaseSync = resolve
+      })
+      await page.route("**/invoke/sync_branches", async (route) => {
+        await syncHeld
+        await route.continue()
+      })
+      const syncDone = syncOnWindowFocus(page)
+
+      await expect(editButton).toBeDisabled()
+      await page.keyboard.press("e")
+      await expect(preview.getByTestId("commit-message-editor")).toHaveCount(0)
+
+      releaseSync()
+      await syncDone
+      await expect(editButton).toBeEnabled()
+      await page.keyboard.press("e")
+      await expect(preview.getByTestId("commit-message-editor")).toBeFocused()
     })
 
     test("should warn that a changed grouping prefix moves the commit, and move it", async ({ page }) => {

@@ -1,7 +1,7 @@
 import { commands } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitHash } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
+import { getErrorDetails, notifyError } from "@/lib/errors"
 import { syncBranches } from "@/stores/branch-sync"
 import { getSelectedProject } from "@/stores/repository"
 
@@ -11,11 +11,18 @@ import { getSelectedProject } from "@/stores/repository"
  */
 export async function rewordCommit(commit: CommitUnion, message: string, onReworded: (newCommitId: string) => void): Promise<boolean> {
   const commitId = getCommitHash(commit)
-  const result = await commands.rewordCommit({
-    repositoryPath: getSelectedProject()?.path ?? "",
-    commitId,
-    message,
-  })
+  let result: Awaited<ReturnType<typeof commands.rewordCommit>>
+  try {
+    result = await commands.rewordCommit({
+      repositoryPath: getSelectedProject()?.path ?? "",
+      commitId,
+      message,
+    })
+  }
+  catch (error) {
+    // the command did not run (IPC failure)
+    result = { status: "error", error: { message: getErrorDetails(error) } }
+  }
   if (result.status !== "ok") {
     notifyError("Failed to Edit the Commit Message", result.error)
     return false

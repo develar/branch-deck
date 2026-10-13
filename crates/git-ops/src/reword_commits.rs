@@ -108,7 +108,8 @@ pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_p
   Ok(())
 }
 
-fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+/// Short name of the checked out branch; fails in the detached HEAD state
+pub fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
   let output = git_executor.execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path)?;
 
   let branch = output.trim().to_string();

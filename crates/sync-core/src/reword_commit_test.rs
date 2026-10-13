@@ -84,6 +84,19 @@ fn refuses_to_reword_while_a_merge_is_in_progress() {
 }
 
 #[test]
+fn refuses_a_commit_that_left_the_current_branch() {
+  let test_repo = TestRepo::new();
+  let commit = test_repo.create_commit("Add login", "login.rs", "// login");
+  // reworded in a terminal meanwhile
+  let replacement = reword(&test_repo, &commit, "Add the login form").unwrap().new_commit_id;
+
+  let error = reword(&test_repo, &commit, "Add login page").unwrap_err();
+
+  assert!(error.to_string().contains("no longer on the current branch"), "{error}");
+  assert_eq!(test_repo.head(), replacement);
+}
+
+#[test]
 fn refuses_to_move_a_branch_that_moved_meanwhile() {
   let test_repo = TestRepo::new();
   let first = test_repo.create_commit("Add login", "login.rs", "// login");

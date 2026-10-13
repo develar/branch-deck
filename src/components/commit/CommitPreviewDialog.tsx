@@ -10,6 +10,7 @@ import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, getGroupingPrefix, hasCommitMessageBody } from "@/lib/commit"
+import { isMac } from "@/lib/platform"
 import { useBranchSync } from "@/stores/branch-sync"
 
 export interface CommitPreviewDialogProps {
@@ -193,7 +194,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
                         <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
                           {isSaving && <Spinner data-icon="inline-start" />}
                           Save
-                          <Kbd>⌘↵</Kbd>
+                          <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
                         </Button>
                       </>
                     )

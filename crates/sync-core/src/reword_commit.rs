@@ -37,16 +37,21 @@ pub fn reword_commit_core(git_executor: &GitCommandExecutor, request: &RewordCom
   if normalize_message(&commit.message) == message {
     return Ok(RewordCommitResult { new_commit_id: commit.id });
   }
+  // e.g. reworded or dropped in a terminal while the message was edited here
+  let (_, status) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", &commit.id, "HEAD"], &request.repository_path)?;
+  if status != 0 {
+    return Err(anyhow!(
+      "Commit {} is no longer on the current branch, sync and try again",
+      &commit.id[..commit.id.len().min(8)]
+    ));
+  }
 
   let rewrites = vec![RewordCommitParams {
     commit_id: commit.id.clone(),
     new_message: message,
   }];
   let mapping = reword_commits_batch(git_executor, &request.repository_path, rewrites)?;
-  let new_commit_id = mapping
-    .get(&commit.id)
-    .cloned()
-    .ok_or_else(|| anyhow!("Commit {} is not on the current branch", commit.id))?;
+  let new_commit_id = mapping.get(&commit.id).cloned().ok_or_else(|| anyhow!("Commit {} was not reworded", commit.id))?;
   info!(new_commit_id, "Reworded commit");
   Ok(RewordCommitResult { new_commit_id })
 }

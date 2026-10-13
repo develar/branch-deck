@@ -1,9 +1,7 @@
 import { InfoIcon } from "lucide-react"
 import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-
-const isMac = navigator.userAgent.toLowerCase().includes("mac")
-const modifierKey = isMac ? "⌘" : "Ctrl"
+import { modifierKey } from "@/lib/platform"
 
 /** Selection shortcuts and an explanation of unassigned commits, on hover. */
 export function UnassignedCommitsHelpPopover() {

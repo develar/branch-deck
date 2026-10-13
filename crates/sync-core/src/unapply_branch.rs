@@ -60,9 +60,9 @@ fn move_branch_to_unapplied(git_executor: &GitCommandExecutor, repo: &str, from_
 /// Core function to unapply a virtual branch
 /// 1. Validates the provided commit IDs exist in HEAD
 /// 2. Moves the virtual branch to unapplied namespace  
-/// 3. Drops the specified commits from HEAD
+/// 3. Drops the specified commits from HEAD (the checked out branch)
 #[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
-pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams, baseline_branch: &str) -> Result<UnapplyBranchResult> {
+pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams) -> Result<UnapplyBranchResult> {
   let UnapplyBranchParams {
     repository_path,
     branch_name,
@@ -97,7 +97,7 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   debug!(unapplied_branch = %unapplied_branch_name, "Moved virtual branch to unapplied");
 
   // Drop the specified commits from HEAD
-  let _new_head = drop_commits_from_head(git_executor, &repository_path, &original_commit_ids, baseline_branch).map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
+  let _new_head = drop_commits_from_head(git_executor, &repository_path, &original_commit_ids).map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
 
   debug!(commits_dropped = original_commit_ids.len(), "Successfully dropped commits from HEAD");
 

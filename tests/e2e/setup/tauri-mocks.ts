@@ -81,13 +81,10 @@ export const tauriMockScript = () => {
       })
 
       if (!response.ok) {
-        const error = await response.text()
-        // Return a Result type with error status to match Tauri bindings
-        const result = {
-          status: "error",
-          error: `${response.statusText} - ${error}`,
-        }
-        return result
+        // a failed command rejects with its CommandError ({ message }), as Tauri does; the bindings return it as
+        // `{ status: "error", error }` (a resolved value would read as success)
+        const message = (await response.text()) || response.statusText
+        throw { name: "CommandError", message }
       }
 
       const contentType = response.headers.get("content-type")
@@ -114,8 +111,8 @@ export const tauriMockScript = () => {
       // For backwards compatibility, return raw data (bindings will wrap it)
       return data
     } catch (networkError: any) {
-      // Re-throw TauriErrors so they reach the bindings layer
-      if (networkError.name === "TauriError") {
+      // Re-throw TauriErrors and CommandErrors so they reach the bindings layer
+      if (networkError.name === "TauriError" || networkError.name === "CommandError") {
         throw networkError
       }
       // Network errors should also be wrapped in Result type
@@ -478,7 +475,11 @@ export const tauriMockScript = () => {
     
     try {
       return await proxyToTestServer(cmd, payload)
-    } catch (error) {
+    } catch (error: any) {
+      // the command ran and failed: the app gets its CommandError
+      if (error?.name === "CommandError") {
+        throw error
+      }
       console.error(`[Test Mock] Failed to handle command ${cmd}:`, error)
       throw new Error(`Unimplemented Tauri command: ${cmd}`)
     }

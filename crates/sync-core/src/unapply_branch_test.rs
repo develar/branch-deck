@@ -1,4 +1,3 @@
-use crate::baseline::detect_baseline_branch;
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, unapply_branch_core};
 use anyhow::Result;
 use git_ops::model::to_final_branch_name;
@@ -24,7 +23,7 @@ fn create_test_repo_with_virtual_branch() -> Result<(TestRepo, Vec<String>)> {
   Ok((test_repo, vec![commit1_id, commit2_id]))
 }
 
-/// Unapplies `original_commit_ids` of `branch_name` (branch prefix `test-user`) against the detected baseline
+/// Unapplies `original_commit_ids` of `branch_name` (branch prefix `test-user`)
 fn unapply(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>) -> Result<UnapplyBranchResult> {
   let params = UnapplyBranchParams {
     repository_path: test_repo.path().to_str().unwrap().to_string(),
@@ -32,9 +31,7 @@ fn unapply(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<Str
     branch_prefix: "test-user".to_string(),
     original_commit_ids,
   };
-
-  let baseline_branch = detect_baseline_branch(test_repo.git_executor(), test_repo.path().to_str().unwrap(), "master")?;
-  unapply_branch_core(test_repo.git_executor(), params, &baseline_branch)
+  unapply_branch_core(test_repo.git_executor(), params)
 }
 
 fn assert_unapply_fails(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>, expected_error: &str) {
@@ -212,5 +209,26 @@ fn test_unapply_non_consecutive_commits() -> Result<()> {
   assert!(!head_log.contains("Add file1"), "Dropped commit should not be in HEAD");
   assert!(!head_log.contains("Add file3"), "Dropped commit should not be in HEAD");
 
+  Ok(())
+}
+
+#[test]
+fn test_unapply_drops_the_commits_from_the_current_branch_of_a_clone() -> Result<()> {
+  // with a remote, the baseline is `origin/master`: the commits must still leave the current branch, `master`
+  let upstream = TestRepo::new();
+  upstream.create_commit("Initial commit", "initial.txt", "initial content");
+  let test_repo = TestRepo::new_empty();
+  test_repo.clone_from(upstream.path()).map_err(|e| anyhow::anyhow!(e))?;
+  let kept = test_repo.create_commit("(other) Add other", "other.txt", "other");
+  let dropped = test_repo.create_commit("(feature) Add file1", "file1.txt", "content 1");
+  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+  test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
+
+  unapply(&test_repo, &virtual_branch_name, vec![dropped.clone()])?;
+
+  let head_commits = test_repo.log(&["--format=%H", "master"]).map_err(|e| anyhow::anyhow!(e))?;
+  assert!(!head_commits.contains(&dropped), "the unapplied commit must leave master");
+  assert!(head_commits.contains(&kept), "the other commits must stay");
+  assert!(!test_repo.branch_exists("origin/master"), "no local branch named like the baseline");
   Ok(())
 }
