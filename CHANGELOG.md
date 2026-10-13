@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.11.0](https://github.com/develar/branch-deck/compare/v0.10.0...v0.11.0) (2026-10-13)
+
+
+### Features
+
+* commit preview opened with Space instead of the inline body ([dd4ec04](https://github.com/develar/branch-deck/commit/dd4ec04df4fd9b571d1577303d47b4f9ff2d38e6))
+* edit a commit message in the commit preview ([24987bc](https://github.com/develar/branch-deck/commit/24987bc3f071c538826f3e7fa4dfc56bdda3d075))
+* inline commit message bodies with reading typography ([879f58b](https://github.com/develar/branch-deck/commit/879f58bdd895ea52f0e57be99d2c21ec1fe37f68))
+* **model:** switch to Qwen3-4B-Instruct-2507 and remove obsolete model caches ([b6b55a7](https://github.com/develar/branch-deck/commit/b6b55a780c61e31c56de71a3e34715b15f7b4a9a))
+* move commits between branches, split an issue branch into pushable branches ([45a889e](https://github.com/develar/branch-deck/commit/45a889edaab4309766096fbab8d4e0a90dd3b8e6))
+* one commit row anatomy, quieter branch table and conflict viewer, wider body ([11c6a17](https://github.com/develar/branch-deck/commit/11c6a17e2f46db06e2f9ac8ed871d9f396362601))
+* **react:** auto-update, menu sync, auto-sync on focus and theme dialog ([7b28a3d](https://github.com/develar/branch-deck/commit/7b28a3deedd92d918f80246f51abf743a543d16c))
+* **react:** branch sync store, branch tables and inline row forms ([9ed746f](https://github.com/develar/branch-deck/commit/9ed746f4bdc0131f6207f7714b878e98e178b2c1))
+* **react:** commit list, row selection and inline branch creator ([7ffc7ba](https://github.com/develar/branch-deck/commit/7ffc7ba1597314f10b0c3cdc01d232131f3300c3))
+* **react:** conflict viewer and AI branch naming ([1e52bbf](https://github.com/develar/branch-deck/commit/1e52bbf1f1de842cde9da0c1ac389715c11d7342))
+* **react:** core infrastructure, settings stores and app shell ([8452005](https://github.com/develar/branch-deck/commit/84520058d4fa1879d203a925b78879d4eb564fc6))
+* **react:** repository selection, configuration header and welcome card ([3f9bd6f](https://github.com/develar/branch-deck/commit/3f9bd6fc1ba11308afc68884243761fd53a8b837))
+* readable commit message popover with reflow and scrolling ([50177f4](https://github.com/develar/branch-deck/commit/50177f40646aa719017dca293b5e30b852fecf00))
+
+
+### Bug Fixes
+
+* **amend:** restore the working tree after an aborted autosquash rebase ([18a66b4](https://github.com/develar/branch-deck/commit/18a66b424816054d0585fcb1afc337add3086b97))
+* dedupe tokenizers and apply toast theme override ([135807c](https://github.com/develar/branch-deck/commit/135807c172626b0ed46072fae6df82a18305b4b4))
+* give the commit title the free width of the branch table ([5c55331](https://github.com/develar/branch-deck/commit/5c55331e426deb82b8cbcd325d1a0a67f42bfd7d)), closes [#72](https://github.com/develar/branch-deck/issues/72)
+* history rewrites move the checked out branch only if it did not move ([698ceb5](https://github.com/develar/branch-deck/commit/698ceb599c3e18dd851cca4282392c267dca88a3))
+* keep archived branches newest first ([9b9bc33](https://github.com/develar/branch-deck/commit/9b9bc33fd86b48d1afeaf286950e0195da307814))
+* keep the push state of a branch across a sync ([7fafdfb](https://github.com/develar/branch-deck/commit/7fafdfbf9a971c1f2d080782d0b8c87204529eeb)), closes [#71](https://github.com/develar/branch-deck/issues/71)
+* **model:** keep the partial download when the user pauses ([61a38f5](https://github.com/develar/branch-deck/commit/61a38f5d18895976fce674e24b038957a9dfbb01))
+* sync, archive and model bugs found in Rust review ([b17a407](https://github.com/develar/branch-deck/commit/b17a407cb6687d5b42d4fee0fb6016114f3f8211))
+
 ## [0.10.0](https://github.com/develar/branch-deck/compare/v0.9.2...v0.10.0) (2025-10-28)
 
 
