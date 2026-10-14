@@ -19,6 +19,7 @@ fn params(local: &TestRepo, branch_name: &str) -> PushBranchParams {
     branch_name: branch_name.to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "master".to_string(),
+    parent_branch: None,
   }
 }
 

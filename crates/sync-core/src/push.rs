@@ -16,6 +16,11 @@ pub struct PushBranchParams {
   pub branch_name: String,
   pub my_email: Option<String>,
   pub baseline_branch: String,
+  /// The branch a stacked branch is built on (`BranchStack::effective_base`): its commits are not counted as unpushed
+  /// commits of this branch
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub parent_branch: Option<String>,
 }
 
 /// Force-pushes (with a lease) the virtual branch to `origin` and returns its updated remote status.
@@ -40,6 +45,11 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams)
     repository_path,
   )?;
 
+  let parent_ref = params
+    .parent_branch
+    .as_deref()
+    .map(|parent| to_final_branch_name(&params.branch_prefix, parent))
+    .transpose()?;
   compute_remote_status_for_branch(
     git_executor,
     repository_path,
@@ -47,6 +57,7 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams)
     branch_name,
     params.my_email.as_deref(),
     &params.baseline_branch,
+    parent_ref.as_deref(),
   )
   .context("Failed to compute remote status")
 }

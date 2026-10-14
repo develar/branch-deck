@@ -34,8 +34,9 @@ pub(crate) struct BranchJob {
   /// The commit the branch is built on: the base of the sync (the parent of the oldest commit ahead of the baseline),
   /// or the new head of its parent branch
   pub base_commit: String,
-  /// `base_commit` is the head of the parent branch: the branch's tip gets a stack note naming it
-  pub on_parent: bool,
+  /// The virtual branch of the parent when `base_commit` is its head: the branch's tip gets a stack note naming the
+  /// base, and the parent's commits are not counted as the branch's unpushed ones
+  pub parent_ref: Option<String>,
 }
 
 /// A branch whose commits are written; its ref, notes and remote status are not updated yet
@@ -50,6 +51,7 @@ pub(crate) struct BuiltBranch {
   /// `(new tip, base)` of a branch built on its parent whose tip changed, for `STACK_NOTES_REF`
   stack_note: Option<(String, String)>,
   my_email: Option<String>,
+  parent_ref: Option<String>,
 }
 
 impl BuiltBranch {
@@ -113,7 +115,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     my_email,
     branch_idx: current_branch_idx,
     base_commit,
-    on_parent,
+    parent_ref,
   } = job;
 
   let full_branch_name = to_final_branch_name(branch_prefix, &branch_name)?;
@@ -231,7 +233,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     BranchSyncStatus::Unchanged
   };
 
-  let stack_note = (on_parent && status != BranchSyncStatus::Unchanged).then(|| (last_commit_hash.clone(), base_commit));
+  let stack_note = (parent_ref.is_some() && status != BranchSyncStatus::Unchanged).then(|| (last_commit_hash.clone(), base_commit));
   Ok(BuildOutcome::Built(BuiltBranch {
     stack_note,
     head: last_commit_hash,
@@ -240,6 +242,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     status,
     notes: pending_notes,
     my_email,
+    parent_ref,
   }))
 }
 
@@ -264,6 +267,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     notes,
     stack_note,
     my_email,
+    parent_ref,
   } = built;
   let git_executor = &ctx.git_executor;
   let repository_path = &ctx.repository_path;
@@ -282,7 +286,15 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     error: None,
   });
 
-  if let Ok(remote_status) = compute_remote_status_for_branch(git_executor, repository_path, &full_branch_name, &branch_name, my_email.as_deref(), &ctx.baseline_branch) {
+  if let Ok(remote_status) = compute_remote_status_for_branch(
+    git_executor,
+    repository_path,
+    &full_branch_name,
+    &branch_name,
+    my_email.as_deref(),
+    &ctx.baseline_branch,
+    parent_ref.as_deref(),
+  ) {
     let _ = ctx.progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }
 

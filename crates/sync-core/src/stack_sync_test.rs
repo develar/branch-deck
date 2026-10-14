@@ -208,3 +208,34 @@ async fn a_missing_parent_or_a_problem_is_not_built() {
   assert!(!test_repo.branch_exists("test/virtual/login"));
   assert!(!test_repo.branch_exists("test/virtual/a"));
 }
+
+#[tokio::test]
+async fn the_unpushed_commits_of_a_child_exclude_its_parent() {
+  let test_repo = stacked_repo();
+  let remote = TestRepo::new_empty();
+  remote.git_executor().execute_command(&["init", "--bare"], repo_path(&remote)).unwrap();
+  test_repo.add_remote("origin", repo_path(&remote)).unwrap();
+  // the baseline
+  test_repo.push("origin", "master").unwrap();
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  sync(&test_repo).await;
+  test_repo.push("origin", "test/virtual/login").unwrap();
+
+  // the parent and the child get a commit each: login is copied onto the parent's new head
+  test_repo.create_commit("(auth) Add session", "session.rs", "// session");
+  test_repo.create_commit("(login) Validate form", "validate.rs", "// validate");
+  let events = sync(&test_repo).await;
+
+  let login = events
+    .iter()
+    .find_map(|event| match event {
+      SyncEvent::RemoteStatusUpdate(update) if update.branch_name == "login" => Some(update.clone()),
+      _ => None,
+    })
+    .expect("login has a remote status");
+  assert!(login.remote_exists);
+  // only the new commit is login's: the copy is patch-equivalent to the pushed one, the session commit is the parent's
+  assert_eq!(login.unpushed_commits, [test_repo.rev_parse("test/virtual/login").unwrap()]);
+  assert_eq!(login.my_unpushed_count, 1);
+}

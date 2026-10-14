@@ -271,6 +271,7 @@ async fn test_compute_remote_status_directly() {
     "test",
     Some(&scenario.user_email),
     "origin/main", // baseline_branch
+    None,
   )
   .unwrap();
 
@@ -358,6 +359,7 @@ async fn test_rebased_branch_shows_zero_unpushed() {
     "grpc",
     Some(&scenario.user_email),
     "origin/main",
+    None,
   )
   .unwrap();
 
@@ -449,6 +451,20 @@ async fn test_unrelated_commits_from_same_author_not_counted() {
 }
 
 /// A branch not on the remote sends its commits, the baseline excluded; mine counts only the user's commits
+/// The remote status of `user/virtual/feature` against `origin/main`, for the user of the scenario
+fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
+  compute_remote_status_for_branch(
+    &scenario.git_executor,
+    scenario.local_repo.path().to_str().unwrap(),
+    "user/virtual/feature",
+    "feature",
+    Some(&scenario.user_email),
+    "origin/main",
+    None,
+  )
+  .unwrap()
+}
+
 #[test(tokio::test)]
 async fn test_new_branch_counts_commits_by_author() {
   let scenario = TestScenario::new().with_author("user@example.com", "Test User");
@@ -459,15 +475,7 @@ async fn test_new_branch_counts_commits_by_author() {
   let tip = scenario.local_repo.create_commit("(feature) Theirs", "theirs.txt", "theirs");
   scenario.local_repo.create_branch_at("user/virtual/feature", &tip).unwrap();
 
-  let result = compute_remote_status_for_branch(
-    &scenario.git_executor,
-    scenario.local_repo.path().to_str().unwrap(),
-    "user/virtual/feature",
-    "feature",
-    Some(&scenario.user_email),
-    "origin/main",
-  )
-  .unwrap();
+  let result = feature_status(&scenario);
 
   assert!(!result.remote_exists);
   assert_eq!(result.unpushed_commits.len(), 2);
@@ -496,15 +504,7 @@ async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
   scenario.local_repo.rebase("origin/main").unwrap();
   let second = scenario.local_repo.create_commit("(feature) Second", "second.txt", "second");
 
-  let result = compute_remote_status_for_branch(
-    &scenario.git_executor,
-    scenario.local_repo.path().to_str().unwrap(),
-    "user/virtual/feature",
-    "feature",
-    Some(&scenario.user_email),
-    "origin/main",
-  )
-  .unwrap();
+  let result = feature_status(&scenario);
 
   assert_eq!(result.unpushed_commits, vec![second]);
   assert_eq!(result.my_unpushed_count, 1);

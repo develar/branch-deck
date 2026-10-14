@@ -44,7 +44,8 @@ fn walk(git_executor: &GitCommandExecutor, repository_path: &str, args: &[&str],
 }
 
 /// Compute remote status for a single local virtual branch.
-/// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix).
+/// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix). `parent_ref` is the virtual
+/// branch a stacked branch is built on: its commits are the parent's, not unpushed commits of this branch.
 ///
 /// The sync rebuilds a virtual branch on the latest baseline, so its hashes change while its work stays the same.
 /// The status compares content, not hashes: the baseline commits are on the remote already, and a rebased copy of a
@@ -63,12 +64,17 @@ pub fn compute_remote_status_for_branch(
   branch_name: &str,
   my_email: Option<&str>,
   baseline_branch: &str,
+  parent_ref: Option<&str>,
 ) -> Result<RemoteStatusUpdate> {
   let remote_ref = format!("origin/{local_ref}");
   let baseline_exclusion = format!("^{baseline_branch}");
+  let parent_exclusion = parent_ref.map(|parent_ref| format!("^{parent_ref}"));
 
   if !git_executor.ref_exists(repository_path, &format!("refs/remotes/{remote_ref}")) {
-    let walked = walk(git_executor, repository_path, &[&baseline_exclusion, local_ref], my_email)?;
+    let mut args = vec![baseline_exclusion.as_str()];
+    args.extend(parent_exclusion.as_deref());
+    args.push(local_ref);
+    let walked = walk(git_executor, repository_path, &args, my_email)?;
     return Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: false,
@@ -82,7 +88,10 @@ pub fn compute_remote_status_for_branch(
 
   // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
   let range = format!("{remote_ref}...{local_ref}");
-  let unpushed = walk(git_executor, repository_path, &["--cherry-pick", "--right-only", &baseline_exclusion, &range], my_email)?;
+  let mut args = vec!["--cherry-pick", "--right-only", baseline_exclusion.as_str()];
+  args.extend(parent_exclusion.as_deref());
+  args.push(&range);
+  let unpushed = walk(git_executor, repository_path, &args, my_email)?;
 
   // the remote commits whose content the branch lacks: a push drops them. The baseline is not excluded here,
   // so a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.

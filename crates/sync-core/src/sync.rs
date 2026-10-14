@@ -13,7 +13,7 @@ use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
-use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace};
+use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace, to_final_branch_name};
 use git_ops::notes::write_commit_notes_with;
 use indexmap::IndexMap;
 use std::cmp::Reverse;
@@ -321,12 +321,12 @@ impl Schedule {
     self.ready.push((self.chain_lengths[&index], Reverse(index)));
   }
 
-  /// The children of `branch`, with `head` as their base, are ready
-  fn release_children(&mut self, branch: &str, head: &str) {
+  /// The children of `branch` (whose virtual branch is `parent_ref`), with `head` as their base, are ready
+  fn release_children(&mut self, branch: &str, head: &str, parent_ref: &str) {
     for index in self.children.remove(branch).unwrap_or_default() {
       if let Some(job) = self.jobs.get_mut(&index) {
         head.clone_into(&mut job.base_commit);
-        job.on_parent = true;
+        job.parent_ref = Some(parent_ref.to_string());
       }
       self.ready(index);
     }
@@ -390,7 +390,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       commits,
       branch_idx,
       base_commit: base_commit.clone(),
-      on_parent: false,
+      parent_ref: None,
     };
     if let Some(stack) = stack {
       if let Some(problem) = stack.problems.first() {
@@ -462,7 +462,8 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     let Some(joined) = tasks.join_next().await else { break };
     let failed = match joined {
       Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Built(built)))) => {
-        schedule.release_children(&branch_name, &built.head);
+        let parent_ref = to_final_branch_name(&context.branch_prefix, &branch_name)?;
+        schedule.release_children(&branch_name, &built.head, &parent_ref);
         to_finish.push(built);
         None
       }

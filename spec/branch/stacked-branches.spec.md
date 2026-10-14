@@ -8,6 +8,7 @@ targets:
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/sync-core/src/autosquash.rs
+  - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/branch-integration/src/detector.rs
   - ../../crates/sync-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
@@ -94,6 +95,12 @@ the other branches still sync. The backend is done; the branch table does not sh
 - A new parent commit must move the children onto the parent's new head; an unchanged stack must reuse every commit.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`builds_each_branch_on_its_parent`)
 
+### Remote status
+
+- The unpushed commits of a child must exclude its parent's commits (`^<parent ref>` next to the baseline exclusion),
+  after a sync and after a push of the child.
+  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`the_unpushed_commits_of_a_child_exclude_its_parent`)
+
 ### Integration detection
 
 - A rebuilt child must get a stack note (`refs/notes/branch-deck/stack`) on its tip naming the commit it was built on,
@@ -125,7 +132,6 @@ the other branches still sync. The backend is done; the branch table does not sh
 
 - An integrated parent is recognized only once its archived branch has a detection note, so the first sync after the
   parent's merge blocks the child (`Missing`); the next one moves it.
-- The unpushed commits of a child still count its parent's commits as its own.
 
 ## References
 

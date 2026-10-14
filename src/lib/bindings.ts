@@ -578,6 +578,11 @@ export type PushBranchParams = {
 	branchName: string,
 	myEmail: string | null,
 	baselineBranch: string,
+	/**
+	 *  The branch a stacked branch is built on (`BranchStack::effective_base`): its commits are not counted as unpushed
+	 *  commits of this branch
+	 */
+	parentBranch?: string | null,
 };
 
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
