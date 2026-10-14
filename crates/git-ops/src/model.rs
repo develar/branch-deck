@@ -74,6 +74,49 @@ pub struct MergeConflictInfo {
   pub conflict_marker_commits: std::collections::HashMap<String, ConflictCommit>,
 }
 
+impl MergeConflictInfo {
+  /// A conflict known only by its commits and files, without contents, diffs or analysis (`MergeMemo::light_conflicts`)
+  pub fn light(commit: &str, original_parent: &str, target: &str, files: Vec<String>) -> Self {
+    let commit_of = |hash: &str| ConflictCommit {
+      hash: hash.to_string(),
+      message: String::new(),
+      author: String::new(),
+      author_time: 0,
+      committer_time: 0,
+    };
+    let empty_file = |file_name: &str| crate::conflict_analysis::FileInfo {
+      file_name: file_name.to_string(),
+      file_lang: String::new(),
+      content: String::new(),
+    };
+    let empty_diff = |file: &str| crate::conflict_analysis::FileDiff {
+      old_file: empty_file(file),
+      new_file: empty_file(file),
+      hunks: Vec::new(),
+    };
+    Self {
+      commit: commit_of(commit),
+      original_parent: commit_of(original_parent),
+      target_branch: commit_of(target),
+      conflicting_files: files
+        .into_iter()
+        .map(|file| ConflictDetail {
+          file_diff: empty_diff(&file),
+          base_to_target_diff: empty_diff(&file),
+          base_to_cherry_diff: empty_diff(&file),
+          status: "modified".to_string(),
+          base_file: None,
+          target_file: None,
+          cherry_file: None,
+          file,
+        })
+        .collect(),
+      conflict_analysis: crate::conflict_analysis::ConflictAnalysis::default(),
+      conflict_marker_commits: std::collections::HashMap::new(),
+    }
+  }
+}
+
 /// A commit involved in a merge conflict: the applied commit, its original parent, the target, or one referenced in conflict markers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]

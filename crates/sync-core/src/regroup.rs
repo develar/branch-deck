@@ -586,4 +586,4 @@ pub fn problem_commits(problem: &StackProblem) -> Vec<String> {
 
 #[cfg(test)]
 #[path = "regroup_test.rs"]
-mod regroup_test;
+pub(crate) mod regroup_test;

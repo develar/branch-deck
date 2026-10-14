@@ -4,6 +4,7 @@ pub mod autosquash;
 pub mod baseline;
 pub mod branch_prefix;
 mod branch_processor;
+pub mod check;
 pub mod commit_grouper;
 pub mod delete_archived_branch;
 pub mod grouping;

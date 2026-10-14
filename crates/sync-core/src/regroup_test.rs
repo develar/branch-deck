@@ -30,7 +30,8 @@ fn path(repo: &TestRepo) -> &str {
   repo.path().to_str().unwrap()
 }
 
-fn plan(branches: &[(&str, &[&String])], unassign: &[&String]) -> RegroupPlan {
+/// A plan of `branches` (path, commits) and `unassign`
+pub(crate) fn plan(branches: &[(&str, &[&String])], unassign: &[&String]) -> RegroupPlan {
   RegroupPlan {
     branches: branches
       .iter()

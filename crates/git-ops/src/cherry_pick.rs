@@ -1,7 +1,8 @@
 use crate::cache::TreeIdCache;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_merge_conflict_info};
-use crate::model::{BranchError, BranchSyncStatus};
+use crate::merge_memo::{MemoizedMerge, MergeTrees};
+use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeSet;
@@ -28,6 +29,31 @@ pub fn perform_fast_cherry_pick_with_context(
   if cherry_parent_tree_id == target_tree_id {
     debug!("parent tree matches target tree, reusing commit tree");
     return tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id);
+  }
+
+  let memo = tree_id_cache.merge_memo();
+  let trees = match memo {
+    Some(_) => Some(MergeTrees {
+      base: cherry_parent_tree_id.clone(),
+      commit: tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id)?,
+      target: target_tree_id.clone(),
+    }),
+    None => None,
+  };
+  let light_conflict = |files: Vec<String>| {
+    CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(MergeConflictInfo::light(
+      cherry_commit_id,
+      cherry_parent_id,
+      target_commit_id,
+      files,
+    ))))
+  };
+  if let (Some(memo), Some(trees)) = (memo, &trees) {
+    match memo.merge(trees) {
+      Some(MemoizedMerge::Clean { tree }) => return Ok(tree),
+      Some(MemoizedMerge::Conflict { files }) if memo.light_conflicts() => return Err(light_conflict(files)),
+      _ => {}
+    }
   }
 
   debug!(
@@ -86,6 +112,13 @@ pub fn perform_fast_cherry_pick_with_context(
     let conflict_files: Vec<PathBuf> = conflict_paths.into_iter().collect();
 
     if !conflict_files.is_empty() {
+      if let (Some(memo), Some(trees)) = (memo, &trees) {
+        let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
+        memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
+        if memo.light_conflicts() {
+          return Err(light_conflict(files));
+        }
+      }
       // Conflict analysis takes a while; let the UI show it
       on_status(BranchSyncStatus::AnalyzingConflict);
 
@@ -103,6 +136,9 @@ pub fn perform_fast_cherry_pick_with_context(
   }
 
   // No conflicts, return the merged tree ID
+  if let (Some(memo), Some(trees)) = (memo, &trees) {
+    memo.remember_merge(trees, &MemoizedMerge::Clean { tree: tree_oid.to_string() });
+  }
   Ok(tree_oid.to_string())
 }
 

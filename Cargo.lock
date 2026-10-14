@@ -6394,6 +6394,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "indexmap 2.14.2",
+ "object-cache",
  "pretty_assertions",
  "quick-xml",
  "serde",

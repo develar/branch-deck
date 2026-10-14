@@ -419,8 +419,23 @@ the commits it misses.
 - **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. Any error is a miss,
   never a failed command, and `--no-cache` bypasses it. The cache holds only derived data: no ref, index or working
   tree is read or written through it.
-- `commit_tree` (commit → tree) and `merge_result` ((base, commit, target) trees → result tree or conflict files) exist
-  as APIs for sync and `bd check`; nothing writes them yet.
+- `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
+  read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`); a
+  sync doesn't pass a memo yet.
+
+#### Trial sync (check)
+
+`bd check` answers "would these branches build?" for a plan without touching anything a sync updates:
+
+1. The plan is applied in memory and validated as a regroup dry run, and the branches are placed as a stacked sync
+   places them (`place_branches`).
+2. Each branch is built with the sync's `build_branch`, parents first, a child on its parent's new head. It writes
+   commit objects (`merge-tree`, `commit-tree`) and nothing else: no ref transaction, no notes, no remote status, no
+   repository lock.
+3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree or
+   conflict, and a conflict is reported light (its files), without the conflict analysis.
+
+Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.
 
 Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
 

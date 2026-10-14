@@ -9,6 +9,7 @@ sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
+object-cache = { path = "../object-cache" }
 anyhow.workspace = true
 indexmap.workspace = true
 tracing.workspace = true

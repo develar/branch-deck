@@ -1,4 +1,5 @@
 use crate::copy_commit::CopyCommitError;
+use crate::merge_memo::MergeMemo;
 use anyhow::Result;
 use dashmap::DashMap;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -13,6 +14,8 @@ use tracing::{debug, instrument};
 pub struct TreeIdCache {
   cache: Arc<DashMap<String, String>>,
   committer_timestamps: Arc<DashMap<String, u32>>,
+  /// Merges and trees known from earlier operations
+  merge_memo: Option<Arc<dyn MergeMemo>>,
 }
 
 impl TreeIdCache {
@@ -21,7 +24,20 @@ impl TreeIdCache {
     Self {
       cache: Arc::new(DashMap::new()),
       committer_timestamps: Arc::new(DashMap::new()),
+      merge_memo: None,
     }
+  }
+
+  /// A cache that also reads and records merges and commit trees in `memo`
+  pub fn with_merge_memo(memo: Arc<dyn MergeMemo>) -> Self {
+    Self {
+      merge_memo: Some(memo),
+      ..Self::new()
+    }
+  }
+
+  pub fn merge_memo(&self) -> Option<&dyn MergeMemo> {
+    self.merge_memo.as_deref()
   }
 
   fn is_cacheable_key(commit_id: &str) -> bool {
@@ -49,15 +65,23 @@ impl TreeIdCache {
       }
     }
 
+    if cacheable && let Some(tree_id) = self.merge_memo().and_then(|memo| memo.commit_tree(commit_id)) {
+      self.cache.insert(commit_id.to_string(), tree_id.clone());
+      return Ok(tree_id);
+    }
+
     // Cache miss - fetch from git
     debug!("cache miss for commit {}", commit_id);
     let tree_id = git_executor
       .resolve_tree_id(repo_path, commit_id)
       .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get tree ID for {commit_id}: {e}")))?;
 
-    // Store in cache (minimal locking) only for stable keys
+    // Store in cache (minimal locking) only for stable keys; a short id is not a key across operations
     if cacheable {
       self.cache.insert(commit_id.to_string(), tree_id.clone());
+      if let Some(memo) = self.merge_memo().filter(|_| commit_id.len() >= 40) {
+        memo.remember_commit_tree(commit_id, &tree_id);
+      }
     }
 
     Ok(tree_id)

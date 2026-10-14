@@ -7,6 +7,7 @@ pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod merge_conflict;
+pub mod merge_memo;
 pub mod model;
 pub mod notes;
 pub mod ref_transaction;
