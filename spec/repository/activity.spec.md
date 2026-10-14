@@ -102,8 +102,9 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 
 ## User Experience
 
-- The button is a ghost `icon-sm` `HistoryIcon` after the outgoing indicator, named "Activity"; it is hidden while the
-  log of the repository is empty. The header stays on one line from 960 px.
+- The button is a ghost `icon-sm` `HistoryIcon` after the outgoing indicator, named "Activity" with the tooltip
+  "Activity" (an icon-only button, [UI Theme](../../docs/design/ui-theme.md)); it is hidden while the log of the
+  repository is empty. The header stays on one line from 960 px.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`)
 - A click opens a `Popover` (`w-96`): the title "Activity", the entries newest first grouped by day ("Today",
   "Yesterday", the date), the body scrolling within `max-h-[60vh]` with the day headings sticky, then "Clear".
