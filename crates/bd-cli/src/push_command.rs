@@ -15,9 +15,8 @@ use crate::sync_command::{SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
 use sync_core::grouping::branch_tips;
-use sync_core::push_lease::{PushRef, prepare_push, record_push};
+use sync_core::push_lease::{PushRef, parse_push_porcelain, prepare_push, record_push};
 use sync_core::remote_command::execute_remote_command_accepting;
 
 #[derive(Debug, Default, clap::Args)]
@@ -202,11 +201,11 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   push_args.extend(refspecs.iter().map(String::as_str));
   // 1: a ref was rejected; the porcelain output still reports every ref
   let output = execute_remote_command_accepting(&context.git, &push_args, &context.repository, &[1]).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
-  let statuses = parse_porcelain(&output);
+  let statuses = parse_push_porcelain(&output);
 
   let rejected: Vec<&str> = candidates
     .iter()
-    .filter(|candidate| statuses.get(&format!("refs/heads/{}", candidate.full_name)).is_none_or(|flag| *flag == '!'))
+    .filter(|candidate| statuses.get(&format!("refs/heads/{}", candidate.full_name)).is_none_or(|status| !status.accepted()))
     .map(|candidate| candidate.synced.name.as_str())
     .collect();
   if !rejected.is_empty() {
@@ -229,7 +228,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     .iter()
     .zip(&refs)
     .map(|(candidate, pushed)| {
-      let flag = statuses.get(&format!("refs/heads/{}", candidate.full_name)).copied().unwrap_or(' ');
+      let flag = statuses.get(&format!("refs/heads/{}", candidate.full_name)).map_or(' ', |status| status.flag);
       let base = candidate
         .parent
         .as_ref()
@@ -277,19 +276,6 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     dry_run: args.dry_run,
     branches,
   })
-}
-
-/// Remote ref -> flag of the `push --porcelain` lines `<flag> TAB <from>:<to> TAB <summary>`
-pub fn parse_porcelain(output: &str) -> HashMap<String, char> {
-  output
-    .lines()
-    .filter_map(|line| {
-      let mut fields = line.splitn(3, '\t');
-      let flag = fields.next()?.chars().next()?;
-      let (_, to) = fields.next()?.split_once(':')?;
-      Some((to.to_string(), flag))
-    })
-    .collect()
 }
 
 /// A word for a POSIX shell: single-quoted unless it is plain

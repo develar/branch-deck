@@ -6,8 +6,11 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	/**  Pushes a specific branch to the remote repository and returns updated remote status */
-	pushBranch: (params: PushBranchParams) => typedError<RemoteStatusUpdate, CommandError>(__TAURI_INVOKE("push_branch", { params })),
+	/**
+	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and returns its new remote
+	 *  status; a remote that moved is fetched and returned instead
+	 */
+	pushBranch: (params: PushBranchParams) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params })),
 	/**
 	 *  The GitHub pull requests of the virtual branches, read through the `gh` CLI; when `gh` can't answer, the
 	 *  availability says why
@@ -816,7 +819,22 @@ export type PushBranchParams = {
 	 *  commits of this branch
 	 */
 	parentBranch?: string | null,
+	/**
+	 *  The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
+	 *  branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
+	 */
+	expectedRemote: string | null,
 };
+
+/**  What a push did */
+export type PushOutcome = 
+/**  The remote branch is at the pushed commit */
+{ type: "pushed"; remoteStatus: RemoteStatusUpdate } | 
+/**
+ *  The remote branch was not where the user saw it (`expected_remote`): nothing was pushed. The branch was fetched,
+ *  and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
+ */
+{ type: "remoteMoved"; remoteStatus: RemoteStatusUpdate };
 
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
 export type RemoteStatusUpdate = {

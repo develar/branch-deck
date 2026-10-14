@@ -1,92 +1,281 @@
-use crate::push::{PushBranchParams, push_branch};
+use crate::push::{PushBranchParams, PushOutcome, push_branch};
+use crate::push_lease::PUSHED_NAMESPACE;
+use crate::remote_status::compute_remote_status_for_branch;
 use pretty_assertions::assert_eq;
+use sync_types::RemoteStatusUpdate;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
 
-fn clone_upstream() -> (TestRepo, TestRepo) {
-  let upstream = TestRepo::new();
-  upstream.create_commit("Initial commit", "README.md", "# Test");
+const BRANCH: &str = "prefix/virtual/feature";
 
-  let local = TestRepo::new_empty();
-  local.clone_from(upstream.path()).unwrap();
-  (upstream, local)
+fn path(repo: &TestRepo) -> &str {
+  repo.path().to_str().unwrap()
 }
 
-fn params(local: &TestRepo, branch_name: &str) -> PushBranchParams {
-  PushBranchParams {
-    repository_path: local.path().to_str().unwrap().to_string(),
+/// A bare `origin` with `master`, and a clone of it
+fn local_with_bare_remote() -> (TestRepo, TestRepo) {
+  let remote = TestRepo::new_empty();
+  remote
+    .git_executor()
+    .execute_command(&["init", "--bare", "--initial-branch=master"], path(&remote))
+    .unwrap();
+  disable_background_maintenance(remote.path());
+  let local = TestRepo::new();
+  local.create_commit("Initial commit", "README.md", "# Test");
+  local.add_remote("origin", path(&remote)).unwrap();
+  local.push("origin", "master").unwrap();
+  (remote, local)
+}
+
+fn rev_parse(repo: &TestRepo, reference: &str) -> Option<String> {
+  let (id, exit_code) = repo
+    .git_executor()
+    .execute_command_with_status(&["rev-parse", "--verify", "--quiet", reference], path(repo))
+    .unwrap();
+  (exit_code == 0).then_some(id)
+}
+
+fn remote_tip(remote: &TestRepo) -> Option<String> {
+  rev_parse(remote, &format!("refs/heads/{BRANCH}"))
+}
+
+fn recorded_push(local: &TestRepo) -> Option<String> {
+  rev_parse(local, &format!("{PUSHED_NAMESPACE}{BRANCH}"))
+}
+
+/// Point the virtual branch at `id`, as a sync does
+fn set_branch(local: &TestRepo, id: &str) {
+  local
+    .git_executor()
+    .execute_command(&["update-ref", &format!("refs/heads/{BRANCH}"), id], path(local))
+    .unwrap();
+}
+
+/// Someone else commits `subject` onto the remote branch from another clone (creating the branch if it is not there)
+fn push_from_elsewhere(remote: &TestRepo, subject: &str) -> String {
+  let other = TestRepo::new_empty();
+  other.clone_from(remote.path()).unwrap();
+  if remote_tip(remote).is_some() {
+    other.checkout(BRANCH).unwrap();
+  } else {
+    other.checkout_new_branch(BRANCH).unwrap();
+  }
+  other.set_config("user.name", "Other").unwrap();
+  other.set_config("user.email", "other@example.com").unwrap();
+  let id = other.create_commit(subject, &format!("{subject}.txt"), subject);
+  other.push("origin", BRANCH).unwrap();
+  id
+}
+
+/// The remote status the branch row shows
+fn shown_status(local: &TestRepo) -> RemoteStatusUpdate {
+  compute_remote_status_for_branch(local.git_executor(), path(local), BRANCH, "feature", Some("test@example.com"), "master", None).unwrap()
+}
+
+/// The push button's push, leased on `expected`
+fn push(local: &TestRepo, expected: Option<&str>) -> PushOutcome {
+  let params = PushBranchParams {
+    repository_path: path(local).to_string(),
     branch_prefix: "prefix".to_string(),
-    branch_name: branch_name.to_string(),
+    branch_name: "feature".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "master".to_string(),
     parent_branch: None,
+    expected_remote: expected.map(str::to_string),
+  };
+  push_branch(local.git_executor(), &params).unwrap()
+}
+
+/// The push button's push, leased on the remote head of the status the row shows
+fn push_as_shown(local: &TestRepo) -> PushOutcome {
+  push(local, shown_status(local).remote_tip.as_deref())
+}
+
+fn pushed(outcome: PushOutcome) -> RemoteStatusUpdate {
+  match outcome {
+    PushOutcome::Pushed { remote_status } => remote_status,
+    PushOutcome::RemoteMoved { remote_status } => panic!("the remote moved: {remote_status:?}"),
   }
 }
 
-#[test]
-fn push_branch_creates_remote_branch_and_reports_status() {
-  let (upstream, local) = clone_upstream();
-  local.create_commit("(feature) Add feature", "feature.txt", "feature");
-  local.create_branch("prefix/virtual/feature").unwrap();
+fn remote_moved(outcome: PushOutcome) -> RemoteStatusUpdate {
+  match outcome {
+    PushOutcome::RemoteMoved { remote_status } => remote_status,
+    PushOutcome::Pushed { remote_status } => panic!("pushed: {remote_status:?}"),
+  }
+}
 
-  let status = push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
+fn dropped_subjects(status: &RemoteStatusUpdate) -> Vec<&str> {
+  status.dropped_commits.iter().map(|commit| commit.subject.as_str()).collect()
+}
 
-  assert!(upstream.branch_exists("prefix/virtual/feature"));
-  assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), local.rev_parse("prefix/virtual/feature").unwrap());
-  assert_eq!(status.branch_name, "feature");
-  assert!(status.remote_exists);
+/// The branch is pushed once: the remote and the record are at `tip`
+fn first_push(remote: &TestRepo, local: &TestRepo) -> String {
+  let tip = local.create_commit("(feature) Add feature", "feature.txt", "feature");
+  set_branch(local, &tip);
+  let status = pushed(push(local, None));
+  assert_eq!((remote_tip(remote), recorded_push(local)), (Some(tip.clone()), Some(tip.clone())));
+  assert_eq!((status.remote_tip.as_deref(), status.commits_behind), (Some(tip.as_str()), 0));
   assert!(status.unpushed_commits.is_empty(), "{:?}", status.unpushed_commits);
+  tip
+}
+
+#[test]
+fn a_branch_not_on_the_remote_is_created_when_expected_absent() {
+  let (remote, local) = local_with_bare_remote();
+  first_push(&remote, &local);
+}
+
+#[test]
+fn a_push_fails_without_the_local_branch() {
+  let (remote, local) = local_with_bare_remote();
+
+  let params = PushBranchParams {
+    repository_path: path(&local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    branch_name: "missing".to_string(),
+    my_email: None,
+    baseline_branch: "master".to_string(),
+    parent_branch: None,
+    expected_remote: None,
+  };
+  assert!(push_branch(local.git_executor(), &params).is_err());
+  assert_eq!(rev_parse(&remote, "refs/heads/prefix/virtual/missing"), None);
+}
+
+#[test]
+fn a_rebuilt_branch_replaces_the_remote_tip_it_saw() {
+  let (remote, local) = local_with_bare_remote();
+  first_push(&remote, &local);
+
+  // the virtual branch is rebuilt: not a fast-forward of what was pushed
+  local.reset_hard("origin/master").unwrap();
+  let rewritten = local.create_commit("(feature) Add feature, reworded", "feature.txt", "feature");
+  set_branch(&local, &rewritten);
+
+  pushed(push_as_shown(&local));
+  assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(rewritten.clone()), Some(rewritten)));
+}
+
+/// The regression of the recorded lease: someone else's fetched commit is shown as dropped, and the Force Push the user
+/// confirms replaces it, although Branch Deck's last push (the record) is older
+#[test]
+fn a_force_push_drops_the_remote_commit_the_user_saw() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  let theirs = push_from_elsewhere(&remote, "Their fix");
+  local.fetch_prune("origin").unwrap();
+
+  let shown = shown_status(&local);
+  assert_eq!((shown.remote_tip.as_deref(), shown.commits_behind), (Some(theirs.as_str()), 1));
+  assert_eq!(dropped_subjects(&shown), ["Their fix"]);
+  assert_eq!(shown.dropped_commits[0].author, "Other");
+
+  let status = pushed(push_as_shown(&local));
+  assert_eq!(remote_tip(&remote), Some(first.clone()), "their commit is dropped");
+  assert_eq!(recorded_push(&local), Some(first));
   assert_eq!(status.commits_behind, 0);
 }
 
+/// The user brought someone else's commit into the branch: a plain push with the head the user saw goes through,
+/// although the record is the older push
 #[test]
-fn push_branch_fails_without_local_branch() {
-  let (upstream, local) = clone_upstream();
+fn a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit() {
+  let (remote, local) = local_with_bare_remote();
+  first_push(&remote, &local);
+  let theirs = push_from_elsewhere(&remote, "Their fix");
+  local.fetch_prune("origin").unwrap();
+  local.cherry_pick(&theirs).unwrap();
+  let rebuilt = local.head();
+  set_branch(&local, &rebuilt);
 
-  assert!(push_branch(local.git_executor(), &params(&local, "missing")).is_err());
-  assert!(!upstream.branch_exists("prefix/virtual/missing"));
+  let shown = shown_status(&local);
+  // their commit is in the branch by content: nothing is dropped, and the copy replaces it
+  assert_eq!((shown.commits_behind, shown.fast_forward), (0, false));
+
+  pushed(push_as_shown(&local));
+  assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(rebuilt.clone()), Some(rebuilt)));
+}
+
+/// A commit pushed after the user's last look is not overwritten: the push fetches it and returns the new status, and
+/// the next push with the new head replaces it
+#[test]
+fn a_remote_that_moved_since_the_status_is_fetched_not_overwritten() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  let seen = push_from_elsewhere(&remote, "Their fix");
+  local.fetch_prune("origin").unwrap();
+  let shown = shown_status(&local);
+  let newer = push_from_elsewhere(&remote, "Their second fix");
+
+  let status = remote_moved(push(&local, shown.remote_tip.as_deref()));
+  assert_eq!(shown.remote_tip, Some(seen));
+  assert_eq!(remote_tip(&remote), Some(newer.clone()), "the remote is unchanged");
+  assert_eq!(recorded_push(&local), Some(first.clone()), "nothing is recorded");
+  assert_eq!(status.remote_tip, Some(newer.clone()));
+  assert_eq!(rev_parse(&local, &format!("refs/remotes/origin/{BRANCH}")), Some(newer), "the branch was fetched");
+  assert_eq!(status.commits_behind, 2);
+  assert_eq!(dropped_subjects(&status), ["Their second fix", "Their fix"]);
+
+  pushed(push(&local, status.remote_tip.as_deref()));
+  assert_eq!(remote_tip(&remote), Some(first));
 }
 
 #[test]
-fn push_branch_overwrites_its_own_rewritten_branch() {
-  let (upstream, local) = clone_upstream();
-  let base = local.head();
-  local.create_commit("(feature) Add feature", "feature.txt", "feature");
-  local.create_branch("prefix/virtual/feature").unwrap();
-  push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
+fn a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten() {
+  let (remote, local) = local_with_bare_remote();
+  let tip = local.create_commit("(feature) Add feature", "feature.txt", "feature");
+  set_branch(&local, &tip);
+  let theirs = push_from_elsewhere(&remote, "Their start");
 
-  // the virtual branch is rebuilt: not a fast-forward of what was pushed
-  local.reset_hard(&base).unwrap();
-  let rewritten = local.create_commit("(feature) Add feature, reworded", "feature.txt", "feature");
-  let path = local.path().to_str().unwrap();
-  local
-    .git_executor()
-    .execute_command(&["update-ref", "refs/heads/prefix/virtual/feature", &rewritten], path)
-    .unwrap();
-
-  push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
-
-  assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), rewritten);
+  let status = remote_moved(push(&local, None));
+  assert_eq!(remote_tip(&remote), Some(theirs.clone()));
+  assert_eq!((status.remote_exists, status.remote_tip.as_deref()), (true, Some(theirs.as_str())));
+  assert_eq!(dropped_subjects(&status), ["Their start"]);
 }
 
 #[test]
-fn push_branch_keeps_a_remote_commit_pushed_from_elsewhere() {
-  let (upstream, local) = clone_upstream();
-  local.create_commit("(feature) Add feature", "feature.txt", "feature");
-  local.create_branch("prefix/virtual/feature").unwrap();
-  push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
-
-  // someone pushes to the branch from another clone; this clone has not fetched it
-  upstream.checkout("prefix/virtual/feature").unwrap();
-  let theirs = upstream.create_commit("Their fix", "fix.txt", "fix");
-  upstream.checkout("master").unwrap();
-  local.create_commit("(feature) More", "more.txt", "more");
-  let path = local.path().to_str().unwrap();
-  local
+fn a_branch_deleted_on_the_remote_is_shown_as_not_pushed() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  remote
     .git_executor()
-    .execute_command(&["update-ref", "refs/heads/prefix/virtual/feature", "HEAD"], path)
+    .execute_command(&["update-ref", "-d", &format!("refs/heads/{BRANCH}")], path(&remote))
     .unwrap();
 
-  assert!(push_branch(local.git_executor(), &params(&local, "feature")).is_err());
-  assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), theirs);
+  let status = remote_moved(push(&local, Some(&first)));
+  assert_eq!((status.remote_exists, status.remote_tip), (false, None));
+  assert_eq!(rev_parse(&local, &format!("refs/remotes/origin/{BRANCH}")), None, "the remote-tracking ref is deleted");
+
+  pushed(push_as_shown(&local));
+  assert_eq!(remote_tip(&remote), Some(first));
+}
+
+/// The lease held, but the remote refused the push (a hook, a protected branch): an error, nothing recorded
+#[test]
+fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  let hook = remote.path().join("hooks/pre-receive");
+  std::fs::write(&hook, "#!/bin/sh\necho 'protected branch' >&2\nexit 1\n").unwrap();
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+  }
+  let more = local.create_commit("(feature) More", "more.txt", "more");
+  set_branch(&local, &more);
+
+  let params = PushBranchParams {
+    repository_path: path(&local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    branch_name: "feature".to_string(),
+    my_email: None,
+    baseline_branch: "master".to_string(),
+    parent_branch: None,
+    expected_remote: Some(first.clone()),
+  };
+  let error = push_branch(local.git_executor(), &params).unwrap_err();
+  assert!(error.to_string().contains("The remote rejected the push"), "{error}");
+  assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(first.clone()), Some(first)));
 }

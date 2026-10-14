@@ -1,12 +1,12 @@
-use crate::push_lease::{prepare_push, record_push};
-use crate::remote_command::execute_remote_command;
+use crate::push_lease::{PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting, record_push};
+use crate::remote_command::execute_remote_command_accepting;
 use crate::remote_status::compute_remote_status_for_branch;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sync_types::RemoteStatusUpdate;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -22,37 +22,74 @@ pub struct PushBranchParams {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub parent_branch: Option<String>,
+  /// The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
+  /// branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
+  pub expected_remote: Option<String>,
 }
 
-/// Force-pushes the virtual branch to `origin` with the lease `bd push` uses too (`push_lease`), records the push, and
-/// returns its updated remote status.
+/// What a push did
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PushOutcome {
+  /// The remote branch is at the pushed commit
+  #[serde(rename_all = "camelCase")]
+  Pushed { remote_status: RemoteStatusUpdate },
+  /// The remote branch was not where the user saw it (`expected_remote`): nothing was pushed. The branch was fetched,
+  /// and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
+  #[serde(rename_all = "camelCase")]
+  RemoteMoved { remote_status: RemoteStatusUpdate },
+}
+
+/// Force-pushes the virtual branch to `origin`, leased on the remote head the user saw (`push_lease`), and records the
+/// push as the lease `bd push` uses next. A remote that moved meanwhile is fetched, not overwritten: the outcome then
+/// carries the new remote status, which a push can replace once the user saw it.
 #[instrument(skip(git_executor), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
-pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams) -> Result<RemoteStatusUpdate> {
+pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams) -> Result<PushOutcome> {
   let repository_path = &params.repository_path;
   let branch_name = &params.branch_name;
   let final_branch_name = to_final_branch_name(&params.branch_prefix, branch_name)?;
-
-  // The lease overwrites the remote branch only if it is still where the last push of Branch Deck (the app or bd) left
-  // it, so a commit pushed from elsewhere meanwhile is not lost, even after a background fetch (`push_lease`).
-  // The remote policy keeps the user's credential helpers but never prompts: the push must not block on input
-  let refs = prepare_push(git_executor, repository_path, "origin", std::slice::from_ref(&final_branch_name), false)?;
-  let pushed = &refs[0];
-  execute_remote_command(git_executor, &["push", "--porcelain", &pushed.lease_arg(), "origin", &pushed.refspec()], repository_path)?;
-  record_push(git_executor, repository_path, &refs)?;
-
   let parent_ref = params
     .parent_branch
     .as_deref()
     .map(|parent| to_final_branch_name(&params.branch_prefix, parent))
     .transpose()?;
-  compute_remote_status_for_branch(
+  let remote_status = || {
+    compute_remote_status_for_branch(
+      git_executor,
+      repository_path,
+      &final_branch_name,
+      branch_name,
+      params.my_email.as_deref(),
+      &params.baseline_branch,
+      parent_ref.as_deref(),
+    )
+    .context("Failed to compute remote status")
+  };
+
+  // The remote policy keeps the user's credential helpers but never prompts: the push must not block on input.
+  // Exit code 1: the ref was rejected, and the porcelain report says so
+  let refs = prepare_push_expecting(git_executor, repository_path, &[(final_branch_name.clone(), params.expected_remote.clone())])?;
+  let pushed = &refs[0];
+  let output = execute_remote_command_accepting(
     git_executor,
+    &["push", "--porcelain", &pushed.lease_arg(), "origin", &pushed.refspec()],
     repository_path,
-    &final_branch_name,
-    branch_name,
-    params.my_email.as_deref(),
-    &params.baseline_branch,
-    parent_ref.as_deref(),
-  )
-  .context("Failed to compute remote status")
+    &[1],
+  )?;
+  let report = parse_push_porcelain(&output).remove(&format!("refs/heads/{final_branch_name}"));
+  if report.as_ref().is_some_and(PushedRefStatus::accepted) {
+    record_push(git_executor, repository_path, &refs)?;
+    return Ok(PushOutcome::Pushed { remote_status: remote_status()? });
+  }
+
+  fetch_remote_branches(git_executor, repository_path, "origin", std::slice::from_ref(&final_branch_name))?;
+  let status = remote_status()?;
+  if status.remote_tip == params.expected_remote {
+    // the lease held: the remote refused the push for another reason, e.g. a hook or a protected branch
+    let summary = report.map_or_else(|| "no report".to_string(), |report| report.summary);
+    bail!("The remote rejected the push of {final_branch_name}: {summary}");
+  }
+  info!(expected = ?params.expected_remote, remote_tip = ?status.remote_tip, "the remote branch moved, nothing pushed");
+  Ok(PushOutcome::RemoteMoved { remote_status: status })
 }

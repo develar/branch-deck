@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { routePush } from "../helpers/push-helpers"
 import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
@@ -117,22 +118,7 @@ test.describe("Branch preview", () => {
   })
 
   test("should push the branch with P", async ({ page }) => {
-    let pushedBranch: string | null = null
-    await page.route("**/invoke/push_branch", async (route) => {
-      pushedBranch = (route.request().postDataJSON() as { branchName: string }).branchName
-      await route.fulfill({
-        json: {
-          branchName: pushedBranch,
-          remoteExists: true,
-          unpushedCommits: [],
-          commitsBehind: 0,
-          myUnpushedCount: 0,
-          fastForward: true,
-          // the time of the newest commit: the page runs on a fixed clock
-          lastPushTime: 1704139200,
-        },
-      })
-    })
+    const pushes = await routePush(page, {})
 
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
     const pushButton = preview.getByRole("button", { name: /Create Remote/ })
@@ -140,7 +126,7 @@ test.describe("Branch preview", () => {
 
     await page.keyboard.press("p")
     await expect(page.getByText(`Branch ${BRANCH} pushed successfully`)).toBeVisible()
-    expect(pushedBranch).toBe(BRANCH)
+    expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
     await expect(preview.getByTestId("branch-preview-status")).toHaveText("up to date")
     await expect(preview.getByTestId("branch-preview-last-push")).toHaveText(/^Pushed /)
     // nothing left to push

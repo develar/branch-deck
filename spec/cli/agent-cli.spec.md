@@ -218,14 +218,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
   must need `--yes`.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`, `parses_porcelain_lines`)
+  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
+  [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
 - It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
   without `--force`, and a stacked branch whose parent is neither on the remote nor pushed with it.
   [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
 - The lease must be the commit Branch Deck last pushed, recorded in `refs/branch-deck/pushed/` at push time by both
   `bd push` and the app's push, so a background fetch can't defeat it and either one's push leaves the other's next
-  push valid; a remote that moved since must be `lease_rejected` (exit 3) with nothing pushed or recorded, and
-  `--force` must lease on the fetched remote branch.
+  push valid (the app leases on the remote head its row showed, [Outgoing Commits](../repository/outgoing.spec.md)); a
+  remote that moved since must be `lease_rejected` (exit 3) with nothing pushed or recorded, and `--force` must lease
+  on the fetched remote branch.
   [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced`, `the_app_and_bd_share_the_lease`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`the_lease_is_the_record_else_the_tracking_ref_else_absent`)
 - Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),

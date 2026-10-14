@@ -473,17 +473,30 @@ Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/remote_command.
 #### Push lease
 
 The app's push (`push_branch`) and `bd push` share one lease (`crates/sync-core/src/push_lease.rs`), so a push from
-either one leaves the next push of the other valid:
+either one leaves the next push of the other valid. A push replaces exactly the remote state the user saw:
 
-- `prepare_push` reads, with one `for-each-ref` over explicit refs, each branch's local tip, its recorded push
-  `refs/branch-deck/pushed/<branch>` and its remote-tracking ref. The lease is the record, else the remote-tracking
-  ref (a branch pushed before records existed), else "must not exist".
+- The remote status of a branch names the commit it was computed against (`remote_tip`) and lists the commits a push
+  drops ([Remote Status](remote-status.md)). The push button sends that commit back (`expected_remote`, null when
+  the row showed no remote branch), and `prepare_push_expecting` leases on it. A Force Push drops what the row
+  listed and nothing else, also when Branch Deck's last push is older than someone else's fetched commit; a plain
+  push after the user brought that commit into the branch goes through as well.
+- `prepare_push` (`bd push`) reads, with one `for-each-ref` over explicit refs,
+  each branch's local tip, its recorded push `refs/branch-deck/pushed/<branch>` and its remote-tracking ref. The
+  lease is the record, else the remote-tracking ref (a branch pushed before records existed), else "must not exist".
+  A background fetch moves `refs/remotes/…`, never a record, so it can't defeat the lease the way a bare
+  `--force-with-lease=<ref>` (leased on the remote-tracking ref) can.
 - The push names the tip it read (`<tip>:refs/heads/<branch>`), so the record is exactly what was pushed even if the
   branch moves meanwhile.
-- `record_push` writes the records of all pushed branches in one `update-ref --stdin` after the push succeeds.
-- A background fetch moves `refs/remotes/…`, never a record, so it can't defeat the lease the way a bare
-  `--force-with-lease=<ref>` (leased on the remote-tracking ref) can. A record also keeps the pushed commit
-  reachable, and no default refspec fetches or pushes `refs/branch-deck/`.
+- `record_push` writes the records of all pushed branches in one `update-ref --stdin` after the push succeeds. A
+  record also keeps the pushed commit reachable, and no default refspec fetches or pushes `refs/branch-deck/`.
+- A rejected ref is `!` in `push --porcelain` (exit 1); the summary is only logged. `fetch_remote_branches` then
+  fetches just the rejected branches, `+refs/heads/<b>:refs/remotes/<remote>/<b>` with the flags of the baseline fetch
+  (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), so the caller shows
+  what the remote has now. A branch deleted on the remote fails the fetch: `ls-remote --exit-code` (2: no such ref)
+  tells it from a failed connection, and its remote-tracking ref is deleted.
+- `push_branch` returns `PushOutcome::RemoteMoved` with the new remote status when the fetched head differs from the
+  expected one: the row turns into the push the remote now needs, and a toast offers it. When the fetched head is the
+  expected one, the lease held and the remote refused for another reason (a hook, a protected branch): an error.
 
 #### Patronus review pre-check
 
@@ -558,11 +571,15 @@ recovery hint (`git reset -q`).
    - it combines related refs atomically;
    - it deletes the temporary ref in the same step.
 
-7. **Decision**: push with `--force-with-lease=refs/heads/<branch>:<last pushed commit>`, the commit recorded in
-   `refs/branch-deck/pushed/<branch>` by the last push of the app or `bd` ("Push lease").
-   **Rationale**: a virtual branch is rebuilt on every sync, so the push must force. The lease still refuses to
-   overwrite a remote branch that someone else updated since the last push, also after a background fetch, which a
-   lease on the remote-tracking ref would accept.
+7. **Decision**: push with `--force-with-lease=refs/heads/<branch>:<expected>`, where `<expected>` is the remote head
+   of the status the user saw (the app's push button), else the commit recorded in
+   `refs/branch-deck/pushed/<branch>` by the last push of the app or `bd` ("Push lease"). A rejected push fetches the
+   branch and reports what the remote has now.
+   **Rationale**: a virtual branch is rebuilt on every sync, so the push must force. The lease refuses to overwrite a
+   remote branch that changed since the user looked, also after a background fetch, which a lease on the
+   remote-tracking ref would accept. Leasing only on the record made a branch stuck: once someone else's commit was
+   fetched, every push was rejected, even a Force Push the user confirmed and even after the commit was brought into
+   the branch.
 
 8. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
    `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds

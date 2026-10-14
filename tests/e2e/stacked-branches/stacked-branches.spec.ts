@@ -5,6 +5,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, g
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
+import { routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
 /** `name@depth` of the branch rows in display order */
@@ -135,12 +136,7 @@ test.describe("Stacked branches", () => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     // the E2E server has no remote: answer the pushes and record their order
-    const pushes: { branchName: string, parentBranch?: string | null }[] = []
-    await page.route("**/invoke/push_branch", async (route) => {
-      const params = route.request().postDataJSON() as { branchName: string, parentBranch?: string | null }
-      pushes.push({ branchName: params.branchName, parentBranch: params.parentBranch })
-      await route.fulfill({ json: { branchName: params.branchName, remoteExists: true, unpushedCommits: [], commitsBehind: 0, myUnpushedCount: 0, fastForward: true, lastPushTime: 1704139200 } })
-    })
+    const pushes = await routePush(page, {})
 
     // not pushed yet: the parent goes first
     await getPushButton(findBranchRow(page, "oauth")).hover()
@@ -166,10 +162,7 @@ test.describe("Stacked branches", () => {
     // the pull request of login still targets master, e.g. it was opened before login was stacked on auth
     await setupRepo("stacked_branches", { pullRequests: availablePullRequests(pullRequest("login", 801, { baseRefName: "master" })) })
     await syncAndWaitForBranches()
-    await page.route("**/invoke/push_branch", async (route) => {
-      const params = route.request().postDataJSON() as { branchName: string }
-      await route.fulfill({ json: { branchName: params.branchName, remoteExists: true, unpushedCommits: [], commitsBehind: 0, myUnpushedCount: 0, fastForward: true, lastPushTime: 1704139200 } })
-    })
+    await routePush(page, {})
 
     await openContextMenu(page, findBranchRow(page, "login"))
     await clickContextMenuItem(page, "Copy Retarget Command")

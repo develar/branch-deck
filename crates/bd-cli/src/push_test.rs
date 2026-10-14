@@ -1,11 +1,9 @@
 use crate::fixture_test::{PREFIX, commit_all, git, repo_with_baseline, run_in, write};
-use crate::push_command::parse_porcelain;
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use std::collections::HashMap;
-use sync_core::push::{PushBranchParams, push_branch};
+use sync_core::push::{PushBranchParams, PushOutcome, push_branch};
 use sync_core::push_lease::PUSHED_NAMESPACE;
 use tempfile::TempDir;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
@@ -183,17 +181,15 @@ fn a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced() {
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
-#[test]
-fn parses_porcelain_lines() {
-  let output = "To /tmp/remote\n*\trefs/heads/a:refs/heads/a\t[new branch]\n+\trefs/heads/b:refs/heads/b\t1111...2222 (forced update)\n!\trefs/heads/c:refs/heads/c\t[rejected] (stale info)\nDone";
-  assert_eq!(
-    parse_porcelain(output),
-    HashMap::from([("refs/heads/a".to_string(), '*'), ("refs/heads/b".to_string(), '+'), ("refs/heads/c".to_string(), '!')])
-  );
-}
-
-/// The app's push of a branch, as the push button runs it
+/// The app's push of a branch, as the push button runs it: leased on the remote head its status showed
 fn app_push(repo: &TestRepo, branch: &str) {
+  let (remote_tip, exit_code) = repo
+    .git_executor()
+    .execute_command_with_status(
+      &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{PREFIX}/virtual/{branch}")],
+      repo.path().to_str().unwrap(),
+    )
+    .unwrap();
   let params = PushBranchParams {
     repository_path: repo.path().to_str().unwrap().to_string(),
     branch_prefix: PREFIX.to_string(),
@@ -201,8 +197,9 @@ fn app_push(repo: &TestRepo, branch: &str) {
     my_email: None,
     baseline_branch: "origin/master".to_string(),
     parent_branch: None,
+    expected_remote: (exit_code == 0).then_some(remote_tip),
   };
-  push_branch(repo.git_executor(), &params).unwrap();
+  assert!(matches!(push_branch(repo.git_executor(), &params).unwrap(), PushOutcome::Pushed { .. }));
 }
 
 #[test_log::test]

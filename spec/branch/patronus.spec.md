@@ -243,6 +243,12 @@ poll of the running robots only while the window is focused.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push at once when the robot finished meanwhile`)
+- A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
+  ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. A robot
+  cancelled for a push that did not happen must stay cancelled until the toast's push, which restarts it on the pushed
+  commit; the toast says so ("The Safe Push is cancelled: the push restarts it."). With nothing left to push it is
+  restarted at once.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask again before the push of the remote-moved toast`, `should restart a robot cancelled for a push the remote refused once the toast pushes`)
 
 ### Branch preview
 

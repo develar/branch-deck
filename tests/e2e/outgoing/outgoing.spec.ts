@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import type { DroppedCommit } from "../helpers/push-helpers"
 import { routePush } from "../helpers/push-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
@@ -85,6 +86,62 @@ test.describe("Outgoing indicator", () => {
     const indicator = getIndicator(page)
     await expect(indicator.getByTestId("outgoing-total")).toHaveText(String(TOTAL - 3 - 4 + 1))
     await expect(indicator.getByTestId("outgoing-bar").locator("[data-hue=warning]")).toHaveCount(1)
+  })
+})
+
+/** A commit someone else pushed to the remote branch, three hours before the fixed clock of the page */
+function theirCommit(id: string, subject: string, author: string): DroppedCommit {
+  return { id, subject, author, authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }
+}
+
+test.describe("Force push", () => {
+  test("should force push a branch the remote has commits for, leased on the remote head the row shows", async ({ page }) => {
+    const requests = await routePush(page, {
+      "ABC-123": [
+        // someone else pushed a commit the branch lacks
+        { unpushedCommits: ["a1"], commitsBehind: 1, remoteTip: "remote-head-1", droppedCommits: [theirCommit("c0ffee0123456789", "Fix login", "Ann")] },
+        {},
+      ],
+    })
+    const row = findBranchRow(page, "ABC-123")
+    await getPushButton(row).click()
+    const forcePush = row.getByRole("button", { name: "Force Push (1)" })
+    await expect(forcePush).toBeEnabled()
+
+    await forcePush.click()
+
+    await expect.poll(() => requests.map(request => request.expectedRemote)).toEqual([null, "remote-head-1"])
+    await expect(row.getByRole("button", { name: "Push", exact: true })).toBeDisabled()
+  })
+
+  test("should show what the remote has when it moved since the status, and force push over it from the toast", async ({ page }) => {
+    const requests = await routePush(page, {
+      "JIRA-456": [
+        {
+          outcome: "remoteMoved",
+          unpushedCommits: ["j1", "j2", "j3"],
+          commitsBehind: 3,
+          remoteTip: "moved-head",
+          droppedCommits: [theirCommit("aaaa000011112222", "Fix A", "Ann"), theirCommit("bbbb000011112222", "Fix B", "Bob"), theirCommit("cccc000011112222", "Fix C", "Ann")],
+        },
+        {},
+      ],
+    })
+    const row = findBranchRow(page, "JIRA-456")
+    await getPushButton(row).click()
+
+    const toast = page.locator("[data-slot=toast]", { hasText: "JIRA-456 changed on the remote" })
+    await expect(toast).toContainText("3 commits you don't have (by Ann and Bob). Nothing was pushed.")
+    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toHaveCount(0)
+    // the row shows the fetched remote: a force push that drops the 3 commits
+    await expect(row.getByRole("button", { name: "Force Push (3)" })).toBeEnabled()
+    await expect(row).toContainText("3↓")
+
+    await toast.getByRole("button", { name: "Force Push" }).click()
+
+    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    expect(requests.map(request => request.expectedRemote)).toEqual([null, "moved-head"])
+    await expect(toast).toHaveCount(0)
   })
 })
 

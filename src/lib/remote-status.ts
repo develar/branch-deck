@@ -1,3 +1,5 @@
+import type { DroppedCommit } from "@/lib/bindings"
+import { getPushAction } from "@/lib/push-summary"
 import { formatTimestamp } from "@/lib/time"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -79,4 +81,46 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
 
   // shouldn't happen
   return { text: "unknown", tooltip: addPushTime("Unknown") }
+}
+
+/** "Ann", "Ann and Bob", "Ann, Bob and Cy", "Ann, Bob and 2 others": the distinct authors, in the order of the commits */
+export function formatAuthors(commits: readonly DroppedCommit[]): string {
+  const authors = [...new Set(commits.map(commit => commit.author))]
+  if (authors.length <= 1) {
+    return authors[0] ?? ""
+  }
+  if (authors.length <= 3) {
+    return `${authors.slice(0, -1).join(", ")} and ${authors.at(-1)}`
+  }
+  return `${authors.slice(0, 2).join(", ")} and ${authors.length - 2} others`
+}
+
+export interface RemoteMovedTexts {
+  title: string
+  description: string
+  /** The label of the push that replaces what the remote has now, as the push button names it; null when up to date */
+  action: string | null
+}
+
+/**
+ * The toast of a push that found the remote branch moved since its status was shown: nothing was pushed, and `remote`
+ * is the status of the branch as fetched now
+ */
+export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus): RemoteMovedTexts {
+  const pushAction = getPushAction({ remoteStatus: remote })
+  const action = pushAction === "create" ? "Create Remote" : pushAction === "force" ? "Force Push" : pushAction === "push" ? "Push" : null
+  if (!remote.exists) {
+    return { title: `${branchName} was deleted on the remote`, description: "Nothing was pushed.", action }
+  }
+  const title = `${branchName} changed on the remote`
+  const { commitsBehind, droppedCommits } = remote
+  if (commitsBehind > 0) {
+    const authors = formatAuthors(droppedCommits)
+    const by = authors === "" ? "" : ` (by ${authors})`
+    return { title, description: `${plural(commitsBehind, "commit", "commits")} you don't have${by}. Nothing was pushed.`, action }
+  }
+  if (action === null) {
+    return { title, description: "The remote has the branch's commits now. Nothing was pushed.", action }
+  }
+  return { title, description: "The remote has no commits the branch lacks. Nothing was pushed.", action }
 }

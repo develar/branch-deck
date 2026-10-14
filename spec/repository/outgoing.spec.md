@@ -14,6 +14,9 @@ targets:
   - ../../src/lib/push-summary.ts
   - ../../src/lib/remote-status.ts
   - ../../crates/sync-core/src/remote_status.rs
+  - ../../crates/sync-core/src/push.rs
+  - ../../crates/sync-core/src/push_lease.rs
+  - ../../src/lib/git/push.ts
   - ../../src/stores/commit-move.ts
 ---
 
@@ -74,7 +77,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
 - The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
-  `commitsBehind` counts them all.
+  `commitsBehind` counts them all. A push leases on that commit ([Push](#push)).
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
 - The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
   commits.
@@ -140,6 +143,28 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
   remote diverged turns into a force push.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
 
+### Push
+
+A push replaces exactly the remote state the user saw: the row's remote status, not Branch Deck's last push.
+
+- A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
+  branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
+  commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_force_push_drops_the_remote_commit_the_user_saw`, `a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit`, `a_rebuilt_branch_replaces_the_remote_tip_it_saw`, `a_branch_not_on_the_remote_is_created_when_expected_absent`)
+  [@test] ../../crates/sync-core/src/push_lease_test.rs (`an_expected_lease_is_the_remote_tip_the_caller_saw_whatever_was_recorded`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
+- A remote branch that moved since the row's status (a newer commit, a branch created or deleted elsewhere) must not
+  be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
+  warning toast stays until the user acts: "login changed on the remote", "3 commits you don't have (by Ann and Bob).
+  Nothing was pushed.", with the push the row now offers ("Force Push", "Push", "Create Remote") as its action,
+  leased on the fetched head; it asks before a push into a running Safe Push as any push does
+  ([Patronus](../branch/patronus.spec.md)). A stack push stops at that branch.
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`)
+  [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to create a branch deleted on the remote`, `names the distinct authors in the order of the commits`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)
+- A push the remote refuses while the lease holds (a hook, a protected branch) must be an error, nothing recorded.
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
+
 ## User Experience
 
 - The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`.
@@ -157,8 +182,10 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 ## Testing / Local Run
 
 - `pnpm test:unit` covers the summary (`src/lib/push-summary.test.ts`).
-- `pnpm e2e` covers the indicator and the overview (`tests/e2e/outgoing`). The E2E server has no remote: the tests
-  answer `push_branch` in the page to turn branches into a plain push, a force push or up to date.
+- `pnpm e2e` covers the indicator, the overview and the push (`tests/e2e/outgoing`). The E2E server has no remote:
+  the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
+  date or a remote that moved, and read the `expectedRemote` the pushes sent.
+- `pnpm test:backend` covers the push against a bare remote (`crates/sync-core/src/push_test.rs`).
 
 ## Open Questions / Risks
 
