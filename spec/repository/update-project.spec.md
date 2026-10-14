@@ -6,6 +6,8 @@ targets:
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/git-ops/src/worktree_update.rs
   - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/sync-core/src/fetch_progress.rs
+  - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/git-executor/src/worktree_safety_test.rs
   - ../../src-tauri/src/commands/update_project.rs
@@ -137,13 +139,31 @@ The header shows whether an update would apply cleanly, from a check that every 
 - A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
   "Fetching…", "Checking…", "Updating…".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
+- Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
+  tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
+  `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
+  5 %), never decreases, and reaches the window at most every 100 ms; the end of a stage always does.
+  [@test] ../../crates/sync-core/src/fetch_progress_test.rs (`stages_have_the_shares_of_idea`)
+  [@test] ../../crates/sync-core/src/fetch_progress_test.rs (`small_fetch_unpacks_instead_of_receiving`)
+  [@test] ../../crates/sync-core/src/fetch_progress_test.rs (`percent_never_decreases`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`fetch_reports_progress_until_the_last_stage_ends`)
+  [@test] ../../src/lib/update-state.test.ts (`shows the percent of the fetch once git reports a stage`)
+- The progress is read from `--progress` lines on stderr in the C locale (git has no machine-readable progress), best
+  effort: a line it doesn't know changes nothing, and nothing but the label depends on it. The error of a failed fetch
+  keeps git's messages without the progress updates.
+  [@test] ../../crates/sync-core/src/fetch_progress_test.rs (`other_lines_change_nothing`)
+  [@test] ../../crates/sync-core/src/remote_command_test.rs (`remote_command_runs_untranslated`)
+  [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`failed_command_reports_messages_without_progress_updates`)
 - After an applied update a toast says "Updated master: rebased 2 commits onto origin/master" or "…: fast-forwarded to
   origin/master" (with the commits dropped as already upstream), and a sync follows without expanding or scrolling.
   Up to date says "master is already up to date with origin/master".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
 - The footer of the outgoing overview must show the same state in one line, named as incoming and with the fetch time,
   "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to date: "nothing new"), with an Update
-  button. Below the push rows, a bare "origin/master: up to date" reads as nothing to push.
+  button. Below the push rows, a bare "origin/master: up to date" reads as nothing to push. While the fetch receives,
+  the text has the amount and the rate as git prints them, "Incoming from origin/master: 5.79 MiB · 32.57 MiB/s", and
+  the button the percent.
+  [@test] ../../src/lib/update-state.test.ts (`shows the amount and the rate as git prints them`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
 
 ### Conflict and blocked dialog

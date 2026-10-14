@@ -362,6 +362,47 @@ impl GitCommandExecutor {
     }
   }
 
+  /// Run a git command that reports progress on stderr (`fetch --progress`) and return its trimmed stdout.
+  /// `on_line` gets every stderr line as it arrives, see `read_progress_lines`. The error of a failed command keeps
+  /// only the messages: the `\r` progress updates are not the reason it failed.
+  #[instrument(
+    skip(self, env_vars, on_line),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      exit_code = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_with_progress(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], on_line: &mut dyn FnMut(&str)) -> Result<String> {
+    let mut child = self
+      .command(args, repository_path, env_vars)?
+      .stdin(Stdio::null())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped())
+      .spawn()
+      .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
+    let mut stdout = child.stdout.take().ok_or_else(|| anyhow!("git stdout is not piped"))?;
+    let stderr = child.stderr.take().ok_or_else(|| anyhow!("git stderr is not piped"))?;
+
+    let (stdout_bytes, messages) = std::thread::scope(|scope| {
+      let stdout_reader = scope.spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stdout.read_to_end(&mut buffer);
+        buffer
+      });
+      let messages = read_progress_lines(stderr, on_line);
+      (stdout_reader.join().unwrap_or_default(), messages)
+    });
+
+    let status = child.wait().map_err(|e| anyhow!("Failed to wait for git command: {e}"))?;
+    tracing::Span::current().record("exit_code", status.code().unwrap_or(-1));
+    if status.success() {
+      Ok(String::from_utf8_lossy(&stdout_bytes).trim().to_string())
+    } else {
+      Err(self.command_error(messages.as_bytes(), args))
+    }
+  }
+
   /// Execute a git command and return output as lines, filtering empty lines
   pub fn execute_command_lines(&self, args: &[&str], repository_path: &str) -> Result<Vec<String>> {
     let output = self.run(args, repository_path, &RunOptions::default())?;
@@ -377,3 +418,58 @@ impl GitCommandExecutor {
     Ok(out.trim().to_string())
   }
 }
+
+/// Read git's stderr and pass each line to `on_line` as it arrives, trimmed (the sideband pads `remote:` lines with
+/// spaces); empty lines are skipped. A line ends at `\n` or at `\r`, with which git overwrites a progress line in
+/// place. Returns the messages: the lines that ended with `\n` (a `\r\n` line counts), without the `\r` updates.
+pub(crate) fn read_progress_lines(mut reader: impl Read, on_line: &mut dyn FnMut(&str)) -> String {
+  let mut messages = String::new();
+  let mut pending = Vec::new();
+  // a line that ended with `\r`: an update, unless an empty line ending with `\n` follows (`\r\n`)
+  let mut overwritten: Option<String> = None;
+  let mut buffer = [0u8; 8192];
+  loop {
+    let n = match reader.read(&mut buffer) {
+      Ok(0) => break,
+      Ok(n) => n,
+      Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+      Err(_) => break,
+    };
+    for &byte in &buffer[..n] {
+      if byte != b'\r' && byte != b'\n' {
+        pending.push(byte);
+        continue;
+      }
+      let line = String::from_utf8_lossy(&pending).trim().to_string();
+      pending.clear();
+      if byte == b'\n' && line.is_empty() {
+        if let Some(message) = overwritten.take() {
+          messages.push_str(&message);
+          messages.push('\n');
+        }
+        continue;
+      }
+      overwritten = None;
+      if line.is_empty() {
+        continue;
+      }
+      on_line(&line);
+      if byte == b'\n' {
+        messages.push_str(&line);
+        messages.push('\n');
+      } else {
+        overwritten = Some(line);
+      }
+    }
+  }
+  let line = String::from_utf8_lossy(&pending).trim().to_string();
+  if !line.is_empty() {
+    on_line(&line);
+    messages.push_str(&line);
+  }
+  messages
+}
+
+#[cfg(test)]
+#[path = "git_command_executor_test.rs"]
+mod git_command_executor_test;

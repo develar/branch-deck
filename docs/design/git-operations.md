@@ -292,7 +292,14 @@ Details:
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
-  and nothing for a ref that did not move. The fetch runs through `execute_remote_command` (Key Decision 7).
+  and nothing for a ref that did not move. The fetch runs through `execute_remote_command_with_progress` (Key
+  Decision 8).
+- **Fetch progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch runs
+  with `--progress`, as IDEA's does, and `execute_command_with_progress` passes each stderr line as it arrives (split
+  on `\r`, with which git overwrites a progress line, and `\n`). `FetchProgressAnalyzer`
+  (`crates/sync-core/src/fetch_progress.rs`) ports IDEA's `GitStandardProgressAnalyzer`: a share per stage, earlier
+  stages done. It is the one place that reads human output, and only for a label: an unknown line changes nothing. The
+  error of a failed fetch keeps the `\n` lines only, without the `\r` updates.
 - **Force-pushed upstream.** After an upstream force-push, `HEAD ^U` also contains the commits the upstream dropped,
   and replaying them conflicts or brings them back. As `pull --rebase` does, they are excluded with the old tip from
   the forced fetch line and with the fork point from the tracking ref's reflog; the fork point also covers a forced
@@ -537,14 +544,16 @@ recovery hint (`git reset -q`).
 
 8. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
    `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds
-   `-c credential.interactive=false -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and `GCM_INTERACTIVE=never`
-   on top of the executor's `GIT_TERMINAL_PROMPT=0`.
+   `-c credential.interactive=false -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30`, `GCM_INTERACTIVE=never` and
+   `LC_ALL=C LANGUAGE=` on top of the executor's `GIT_TERMINAL_PROMPT=0`.
    **Rationale**:
    - the user's credential helpers (osxkeychain, Git Credential Manager, `gh auth git-credential`) keep working, so
      stored HTTPS credentials are used. The earlier `-c credential.helper=` disabled them, and an HTTPS remote that
      needed credentials failed;
    - nothing may ask for new credentials: the app has no terminal, and a hidden prompt would block forever;
-   - a transfer that stalls below 1000 bytes/s for 30 s is aborted instead of hanging on a dead connection.
+   - a transfer that stalls below 1000 bytes/s for 30 s is aborted instead of hanging on a dead connection;
+   - the C locale keeps the `--progress` lines untranslated, so the fetch progress can be read (IDEA runs every git
+     command in an English locale for the same reason). An unknown locale falls back to C as well.
 
    SSH is left as configured. The app started from Finder has no controlling terminal, so ssh fails instead of
    prompting. Forcing `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` would override `core.sshCommand` and break

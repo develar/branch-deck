@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { AppliedUpdate, UpdateCheck, UpdatePhase } from "@/lib/bindings"
+import type { AppliedUpdate, FetchProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
@@ -14,17 +14,24 @@ import { updateProject } from "@/stores/settings/repositorySettings"
 export interface UpdateProjectState {
   /** The step of the running update; null when none runs */
   phase: UpdatePhase | null
+  /** How far the fetch of the running update is; null before git reports a stage and after the fetch */
+  fetch: FetchProgress | null
   /** A conflicting or blocked update to explain; null while the dialog is closed */
   refused: UpdateCheck | null
 }
 
 export const updateProjectStore = createStore<UpdateProjectState>(() => ({
   phase: null,
+  fetch: null,
   refused: null,
 }))
 
 export function useUpdatePhase(): UpdatePhase | null {
   return useStore(updateProjectStore, state => state.phase)
+}
+
+export function useFetchProgress(): FetchProgress | null {
+  return useStore(updateProjectStore, state => state.fetch)
 }
 
 export function useRefusedUpdate(): UpdateCheck | null {
@@ -52,11 +59,11 @@ export async function runUpdateProject(): Promise<void> {
     return
   }
   const repositoryPath = project.path
-  updateProjectStore.setState({ phase: "fetching" })
+  updateProjectStore.setState({ phase: "fetching", fetch: null })
   try {
-    const progress = new Channel<UpdatePhase>()
-    progress.onmessage = (phase) => {
-      updateProjectStore.setState({ phase })
+    const progress = new Channel<UpdateProgress>()
+    progress.onmessage = ({ phase, fetch }) => {
+      updateProjectStore.setState({ phase, fetch })
     }
     const result = await invokeCommand(() => commands.updateProject({ repositoryPath }, progress))
     if (result.status !== "ok") {
@@ -92,6 +99,6 @@ export async function runUpdateProject(): Promise<void> {
     }
   }
   finally {
-    updateProjectStore.setState({ phase: null })
+    updateProjectStore.setState({ phase: null, fetch: null })
   }
 }

@@ -1,4 +1,4 @@
-import type { UpdateCheck, UpdateState } from "@/lib/bindings"
+import type { FetchProgress, UpdateCheck, UpdatePhase, UpdateState } from "@/lib/bindings"
 
 /** How the Update button shows the state: muted, a success check, or a warning */
 export type UpdateTone = "muted" | "success" | "warning"
@@ -19,7 +19,7 @@ function formatFileList(files: readonly string[]): string {
   return files.length > NAMED_FILES ? `${named} and ${files.length - NAMED_FILES} more` : named
 }
 
-function fileCount(count: number): string {
+export function fileCount(count: number): string {
   return count === 1 ? "1 file" : `${count} files`
 }
 
@@ -57,4 +57,23 @@ export function lastFetchTime(update: UpdateCheck | null, ownFetchTime: number |
     return elsewhere ?? own
   }
   return Math.max(elsewhere, own)
+}
+
+const PHASE_LABELS: Record<UpdatePhase, string> = {
+  fetching: "Fetching…",
+  checking: "Checking…",
+  updating: "Updating…",
+}
+
+/** The label of a running update, e.g. "Fetching 45%"; "Fetching…" until git reports a stage */
+export function updatePhaseLabel(phase: UpdatePhase, fetch: FetchProgress | null): string {
+  return phase === "fetching" && fetch !== null ? `Fetching ${fetch.percent}%` : PHASE_LABELS[phase]
+}
+
+/** What a fetch received so far and how fast, as git prints it, e.g. "5.79 MiB · 32.57 MiB/s"; null before git says */
+export function fetchTransfer(fetch: FetchProgress | null): string | null {
+  if (fetch?.received == null) {
+    return null
+  }
+  return fetch.speed === null ? fetch.received : `${fetch.received} · ${fetch.speed}`
 }

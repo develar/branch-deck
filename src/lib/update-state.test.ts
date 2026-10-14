@@ -1,7 +1,7 @@
 // @spec spec/repository/update-project.spec.md
 import { describe, expect, it } from "vitest"
-import type { UpdateCheck } from "@/lib/bindings"
-import { describeUpdateState, lastFetchTime } from "@/lib/update-state"
+import type { FetchProgress, UpdateCheck } from "@/lib/bindings"
+import { describeUpdateState, fetchTransfer, lastFetchTime, updatePhaseLabel } from "@/lib/update-state"
 
 describe("describeUpdateState", () => {
   it("names the state, never a count of upstream commits", () => {
@@ -31,5 +31,21 @@ describe("lastFetchTime", () => {
     expect(lastFetchTime(update(100), 150_000)).toBe(150_000)
     expect(lastFetchTime(update(null), 150_000)).toBe(150_000)
     expect(lastFetchTime(null, undefined)).toBeNull()
+  })
+})
+
+describe("updatePhaseLabel", () => {
+  const receiving: FetchProgress = { percent: 51, received: "2.61 MiB", speed: "5.20 MiB/s", line: "Receiving objects:  45% (136/302), 2.61 MiB | 5.20 MiB/s" }
+
+  it("shows the percent of the fetch once git reports a stage", () => {
+    expect(updatePhaseLabel("fetching", null)).toBe("Fetching…")
+    expect(updatePhaseLabel("fetching", receiving)).toBe("Fetching 51%")
+    expect(updatePhaseLabel("checking", null)).toBe("Checking…")
+  })
+
+  it("shows the amount and the rate as git prints them", () => {
+    expect(fetchTransfer(null)).toBeNull()
+    expect(fetchTransfer({ ...receiving, received: null, speed: null })).toBeNull()
+    expect(fetchTransfer(receiving)).toBe("2.61 MiB · 5.20 MiB/s")
   })
 })

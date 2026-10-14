@@ -34,3 +34,16 @@ fn remote_command_never_prompts_and_aborts_stalled_transfers() {
   .unwrap();
   assert_eq!(gcm_interactive, "never");
 }
+
+#[test]
+fn remote_command_runs_untranslated() {
+  let test_repo = TestRepo::new();
+  // the `--progress` lines are read: a user locale must not translate them
+  let locale = execute_remote_command(
+    test_repo.git_executor(),
+    &["-c", "alias.locale=!printf '%s|%s' \"$LC_ALL\" \"${LANGUAGE-unset}\"", "locale"],
+    test_repo.path().to_str().unwrap(),
+  )
+  .unwrap();
+  assert_eq!(locale, "C|");
+}

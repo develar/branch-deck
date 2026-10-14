@@ -7,6 +7,7 @@ mod branch_processor;
 pub mod check;
 pub mod commit_grouper;
 pub mod delete_archived_branch;
+pub mod fetch_progress;
 pub mod grouping;
 pub mod issue_navigation;
 pub mod move_commits;

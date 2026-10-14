@@ -4,21 +4,15 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { UpdatePhase } from "@/lib/bindings"
+import type { FetchProgress, UpdatePhase } from "@/lib/bindings"
 import { isMac } from "@/lib/platform"
 import { formatRelativeTime } from "@/lib/time"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
-import { describeUpdateState, lastFetchTime } from "@/lib/update-state"
+import { describeUpdateState, fetchTransfer, lastFetchTime, updatePhaseLabel } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useSelectedProject } from "@/stores/repository"
-import { runUpdateProject, useUpdatePhase } from "@/stores/update-project"
-
-const PHASE_LABELS: Record<UpdatePhase, string> = {
-  fetching: "Fetching…",
-  checking: "Checking…",
-  updating: "Updating…",
-}
+import { runUpdateProject, useFetchProgress, useUpdatePhase } from "@/stores/update-project"
 
 /** The state of a check that failed (e.g. a rebase in progress): the update will say why it can't run */
 function describeStatus(status: BaselineStatus): UpdateStateDescription {
@@ -53,21 +47,28 @@ function StateIcon({ tone, unknown }: { tone: UpdateTone, unknown: boolean }) {
   }
 }
 
+interface RunningUpdate {
+  phase: UpdatePhase | null
+  fetch: FetchProgress | null
+}
+
 /**
  * Header button of Update Project (⌘T): fetches the baseline and rebases the branch onto it. Shows the state of the
  * last check, relative to the last fetch: muted when up to date, a check when it applies cleanly, a warning on a
  * conflict or when uncommitted changes block it. Never a count of upstream commits. Hidden for a local baseline.
+ * While the fetch runs, the label has its percent and the tooltip the last progress line of git, as IDEA shows it.
  */
 export function UpdateProjectButton() {
   const status = useRemoteBaselineStatus()
   const phase = useUpdatePhase()
+  const fetch = useFetchProgress()
   if (status === null) {
     return null
   }
-  return <UpdateProjectButtonContent status={status} phase={phase} />
+  return <UpdateProjectButtonContent status={status} phase={phase} fetch={fetch} />
 }
 
-function UpdateProjectButtonContent({ status, phase }: { status: BaselineStatus, phase: UpdatePhase | null }) {
+function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { status: BaselineStatus }) {
   const description = describeStatus(status)
   const fetchTime = useFetchTime(status)
   const state = status.update?.state.status ?? "unknown"
@@ -80,6 +81,8 @@ function UpdateProjectButtonContent({ status, phase }: { status: BaselineStatus,
             size="sm"
             className={cn(description.tone === "muted" && phase === null && "text-muted-foreground")}
             disabled={phase !== null}
+            // the tooltip with the progress line stays reachable while the update runs
+            focusableWhenDisabled
             aria-busy={phase !== null || undefined}
             aria-label={`Update Project: ${description.summary}`}
             data-testid="update-project-button"
@@ -89,12 +92,12 @@ function UpdateProjectButtonContent({ status, phase }: { status: BaselineStatus,
         )}
       >
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
-        {phase === null ? "Update" : PHASE_LABELS[phase]}
+        {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
         {phase === null && <StateIcon tone={description.tone} unknown={status.update === null} />}
       </TooltipTrigger>
       <TooltipContent data-testid="update-project-tooltip">
         <div className="flex flex-col gap-0.5">
-          <span>{description.summary}</span>
+          <span>{phase !== null && fetch !== null ? fetch.line : description.summary}</span>
           <span className="flex items-center gap-1.5 opacity-70">
             {fetchTime === null ? "Not fetched yet" : `Fetched ${formatRelativeTime(fetchTime)}`}
             {" · fetch and update"}
@@ -113,29 +116,34 @@ function UpdateProjectButtonContent({ status, phase }: { status: BaselineStatus,
 export function UpdateStateLine() {
   const status = useRemoteBaselineStatus()
   const phase = useUpdatePhase()
+  const fetch = useFetchProgress()
   if (status === null) {
     return null
   }
-  return <UpdateStateLineContent status={status} phase={phase} />
+  return <UpdateStateLineContent status={status} phase={phase} fetch={fetch} />
 }
 
-function UpdateStateLineContent({ status, phase }: { status: BaselineStatus, phase: UpdatePhase | null }) {
+/** While the fetch receives, the text has the amount and the rate; the percent is on the button */
+function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { status: BaselineStatus }) {
   const description = describeStatus(status)
   const fetchTime = useFetchTime(status)
+  const transfer = phase === "fetching" ? fetchTransfer(fetch) : null
   return (
     <div className="flex items-center justify-between gap-3" data-testid="update-state-line">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-        {description.tone === "success" && <CheckIcon className="size-3 shrink-0 text-success" />}
-        {description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
+        {transfer === null && description.tone === "success" && <CheckIcon className="size-3 shrink-0 text-success" />}
+        {transfer === null && description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
         <span className="truncate">
           {"Incoming from "}
           <span className="text-foreground">{status.update?.upstream ?? status.baselineBranch}</span>
-          {`: ${description.short} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`}
+          {transfer === null
+            ? `: ${description.short} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`
+            : `: ${transfer}`}
         </span>
       </span>
       <Button variant="ghost" size="xs" disabled={phase !== null} data-testid="update-state-line-button" onClick={() => void runUpdateProject()}>
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
-        {phase === null ? "Update" : PHASE_LABELS[phase]}
+        {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
       </Button>
     </div>
   )

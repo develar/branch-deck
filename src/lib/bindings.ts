@@ -62,9 +62,9 @@ export const commands = {
 	squashFixupCommits: (params: SquashFixupsParams) => typedError<SquashFixupsResult, CommandError>(__TAURI_INVOKE("squash_fixup_commits", { params })),
 	/**
 	 *  Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
-	 *  is a result with nothing changed. `progress` receives the step the update is at.
+	 *  is a result with nothing changed. `progress` receives the step the update is at and how far the fetch is.
 	 */
-	updateProject: (params: UpdateProjectParams, progress: Channel<UpdatePhase>) => typedError<UpdateProjectResult, CommandError>(__TAURI_INVOKE("update_project", { params, progress })),
+	updateProject: (params: UpdateProjectParams, progress: Channel<UpdateProgress>) => typedError<UpdateProjectResult, CommandError>(__TAURI_INVOKE("update_project", { params, progress })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
@@ -341,6 +341,18 @@ export type DownloadProgress = { type: "Started"; data: {
 } } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: {
 	message: string,
 } };
+
+/**  How far a fetch is, for the Update button */
+export type FetchProgress = {
+	/**  The whole fetch, 0 to 100, never decreasing */
+	percent: number,
+	/**  Received so far, as git prints it, e.g. "5.79 MiB" */
+	received: string | null,
+	/**  The transfer rate, as git prints it, e.g. "32.57 MiB/s" */
+	speed: string | null,
+	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
+	line: string,
+};
 
 /**  Represents the diff between two versions of a file. */
 export type FileDiff = {
@@ -862,6 +874,13 @@ export type UpdateKind =
 
 /**  The step an update is at */
 export type UpdatePhase = "fetching" | "checking" | "updating";
+
+/**  What an update reports while it runs */
+export type UpdateProgress = {
+	phase: UpdatePhase,
+	/**  How far the fetch is; `None` until git reports a stage, and in the other phases */
+	fetch: FetchProgress | null,
+};
 
 export type UpdateProjectParams = {
 	repositoryPath: string,

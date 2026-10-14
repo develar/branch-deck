@@ -1,8 +1,9 @@
 use crate::sync::{SyncOptions, sync_branches};
-use crate::update_project::{UpdatePhase, UpdateProjectParams, UpdateProjectResult, check_baseline_update, previous_tip_of_forced_update, update_project_core};
+use crate::update_project::{UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, check_baseline_update, previous_tip_of_forced_update, update_project_core};
 use git_ops::update_branch::{CheckPurpose, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
+use std::fmt::Write;
 use std::fs;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
@@ -41,6 +42,19 @@ fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
     },
     &|_| {},
   )
+}
+
+/// `update`, with everything it reported while it ran
+fn update_reporting_progress(repo: &TestRepo) -> (anyhow::Result<UpdateProjectResult>, Vec<UpdateProgress>) {
+  let progress = RefCell::new(Vec::new());
+  let result = update_project_core(
+    repo.git_executor(),
+    &UpdateProjectParams {
+      repository_path: path(repo).to_string(),
+    },
+    &|it| progress.borrow_mut().push(it),
+  );
+  (result, progress.into_inner())
 }
 
 fn read(repo: &TestRepo, file: &str) -> String {
@@ -86,16 +100,11 @@ fn fast_forward_updates_the_working_tree() {
   let upstream_head = upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   upstream.create_commit("Add new", "new.txt", "new\n");
 
-  let phases = RefCell::new(Vec::new());
-  let result = update_project_core(
-    clone.git_executor(),
-    &UpdateProjectParams {
-      repository_path: path(&clone).to_string(),
-    },
-    &|phase| phases.borrow_mut().push(phase),
-  )
-  .unwrap();
-  assert_eq!(phases.into_inner(), vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Updating]);
+  let (result, progress) = update_reporting_progress(&clone);
+  let mut phases: Vec<UpdatePhase> = progress.iter().map(|it| it.phase).collect();
+  phases.dedup();
+  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Updating]);
+  let result = result.unwrap();
   assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
   let applied = result.applied.unwrap();
   assert_eq!(applied.kind, UpdateKind::FastForward);
@@ -608,4 +617,36 @@ fn preview_reuses_the_replay_of_an_unchanged_state() {
   assert_eq!(preview(&clone), blocked(&["shared.txt"]));
   assert_eq!(replays(), 1);
   unsafe { std::env::remove_var("GIT_TRACE2_EVENT") };
+}
+
+#[test]
+fn fetch_reports_progress_until_the_last_stage_ends() {
+  let Setup { upstream, clone } = setup();
+  // more objects than `fetch.unpackLimit`, so the fetch indexes a pack (`Receiving objects`), of noise that doesn't compress
+  let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+  let mut noise = || {
+    let mut content = String::new();
+    for _ in 0..4096 {
+      state ^= state << 13;
+      state ^= state >> 7;
+      state ^= state << 17;
+      write!(content, "{state:016x}").unwrap();
+    }
+    content
+  };
+  let files: Vec<(String, String)> = (0..150).map(|i| (format!("data/{i}.txt"), noise())).collect();
+  let files: Vec<(&str, &str)> = files.iter().map(|(name, content)| (name.as_str(), content.as_str())).collect();
+  upstream.create_commit_with_files("Add data", &files);
+
+  let (result, progress) = update_reporting_progress(&clone);
+  assert_eq!(result.unwrap().check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  let fetch: Vec<_> = progress.iter().filter_map(|it| it.fetch.as_ref()).collect();
+  assert!(progress.iter().all(|it| it.fetch.is_none() || it.phase == UpdatePhase::Fetching));
+  assert!(fetch.windows(2).all(|pair| pair[0].percent <= pair[1].percent), "{fetch:?}");
+  // without deltas there is no `Resolving deltas` stage: receiving ends the fetch at 95 %
+  let last = fetch.last().expect("no fetch progress");
+  let last_stage_ended = last.line.starts_with("Receiving objects: 100% ") || last.line.starts_with("Resolving deltas: 100% ");
+  assert!(last_stage_ended, "{fetch:?}");
+  assert!(last.percent >= 95, "{fetch:?}");
+  assert!(last.received.as_deref().is_some_and(|it| it.ends_with("MiB")), "{fetch:?}");
 }
