@@ -89,6 +89,37 @@ test.describe("Patronus actions", () => {
     expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash", profileId: "lsc" })])
   })
 
+  test("should cancel the robot for a new Safe Push from the form, and not restart it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the robot runs on an older commit, so the form can start one on the branch as it is
+    const older = robot("JIRA-456", "running-robot", { sourceRevision: "older-commit" })
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, older)
+    const order: string[] = []
+    const record = (call: string, answer: unknown) => () => {
+      order.push(call)
+      return answer
+    }
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+    await routeCommand(page, "get_patronus_robot_status", () => "running")
+    await routeCommand(page, "cancel_patronus_robot", record("cancel", { ...older, status: "canceling" }))
+    await routeCommand(page, "push_branch", record("push", pushOutcome("JIRA-456")))
+    await routeCommand(page, "restart_patronus_robot", record("restart", robot("JIRA-456", "restarted-robot")))
+    const starts = await routeCommand(page, "start_patronus_robot", record("start", robot("JIRA-456", "started-robot", { sourceRevision: null })))
+
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Safe Push…" }).click()
+    await page.getByTestId("patronus-start-form").getByRole("button", { name: "Push and Start Safe Push" }).click()
+
+    // the form's start is the new robot: no restart of the old one
+    const dialog = page.getByTestId("push-guard-dialog")
+    await expect(dialog).toContainText("The new Safe Push takes the pushed commit.")
+    await expect(dialog.getByRole("button", { name: "Cancel, Push and Restart" })).toHaveCount(0)
+    await dialog.getByRole("button", { name: "Cancel and Push" }).click()
+
+    await expect.poll(() => order).toEqual(["cancel", "push", "start"])
+    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash" })])
+    await expect(chip(page, "JIRA-456")).toHaveText("Running")
+  })
+
   test("should restart a failed robot and cancel a running one from the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING, FAILED)
     const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot"))

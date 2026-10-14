@@ -180,7 +180,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
 - A branch whose tip the remote lacks is pushed first, as the push button does it ("Push and Start Safe Push"); a failed
-  push starts nothing. Then `POST /robots` starts the robot on the pushed virtual branch, as the web UI does
+  push starts nothing. A Safe Push of the branch still running on an older commit is cancelled for that push, not
+  restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then `POST /robots` starts the robot on the pushed virtual branch, as the web UI does
   (`ROBOT_WEB_UI`, the source branch `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart
   takes the newest commit of the branch. The robot shows at once and is polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
@@ -275,6 +276,14 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push at once when the robot finished meanwhile`)
+- The push of the Safe Push form ("Push and Start Safe Push", or the push before "Create Merge Request") is for a new
+  robot: the dialog offers "Cancel and Push" instead of the restart and says "The new Safe Push takes the pushed
+  commit." The form then starts the one robot of the branch, with the merge request; a restart would run the branch
+  twice, the restarted robot without the merge request. The push of the Dry Run form keeps the restart: a dry run
+  doesn't replace the Safe Push.
+  [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for a push of a new one, and never restarts it`)
+  [@test] ../../src/lib/git/push.test.ts (`restarts the cancelled Safe Push on the pushed commit for any other push`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. A robot
   cancelled for a push that did not happen must stay cancelled until the toast's push, which restarts it on the pushed
