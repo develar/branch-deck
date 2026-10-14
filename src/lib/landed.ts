@@ -1,6 +1,11 @@
 import type { AppliedUpdate, LandedBranch, UpdateCheck } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 
+/*
+ * The landed news has one grammar wherever it shows (the Update tooltip, the footer of the outgoing overview, the toast,
+ * the island, the chip): each number has its verb, "3 commits of IJPL-257337 landed · 9 stay local", never a ratio.
+ */
+
 /** At most this many branch names in a sentence */
 const NAMED_BRANCHES = 3
 
@@ -9,15 +14,49 @@ export function landedBranchName(branch: LandedBranch): string {
   return branch.name ?? "Unassigned"
 }
 
-/** "5 commits" for a whole branch, "3 of 12" for part of one */
-export function landedCountLabel(branch: LandedBranch): string {
-  const landed = branch.commits.length
-  return branch.remaining === 0 ? formatCommitCount(landed) : `${landed} of ${landed + branch.remaining}`
+/** "1 stays local", "12 stay local": the commits of a branch the baseline doesn't have */
+export function formatStayLocal(count: number): string {
+  return count === 1 ? "1 stays local" : `${count} stay local`
+}
+
+/**
+ * What of one branch landed and what stays, for a row of the island: "40 landed · 12 stay local", "1 landed",
+ * "3 landed · squashed". Compact, for a chip of the branch row: "40 landed · 12 local".
+ */
+export function landedCountLabel(branch: LandedBranch, compact = false): string {
+  const parts = [`${branch.commits.length} landed`]
+  if (!compact && isSquashedUpstream(branch)) {
+    parts.push("squashed")
+  }
+  if (branch.remaining > 0) {
+    parts.push(compact ? `${branch.remaining} local` : formatStayLocal(branch.remaining))
+  }
+  return parts.join(" · ")
+}
+
+/**
+ * The chip of an active branch: "Landed" when the fetched baseline has all of it, else "40 landed · 12 local". After
+ * the update a fully landed branch moves to the archive; one still in the table has new commits, so it is "3 landed".
+ */
+export function landedChipLabel(branch: LandedBranch, incoming: boolean): string {
+  return incoming && branch.remaining === 0 ? "Landed" : landedCountLabel(branch, true)
 }
 
 /** Every commit of the branch landed in another form: the baseline has its change, but no commit with its subject */
 export function isSquashedUpstream(branch: LandedBranch): boolean {
   return branch.commits.every(commit => commit.upstream === null)
+}
+
+/** The committer of the baseline commits of a branch (the robot or the person who merged it); none when squashed */
+export function landedCommitter(branch: LandedBranch): string | undefined {
+  return branch.commits.find(commit => commit.upstream !== null)?.upstream?.committer
+}
+
+/** The committer when every branch of the report has the same one: the island names it once, not on every row */
+export function sharedCommitter(report: readonly LandedBranch[]): string | undefined {
+  const committers = report.map(landedCommitter)
+  const first = committers[0]
+  return first !== undefined && committers.every(committer => committer === first) ? first : undefined
 }
 
 /** "a", "a and b", "a, b and c", "a, b, c and 2 more" */
@@ -31,25 +70,37 @@ function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
 }
 
-/** One branch as a phrase after "your": "wsm", "3 of 12 commits of IJPL-257337", "2 commits without a branch" */
-function landingPhrase(branch: LandedBranch): string {
+function yourCommits(count: number): string {
+  return `${count} of your commits`
+}
+
+/** What of one branch landed, as the subject of "landed": "wsm", "3 commits of IJPL-257337", "2 of your commits" */
+function landedSubject(branch: LandedBranch): string {
   const landed = branch.commits.length
   if (branch.name === null) {
-    return `${formatCommitCount(landed)} without a branch`
+    return yourCommits(landed)
   }
-  return branch.remaining === 0 ? branch.name : `${landed} of ${landed + branch.remaining} commits of ${branch.name}`
+  return branch.remaining === 0 ? branch.name : `${formatCommitCount(landed)} of ${branch.name}`
+}
+
+/** One branch in the list after "your": "wsm", "3 commits of IJPL-257337", "2 commits without a branch" */
+function landingPhrase(branch: LandedBranch): string {
+  return branch.name === null ? `${formatCommitCount(branch.commits.length)} without a branch` : landedSubject(branch)
 }
 
 /**
  * What the fetched baseline already has of the user's work, for the tooltip of the Update button: "brings in your wsm
- * and 3 of 12 commits of IJPL-257337"; null when nothing landed. Names the user's own branches, never a count of
- * upstream commits.
+ * and 3 commits of IJPL-257337"; null when nothing landed. Names the user's own branches, never a count of upstream
+ * commits.
  */
 export function describeLanding(landing: readonly LandedBranch[]): string | null {
   return landing.length === 0 ? null : `brings in your ${joinNames(landing.map(landingPhrase))}`
 }
 
-/** The landing in a few words, for the footer of the outgoing overview: "your wsm landed", "your 2 branches landed" */
+/**
+ * The landing in a few words, for the footer of the outgoing overview: "your wsm landed", "40 of your commits landed",
+ * "your 2 branches landed"
+ */
 export function shortLanding(landing: readonly LandedBranch[]): string | null {
   const branch = landing[0]
   if (branch === undefined) {
@@ -58,7 +109,7 @@ export function shortLanding(landing: readonly LandedBranch[]): string | null {
   if (landing.length > 1) {
     return `your ${landing.length} branches landed`
   }
-  return branch.name === null || branch.remaining > 0 ? `${formatCommitCount(branch.commits.length)} of yours landed` : `your ${branch.name} landed`
+  return branch.name === null || branch.remaining > 0 ? `${yourCommits(branch.commits.length)} landed` : `your ${branch.name} landed`
 }
 
 export interface UpdateToast {
@@ -92,20 +143,10 @@ export function appliedUpdateToast(check: UpdateCheck, applied: AppliedUpdate, l
     }
   }
 
-  const count = only.commits.length
-  if (only.name === null) {
-    return { title: `${formatCommitCount(count)} of yours landed in ${upstream}`, description: `Updated ${branch}: ${appliedWords(applied)}` }
-  }
-  if (only.remaining > 0) {
-    return {
-      title: `${count} of ${count + only.remaining} commits of ${only.name} landed`,
-      description: `${only.remaining} stay local · ${appliedWords(applied)}`,
-    }
-  }
-  return {
-    title: `${only.name} landed in ${upstream}${isSquashedUpstream(only) ? ", squashed" : ""}`,
-    description: `Updated ${branch}: ${appliedWords(applied)}`,
-  }
+  const title = only.remaining > 0
+    ? `${landedSubject(only)} landed · ${formatStayLocal(only.remaining)}`
+    : `${landedSubject(only)} landed in ${upstream}${isSquashedUpstream(only) ? ", squashed" : ""}`
+  return { title, description: `Updated ${branch}: ${appliedWords(applied)}` }
 }
 
 /** The report of a new update merged into the undismissed one, as the backend merges it: by branch name, new commits added */

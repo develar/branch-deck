@@ -4,7 +4,8 @@ import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 
 // The `landed_upstream` template: a robot pushed `feature-auth` (one commit) and the first of the two `search` commits to
-// origin/master, rebased without the prefix, committer `Patronus`; `ui` stays local. Already fetched.
+// origin/master, rebased without the prefix, committer `Patronus`; `ui` stays local. Already fetched. The `search` commit
+// names JIRA-42, an issue link by the `.idea/vcs.xml` of the template.
 
 function updateButton(page: Page): Locator {
   return page.getByTestId("update-project-button")
@@ -28,13 +29,21 @@ test.describe("Landed commits", () => {
     await expect(button.getByTestId("update-state-icon")).toHaveAttribute("data-landing", "true")
     await button.hover()
     await expect(page.getByTestId("update-project-tooltip")).toContainText(
-      "Rebases cleanly onto origin/master · brings in your feature-auth and 1 of 2 commits of search",
+      "Rebases cleanly onto origin/master · brings in your feature-auth and 1 commit of search",
     )
     await page.mouse.move(0, 0)
 
     await expect(findBranchRow(page, "feature-auth").getByTestId("landed-chip")).toHaveText("Landed")
-    await expect(findBranchRow(page, "search").getByTestId("landed-chip")).toHaveText("1 of 2 landed")
+    await expect(findBranchRow(page, "search").getByTestId("landed-chip")).toHaveText("1 landed · 1 local")
     await expect(findBranchRow(page, "ui").getByTestId("landed-chip")).toHaveCount(0)
+
+    // the details: what the update does, the commits with their issue links, what stays
+    await findBranchRow(page, "search").getByTestId("landed-chip").hover()
+    const popover = page.getByTestId("landed-popover")
+    await expect(popover).toContainText("Already in origin/master · the update removes the local copies")
+    await expect(popover.getByRole("link", { name: "JIRA-42" })).toHaveAttribute("href", "https://jira.example.com/browse/JIRA-42")
+    await expect(popover).toContainText("1 stays local")
+    await page.mouse.move(0, 0)
 
     const search = findBranchRow(page, "search")
     await expandBranch(page, search)
@@ -53,16 +62,23 @@ test.describe("Landed commits", () => {
 
     const card = landedCard(page)
     await expect(card).toContainText("Landed in origin/master")
-    await expect(landedBranch(page, "feature-auth").getByTestId("landed-count")).toHaveText("1 commit")
-    await expect(landedBranch(page, "search").getByTestId("landed-count")).toHaveText("1 of 2 · 1 stay local")
+    // the robot pushed both branches: the header names it once, the rows don't repeat it
+    await expect(card.getByTestId("landed-header")).toContainText("by Patronus")
+    await expect(landedBranch(page, "search")).not.toContainText("by Patronus")
+    await expect(landedBranch(page, "feature-auth").getByTestId("landed-count")).toHaveText("1 landed")
+    await expect(landedBranch(page, "search").getByTestId("landed-count")).toHaveText("1 landed · 1 stays local")
     await landedBranch(page, "feature-auth").getByRole("button", { expanded: false }).click()
     const commits = landedBranch(page, "feature-auth").getByTestId("landed-commits")
     await expect(commits).toContainText("Add login")
     await expect(commits).toContainText("Patronus")
+    // a subject has its issue links, as in the commit rows
+    await landedBranch(page, "search").getByRole("button", { expanded: false }).click()
+    await expect(landedBranch(page, "search").getByTestId("landed-commits").getByRole("link", { name: "JIRA-42" }))
+      .toHaveAttribute("href", "https://jira.example.com/browse/JIRA-42")
 
     // the whole branch left the active table for the archive, marked new; the part that stays shows what landed
     await expect(findBranchRow(page, "feature-auth")).toHaveCount(0)
-    await expect(findBranchRow(page, "search").getByTestId("landed-chip")).toHaveText("1 landed")
+    await expect(findBranchRow(page, "search").getByTestId("landed-chip")).toHaveText("1 landed · 1 local")
     await page.getByTestId("archived-branches-card").getByRole("button").first().click()
     await expect(page.getByTestId("archived-branch-new")).toHaveCount(1)
 

@@ -1,7 +1,9 @@
 import { PackageCheckIcon } from "lucide-react"
 import { StatusChip } from "@/components/branch/StatusChip"
+import { CommitSubjectLine } from "@/components/commit/CommitSubject"
 import type { LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
+import { formatStayLocal, landedChipLabel } from "@/lib/landed"
 import { formatRelativeTime } from "@/lib/time"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useIncomingLandedCommit } from "@/stores/landed"
@@ -19,7 +21,7 @@ function useUpstreamName(): string {
 
 /**
  * `info` "Landed" after the status of an active branch whose commits are in the baseline: before the update, "Landed"
- * (all of them) or "3 of 12 landed"; after it, "3 landed" for the part that landed while the rest stays. Hover lists
+ * (all of them) or "3 landed · 9 local"; after it, the same for the part that landed while the rest stays. Hover lists
  * the commits with the baseline commits that carry them. Nothing otherwise.
  */
 export function LandedChip({ branchName }: { branchName: string }) {
@@ -30,27 +32,25 @@ export function LandedChip({ branchName }: { branchName: string }) {
   }
 
   const { branch, incoming } = landed
-  const count = branch.commits.length
-  const text = incoming
-    ? (branch.remaining === 0 ? "Landed" : `${count} of ${count + branch.remaining} landed`)
-    : `${count} landed`
+  const text = landedChipLabel(branch, incoming)
+  const stays = branch.remaining > 0 ? ` · ${formatStayLocal(branch.remaining)}` : ""
   return (
     <StatusChip
-      label={`${text} in ${upstream}`}
+      label={text === "Landed" ? `Landed in ${upstream}` : `${branch.commits.length} landed in ${upstream}${stays}`}
       color="info"
       data={{ "data-testid": "landed-chip", "data-incoming": incoming || undefined }}
       details={(
         <div className="flex flex-col gap-2 text-xs">
-          <span className="font-medium">{incoming ? `In ${upstream}: the update drops these commits` : `Landed in ${upstream} with the update`}</span>
+          <span className="font-medium">{incoming ? `Already in ${upstream} · the update removes the local copies` : `Landed in ${upstream} with the update`}</span>
           <ul className="flex flex-col gap-1">
             {branch.commits.map(commit => (
               <li key={commit.id} className="flex flex-col">
-                <span className="truncate">{commit.subject}</span>
+                <CommitSubjectLine subject={commit.subject} />
                 <span className="text-muted-foreground">{describeUpstream(commit)}</span>
               </li>
             ))}
           </ul>
-          {branch.remaining > 0 && <span className="text-muted-foreground">{`${branch.remaining} stay local`}</span>}
+          {branch.remaining > 0 && <span className="text-muted-foreground">{formatStayLocal(branch.remaining)}</span>}
         </div>
       )}
       detailsTestId="landed-popover"
@@ -75,7 +75,7 @@ export function LandedCommitMarker({ commitId }: { commitId: string }) {
       data={{ "data-testid": "landed-commit-marker" }}
       details={(
         <div className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">{`In ${upstream}: the update drops this commit`}</span>
+          <span className="font-medium">{`Already in ${upstream} · the update removes the local copy`}</span>
           <span className="text-muted-foreground">{describeUpstream(commit)}</span>
         </div>
       )}

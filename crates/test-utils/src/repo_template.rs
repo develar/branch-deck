@@ -588,7 +588,8 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     /// The local commits rebase cleanly, but the file the upstream changed has uncommitted changes
     Blocked,
     /// A robot pushed `feature-auth` and the first of the two `search` commits: the upstream has them rebased, without
-    /// the prefix, with their author and author time and the committer `Patronus`; `ui` stays local
+    /// the prefix, with their author and author time and the committer `Patronus`; `ui` stays local. The `search` commit
+    /// names `JIRA-42`, which the `.idea/vcs.xml` of the issue links template links
     Landed,
   }
 
@@ -651,15 +652,16 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       git(&["config", "user.name", "Test User"], None)?;
       git(&["config", "user.email", "test@example.com"], None)?;
       git(&["config", "branchdeck.branchPrefix", "user-name"], None)?;
-      commit(
-        "Initial commit",
-        &[
-          ("README.md", "# Update Project\n"),
-          (UPDATE_APP_FILE, "line 1\nline 2\nline 3\n"),
-          ("src/config.txt", "debug=false\n"),
-        ],
-        1704117600,
-      )?;
+      let mut initial_files = vec![
+        ("README.md", "# Update Project\n"),
+        (UPDATE_APP_FILE, "line 1\nline 2\nline 3\n"),
+        ("src/config.txt", "debug=false\n"),
+      ];
+      if scenario == UpdateScenario::Landed {
+        // the issue key of a landed commit is a link
+        initial_files.push((".idea/vcs.xml", ISSUE_LINKS_VCS_XML));
+      }
+      commit("Initial commit", &initial_files, 1704117600)?;
 
       git(&["init", "-q", "--bare", "--initial-branch=master", ".git/upstream.git"], None)?;
       disable_background_maintenance(&output_path.join(".git/upstream.git"));
@@ -679,7 +681,10 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704121500)?;
       if scenario == UpdateScenario::Landed {
         // as a Safe Push robot pushes the local commits below
-        for (message, path, content, author_time) in [("Add login", "src/auth.txt", "login\n", 1704118500), ("Add index", "src/search.txt", "index\n", 1704118600)] {
+        for (message, path, content, author_time) in [
+          ("Add login", "src/auth.txt", "login\n", 1704118500),
+          ("Add index for JIRA-42", "src/search.txt", "index\n", 1704118600),
+        ] {
           write(path, content)?;
           git(&["add", "--", path], None)?;
           let output = Command::new("git")
@@ -701,7 +706,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         commit("(feature-auth) Change line 2", &[(UPDATE_APP_FILE, "line 1\nline 2 local\nline 3\n")], 1704118800)?;
       }
       if scenario == UpdateScenario::Landed {
-        commit("(search) Add index", &[("src/search.txt", "index\n")], 1704118600)?;
+        commit("(search) Add index for JIRA-42", &[("src/search.txt", "index\n")], 1704118600)?;
         commit("(search) Add query", &[("src/search.txt", "index\nquery\n")], 1704118700)?;
         commit("(ui) Add button", &[("src/button.txt", "button\n")], 1704118800)?;
       }
