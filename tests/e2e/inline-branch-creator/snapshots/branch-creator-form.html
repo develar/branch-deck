@@ -1,15 +1,14 @@
 <div class="relative overflow-hidden" data-testid="inline-branch-target">
-  <div aria-describedby="[ID]" aria-labelledby="[ID]" class="outline-none" data-inline-form="" role="dialog" tabindex="-1">
-    <h2 class="sr-only" id="[ID]">
-      Move to Branch
-    </h2>
-    <p class="sr-only" id="[ID]">
-      Move the selected commits to an existing or a new branch
-    </p>
+  <div aria-labelledby="[ID]" class="outline-none" data-inline-form="" role="dialog" tabindex="-1">
     <div class="border-b border-border bg-muted/50 bd-padding-content">
-      <div class="flex flex-col gap-2">
+      <div class="flex max-w-3xl flex-col gap-2">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-sm font-medium" id="[ID]">
+            Move 2 commits to a branch
+          </h2>
+        </div>
         <div class="flex items-center gap-2">
-          <div class="relative flex-1">
+          <div class="relative max-w-md flex-1">
             <div class="group/input-group relative flex h-8 w-full min-w-0 items-center rounded-2xl border border-transparent transition-[color,box-shadow] duration-200 outline-none in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-3 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/30 has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:ring-3 has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5 bg-background" data-slot="input-group" role="group">
               <div class="flex h-auto cursor-text items-center justify-center gap-2 py-1.5 text-sm font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 **:data-[slot=kbd]:rounded-2xl **:data-[slot=kbd]:bg-muted-foreground/10 **:data-[slot=kbd]:px-1.5 [&>svg:not([class*='size-'])]:size-4 order-first pl-2 has-[>button]:ml-[-0.3rem] has-[>kbd]:ml-[-0.15rem]" data-align="inline-start" data-slot="input-group-addon" role="group">
                 <svg aria-hidden="true" class="lucide lucide-git-branch size-4 text-muted-foreground" />

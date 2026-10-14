@@ -1,12 +1,14 @@
 <div aria-describedby="[ID]" aria-labelledby="[ID]" class="outline-none" data-inline-form="" role="dialog" tabindex="-1">
-  <h2 class="sr-only" id="[ID]">
-    Amend Changes to feature-auth
-  </h2>
-  <p class="sr-only" id="[ID]">
-    Amend uncommitted changes to the tip commit of feature-auth branch
-  </p>
   <div class="border-b border-border bg-muted/50 bd-padding-content">
-    <div class="flex flex-col gap-4">
+    <div class="flex max-w-3xl flex-col gap-4">
+      <div class="flex flex-col gap-1">
+        <h2 class="text-sm font-medium" id="[ID]">
+          Amend changes to feature-auth
+        </h2>
+        <p class="text-sm text-muted-foreground" id="[ID]">
+          Amends the uncommitted changes to the last commit of feature-auth.
+        </p>
+      </div>
       <div class="group/card flex flex-col rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground shadow-sm ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 overflow-hidden py-0" data-size="default" data-slot="card" data-testid="uncommitted-changes-card">
         <div class="border-b border-border p-4 sm:px-6">
           <div class="flex items-center justify-between">
