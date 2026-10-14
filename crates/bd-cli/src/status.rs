@@ -2,7 +2,7 @@ use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
 use crate::describe::read_descriptions;
 use crate::error::{CliError, ErrorCode};
-use crate::output::SchemaVersion;
+use crate::output::{SchemaVersion, ShortIds};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
 use sync_core::regroup::{describe_problem, problem_commits};
 use sync_types::GroupedBranchInfo;
-use sync_types::stack::ParentState;
+use sync_types::stack::{BlockReason, BranchStack, ParentState};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct StatusArgs {
@@ -75,6 +75,12 @@ pub struct BranchStatus {
   /// Whether the declared parent has commits
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent_state: Option<ParentStateName>,
+  /// The branch it is built on; omitted when it is built on the baseline
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub effective_base: Option<String>,
+  /// Why it is not built: its parent can't be built on
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub blocked_by: Option<StackBlockSummary>,
   /// Why the branch can't be placed in the stack: conflicting parents, a cycle, a case collision, …
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
@@ -103,8 +109,48 @@ pub struct BranchStatus {
 pub enum ParentStateName {
   /// The parent has commits
   Active,
+  /// No commit is grouped into the parent and its archived branch is integrated: the branch is built on the nearest
+  /// active ancestor or the baseline, and the base of its pull request changes
+  Integrated,
+  /// The parent was unapplied
+  Unapplied,
   /// No commit is grouped into the parent
   Missing,
+}
+
+impl From<ParentState> for ParentStateName {
+  fn from(state: ParentState) -> Self {
+    match state {
+      ParentState::Active => Self::Active,
+      ParentState::Integrated => Self::Integrated,
+      ParentState::Unapplied => Self::Unapplied,
+      ParentState::Missing => Self::Missing,
+    }
+  }
+}
+
+/// Why a branch is not built: its parent can't be built on
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StackBlockSummary {
+  pub parent: String,
+  /// `missing`, `unapplied`, `error`, `conflict` or `blocked`
+  pub reason: String,
+}
+
+impl StackBlockSummary {
+  pub fn of(parent: &str, reason: BlockReason) -> Self {
+    let reason = match reason {
+      BlockReason::Missing => "missing",
+      BlockReason::Unapplied => "unapplied",
+      BlockReason::Error => "error",
+      BlockReason::Conflict => "conflict",
+      BlockReason::Blocked => "blocked",
+    };
+    Self {
+      parent: parent.to_string(),
+      reason: reason.to_string(),
+    }
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -126,6 +172,18 @@ pub struct CommitSummary {
   pub subject: String,
 }
 
+/// The stack problems of a branch, with their commits
+pub fn stack_issues(branch: &str, stack: &BranchStack, short: &ShortIds) -> Vec<StackIssue> {
+  stack
+    .problems
+    .iter()
+    .map(|problem| StackIssue {
+      message: describe_problem(branch, problem),
+      commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
+    })
+    .collect()
+}
+
 /// The checked out commit and branch, from one `rev-parse`
 pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliError> {
   let (output, exit_code) = context
@@ -142,7 +200,7 @@ pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliE
 /// Group the commits ahead of the baseline; a missing baseline is `no_baseline`, a `branch` that is not a group is
 /// `unknown_branch`
 pub fn read_grouping(context: &RepoContext, branch: Option<&str>) -> Result<BranchGrouping, CliError> {
-  let grouping = group_commits_ahead_of_baseline(&context.git, &context.repository).map_err(|e| {
+  let grouping = group_commits_ahead_of_baseline(&context.git, &context.repository, &context.prefix).map_err(|e| {
     let message = format!("{e:#}");
     if message.starts_with("No baseline branch found") {
       CliError::new(ErrorCode::NoBaseline, message)
@@ -175,6 +233,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
   let tips = read_virtual_tips(context)?;
   let descriptions = read_descriptions(context)?;
   let forest = grouping.forest.as_ref();
+  let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
   let short = context.short_ids(
     grouping
       .branches
@@ -224,22 +283,13 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           tip: tips.get(&reference).map(|tip| short.get(tip).to_string()),
           name: branch.name.clone(),
           reference,
-          parent: forest.and_then(|forest| forest.declared_parent(&branch.name)).map(str::to_string),
-          parent_state: forest.and_then(|forest| forest.parent_state(&branch.name)).map(|state| match state {
-            ParentState::Active => ParentStateName::Active,
-            // the grouping alone tells only whether the parent has commits
-            ParentState::Integrated | ParentState::Unapplied | ParentState::Missing => ParentStateName::Missing,
-          }),
-          problems: forest.map_or_else(Vec::new, |forest| {
-            forest
-              .problems(&branch.name)
-              .iter()
-              .map(|problem| StackIssue {
-                message: describe_problem(&branch.name, problem),
-                commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
-              })
-              .collect()
-          }),
+          parent: placement(&branch.name).and_then(|stack| stack.declared_parent.clone()),
+          parent_state: placement(&branch.name).and_then(|stack| stack.parent_state).map(ParentStateName::from),
+          effective_base: placement(&branch.name).and_then(|stack| stack.effective_base.clone()),
+          blocked_by: placement(&branch.name)
+            .and_then(|stack| stack.blocked_by.as_ref())
+            .map(|block| StackBlockSummary::of(&block.parent, block.reason)),
+          problems: placement(&branch.name).map_or_else(Vec::new, |stack| stack_issues(&branch.name, stack, &short)),
           description: descriptions
             .get(&reference_of(&branch.name))
             .map(|description| DescriptionTitle { title: description.title.clone() }),

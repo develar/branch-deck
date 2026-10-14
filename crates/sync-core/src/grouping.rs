@@ -1,11 +1,14 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
-use crate::stack::{StackForest, stacks_enabled};
+use crate::stack::{StackForest, empty_parent_states, place_branches, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
+use indexmap::IndexMap;
+use std::collections::HashMap;
 use sync_types::GroupedBranchInfo;
+use sync_types::stack::BranchStack;
 use tracing::instrument;
 
 /// The commits ahead of the baseline, grouped into virtual branches as a sync groups them, without syncing
@@ -23,13 +26,16 @@ pub struct BranchGrouping {
   pub stacks: bool,
   /// How the branches stack; `None` with stacked branches off
   pub forest: Option<StackForest>,
+  /// With stacked branches on, where each branch with commits goes, as a sync places it
+  pub placements: Option<IndexMap<String, BranchStack>>,
 }
 
 /// Group the commits ahead of the baseline by prefix or issue key: the first phase of a sync without its events, two
-/// to five git processes (the stack setting, baseline detection and one `log`). No integration detection, no update
-/// check, no network
+/// to five git processes (the stack setting, baseline detection and one `log`), with stacked branches two more for
+/// placing them (the branches under `branch_prefix` and the detection notes of archived parents). No integration
+/// detection, no update check, no network
 #[instrument(skip(git_executor))]
-pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<BranchGrouping> {
+pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
 
   let stacks = stacks_enabled(git_executor, repository_path)?;
@@ -50,14 +56,36 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     },
     forest,
   ) = grouper.finish_with_stacks();
+  let placements = match &forest {
+    Some(forest) if !branches.is_empty() => {
+      let branch_refs = branch_tips(git_executor, repository_path, branch_prefix)?;
+      Some(place_branches(
+        forest,
+        &empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, forest)?,
+      ))
+    }
+    _ => None,
+  };
   Ok(BranchGrouping {
-    // the placement needs the branch refs a sync reads; the CLI reads the stacks from `forest`
-    branches: prepare_branches_for_ui(&branches, &branch_emails, None),
+    branches: prepare_branches_for_ui(&branches, &branch_emails, placements.as_ref()),
     baseline_branch,
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,
     base,
     stacks,
     forest,
+    placements,
   })
+}
+
+/// Full name (without `refs/heads/`) -> tip of the branches under `{branch_prefix}/`
+pub fn branch_tips(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<HashMap<String, String>> {
+  let namespace = format!("refs/heads/{}/", branch_prefix.trim_end_matches('/'));
+  let refs = git_executor.execute_command_lines(&["for-each-ref", "--format=%(refname:lstrip=2)%00%(objectname)", &namespace], repository_path)?;
+  Ok(
+    refs
+      .into_iter()
+      .filter_map(|line| line.split_once('\0').map(|(name, tip)| (name.to_string(), tip.to_string())))
+      .collect(),
+  )
 }

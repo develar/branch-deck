@@ -88,10 +88,13 @@ for all the commits.
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
-- With stacked branches on (`git config branchdeck.stacks true`), each branch has the `parent` its commits declare,
-  `parent_state` (`active` if the parent has commits, else `missing`) and `problems` (`{message, commits}`: conflicting
-  parents, a cycle, a self parent, a case collision, an empty stack level), and the output has `forest`: the branches
-  with commits, each after its parent. `effective_base` and `blocked_by` come with stacked syncs.
+- With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
+  - `parent`, the parent its commits declare, and `parent_state`: `active` (it has commits), `integrated` (its archived
+    branch is integrated: the branch goes on the nearest active ancestor), `unapplied` or `missing`;
+  - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}`;
+  - `problems` (`{message, commits}`): conflicting parents, a cycle, a self parent, a case collision, an empty level.
+
+  The output has `forest`: the branches with commits, each after its parent.
 - `description` is `{title}` of the branch's `bd describe` text, read for all branches with one
   `git config --get-regexp`.
 - `pull_request` (from `sync_core::pull_requests`) is reserved, and left out until pull request status is wired.
@@ -257,7 +260,8 @@ detection of archived branches and the update check of the checked out branch. I
  "update":{"upstream":"origin/master","state":"up_to_date"}}
 ```
 
-- `status` is `created`, `updated`, `unchanged`, `error` (with `error`) or `merge_conflict` (with `conflict`: the
+- `status` is `created`, `updated`, `unchanged`, `blocked` (a stacked branch whose parent can't be built on, with the
+  reason in `error`), `error` (with `error`) or `merge_conflict` (with `conflict`: the
   commit whose cherry-pick conflicts, the files, and the commits of other branches the change likely needs).
   `blocked` lists the commits not synced after an earlier failure.
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.

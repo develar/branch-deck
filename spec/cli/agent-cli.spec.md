@@ -94,9 +94,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits, and the branches otherwise.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
 - It must not run integration detection, an update check or a network command.
-- With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active` or `missing`) and
-  its stack `problems` with the commits that declare them, and the output must list the `forest` order, parents
-  first; `bd commits` must group by the leaf as well.
+- With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active`, `integrated`,
+  `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, and its stack `problems` with the
+  commits that declare them, and the output must list the `forest` order, parents first; `bd commits` must group by
+  the leaf as well.
   [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`)
 - Each branch with a `bd describe` text must show its title, read for all branches in one git process.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)

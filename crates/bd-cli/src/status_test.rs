@@ -249,6 +249,8 @@ fn stacks_in_status() {
   assert_eq!((&branch("login")["parent"], &branch("login")["parent_state"]), (&json!("auth"), &json!("active")));
   assert_eq!(branch("auth").get("parent"), None);
   assert_eq!(branch("oauth")["parent_state"], json!("missing"));
+  assert_eq!(branch("oauth")["blocked_by"], json!({ "parent": "ghost", "reason": "missing" }));
+  assert_eq!(branch("login")["effective_base"], json!("auth"));
   assert_eq!(
     branch("c")["problems"],
     json!([{ "message": "c has conflicting parents x, y", "commits": [short(&ids[2]), short(&ids[3])] }])
