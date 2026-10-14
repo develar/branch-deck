@@ -54,6 +54,6 @@ pub fn execute_remote_command_with_progress(
   progress_args.extend_from_slice(rest);
   let mut reporter = TransferProgressReporter::new(on_progress);
   git_executor.execute_command_with_progress(&remote_args(&progress_args), repository_path, &REMOTE_ENV, ok_exit_codes, &mut |line| {
-    reporter.on_line(line)
+    reporter.on_line(line);
   })
 }
