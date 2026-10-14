@@ -16,6 +16,18 @@ export interface PushResult {
   fastForward?: boolean
   remoteTip?: string
   droppedCommits?: DroppedCommit[]
+  /** Sent to the progress channel of the push before it ends, as the backend reports how far git is */
+  progress?: PushProgress[]
+  /** The push ends once this resolves, so a test can see the running push */
+  release?: Promise<void>
+}
+
+/** A `TransferProgress` of the bindings */
+export interface PushProgress {
+  percent: number
+  transferred: string | null
+  speed: string | null
+  line: string
 }
 
 /** The parameters of a `push_branch` call */
@@ -60,7 +72,19 @@ export async function routePush(page: Page, results: Record<string, PushResult |
     const list = Array.isArray(branchResults) ? branchResults : [branchResults]
     const pushes = requests.filter(previous => previous.branchName === request.branchName).length
     requests.push(request)
-    await route.fulfill({ json: pushOutcome(request.branchName, list[Math.min(pushes, list.length - 1)]) })
+    const result = list[Math.min(pushes, list.length - 1)]
+    const channel = route.request().headers()["x-progress-channel"]
+    if (result?.progress !== undefined && channel !== undefined) {
+      await page.evaluate(({ channel, messages }) => {
+        // registered by the mock of the page (`registerProgressChannel` in tauri-mocks.ts)
+        const channels = (window as unknown as { __progressChannels: Record<string, { onmessage: (message: PushProgress) => void }> }).__progressChannels
+        for (const message of messages) {
+          channels[channel]!.onmessage(message)
+        }
+      }, { channel, messages: result.progress })
+    }
+    await result?.release
+    await route.fulfill({ json: pushOutcome(request.branchName, result) })
   })
   return requests
 }

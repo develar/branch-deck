@@ -8,9 +8,9 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**
 	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and returns its new remote
-	 *  status; a remote that moved is fetched and returned instead
+	 *  status; a remote that moved is fetched and returned instead. `progress` receives how far the push is.
 	 */
-	pushBranch: (params: PushBranchParams) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params })),
+	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
 	 *  The GitHub pull requests of the virtual branches, read through the `gh` CLI; when `gh` can't answer, the
 	 *  availability says why

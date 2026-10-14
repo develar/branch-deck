@@ -39,12 +39,13 @@ pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args:
   git_executor.execute_command_accepting_with_env(&remote_args(args), repository_path, &REMOTE_ENV, ok_exit_codes)
 }
 
-/// `execute_remote_command` with `--progress` (added after the subcommand): `on_progress` gets how far the transfer is
-/// as git reports it, throttled by `TransferProgressReporter`
+/// `execute_remote_command_accepting` with `--progress` (added after the subcommand): `on_progress` gets how far the
+/// transfer is as git reports it, throttled by `TransferProgressReporter`
 pub fn execute_remote_command_with_progress(
   git_executor: &GitCommandExecutor,
   args: &[&str],
   repository_path: &str,
+  ok_exit_codes: &[i32],
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<String> {
   let (subcommand, rest) = args.split_first().ok_or_else(|| anyhow!("No git subcommand to run"))?;
@@ -52,5 +53,7 @@ pub fn execute_remote_command_with_progress(
   progress_args.extend([*subcommand, "--progress"]);
   progress_args.extend_from_slice(rest);
   let mut reporter = TransferProgressReporter::new(on_progress);
-  git_executor.execute_command_with_progress(&remote_args(&progress_args), repository_path, &REMOTE_ENV, &mut |line| reporter.on_line(line))
+  git_executor.execute_command_with_progress(&remote_args(&progress_args), repository_path, &REMOTE_ENV, ok_exit_codes, &mut |line| {
+    reporter.on_line(line)
+  })
 }

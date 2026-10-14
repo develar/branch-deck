@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { AutosquashPlan, BranchError, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, DroppedCommit, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UpdateCheck } from "@/lib/bindings"
+import type { AutosquashPlan, BranchError, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, DroppedCommit, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, TransferProgress, UpdateCheck } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
@@ -101,10 +101,10 @@ export interface BranchSyncState {
   branchOrder: string[]
   branches: Record<string, Branch>
   /**
-   * Names of branches with a push in flight.
+   * Branches with a push in flight, with how far the push is (null before git reports a stage).
    * Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a running push.
    */
-  pushingBranches: Readonly<Record<string, true>>
+  pushingBranches: Readonly<Record<string, TransferProgress | null>>
   unassignedCommits: Commit[]
   /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
   autosquashPlan: AutosquashPlan | null
@@ -331,7 +331,12 @@ export function useBranchRemoteTip(name: string): string | null {
 }
 
 export function useIsBranchPushing(name: string): boolean {
-  return useStore(branchSyncStore, state => state.pushingBranches[name] === true)
+  return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, name))
+}
+
+/** How far the running push of the branch is; null before git reports a stage and when no push runs */
+export function useBranchPushProgress(name: string): TransferProgress | null {
+  return useStore(branchSyncStore, state => state.pushingBranches[name] ?? null)
 }
 
 export function useUnassignedCommits(): Commit[] {
@@ -427,20 +432,27 @@ export function consumeAutoRequests(name: string): void {
 }
 
 export function isBranchPushing(name: string): boolean {
-  return branchSyncStore.getState().pushingBranches[name] === true
+  return Object.hasOwn(branchSyncStore.getState().pushingBranches, name)
 }
 
 export function setBranchPushing(name: string, isPushing: boolean): void {
   branchSyncStore.setState((state) => {
-    if ((state.pushingBranches[name] === true) === isPushing) {
+    if (Object.hasOwn(state.pushingBranches, name) === isPushing) {
       return state
     }
     if (isPushing) {
-      return { pushingBranches: { ...state.pushingBranches, [name]: true } }
+      return { pushingBranches: { ...state.pushingBranches, [name]: null } }
     }
     const { [name]: _, ...pushingBranches } = state.pushingBranches
     return { pushingBranches }
   })
+}
+
+/** Records how far the push of the branch is; a message that arrives after the push ended is dropped */
+export function setBranchPushProgress(name: string, progress: TransferProgress): void {
+  branchSyncStore.setState(state => Object.hasOwn(state.pushingBranches, name)
+    ? { pushingBranches: { ...state.pushingBranches, [name]: progress } }
+    : state)
 }
 
 export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus): void {

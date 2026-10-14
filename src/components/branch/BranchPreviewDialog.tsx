@@ -32,9 +32,10 @@ import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { isStartBlocked } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
+import { transferLabel } from "@/lib/transfer-progress"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
+import { useBranch, useBranchPushProgress, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
 import { openInline, useIsRowProcessing } from "@/stores/inline-row-action"
 import { getBranchRobot, useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
@@ -70,6 +71,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
   const isSyncing = useBranchSync(state => state.isSyncing)
   const isPushing = useIsBranchPushing(currentName ?? "")
+  const pushProgress = useBranchPushProgress(currentName ?? "")
   const processing = useIsRowProcessing(currentName ?? "")
   // as the push button of the row: only a branch that synced without an error has something to push
   const unpushedParent = useUnpushedParent(branch)
@@ -157,7 +159,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
             {push !== null && (
               <Button variant="ghost" size="xs" disabled={!canPush} aria-busy={isPushing || undefined} onClick={() => void pushBranch(branch.name)}>
                 {isPushing ? <Spinner data-icon="inline-start" /> : <Kbd>P</Kbd>}
-                {push.text}
+                {isPushing ? transferLabel("Pushing", pushProgress) : push.text}
               </Button>
             )}
           </PreviewDialogFooter>

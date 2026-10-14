@@ -295,9 +295,9 @@ Details:
   and nothing for a ref that did not move. The fetch runs through `execute_remote_command_with_progress` (Key
   Decision 8).
 - **Transfer progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch
-  runs with `--progress`, as IDEA's does: `execute_remote_command_with_progress` adds it after the subcommand, and
-  `execute_command_with_progress` passes each stderr line as it arrives (split on `\r`, with which git overwrites a
-  progress line, and `\n`). `TransferProgressAnalyzer` (`crates/sync-core/src/transfer_progress.rs`)
+  and the app's push run with `--progress`, as IDEA's do: `execute_remote_command_with_progress` adds it after the
+  subcommand, and `execute_command_with_progress` passes each stderr line as it arrives (split on `\r`, with which git
+  overwrites a progress line, and `\n`). `TransferProgressAnalyzer` (`crates/sync-core/src/transfer_progress.rs`)
   ports IDEA's `GitStandardProgressAnalyzer`: a share per stage, earlier stages done. A fetch receives (or unpacks)
   where a push writes, both are the transfer stage; the `remote: ` prefix doesn't matter, since a fetch counts on the
   server and a push resolves the deltas there. `TransferProgressReporter` throttles to one progress per 100 ms but
@@ -498,6 +498,8 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   branch moves meanwhile.
 - `record_push` writes the records of all pushed branches in one `update-ref --stdin` after the push succeeds. A
   record also keeps the pushed commit reachable, and no default refspec fetches or pushes `refs/branch-deck/`.
+- The app's push runs through `execute_remote_command_with_progress`, which accepts exit 1 too and reports how far
+  the push is to the push button ("Transfer progress" under Update project); `bd push` has no one to show it to.
 - A rejected ref is `!` in `push --porcelain` (exit 1); the summary is only logged. `fetch_remote_branches` then
   fetches just the rejected branches, `+refs/heads/<b>:refs/remotes/<remote>/<b>` with the flags of the baseline fetch
   (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), so the caller shows
@@ -600,8 +602,8 @@ recovery hint (`git reset -q`).
      needed credentials failed;
    - nothing may ask for new credentials: the app has no terminal, and a hidden prompt would block forever;
    - a transfer that stalls below 1000 bytes/s for 30 s is aborted instead of hanging on a dead connection;
-   - the C locale keeps the `--progress` lines untranslated, so the fetch progress can be read (IDEA runs every git
-     command in an English locale for the same reason). An unknown locale falls back to C as well.
+   - the C locale keeps the `--progress` lines untranslated, so the fetch and push progress can be read (IDEA runs
+     every git command in an English locale for the same reason). An unknown locale falls back to C as well.
 
    SSH is left as configured. The app started from Finder has no controlling terminal, so ssh fails instead of
    prompting. Forcing `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` would override `core.sshCommand` and break

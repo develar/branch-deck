@@ -37,6 +37,7 @@ fn failed_command_reports_messages_without_progress_updates() {
       &["-c", "alias.fail=!printf 'step 1\\rstep 2\\rfatal: broken\\n' >&2; exit 3", "fail"],
       dir.to_str().unwrap(),
       &[],
+      &[],
       &mut |line| lines.push(line.to_string()),
     )
     .unwrap_err();

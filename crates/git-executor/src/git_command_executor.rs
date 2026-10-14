@@ -351,9 +351,10 @@ impl GitCommandExecutor {
     }
   }
 
-  /// Run a git command that reports progress on stderr (`fetch --progress`) and return its trimmed stdout.
-  /// `on_line` gets every stderr line as it arrives, see `read_progress_lines`. The error of a failed command keeps
-  /// only the messages: the `\r` progress updates are not the reason it failed.
+  /// Run a git command that reports progress on stderr (`fetch --progress`, `push --progress`) and return its trimmed
+  /// stdout; the given non-zero exit codes are not failures. `on_line` gets every stderr line as it arrives, see
+  /// `read_progress_lines`. The error of a failed command keeps only the messages: the `\r` progress updates are not
+  /// the reason it failed.
   #[instrument(
     skip(self, env_vars, on_line),
     fields(
@@ -362,7 +363,14 @@ impl GitCommandExecutor {
       exit_code = tracing::field::Empty,
     )
   )]
-  pub fn execute_command_with_progress(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], on_line: &mut dyn FnMut(&str)) -> Result<String> {
+  pub fn execute_command_with_progress(
+    &self,
+    args: &[&str],
+    repository_path: &str,
+    env_vars: &[(&str, &str)],
+    ok_exit_codes: &[i32],
+    on_line: &mut dyn FnMut(&str),
+  ) -> Result<String> {
     let mut command = self.command(args, repository_path, env_vars)?;
     command.stdin(Stdio::null());
     let (mut child, stdout, stderr) = spawn_piped(command)?;
@@ -375,7 +383,7 @@ impl GitCommandExecutor {
 
     let status = child.wait().map_err(|e| anyhow!("Failed to wait for git command: {e}"))?;
     tracing::Span::current().record("exit_code", status.code().unwrap_or(-1));
-    if status.success() {
+    if status.success() || status.code().is_some_and(|code| ok_exit_codes.contains(&code)) {
       Ok(String::from_utf8_lossy(&stdout_bytes).trim().to_string())
     } else {
       Err(self.command_error(messages.as_bytes(), args))

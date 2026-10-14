@@ -18,6 +18,8 @@ targets:
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../src/lib/git/push.ts
+  - ../../crates/sync-core/src/transfer_progress.rs
+  - ../../src/lib/transfer-progress.ts
   - ../../src/stores/commit-move.ts
 ---
 
@@ -169,6 +171,17 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push the remote refuses while the lease holds (a hook, a protected branch) must be an error, nothing recorded.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
+- While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
+  a stage), and its description on hover the last progress line of git, then what was sent so far and how fast,
+  "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)). The stages
+  weigh as for a fetch: counting 5 %, compressing 10 %, writing 80 %, the server resolving deltas 5 %; the percent
+  never decreases, reaches the window at most every 100 ms, and the end of a stage always does, also the server's
+  `Resolving deltas: 100% (2/2), completed with 2 local objects.`, which has no `, done.`.
+  [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`push_stages_have_the_same_shares`, `writing_reports_the_amount_and_the_rate`, `reporter_sends_the_first_progress_and_every_stage_end`, `reporter_skips_a_stage_end_that_changes_nothing`)
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_reports_its_progress`)
+  [@test] ../../src/lib/transfer-progress.test.ts (`shows the percent once git reports a stage`)
+  [@test] ../../src/stores/branch-sync.test.ts (`keeps the push progress only while the push runs`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`)
 
 ## User Experience
 
@@ -191,7 +204,8 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 - `pnpm test:unit` covers the summary (`src/lib/push-summary.test.ts`).
 - `pnpm e2e` covers the indicator, the overview and the push (`tests/e2e/outgoing`). The E2E server has no remote:
   the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
-  date or a remote that moved, and read the `expectedRemote` the pushes sent.
+  date or a remote that moved, and read the `expectedRemote` the pushes sent. A result can send progress to the push's
+  channel and hold the push until the test releases it; the mock passes the channel's key in `X-Progress-Channel`.
 - `pnpm test:backend` covers the push against a bare remote (`crates/sync-core/src/push_test.rs`).
 
 ## Open Questions / Risks

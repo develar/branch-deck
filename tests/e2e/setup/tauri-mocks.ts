@@ -63,6 +63,19 @@ export const tauriMockScript = () => {
     }
   }
 
+  let nextProgressChannel = 0
+
+  /** Keeps a `Channel` the command got, so a test can call its `onmessage`; null without one */
+  function registerProgressChannel(channel: any): number | null {
+    if (channel === null || typeof channel !== "object" || typeof channel.onmessage !== "function") {
+      return null
+    }
+    const channels = ((window as any).__progressChannels ??= {})
+    const id = nextProgressChannel++
+    channels[id] = channel
+    return id
+  }
+
   /**
    * Proxy command to test server
    */
@@ -72,11 +85,14 @@ export const tauriMockScript = () => {
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
+    // a progress channel (`push_branch`) stays in the page: a test route sends messages to it by its key
+    // (`window.__progressChannels`, see `routePush`)
+    const channelId = registerProgressChannel(payload?.progress)
     
     try {
       const response = await fetch(`http://localhost:3030/invoke/${cmd}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
         body: JSON.stringify(actualPayload),
       })
 

@@ -89,6 +89,37 @@ test.describe("Outgoing indicator", () => {
   })
 })
 
+test.describe("Push progress", () => {
+  test("should show the percent on the push button and git's last line on hover while the push runs", async ({ page }) => {
+    let release!: () => void
+    await routePush(page, {
+      "JIRA-456": {
+        progress: [
+          { percent: 15, transferred: null, speed: null, line: "Compressing objects: 100% (3/3), done." },
+          { percent: 55, transferred: "1.23 MiB", speed: "2.40 MiB/s", line: "Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s" },
+        ],
+        release: new Promise(resolve => release = resolve),
+      },
+    })
+    const row = findBranchRow(page, "JIRA-456")
+    const button = getPushButton(row)
+    await expect(button).toHaveText("Create Remote (3)")
+
+    await button.click()
+    await expect(button).toHaveText("Pushing 55%")
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    // the pointer stays on the button after the click: its popover is open
+    const progress = page.getByTestId("push-progress")
+    await expect(progress).toContainText("Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s")
+    await expect(progress).toContainText("1.23 MiB · 2.40 MiB/s")
+
+    release()
+    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    await expect(button).not.toHaveAttribute("aria-busy")
+    await expect(button).toHaveText("Push")
+  })
+})
+
 /** A commit someone else pushed to the remote branch, three hours before the fixed clock of the page */
 function theirCommit(id: string, subject: string, author: string): DroppedCommit {
   return { id, subject, author, authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }

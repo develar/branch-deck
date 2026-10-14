@@ -1,5 +1,6 @@
+import { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { showStackedPushToast } from "@/lib/git/stacked-push-toast"
@@ -8,7 +9,7 @@ import { runRobotAction } from "@/lib/patronus-actions"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { stackPushOrder } from "@/lib/stack"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchRobot, restartPatronusRobot } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushGuardAnswer } from "@/stores/push-guard"
@@ -59,6 +60,10 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
   setBranchPushing(branchName, true)
   try {
     const request = vcsRequestFactory.createRequest()
+    const progress = new Channel<TransferProgress>()
+    progress.onmessage = (pushProgress) => {
+      setBranchPushProgress(branchName, pushProgress)
+    }
     const result = await commands.pushBranch({
       repositoryPath: request.repositoryPath,
       branchPrefix: request.branchPrefix,
@@ -69,7 +74,7 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
       parentBranch: branch.stack?.effectiveBase ?? null,
       // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
       expectedRemote: options.expectedRemote === undefined ? branch.remoteStatus?.remoteTip ?? null : options.expectedRemote,
-    })
+    }, progress)
 
     if (result.status === "ok") {
       const remoteStatus = toRemoteStatus(result.data.remoteStatus)

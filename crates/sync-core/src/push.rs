@@ -1,6 +1,7 @@
 use crate::push_lease::{PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting, record_push};
-use crate::remote_command::execute_remote_command_accepting;
+use crate::remote_command::execute_remote_command_with_progress;
 use crate::remote_status::compute_remote_status_for_branch;
+use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
@@ -43,9 +44,9 @@ pub enum PushOutcome {
 
 /// Force-pushes the virtual branch to `origin`, leased on the remote head the user saw (`push_lease`), and records the
 /// push as the lease `bd push` uses next. A remote that moved meanwhile is fetched, not overwritten: the outcome then
-/// carries the new remote status, which a push can replace once the user saw it.
-#[instrument(skip(git_executor), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
-pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams) -> Result<PushOutcome> {
+/// carries the new remote status, which a push can replace once the user saw it. `on_progress` gets how far the push is.
+#[instrument(skip(git_executor, on_progress), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
+pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushOutcome> {
   let repository_path = &params.repository_path;
   let branch_name = &params.branch_name;
   let final_branch_name = to_final_branch_name(&params.branch_prefix, branch_name)?;
@@ -71,11 +72,12 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams)
   // Exit code 1: the ref was rejected, and the porcelain report says so
   let refs = prepare_push_expecting(git_executor, repository_path, &[(final_branch_name.clone(), params.expected_remote.clone())])?;
   let pushed = &refs[0];
-  let output = execute_remote_command_accepting(
+  let output = execute_remote_command_with_progress(
     git_executor,
     &["push", "--porcelain", &pushed.lease_arg(), "origin", &pushed.refspec()],
     repository_path,
     &[1],
+    on_progress,
   )?;
   let report = parse_push_porcelain(&output).remove(&format!("refs/heads/{final_branch_name}"));
   if report.as_ref().is_some_and(PushedRefStatus::accepted) {

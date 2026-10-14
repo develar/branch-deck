@@ -101,7 +101,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 - The commits are separated by `border-border` rules. The bodies use the 14/24px text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close` and a ghost `xs` button `P Push` on
-  the right. A table of one branch has no `↑ ↓` hint. The button shows a spinner instead of the key while pushing.
+  the right. A table of one branch has no `↑ ↓` hint. While pushing, the button shows a spinner instead of the key and
+  the label of the row's push button, "Pushing 45%".
 - The preview is loaded on its first use.
 
 ## Testing / Local Run

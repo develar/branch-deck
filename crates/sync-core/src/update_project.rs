@@ -94,6 +94,7 @@ pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstre
       &refspec,
     ],
     repo_path,
+    &[],
     on_progress,
   )?;
   Ok(previous_tip_of_forced_update(&output, &upstream.tracking_ref))

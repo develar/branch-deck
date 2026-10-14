@@ -299,7 +299,7 @@ fn app_push(repo: &TestRepo, branch: &str) {
     parent_branch: None,
     expected_remote: (exit_code == 0).then_some(remote_tip),
   };
-  assert!(matches!(push_branch(repo.git_executor(), &params).unwrap(), PushOutcome::Pushed { .. }));
+  assert!(matches!(push_branch(repo.git_executor(), &params, &mut |_| {}).unwrap(), PushOutcome::Pushed { .. }));
 }
 
 #[test_log::test]

@@ -1,6 +1,7 @@
 use crate::push::{PushBranchParams, PushOutcome, push_branch};
 use crate::push_lease::PUSHED_NAMESPACE;
 use crate::remote_status::compute_remote_status_for_branch;
+use crate::transfer_progress::TransferProgress;
 use pretty_assertions::assert_eq;
 use sync_types::RemoteStatusUpdate;
 use test_log::test;
@@ -74,6 +75,11 @@ fn shown_status(local: &TestRepo) -> RemoteStatusUpdate {
 
 /// The push button's push, leased on `expected`
 fn push(local: &TestRepo, expected: Option<&str>) -> PushOutcome {
+  push_reporting(local, expected, &mut |_| {})
+}
+
+/// `push`, with how far it is
+fn push_reporting(local: &TestRepo, expected: Option<&str>, on_progress: &mut dyn FnMut(TransferProgress)) -> PushOutcome {
   let params = PushBranchParams {
     repository_path: path(local).to_string(),
     branch_prefix: "prefix".to_string(),
@@ -83,7 +89,7 @@ fn push(local: &TestRepo, expected: Option<&str>) -> PushOutcome {
     parent_branch: None,
     expected_remote: expected.map(str::to_string),
   };
-  push_branch(local.git_executor(), &params).unwrap()
+  push_branch(local.git_executor(), &params, on_progress).unwrap()
 }
 
 /// The push button's push, leased on the remote head of the status the row shows
@@ -127,6 +133,23 @@ fn a_branch_not_on_the_remote_is_created_when_expected_absent() {
 }
 
 #[test]
+fn a_push_reports_its_progress() {
+  let (_remote, local) = local_with_bare_remote();
+  let tip = local.create_commit("(feature) Add feature", "feature.txt", "feature");
+  set_branch(&local, &tip);
+
+  let mut progress = Vec::new();
+  pushed(push_reporting(&local, None, &mut |it| progress.push(it)));
+  assert!(progress.windows(2).all(|pair| pair[0].percent <= pair[1].percent), "{progress:?}");
+  // the server may resolve deltas after the objects are written
+  let last = progress.last().expect("no push progress");
+  let last_stage_ended = last.line.starts_with("Writing objects: 100% ") || last.line.starts_with("Resolving deltas: 100% ");
+  assert!(last_stage_ended, "{progress:?}");
+  assert!(last.percent >= 95, "{progress:?}");
+  assert!(last.transferred.is_some(), "{progress:?}");
+}
+
+#[test]
 fn a_push_fails_without_the_local_branch() {
   let (remote, local) = local_with_bare_remote();
 
@@ -139,7 +162,7 @@ fn a_push_fails_without_the_local_branch() {
     parent_branch: None,
     expected_remote: None,
   };
-  assert!(push_branch(local.git_executor(), &params).is_err());
+  assert!(push_branch(local.git_executor(), &params, &mut |_| {}).is_err());
   assert_eq!(rev_parse(&remote, "refs/heads/prefix/virtual/missing"), None);
 }
 
@@ -275,7 +298,7 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
     parent_branch: None,
     expected_remote: Some(first.clone()),
   };
-  let error = push_branch(local.git_executor(), &params).unwrap_err();
+  let error = push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err();
   assert!(error.to_string().contains("The remote rejected the push"), "{error}");
   assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(first.clone()), Some(first)));
 }

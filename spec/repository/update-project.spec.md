@@ -149,7 +149,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 - Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
   tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
-  5 %), never decreases, and reaches the window at most every 100 ms; the end of a stage always does.
+  5 %), never decreases, and reaches the window at most every 100 ms; the end of a stage always does. A push reports
+  its progress the same way ([Outgoing](outgoing.spec.md)).
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`stages_have_the_shares_of_idea`)
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`small_fetch_unpacks_instead_of_receiving`)
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`percent_never_decreases`)

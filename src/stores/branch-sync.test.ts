@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
-import { branchSyncStore, getBranch, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
 
 const { syncEvents } = vi.hoisted(() => ({ syncEvents: { current: [] as SyncEvent[] } }))
 
@@ -80,6 +80,21 @@ describe("sync during a push", () => {
     expect(getBranch("a")!.status).toBe("Syncing")
     expect(isBranchPushing("a")).toBe(true)
     expect(isBranchPushing("b")).toBe(false)
+  })
+
+  it("keeps the push progress only while the push runs", () => {
+    const writing = { percent: 55, transferred: "1.23 KiB", speed: "1.23 MiB/s", line: "Writing objects:  50% (2/4)" }
+    setBranchPushing("a", true)
+    expect(branchSyncStore.getState().pushingBranches.a).toBeNull()
+    setBranchPushProgress("a", writing)
+    expect(branchSyncStore.getState().pushingBranches.a).toEqual(writing)
+    expect(isBranchPushing("a")).toBe(true)
+
+    setBranchPushing("a", false)
+    // a channel message that arrives after the push ended
+    setBranchPushProgress("a", { ...writing, percent: 95 })
+    expect(isBranchPushing("a")).toBe(false)
+    expect(branchSyncStore.getState().pushingBranches).toEqual({})
   })
 
   it("ignores the remote status computed by the sync while the branch is pushing", async () => {
