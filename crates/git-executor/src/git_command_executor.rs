@@ -174,6 +174,20 @@ impl GitCommandExecutor {
     Ok(Self::trimmed(&output))
   }
 
+  /// `execute_command_accepting` with extra environment variables
+  pub fn execute_command_accepting_with_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], ok_exit_codes: &[i32]) -> Result<String> {
+    let output = self.run(
+      args,
+      repository_path,
+      &RunOptions {
+        env: env_vars,
+        ok_exit_codes,
+        ..RunOptions::default()
+      },
+    )?;
+    Ok(Self::trimmed(&output))
+  }
+
   /// Execute a git command and return raw untrimmed output
   /// Useful for commands where exact formatting matters (e.g., git status --porcelain)
   pub fn execute_command_raw(&self, args: &[&str], repository_path: &str) -> Result<String> {

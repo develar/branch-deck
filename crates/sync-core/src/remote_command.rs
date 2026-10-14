@@ -20,8 +20,14 @@ const REMOTE_ENV: [(&str, &str); 1] = [("GCM_INTERACTIVE", "never")];
 /// Run a git command that talks to a remote under the shared policy above and return its trimmed stdout.
 /// `args` start with the git subcommand (`push`, `fetch`); the policy config goes before it.
 pub fn execute_remote_command(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str) -> Result<String> {
+  execute_remote_command_accepting(git_executor, args, repository_path, &[])
+}
+
+/// `execute_remote_command` for which the given non-zero exit codes are not failures, e.g. 1 for a `push --porcelain`
+/// with rejected refs, whose stdout still reports every ref
+pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<String> {
   let mut full_args = Vec::with_capacity(REMOTE_CONFIG.len() + args.len());
   full_args.extend(REMOTE_CONFIG);
   full_args.extend_from_slice(args);
-  git_executor.execute_command_with_env(&full_args, repository_path, &REMOTE_ENV)
+  git_executor.execute_command_accepting_with_env(&full_args, repository_path, &REMOTE_ENV, ok_exit_codes)
 }
