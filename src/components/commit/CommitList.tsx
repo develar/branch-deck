@@ -246,10 +246,18 @@ const CommitRow = memo(function CommitRow(props: CommitRowProps) {
       : { draggable: true, onDragStart: (event: DragEvent) => onDragStart(event, commit), onDragEnd }),
   }
 
+  // a missing commit's file diffs, below its row content
+  const after = renderAfterCommit?.(commit, index)
   const cell = (
     <td className="bd-padding-list-item">
-      <CommitCellContent {...props} />
-      {renderAfterCommit?.(commit, index)}
+      {after == null
+        ? <CommitCellContent {...props} />
+        : (
+            <div className="flex flex-col gap-3">
+              <CommitCellContent {...props} />
+              {after}
+            </div>
+          )}
     </td>
   )
 
@@ -312,7 +320,8 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
 
   return (
-    <div className="flex flex-col gap-1">
+    // gap-3: the header and the error or conflict below it (the header alone has no sibling)
+    <div className="flex flex-col gap-3">
       <CommitHeader
         subject={subject}
         hash={hash}
@@ -344,23 +353,19 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         )}
       />
 
-      {error && (
-        <div className="mt-2">
-          {error.MergeConflict
-            ? (
-                <Suspense fallback={null}>
-                  <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />
-                </Suspense>
-              )
-            : error.Generic && (
-              <Alert variant="destructive" className="py-2">
-                <AlertDescription>
-                  <p className="text-xs">{error.Generic}</p>
-                </AlertDescription>
-              </Alert>
-            )}
-        </div>
-      )}
+      {error?.MergeConflict
+        ? (
+            <Suspense fallback={null}>
+              <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />
+            </Suspense>
+          )
+        : error?.Generic && (
+          <Alert variant="destructive" className="py-2">
+            <AlertDescription>
+              <p className="text-xs">{error.Generic}</p>
+            </AlertDescription>
+          </Alert>
+        )}
     </div>
   )
 }

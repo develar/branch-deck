@@ -30,11 +30,7 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
     if (commit.fileDiffs.length === 0) {
       return null
     }
-    return (
-      <div className="mt-3 rounded-lg bg-background">
-        <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} />
-      </div>
-    )
+    return <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} />
   }, [diffViewMode])
 
   const openMissingCommitsWindow = () => {

@@ -47,7 +47,7 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
           href={segment.href}
           target="_blank"
           rel="noopener noreferrer"
-          className={cn("rounded-md transition-colors outline-primary/25 hover:text-foreground focus-visible:outline-3", linkClassName)}
+          className={cn("rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30", linkClassName)}
         >
           {segment.content}
         </a>

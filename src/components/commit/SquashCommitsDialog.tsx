@@ -103,26 +103,28 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
     >
       <PreviewDialogHeader>
         <DialogTitle className="leading-5">{`Squash ${shown.length} commits`}</DialogTitle>
-        {target !== undefined && (
-          <p className="text-xs text-muted-foreground">
-            {"Into the oldest commit, "}
-            <span className="font-mono">{formatShortHash(getCommitHash(target))}</span>
-            , which keeps its place and its author
-          </p>
-        )}
-        <ul data-testid="squash-commits" className="mt-1 flex max-h-32 flex-col gap-1 overflow-y-auto">
-          {shown.map((commit) => {
-            const hash = getCommitHash(commit)
-            return (
-              <li key={hash} className="flex min-w-0 items-baseline gap-2">
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">{formatShortHash(hash)}</span>
-                <span className="min-w-0 truncate">
-                  <CommitSubject subject={getCommitSubject(commit)} clamp={false} />
-                </span>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="flex flex-col gap-2">
+          {target !== undefined && (
+            <p className="text-xs text-muted-foreground">
+              {"Into the oldest commit, "}
+              <span className="font-mono">{formatShortHash(getCommitHash(target))}</span>
+              , which keeps its place and its author
+            </p>
+          )}
+          <ul data-testid="squash-commits" className="flex max-h-32 flex-col gap-1 overflow-y-auto">
+            {shown.map((commit) => {
+              const hash = getCommitHash(commit)
+              return (
+                <li key={hash} className="flex min-w-0 items-baseline gap-2">
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{formatShortHash(hash)}</span>
+                  <span className="min-w-0 truncate">
+                    <CommitSubject subject={getCommitSubject(commit)} clamp={false} />
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       </PreviewDialogHeader>
 
       <PreviewDialogBody ref={bodyRef} itemKey={target === undefined ? "" : getCommitHash(target)}>

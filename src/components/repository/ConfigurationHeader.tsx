@@ -60,7 +60,7 @@ export function ConfigurationHeader() {
 
   return (
     <Card className="gap-0 py-0" data-testid="configuration-header">
-      <div className="flex h-14 items-center justify-between gap-4 px-4">
+      <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
         {/* repository info */}
         <div className="flex min-w-0 items-center gap-3">
           <RepositorySelector disabled={isSyncing} />

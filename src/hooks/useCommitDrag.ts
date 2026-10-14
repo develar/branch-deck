@@ -13,7 +13,7 @@ export function beginCommitDrag(event: DragEvent, count: number): void {
   const badge = document.createElement("div")
   badge.textContent = count === 1 ? "1 commit" : `${count} commits`
   // rendered off screen for the snapshot the browser takes, then removed
-  badge.className = "fixed -top-24 left-0 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground"
+  badge.className = "fixed -top-24 left-0 rounded-lg bg-primary px-2 py-1 text-xs font-medium text-primary-foreground"
   document.body.append(badge)
   event.dataTransfer.setDragImage(badge, -12, -8)
   requestAnimationFrame(() => badge.remove())

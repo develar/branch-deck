@@ -92,7 +92,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
         name={name}
         expanded={expanded}
         processing={processing}
-        className={cn(expanded && "bg-muted", branch.isLoadingCommits && "animate-pulse")}
+        className={cn(expanded && "bg-muted/50", branch.isLoadingCommits && "animate-pulse")}
         onToggle={toggle}
         menu={<ContextMenuItems groups={getArchivedContextMenuItems(name)} />}
       >

@@ -24,7 +24,7 @@ export function CommitHashPopover({ hash, subject, message, author, authorTime }
       </PopoverTrigger>
       <PopoverContent
         collisionPadding={16}
-        className="max-h-[min(24rem,var(--available-height))] w-auto max-w-[min(42rem,calc(100vw-2rem))] min-w-[300px] gap-2 overflow-y-auto overscroll-contain p-3"
+        className="max-h-[min(24rem,var(--available-height))] w-auto max-w-[min(42rem,calc(100vw-2rem))] min-w-75 gap-2 overflow-y-auto overscroll-contain p-3"
       >
         <CommitHeader subject={title} hash={hash} author={author} authorTime={authorTime} />
         {hasBody && <CommitMessageBody message={message} />}
