@@ -1,3 +1,4 @@
+use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
@@ -6,6 +7,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
+use sync_types::GroupedBranchInfo;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct StatusArgs {
@@ -20,6 +22,12 @@ pub struct StatusArgs {
   pub limit: Option<usize>,
   #[arg(long, default_value_t = 0)]
   pub offset: usize,
+  /// Per branch: files, lines, top directories, authors, dates, issue keys and a diffstat of the synced branch
+  #[arg(long)]
+  pub stats: bool,
+  /// Count lock files and generated files in the --stats lines
+  #[arg(long, requires = "stats")]
+  pub include_generated: bool,
 }
 
 /// `bd status`: the branches Branch Deck would sync and the unassigned commits
@@ -68,6 +76,9 @@ pub struct BranchStatus {
   /// The pull request of the branch (not available yet: it will be the read-only status of `sync_core::pull_requests`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<serde_json::Value>,
+  /// With --stats
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub stats: Option<BranchStats>,
   /// Newest first; subjects without the `(prefix)`
   pub commits: Vec<CommitSummary>,
 }
@@ -133,6 +144,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
       .chain(&grouping.unassigned)
       .map(|commit| commit.id.as_str())
       .chain(tips.values().map(String::as_str))
+      .chain(grouping.base.as_deref())
       .chain(std::iter::once(head_id.as_str())),
   );
   let summary = |commit: &git_ops::commit_list::Commit| CommitSummary {
@@ -144,11 +156,31 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
   let paged = (args.offset, args.limit);
   let whole = (0, None);
   let (branch_page, commit_page) = if args.branch.is_some() { (whole, paged) } else { (paged, whole) };
-  let branches = (!args.unassigned).then(|| {
+  let reference_of = |name: &str| to_final_branch_name(&context.prefix, name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
+  let listed: Vec<&GroupedBranchInfo> = if args.unassigned {
+    Vec::new()
+  } else {
     let selected = grouping.branches.iter().filter(|branch| args.branch.as_ref().is_none_or(|name| &branch.name == name));
-    page(selected, branch_page)
+    page(selected, branch_page).collect()
+  };
+  let mut stats = if args.stats {
+    let inputs: Vec<BranchInput> = listed
+      .iter()
+      .map(|branch| BranchInput {
+        name: &branch.name,
+        commits: &branch.commits,
+        tip: tips.get(&reference_of(&branch.name)).map(String::as_str),
+      })
+      .collect();
+    branch_stats(context, grouping.base.as_deref(), &inputs, args.include_generated, &short)?
+  } else {
+    HashMap::new()
+  };
+  let branches = (!args.unassigned).then(|| {
+    listed
+      .iter()
       .map(|branch| {
-        let reference = to_final_branch_name(&context.prefix, &branch.name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
+        let reference = reference_of(&branch.name);
         BranchStatus {
           tip: tips.get(&reference).map(|tip| short.get(tip).to_string()),
           name: branch.name.clone(),
@@ -158,6 +190,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           issue_key: branch.issue_key.clone(),
           latest_time: branch.latest_commit_time,
           commit_count: branch.commits.len(),
+          stats: stats.remove(&branch.name),
           commits: page(&branch.commits, commit_page).map(summary).collect(),
         }
       })

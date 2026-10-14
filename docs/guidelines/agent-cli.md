@@ -64,7 +64,7 @@ commands are already reserved.
 
 ## Commands
 
-### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M]`
+### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]]`
 
 Prints HEAD, the baseline (`detect_baseline_branch`), the prefix, the branches and the unassigned commits. It groups
 the commits the same way a sync does (`sync_core::grouping`, the first phase of a sync without its events). It does no
@@ -87,6 +87,25 @@ for all the commits.
   the commits in both of these modes, and page the branches otherwise.
 - `parent` (the parent of a stacked branch) and `pull_request` (from `sync_core::pull_requests`) are reserved, and
   left out until stacks and pull request status exist.
+- `--stats` adds `stats` to each listed branch:
+
+  ```json
+  "stats":{"files":4,"generated_files":1,"additions":7,"deletions":1,
+    "top_dirs":[{"dir":"src/api","lines":7},{"dir":"docs","lines":1}],
+    "authors":[{"author":"Name <mail>","commits":3}],"first_time":1700000100,"last_time":1700000300,
+    "issue_keys":["PROJ-7"],"diffstat":{"base":"3c0ffee1","files":4,"additions":6,"deletions":0}}
+  ```
+
+  - `files` counts the distinct files the commits change, and `generated_files` how many of them are lock or
+    generated files (see `bd commits`).
+  - `additions`, `deletions` and `top_dirs` (at most three directories, by added plus deleted lines) are summed over
+    the commits. Generated files don't count without `--include-generated`.
+  - `first_time` and `last_time` are author times. `issue_keys` are the distinct keys of the subjects.
+  - `diffstat` is the net change of the synced virtual branch: its tip against `base`, the parent of the oldest
+    commit ahead of the baseline, which a sync rebuilds every branch on. It is exact while the tip is synced with
+    the current commits, and `null` for a branch that was never synced.
+  - It costs three more git processes for all branches together: one `log --numstat`, one `diff-tree --stdin` with
+    a `<tip> <base>` line per synced branch, and one `check-attr`.
 
 ### `bd commits [--files] [--patch] [--branch <b>] [--include-generated]`
 

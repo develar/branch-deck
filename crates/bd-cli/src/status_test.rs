@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, commit_all, environment, git, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{PREFIX, commit_all, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, write};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -181,4 +181,51 @@ fn subdirectory_resolves_to_top_level() {
   assert_eq!(exit_code, 0, "{output}");
   let repository = std::fs::canonicalize(repo.path()).unwrap();
   assert_eq!(output["repository"], json!(repository.to_str().unwrap()));
+}
+
+#[test_log::test]
+fn stats_per_branch() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let base = repo.head();
+  write(&repo, "src/api/handler.rs", "a\nb\nc\n");
+  write(&repo, "Cargo.lock", numbered_lines(10));
+  commit_all(&repo, "(api) Add handler", 1_700_000_100);
+  write(&repo, "src/api/routes.rs", "r1\nr2\n");
+  write(&repo, "docs/api.md", "doc\n");
+  commit_all(&repo, "(api) PROJ-7 Add routes", 1_700_000_200);
+  write(&repo, "src/api/handler.rs", "a\nB\nc\n");
+  let tip = commit_all(&repo, "(api) Fix handler", 1_700_000_300);
+  git(&repo, &["update-ref", "refs/heads/test-user/virtual/api", &tip]);
+
+  let (exit_code, output) = run_in(&repo, &["status", "--stats"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["branches"][0]["stats"],
+    json!({
+      "files": 4,
+      "generated_files": 1,
+      "additions": 7,
+      "deletions": 1,
+      "top_dirs": [{ "dir": "src/api", "lines": 7 }, { "dir": "docs", "lines": 1 }],
+      "authors": [{ "author": "Test User <test@example.com>", "commits": 3 }],
+      "first_time": 1_700_000_100,
+      "last_time": 1_700_000_300,
+      "issue_keys": ["PROJ-7"],
+      "diffstat": { "base": short(&base), "files": 4, "additions": 6, "deletions": 0 },
+    })
+  );
+
+  let (_, output) = run_in(&repo, &["status", "--stats", "--include-generated"]);
+  let stats = &output["branches"][0]["stats"];
+  assert_eq!((&stats["additions"], &stats["diffstat"]["additions"]), (&json!(17), &json!(16)));
+  assert_eq!(stats["top_dirs"][0], json!({ "dir": ".", "lines": 10 }));
+
+  // never synced: no diffstat
+  git(&repo, &["update-ref", "-d", "refs/heads/test-user/virtual/api"]);
+  let (_, output) = run_in(&repo, &["status", "--stats"]);
+  assert_eq!(output["branches"][0]["stats"]["diffstat"], json!(null));
+
+  // without --stats there are none
+  let (_, output) = run_in(&repo, &["status"]);
+  assert_eq!(output["branches"][0].get("stats"), None);
 }

@@ -16,6 +16,8 @@ pub struct BranchGrouping {
   pub unassigned: Vec<Commit>,
   /// The ids of every commit ahead of the baseline, oldest first
   pub commit_ids: Vec<String>,
+  /// The parent of the oldest commit, which the virtual branches are rebuilt on; `None` without commits
+  pub base: Option<String>,
 }
 
 /// Group the commits ahead of the baseline by prefix or issue key: the first phase of a sync without its events, two
@@ -32,6 +34,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     Ok(())
   })?;
 
+  let base = grouper.first_parent_id.take();
   let GroupedCommits {
     branches,
     unassigned,
@@ -42,5 +45,6 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     baseline_branch,
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,
+    base,
   })
 }

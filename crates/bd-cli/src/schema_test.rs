@@ -71,7 +71,7 @@ fn outputs_match_schema() {
   commit_all(&repo, "PROJ-1 Add b", 1_700_000_300);
 
   let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
-  let (_, status) = run_in(&repo, &["status"]);
+  let (_, status) = run_in(&repo, &["status", "--stats"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status");
   let (_, commits) = run_in(&repo, &["commits", "--files", "--patch"]);
   assert_ne!(commits["dependencies"], json!([]));

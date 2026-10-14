@@ -2,12 +2,14 @@
 //! JSON on stdout, every object with `"schema": 1`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
+pub mod branch_stats;
 pub mod commits;
 pub mod context;
 pub mod dependencies;
 pub mod diff_scan;
 pub mod error;
 pub mod generated;
+pub mod numstat;
 pub mod output;
 pub mod schema;
 pub mod status;
