@@ -95,8 +95,10 @@ export const tauriMockScript = () => {
         data = await response.text()
       }
 
-      // Check if the test server returned a Result-like object
-      if (data && typeof data === "object" && "status" in data) {
+      // Check if the test server returned a Result-like object; a value with a status of its own (a Patronus robot)
+      // is not one
+      const isResult = data && typeof data === "object" && ((data.status === "ok" && "data" in data) || (data.status === "error" && "error" in data))
+      if (isResult) {
         if (data.status === "error") {
           // Throw a proper Error object so the bindings layer catches it and wraps it properly
           // Commands return CommandError ({ message }) as the error payload

@@ -28,12 +28,16 @@ pub struct PatronusService {
 }
 
 #[derive(Default)]
-struct ServiceState {
+pub(crate) struct ServiceState {
   /// Patronus rejected this token: background requests wait for a new one
   rejected: Option<TokenStamp>,
   backoff: Option<Backoff>,
   /// By repository: the last full list and when it was fetched
   full_lists: HashMap<String, (Instant, Vec<RobotDto>)>,
+  /// By robot id; a finished robot does not change any more
+  pub(crate) details: HashMap<String, (Instant, crate::actions::CachedDetails)>,
+  /// By `project/repository/target`: the answer of `robot-start-supported`
+  pub(crate) start_supported: HashMap<String, (Instant, Result<crate::client::StartSupportedDto, String>)>,
 }
 
 struct Backoff {
@@ -108,7 +112,7 @@ impl PatronusService {
   }
 
   /// The token to send, or why nothing is sent
-  fn token(&self, background: bool) -> Result<crate::token::Token, PatronusRobotsResult> {
+  pub(crate) fn token(&self, background: bool) -> Result<crate::token::Token, PatronusRobotsResult> {
     let token = match (self.token_source)(unix_now()) {
       TokenLookup::Found(token) => token,
       TokenLookup::Missing | TokenLookup::Expired(_) => return Err(PatronusRobotsResult::from(PatronusAvailability::NotLoggedIn)),
@@ -127,7 +131,7 @@ impl PatronusService {
   }
 
   /// Records the outcome (rejected token, backoff) and maps a failure to the availability
-  fn settle<T>(&self, response: Result<T, PatronusError>, stamp: &TokenStamp) -> Result<T, PatronusAvailability> {
+  pub(crate) fn settle<T>(&self, response: Result<T, PatronusError>, stamp: &TokenStamp) -> Result<T, PatronusAvailability> {
     let mut state = self.lock();
     match response {
       Ok(value) => {
@@ -162,6 +166,10 @@ impl PatronusService {
     (fetched_at.elapsed() < FULL_LIST_REUSE).then(|| robots.clone())
   }
 
+  pub(crate) fn client(&self) -> &PatronusClient {
+    &self.client
+  }
+
   fn to_result(&self, robots: &[RobotDto], branch_prefix: &str) -> PatronusRobotsResult {
     let mut robots: Vec<PatronusRobot> = robots.iter().map(|robot| to_robot(robot, branch_prefix, &self.client)).collect();
     robots.sort_by_key(|robot| std::cmp::Reverse(robot.start_time));
@@ -171,7 +179,7 @@ impl PatronusService {
     }
   }
 
-  fn lock(&self) -> std::sync::MutexGuard<'_, ServiceState> {
+  pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, ServiceState> {
     self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 }
@@ -198,7 +206,7 @@ pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient) 
   }
 }
 
-fn parse_status(status: &str) -> PatronusRobotStatus {
+pub(crate) fn parse_status(status: &str) -> PatronusRobotStatus {
   match status {
     "RUNNING" => PatronusRobotStatus::Running,
     "CANCELING" => PatronusRobotStatus::Canceling,
@@ -221,7 +229,7 @@ fn status_name(status: PatronusRobotStatus) -> Option<&'static str> {
   }
 }
 
-fn parse_push_mode(mode: &str) -> PatronusPushMode {
+pub(crate) fn parse_push_mode(mode: &str) -> PatronusPushMode {
   match mode {
     "DRY_RUN" => PatronusPushMode::DryRun,
     "REBASE" => PatronusPushMode::Rebase,

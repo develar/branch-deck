@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
-import type { KnownRobotStatus, PatronusAvailability, PatronusRobot } from "@/lib/bindings"
+import type { KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { findBranchRobot, isRobotActive, needsPatronusAttention } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
@@ -282,6 +282,95 @@ export function pollPatronus(): Promise<void> {
       schedulePoll(true)
     }
   })
+}
+
+// ---- actions ----
+
+/** The repository and the branch prefix of the selected repository; throws without one */
+export function patronusRequest(): { repositoryPath: string, branchPrefix: string } {
+  const key = currentKey()
+  if (key === null) {
+    throw new Error("No repository is selected")
+  }
+  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  return { repositoryPath, branchPrefix }
+}
+
+/** Patronus answers for the selected repository (it is on Space): the start actions are offered */
+export function usePatronusAvailable(): boolean {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, (state) => {
+    const status = state.repositories[key]?.availability?.status
+    return status !== undefined && status !== "notPatronus"
+  })
+}
+
+/** Non-hook variant of `usePatronusAvailable`, for menus built on open */
+export function isPatronusAvailable(): boolean {
+  const key = currentKey()
+  const status = key === null ? undefined : patronusStore.getState().repositories[key]?.availability?.status
+  return status !== undefined && status !== "notPatronus"
+}
+
+/** Adds or replaces a robot the user just started, restarted or canceled; it is polled while it runs */
+export function upsertPatronusRobot(robot: PatronusRobot): void {
+  const key = currentKey()
+  if (key === null) {
+    return
+  }
+  update(key, previous => ({ robots: mergeRobots(previous.robots, [robot], false) }))
+  schedulePoll(false)
+}
+
+/**
+ * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
+ * its tip, `justPushed`). Resolves to the robot, now polled while it runs; throws what Patronus said.
+ */
+export async function startPatronusRobot(branchName: string, mode: PatronusPushMode, profileId: string | null, justPushed: boolean): Promise<PatronusRobot> {
+  const result = await commands.startPatronusRobot({
+    ...patronusRequest(),
+    baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
+    branchName,
+    mode,
+    profileId,
+    justPushed,
+  })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  upsertPatronusRobot(result.data)
+  return result.data
+}
+
+async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot): Promise<PatronusRobot> {
+  const result = await command({ ...patronusRequest(), robotId: robot.id })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  upsertPatronusRobot(result.data)
+  return result.data
+}
+
+/** Starts the robot again on the newest commit of its branch; resolves to the new robot, throws what Patronus said */
+export function restartPatronusRobot(robot: PatronusRobot): Promise<PatronusRobot> {
+  return robotAction(commands.restartPatronusRobot, robot)
+}
+
+/** Asks Patronus to cancel the robot; resolves to it canceling, throws what Patronus said */
+export function cancelPatronusRobot(robot: PatronusRobot): Promise<PatronusRobot> {
+  return robotAction(commands.cancelPatronusRobot, robot)
+}
+
+/** The current status of the robot (one row read), stored; null when Patronus can't answer */
+export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<PatronusRobotStatus | null> {
+  const result = await commands.getPatronusRobotStatus({ ...patronusRequest(), robotId: robot.id })
+  if (result.status === "error") {
+    return null
+  }
+  if (result.data !== robot.status) {
+    upsertPatronusRobot({ ...robot, status: result.data })
+  }
+  return result.data
 }
 
 /** Nothing is polled while the window is not focused; on focus the running robots are asked for at once */

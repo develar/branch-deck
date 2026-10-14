@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { PatronusAvailability, PatronusPushMode, PatronusRobot } from "@/lib/bindings"
+import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { UIColor } from "@/lib/ui-types"
 
@@ -22,7 +22,8 @@ export function isRobotActive(robot: PatronusRobot): boolean {
 
 /**
  * The robot of a virtual branch: one started on the branch, or a Safe Push of a temporary ref (the IDE, the CLI) on the
- * local or the pushed tip of the branch. A running robot wins, then the newest.
+ * local or the pushed tip of the branch. A running robot wins over a canceling one (a restart replaces it) over a finished
+ * one, then the newest.
  */
 export function findBranchRobot(
   robots: Readonly<Record<string, PatronusRobot>> | undefined,
@@ -45,12 +46,14 @@ export function findBranchRobot(
   return best
 }
 
+/** Running, then canceling (it goes away; its restart runs), then finished; then the newest */
+function activity(robot: PatronusRobot): number {
+  return robot.status === "running" ? 2 : robot.status === "canceling" ? 1 : 0
+}
+
 function isPreferred(robot: PatronusRobot, other: PatronusRobot): boolean {
-  const active = isRobotActive(robot)
-  if (active !== isRobotActive(other)) {
-    return active
-  }
-  return robot.startTime > other.startTime
+  const difference = activity(robot) - activity(other)
+  return difference === 0 ? robot.startTime > other.startTime : difference > 0
 }
 
 /** How the chip shows a robot. `localTip` is the commit of the local virtual branch, undefined while unknown. */
@@ -123,4 +126,49 @@ export function formatPatronusAvailabilityHint(availability: PatronusAvailabilit
 /** Opens the robot page of the Patronus web UI */
 export function openRobot(robot: PatronusRobot): void {
   openUrl(robot.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))
+}
+
+/** A robot started on this very branch (not on a temporary ref): Patronus can restart it on the newest commit */
+export function isRobotOnBranch(robot: PatronusRobot, branchName: string): boolean {
+  return robot.branchName === branchName
+}
+
+/**
+ * Patronus restarts a failed or canceled robot of a branch on its newest commit, a canceling one too; a successful dry
+ * run only when the branch has a newer commit on the remote. A merged robot or a running one is never restarted.
+ */
+export function canRestartRobot(robot: PatronusRobot, branchName: string, remoteTip: string | null): boolean {
+  if (!isRobotOnBranch(robot, branchName)) {
+    return false
+  }
+  switch (robot.status) {
+    case "failure":
+    case "canceled":
+    case "canceling":
+      return true
+    case "success":
+      return robot.pushMode === "dryRun" && remoteTip !== null && remoteTip !== robot.sourceRevision
+    case "running":
+    case "unknown":
+      return false
+  }
+}
+
+export function canCancelRobot(robot: PatronusRobot): boolean {
+  return robot.status === "running"
+}
+
+/** A push into the branch makes the running robot fail at the end ("branch was modified"); a dry run is not affected */
+export function isPushIntoRobotRisky(robot: PatronusRobot, branchName: string): boolean {
+  return isRobotActive(robot) && robot.pushMode !== "dryRun" && isRobotOnBranch(robot, branchName)
+}
+
+/** A start would be refused: a robot is running on the commit the branch is at */
+export function isStartBlocked(robot: PatronusRobot | undefined, localTip: string | undefined): boolean {
+  return robot !== undefined && isRobotActive(robot) && robot.sourceRevision !== null && robot.sourceRevision === localTip
+}
+
+/** The profile allows the mode; no modes listed = any */
+export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {
+  return profile.allowedPushModes.length === 0 || profile.allowedPushModes.includes(mode)
 }

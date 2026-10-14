@@ -1,104 +1,13 @@
 use crate::client::PatronusClient;
+use crate::fake_patronus::start_fake;
 use crate::service::PatronusService;
 use crate::token::{Token, TokenLookup, TokenStamp};
-use axum::Json;
-use axum::extract::{Query, State};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
 use pretty_assertions::assert_eq;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 
-/// An in-process Patronus: answers `status` (200 = the robots) and counts the requests
-#[derive(Default)]
-struct FakePatronus {
-  status: Mutex<u16>,
-  list_calls: AtomicU32,
-  update_calls: AtomicU32,
-  /// The query of the last list request
-  last_query: Mutex<HashMap<String, String>>,
-  /// The body of the last fetch-updates request
-  last_updates: Mutex<serde_json::Value>,
-}
-
-impl FakePatronus {
-  fn set_status(&self, status: u16) {
-    *self.status.lock().unwrap() = status;
-  }
-
-  fn answer(&self, body: serde_json::Value) -> Response {
-    let status = *self.status.lock().unwrap();
-    if status == 200 {
-      Json(body).into_response()
-    } else {
-      (
-        StatusCode::from_u16(status).unwrap(),
-        Json(serde_json::json!({"error": "INVALID_INPUT", "description": "no such repository"})),
-      )
-        .into_response()
-    }
-  }
-}
-
-fn robot_json(id: &str, status: &str, source_branch: &str, start: &str) -> serde_json::Value {
-  serde_json::json!({
-    "id": id,
-    "name": "IJPL-1 fix the cache",
-    "repository": "ultimate",
-    "sourceBranch": source_branch,
-    "sourceRevision": "abc123",
-    "testReference": null,
-    "targetBranch": "master",
-    "startDateTime": start,
-    "finishDateTime": null,
-    "status": status,
-    "type": "WEB_UI",
-    "pushMode": "REBASE_AUTOSQUASH",
-    "cancellationReason": null,
-    "owner": {"type": "USER", "id": "1", "name": "Me"},
-    "isEmergency": false,
-  })
-}
-
-async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
-  let fake = Arc::new(FakePatronus::default());
-  fake.set_status(200);
-  let app = axum::Router::new()
-    .route(
-      "/app/rest/v1/robots",
-      get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
-        fake.list_calls.fetch_add(1, Ordering::SeqCst);
-        *fake.last_query.lock().unwrap() = query;
-        fake.answer(serde_json::json!({
-          "me": {"type": "USER", "id": "1", "name": "Me"},
-          "robots": [
-            robot_json("older", "FAILURE", "refs/heads/me/virtual/IJPL-1", "2026-10-13T09:30:00Z"),
-            robot_json("newer", "RUNNING", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00.5Z"),
-          ],
-          "start": "2026-10-07T09:30:00Z",
-          "end": "2026-10-14T09:30:00Z",
-        }))
-      }),
-    )
-    .route(
-      "/app/rest/v1/robots/fetch-updates",
-      post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
-        fake.update_calls.fetch_add(1, Ordering::SeqCst);
-        *fake.last_updates.lock().unwrap() = body;
-        fake.answer(serde_json::json!({"robots": [robot_json("newer", "SUCCESS", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z")]}))
-      }),
-    )
-    .with_state(fake.clone());
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let address = listener.local_addr().unwrap();
-  tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-  (fake, PatronusClient::new(format!("http://{address}"), "Branch Deck test"))
-}
-
-fn token(value: &str) -> TokenLookup {
+pub(crate) fn token(value: &str) -> TokenLookup {
   TokenLookup::Found(Token {
     value: value.to_string(),
     stamp: TokenStamp::Env,
@@ -106,7 +15,7 @@ fn token(value: &str) -> TokenLookup {
 }
 
 /// A service whose token the test can replace
-fn service(client: PatronusClient, lookup: TokenLookup) -> (PatronusService, Arc<Mutex<TokenLookup>>) {
+pub(crate) fn service(client: PatronusClient, lookup: TokenLookup) -> (PatronusService, Arc<Mutex<TokenLookup>>) {
   let current = Arc::new(Mutex::new(lookup));
   let source = current.clone();
   (PatronusService::new(client, move |_| source.lock().unwrap().clone()), current)

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import pDebounce from "p-debounce"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -10,6 +10,7 @@ import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
+import { usePushGuardRequest } from "@/stores/push-guard"
 import { branchSyncStore, syncBranches, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
@@ -22,6 +23,7 @@ const debouncedAutoSync = pDebounce(async () => {
   }
 }, 100)
 
+const PushGuardDialog = lazy(() => import("@/components/branch/PushGuardDialog").then(it => ({ default: it.PushGuardDialog })))
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
 /** Root of the main window: configuration header, onboarding, errors and the branch tables. */
@@ -42,6 +44,12 @@ export function BranchCreator() {
   const unassignedCommits = useUnassignedCommits()
   const unassignedCommitCount = unassignedCommits.length
   const archivedBranchCount = useArchivedBranchCount()
+  // mounted on the first question and kept, so the dialog animates and returns the focus when it closes
+  const hasPushGuardRequest = usePushGuardRequest() !== null
+  const [isPushGuardMounted, setPushGuardMounted] = useState(false)
+  if (hasPushGuardRequest && !isPushGuardMounted) {
+    setPushGuardMounted(true)
+  }
 
   const pathValidation = useRepository(state => state.pathValidation)
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
@@ -100,6 +108,12 @@ export function BranchCreator() {
       <BranchTableCard />
 
       <ArchivedBranchTableCard />
+
+      {isPushGuardMounted && (
+        <Suspense fallback={null}>
+          <PushGuardDialog />
+        </Suspense>
+      )}
     </div>
   )
 }

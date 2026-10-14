@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
 import type { ChecksSummary, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "@/lib/bindings"
+import { formatCheckCounts } from "@/lib/check-counts"
 import { notifyError } from "@/lib/errors"
 import type { UIColor } from "@/lib/ui-types"
 
@@ -65,22 +66,7 @@ export function needsAuthorAttention(pullRequest: PullRequest): boolean {
 
 /** "1 failing (tests), 2 running, 9 passed"; "All 4 passed" */
 export function formatChecks(checks: ChecksSummary): string {
-  const total = checks.passed + checks.failed + checks.pending
-  if (checks.failed === 0 && checks.pending === 0) {
-    return total === 1 ? "Passed" : `All ${total} passed`
-  }
-  const parts: string[] = []
-  if (checks.failed > 0) {
-    const names = checks.failedNames.length === 0 ? "" : ` (${checks.failedNames.join(", ")}${checks.failed > checks.failedNames.length ? ", …" : ""})`
-    parts.push(`${checks.failed} failing${names}`)
-  }
-  if (checks.pending > 0) {
-    parts.push(`${checks.pending} running`)
-  }
-  if (checks.passed > 0) {
-    parts.push(`${checks.passed} passed`)
-  }
-  return parts.join(", ")
+  return formatCheckCounts({ failed: checks.failed, failedNames: checks.failedNames, running: checks.pending, passed: checks.passed })
 }
 
 const reviewerStateText: Readonly<Record<ReviewerState, string>> = {

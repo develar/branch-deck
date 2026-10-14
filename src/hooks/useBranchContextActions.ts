@@ -1,4 +1,4 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FlaskConicalIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -7,16 +7,21 @@ import { pushStack } from "@/lib/git/push"
 import { copyText, getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
 import { stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
+import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { canCancelRobot, canRestartRobot, formatPushMode, isStartBlocked, openRobot } from "@/lib/patronus"
+import { runRobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
+import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /**
  * Context menu of an active branch row: copy actions, then rename (name an issue branch) and ungroup, then commit
- * actions (issue reference, amend, unapply), then history (squash fixups, the pull request).
+ * actions (issue reference, amend, unapply), then history (squash fixups, the pull request), then Patronus (Safe Push,
+ * Dry Run, the robot of the branch).
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
@@ -33,11 +38,17 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     ? null
     : { label: "Open Pull Request", icon: GitPullRequestIcon, onSelect: () => openPullRequest(pullRequest) }
 
+  const robot = getBranchRobot(branch.name)
+  const openRobotItem: MenuItem | null = robot === undefined
+    ? null
+    : { label: "Open in Patronus", icon: ExternalLinkIcon, onSelect: () => openRobot(robot) }
+
   const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing"
   if (!canModify) {
-    // opening the pull request changes nothing
-    if (openPullRequestItem !== null) {
-      groups.push([openPullRequestItem])
+    // opening the pull request or the robot changes nothing
+    const openItems = [openPullRequestItem, openRobotItem].filter(item => item !== null)
+    if (openItems.length > 0) {
+      groups.push(openItems)
     }
     return groups
   }
@@ -114,7 +125,32 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   if (historyActions.length > 0) {
     groups.push(historyActions)
   }
+  if (isPatronusAvailable()) {
+    groups.push(getPatronusMenuItems(branch, robot, openRobotItem))
+  }
   return groups
+}
+
+/** Safe Push…, Dry Run…, then the restart, the cancel and the page of the branch's robot */
+function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
+  const blocked = isStartBlocked(robot, branch.commits[0]?.hash) || branch.status === "Blocked"
+  const items: MenuItem[] = [
+    { label: "Safe Push…", icon: ShieldCheckIcon, disabled: blocked, onSelect: () => openInline("safe-push", branch.name) },
+    { label: "Dry Run…", icon: FlaskConicalIcon, disabled: blocked, onSelect: () => openInline("dry-run", branch.name) },
+  ]
+  if (robot !== undefined) {
+    const mode = formatPushMode(robot.pushMode)
+    if (canRestartRobot(robot, branch.name, branch.remoteStatus?.remoteTip ?? null)) {
+      items.push({ label: `Restart ${mode}`, icon: RotateCcwIcon, onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`) })
+    }
+    if (canCancelRobot(robot)) {
+      items.push({ label: `Cancel ${mode}`, icon: ShieldOffIcon, onSelect: () => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`) })
+    }
+  }
+  if (openRobotItem !== null) {
+    items.push(openRobotItem)
+  }
+  return items
 }
 
 /** The most branches "Stack On…" lists; the newest come first */

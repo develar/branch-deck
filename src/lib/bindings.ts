@@ -20,6 +20,18 @@ export const commands = {
 	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("get_patronus_robots", { params })),
 	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
 	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
+	/**  The robot with its merge profile, CI checks and error problems, for the chip popover */
+	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, CommandError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
+	/**  The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default */
+	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
+	/**  Starts a Safe Push or a Dry Run of the pushed virtual branch; the frontend pushes it first. The new robot. */
+	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
+	/**  Starts the robot again on the newest commit of its branch; the new robot */
+	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
+	/**  Asks Patronus to cancel the robot; it answers it canceling */
+	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
+	/**  The current status of one robot, read right before a push into its branch */
+	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
@@ -406,6 +418,14 @@ export type GetPatronusRobotsParams = {
 	background: boolean,
 };
 
+export type GetPatronusStartOptionsParams = {
+	repositoryPath: string,
+	/**  As the sync detected it, e.g. `origin/master`: the robot pushes to the branch it tracks */
+	baselineBranch: string,
+	/**  The last robot of the branch: its profile is the default */
+	lastRobotId: string | null,
+};
+
 export type GetPullRequestsParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -563,6 +583,33 @@ export type PatronusAvailability = { status: "available" } |
 /**  Patronus failed or could not be reached */
 { status: "error"; message: string };
 
+/**  The CI checks of a robot, counted */
+export type PatronusChecks = {
+	/**  The build configurations of the first failed checks */
+	failedNames: string[],
+	failed: number,
+	/**  Queued or running */
+	running: number,
+	/**  Passed or skipped */
+	passed: number,
+	canceled: number,
+};
+
+export type PatronusProblem = {
+	title: string,
+	/**  e.g. `OWNERSHIP_REVIEW_APPROVAL_CHECK` */
+	subsystem: string | null,
+};
+
+/**  A merge profile of the target branch, e.g. "Large Scale Change": which checks run */
+export type PatronusProfile = {
+	id: string,
+	name: string,
+	description: string | null,
+	/**  Empty: any mode */
+	allowedPushModes: PatronusPushMode[],
+};
+
 export type PatronusPushMode = 
 /**  Only the checks: nothing is pushed */
 "dryRun" | "rebase" | "rebaseAutosquash" | "squashAll" | "merge" | "unknown";
@@ -592,6 +639,26 @@ export type PatronusRobot = {
 	url: string,
 };
 
+/**  What the chip popover shows beyond the list: the merge profile, the CI checks and the problems */
+export type PatronusRobotDetails = {
+	robot: PatronusRobot,
+	/**  null without a profile */
+	profileId: string | null,
+	/**  e.g. "Large Scale Change" */
+	profileName: string | null,
+	/**  null before Patronus started any check */
+	checks: PatronusChecks | null,
+	/**  The problems of severity error, e.g. "Changes require review approval" */
+	problems: PatronusProblem[],
+};
+
+/**  A robot of the selected repository */
+export type PatronusRobotParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	robotId: string,
+};
+
 export type PatronusRobotStatus = "running" | 
 /**  Running, a cancel was asked for */
 "canceling" | "canceled" | "failure" | 
@@ -604,6 +671,18 @@ export type PatronusRobotsResult = {
 	availability: PatronusAvailability,
 	/**  The robots of the user in the repository, newest first; empty unless available */
 	robots: PatronusRobot[],
+};
+
+/**  What a start offers for a branch */
+export type PatronusStartOptions = {
+	/**  The branch the robot pushes to, e.g. `master` */
+	targetBranch: string,
+	/**  Patronus protects the target branch; false = a robot can't be started into it */
+	supported: boolean,
+	/**  The profiles of the target branch the user may use; the emergency ones are left out */
+	profiles: PatronusProfile[],
+	/**  The profile of the last robot of the branch, if it is still offered */
+	defaultProfileId: string | null,
 };
 
 /**  A commit folded into its target */
@@ -805,6 +884,21 @@ export type StackProblem =
 ({ LeafCollision: string }) & { ConflictingParents?: never; Cycle?: never; SelfParent?: never; Syntax?: never } | 
 /**  `(a//b)`: the commits whose prefix has an empty level */
 ({ Syntax: string[] }) & { ConflictingParents?: never; Cycle?: never; LeafCollision?: never; SelfParent?: never };
+
+export type StartPatronusRobotParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	baselineBranch: string,
+	/**  The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed */
+	branchName: string,
+	mode: PatronusPushMode,
+	profileId: string | null,
+	/**
+	 *  The branch was pushed right before: Space may not show it to Patronus yet, so a start that does not find it is
+	 *  asked once more a few seconds later
+	 */
+	justPushed: boolean,
+};
 
 /**  Parameters for requesting branch name suggestions */
 export type SuggestBranchNameParams = {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { findBranchRobot, formatPatronusAvailabilityHint, getPatronusChipState, needsPatronusAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, formatPatronusAvailabilityHint, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked, needsPatronusAttention } from "@/lib/patronus"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -36,11 +36,13 @@ describe("findBranchRobot", () => {
     expect(findBranchRobot(undefined, "IJPL-1", "tip", null)).toBeUndefined()
   })
 
-  it("prefers a running robot, then the newest", () => {
+  it("prefers a running robot over a canceling one over a finished one, then the newest", () => {
     const failed = robot({ id: "failed", status: "failure", startTime: 300 })
-    const running = robot({ id: "running", status: "canceling", startTime: 200 })
+    const canceling = robot({ id: "canceling", status: "canceling", startTime: 200 })
+    const restarted = robot({ id: "restarted", status: "running", startTime: 200 })
     const older = robot({ id: "older", status: "success", startTime: 100 })
-    expect(findBranchRobot(byId(failed, running, older), "IJPL-1", "tip", null)).toBe(running)
+    expect(findBranchRobot(byId(failed, canceling, older), "IJPL-1", "tip", null)).toBe(canceling)
+    expect(findBranchRobot(byId(canceling, restarted), "IJPL-1", "tip", null)).toBe(restarted)
     expect(findBranchRobot(byId(failed, older), "IJPL-1", "tip", null)).toBe(failed)
   })
 })
@@ -77,5 +79,43 @@ describe("formatPatronusAvailabilityHint", () => {
     expect(formatPatronusAvailabilityHint({ status: "available" })).toBeNull()
     expect(formatPatronusAvailabilityHint({ status: "notPatronus" })).toBeNull()
     expect(formatPatronusAvailabilityHint(null)).toBeNull()
+  })
+})
+
+describe("actions", () => {
+  it("restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit", () => {
+    expect(canRestartRobot(robot({ status: "failure" }), "IJPL-1", null)).toBe(true)
+    expect(canRestartRobot(robot({ status: "canceled" }), "IJPL-1", null)).toBe(true)
+    expect(canRestartRobot(robot({ status: "canceling" }), "IJPL-1", null)).toBe(true)
+    expect(canRestartRobot(robot({ status: "running" }), "IJPL-1", null)).toBe(false)
+    expect(canRestartRobot(robot({ status: "success" }), "IJPL-1", "newer")).toBe(false)
+    expect(canRestartRobot(robot({ status: "success", pushMode: "dryRun" }), "IJPL-1", "tip")).toBe(false)
+    expect(canRestartRobot(robot({ status: "success", pushMode: "dryRun" }), "IJPL-1", "newer")).toBe(true)
+    // a Safe Push of a temporary ref restarts its old commit: not offered
+    expect(canRestartRobot(robot({ status: "failure", branchName: null }), "IJPL-1", null)).toBe(false)
+  })
+
+  it("cancels a running robot only", () => {
+    expect(canCancelRobot(robot({ status: "running" }))).toBe(true)
+    expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
+  })
+
+  it("guards a push into the branch of a running Safe Push, not of a dry run", () => {
+    expect(isPushIntoRobotRisky(robot({ status: "running" }), "IJPL-1")).toBe(true)
+    expect(isPushIntoRobotRisky(robot({ status: "running", pushMode: "dryRun" }), "IJPL-1")).toBe(false)
+    expect(isPushIntoRobotRisky(robot({ status: "failure" }), "IJPL-1")).toBe(false)
+    expect(isPushIntoRobotRisky(robot({ status: "running", branchName: null }), "IJPL-1")).toBe(false)
+  })
+
+  it("blocks a start while a robot runs on the commit the branch is at", () => {
+    expect(isStartBlocked(robot({ status: "running" }), "tip")).toBe(true)
+    expect(isStartBlocked(robot({ status: "running" }), "fixed")).toBe(false)
+    expect(isStartBlocked(robot({ status: "failure" }), "tip")).toBe(false)
+    expect(isStartBlocked(undefined, "tip")).toBe(false)
+  })
+
+  it("offers a profile for the modes it allows; none listed allows any", () => {
+    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: [] }, "dryRun")).toBe(true)
+    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: ["dryRun"] }, "rebaseAutosquash")).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
-import { TriangleAlertIcon } from "lucide-react"
+import { ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -29,13 +29,14 @@ import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushBranch } from "@/lib/git/push"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
+import { isStartBlocked } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
-import { useIsRowProcessing } from "@/stores/inline-row-action"
-import { useBranchRobot } from "@/stores/patronus"
+import { openInline, useIsRowProcessing } from "@/stores/inline-row-action"
+import { getBranchRobot, useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
@@ -75,6 +76,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, isSyncing, isPushing, unpushedParent)
   const canPush = push !== null && !push.disabled && !processing
   const pullRequest = usePullRequest(currentName ?? "")
+  // the start form is a form of the row: the preview closes for it
+  const canStartRobot = usePatronusAvailable() && push !== null && !processing && !isStartBlocked(getBranchRobot(currentName ?? ""), branch?.commits[0]?.hash)
 
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -136,6 +139,19 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
                 <Kbd>O</Kbd>
                 Open Pull Request
+              </Button>
+            )}
+            {canStartRobot && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  onClose()
+                  openInline("safe-push", branch.name)
+                }}
+              >
+                <ShieldCheckIcon data-icon="inline-start" />
+                Safe Push…
               </Button>
             )}
             {push !== null && (

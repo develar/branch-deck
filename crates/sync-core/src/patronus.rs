@@ -2,6 +2,7 @@
 //! the `patronus` crate.
 
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
+use crate::update_project::resolve_baseline_upstream;
 use git_executor::git_command_executor::GitCommandExecutor;
 
 /// The git host of Space
@@ -34,4 +35,16 @@ pub fn parse_space_repository(url: &str) -> Option<SpaceRepository> {
 pub fn find_space_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<Option<SpaceRepository>> {
   let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
   Ok((exit_code == 0).then(|| parse_space_repository(&url)).flatten())
+}
+
+/// The branch a robot of the repository pushes to: the branch of `origin` the baseline tracks, e.g. `master` for
+/// `origin/master`; None for a local baseline or one on another remote (Patronus works on the push remote)
+pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> anyhow::Result<Option<String>> {
+  let Some(upstream) = resolve_baseline_upstream(git_executor, repository_path, baseline_branch)? else {
+    return Ok(None);
+  };
+  if upstream.remote != "origin" {
+    return Ok(None);
+  }
+  Ok(upstream.remote_ref.strip_prefix("refs/heads/").map(str::to_string))
 }

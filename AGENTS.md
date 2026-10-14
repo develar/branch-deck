@@ -76,7 +76,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
-  and the window is focused (`spec/branch/patronus.spec.md`).
+  and the window is focused; Safe Push / Dry Run start, restart, cancel, and a guard before a push into a branch whose
+  Safe Push runs (`spec/branch/patronus.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children (`spec/branch/stacked-branches.spec.md`).
 

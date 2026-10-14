@@ -16,7 +16,10 @@ use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
-use commands::patronus::{PatronusState, get_patronus_robots, poll_patronus_robots};
+use commands::patronus::{
+  PatronusState, cancel_patronus_robot, get_patronus_robot_details, get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, poll_patronus_robots,
+  restart_patronus_robot, start_patronus_robot,
+};
 use commands::pull_requests::get_pull_requests;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
@@ -50,6 +53,12 @@ pub fn run() {
     get_pull_requests,
     get_patronus_robots,
     poll_patronus_robots,
+    get_patronus_robot_details,
+    get_patronus_start_options,
+    start_patronus_robot,
+    restart_patronus_robot,
+    cancel_patronus_robot,
+    get_patronus_robot_status,
     sync_branches,
     get_branch_prefix_from_git_config,
     browse_repository,

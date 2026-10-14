@@ -371,6 +371,30 @@ pub async fn poll_patronus_robots(
   Ok(Json(resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result)))
 }
 
+/// The fixture robot without checks, problems or profile; a test that needs them routes the command in the page
+pub async fn get_patronus_robot_details(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::patronus::PatronusRobotParams>,
+) -> Result<Json<sync_types::patronus::PatronusRobotDetails>, (StatusCode, String)> {
+  let id = find_repository_by_path(&state, &params.repository_path).ok_or((StatusCode::UNPROCESSABLE_ENTITY, String::new()))?;
+  let repo = state.repositories.get(&id).ok_or((StatusCode::UNPROCESSABLE_ENTITY, String::new()))?;
+  let result = repo.patronus.read().expect("patronus fixture lock").clone();
+  drop(repo);
+  let result = resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result);
+  let robot = result
+    .robots
+    .into_iter()
+    .find(|robot| robot.id == params.robot_id)
+    .ok_or((StatusCode::UNPROCESSABLE_ENTITY, format!("No robot {}", params.robot_id)))?;
+  Ok(Json(sync_types::patronus::PatronusRobotDetails {
+    robot,
+    profile_id: None,
+    profile_name: None,
+    checks: None,
+    problems: Vec::new(),
+  }))
+}
+
 /// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch
 fn resolve_patronus_revisions(
   state: &AppState,
