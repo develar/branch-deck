@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { usePushButton } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch } from "@/lib/git/push"
-import { transferAmount, transferLabel } from "@/lib/transfer-progress"
+import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
@@ -21,7 +21,7 @@ export interface BranchPushButtonProps {
 /**
  * Push button of an active branch ("Push (2)", "Create Remote", "Force Push (1)"); the full description is shown on
  * hover, with the remote commits a force push drops. While the push runs, the label has its percent ("Pushing 45%")
- * and the hover the last progress line of git with the amount and the rate, as the Update button shows a fetch.
+ * and the hover the last progress line of git, with the amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true }: BranchPushButtonProps) {
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -66,9 +66,12 @@ export function BranchPushButton({ branch, colored = true }: BranchPushButtonPro
   )
 }
 
-/** The last progress line of git, "Pushing feature-auth…" until git reports a stage, and what was sent so far and how fast */
+/**
+ * The last progress line of git, "Pushing feature-auth…" until git reports a stage, and what was sent so far and how
+ * fast when that line doesn't say it
+ */
 function PushProgressDescription({ branchName, progress }: { branchName: string, progress: TransferProgress | null }) {
-  const amount = transferAmount(progress)
+  const amount = transferAmountNotInLine(progress)
   return (
     <div className="flex flex-col gap-0.5" data-testid="push-progress">
       <span className="break-words">{progress?.line ?? `Pushing ${branchName}…`}</span>

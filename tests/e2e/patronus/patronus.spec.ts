@@ -5,7 +5,7 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { hoverStatusChip, openBranchPreview, openOutgoingOverview, switchBranchPreview } from "../helpers/review-status-helpers"
+import { hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -94,8 +94,8 @@ test.describe("Patronus chip", () => {
 
 test.describe("Patronus in the outgoing overview", () => {
   test("should show the chips in a column and a dot for a robot that failed on the branch tip", async ({ page }) => {
-    await expect(page.getByTestId("outgoing-attention-dot")).toBeVisible()
-    const popover = await openOutgoingOverview(page)
+    // the overview says what the dot means
+    const popover = await openOverviewWithAttention(page, "12 commits to push in 7 branches", "ABC-123 needs attention: failed Safe Push")
     // the shield only: the branch names need the room
     const chip = popover.locator("[data-testid=outgoing-branch][data-branch-name=ABC-123]").getByTestId("patronus-chip")
     await expect(chip).toHaveAccessibleName("Safe Push: Failed")

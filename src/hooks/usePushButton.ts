@@ -41,29 +41,23 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
   let tooltip = "Push branch to remote"
   let dropped: DroppedCommits | null = null
   if (remoteStatus != null && texts != null) {
+    // a label counts the commits the push sends, whoever authored them; the description says how many are the user's
     const { commitsAhead } = remoteStatus
-    if (action === "upToDate") {
-      tooltip = "All commits are already pushed"
-    }
-    else if (action === "create") {
-      text = commitsAhead > 0 ? `Create Remote (${commitsAhead})` : "Create Remote"
-      tooltip = texts.tooltip
+    const withCount = (label: string): string => commitsAhead > 0 ? `${label} (${commitsAhead})` : label
+    tooltip = texts.tooltip
+    if (action === "create") {
+      text = withCount("Create Remote")
     }
     else if (action === "force") {
-      const mine = remoteStatus.myCommitsAhead ?? 0
-      const count = mine > 0 ? mine : commitsAhead
-      text = count > 0 ? `Force Push (${count})` : "Force Push"
-      tooltip = mine > 0
-        ? `Force push ${mine} of your commits.\n${texts.tooltip}`
-        : `Force push (no local authored changes).\n${texts.tooltip}`
+      text = withCount("Force Push")
+      tooltip = `Force push replaces the remote branch.\n${texts.tooltip}`
       const { commitsBehind, droppedCommits } = remoteStatus
       if (commitsBehind > 0 && droppedCommits.length > 0) {
         dropped = { commits: droppedCommits, more: Math.max(0, commitsBehind - droppedCommits.length) }
       }
     }
-    else if (commitsAhead > 0) {
-      text = `Push (${commitsAhead})`
-      tooltip = texts.tooltip
+    else if (action === "push") {
+      text = withCount("Push")
     }
   }
 

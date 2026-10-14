@@ -5,6 +5,8 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { usePushSummary } from "@/hooks/usePushSummary"
+import type { OutgoingAttention } from "@/lib/outgoing-attention"
+import { formatIndicatorLabel } from "@/lib/outgoing-attention"
 import type { PushSummary } from "@/lib/push-summary"
 import { formatOutgoingTitle, getOutgoingBarSegments, outgoingBarFill } from "@/lib/push-summary"
 
@@ -16,8 +18,11 @@ export interface OutgoingIndicatorProps {
   renderPullRequest?: (branchName: string) => ReactNode
   /** Branches with an open pull request, in the table order: the overview lists those with nothing to push too */
   reviewBranches?: readonly string[]
-  /** An open pull request waits for the author (changes requested, failing checks): a `destructive` dot */
-  needsAttention?: boolean
+  /**
+   * The branches that wait for their author (changes requested, failing checks, a failed robot): a `destructive` dot on
+   * the icon, named in the accessible name and explained by a line per branch in the overview
+   */
+  attention?: readonly OutgoingAttention[]
   /** Below the branch rows of the overview: the update state of the baseline */
   footer?: ReactNode
 }
@@ -27,7 +32,7 @@ export interface OutgoingIndicatorProps {
  * drops remote commits, the solid part is the user's commits. Hover or click opens the overview. With nothing to push it
  * shows the open pull requests instead, and it is hidden when there are none either.
  */
-export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], needsAttention = false, footer }: OutgoingIndicatorProps) {
+export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], attention = [], footer }: OutgoingIndicatorProps) {
   const summary = usePushSummary()
   const [open, setOpen] = useState(false)
   const hasOutgoing = summary.branches.length > 0
@@ -41,6 +46,7 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], need
   }
 
   const title = formatOutgoingTitle(summary, reviewBranches.length)
+  const Icon = hasOutgoing ? ArrowUpIcon : GitPullRequestIcon
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -50,7 +56,7 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], need
           <Button
             variant="ghost"
             size="sm"
-            aria-label={title}
+            aria-label={formatIndicatorLabel(title, attention)}
             data-testid="outgoing-indicator"
             // the overview is loaded while the hover delay runs
             onPointerEnter={() => void loadOutgoingPopover()}
@@ -58,25 +64,30 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], need
           />
         )}
       >
+        {/* the attention dot sits on the corner of the icon, so the bar keeps its place */}
+        <span className="relative flex">
+          <Icon data-icon="inline-start" />
+          {attention.length > 0 && <span aria-hidden data-testid="outgoing-attention-dot" className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-destructive" />}
+        </span>
         {hasOutgoing
           ? (
-              <>
-                <ArrowUpIcon data-icon="inline-start" />
+              <span className="flex items-center gap-2">
                 <span className="tabular-nums" data-testid="outgoing-total">{summary.total}</span>
                 <OutgoingBar summary={summary} />
-              </>
+              </span>
             )
-          : (
-              <>
-                <GitPullRequestIcon data-icon="inline-start" />
-                <span className="tabular-nums" data-testid="outgoing-review-count">{reviewBranches.length}</span>
-              </>
-            )}
-        {needsAttention && <span aria-hidden data-testid="outgoing-attention-dot" className="ml-1 size-1.5 shrink-0 rounded-full bg-destructive" />}
+          : <span className="tabular-nums" data-testid="outgoing-review-count">{reviewBranches.length}</span>}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto max-w-lg gap-3 p-3" data-testid="outgoing-popover">
+      <PopoverContent align="end" className="w-auto max-w-xl gap-3 p-3" data-testid="outgoing-popover">
         <Suspense fallback={null}>
-          <OutgoingPopover summary={summary} reviewBranches={reviewBranches} onClose={() => setOpen(false)} renderPullRequest={renderPullRequest} footer={footer} />
+          <OutgoingPopover
+            summary={summary}
+            reviewBranches={reviewBranches}
+            attention={attention}
+            onClose={() => setOpen(false)}
+            renderPullRequest={renderPullRequest}
+            footer={footer}
+          />
         </Suspense>
       </PopoverContent>
     </Popover>
@@ -89,7 +100,7 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], need
  */
 function OutgoingBar({ summary }: { summary: PushSummary }) {
   return (
-    <span aria-hidden className="ml-1 flex h-1.5 w-16 gap-0.5 overflow-hidden" data-testid="outgoing-bar">
+    <span aria-hidden className="flex h-1.5 w-16 gap-0.5 overflow-hidden" data-testid="outgoing-bar">
       {getOutgoingBarSegments(summary).map((segment) => {
         const fill = outgoingBarFill(segment.hue)
         return (

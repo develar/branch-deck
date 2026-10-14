@@ -59,9 +59,22 @@ export function isPullRequestOutdated(pullRequest: PullRequest, localTip: string
   return pullRequest.state === "open" && localTip !== undefined && localTip !== "" && pullRequest.headRefOid !== localTip
 }
 
-/** An open pull request that waits for the author: changes requested or failing checks */
-export function needsAuthorAttention(pullRequest: PullRequest): boolean {
-  return pullRequest.state === "open" && (pullRequest.reviewDecision === "changesRequested" || pullRequest.checks?.state === "failing")
+/**
+ * What an open pull request waits for from its author: "changes requested", "failing checks" or both; null when it
+ * waits for nothing of theirs
+ */
+export function formatAuthorAttention(pullRequest: PullRequest): string | null {
+  if (pullRequest.state !== "open") {
+    return null
+  }
+  const reasons: string[] = []
+  if (pullRequest.reviewDecision === "changesRequested") {
+    reasons.push("changes requested")
+  }
+  if (pullRequest.checks?.state === "failing") {
+    reasons.push("failing checks")
+  }
+  return reasons.length === 0 ? null : reasons.join(", ")
 }
 
 /** "1 failing (tests), 2 running, 9 passed"; "All 4 passed" */

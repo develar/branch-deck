@@ -111,10 +111,16 @@ describe("summarizePushState", () => {
 })
 
 describe("formatOutgoingCount", () => {
-  it("reads as the status text of a branch row", () => {
+  it("reads as the status text of a branch row, the total in parentheses only when some commits are others'", () => {
     const outgoing: OutgoingBranch = { name: "a", count: 5, mine: 3, state: "push", behind: 0 }
     expect(formatOutgoingCount(outgoing)).toBe("3 (5)↑")
     expect(formatOutgoingCount({ ...outgoing, state: "force", behind: 2 })).toBe("3 (5)↑ · 2↓")
+    expect(formatOutgoingCount({ ...outgoing, mine: 5 })).toBe("5↑")
+    expect(formatOutgoingCount({ ...outgoing, mine: 5, state: "force", behind: 2 })).toBe("5↑ · 2↓")
+    // none of them is the user's
+    expect(formatOutgoingCount({ ...outgoing, mine: 0 })).toBe("0 (5)↑")
+    // a force push that sends no commit only drops the remote ones
+    expect(formatOutgoingCount({ ...outgoing, count: 0, mine: 0, state: "force", behind: 2 })).toBe("2↓")
   })
 })
 

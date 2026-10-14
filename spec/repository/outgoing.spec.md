@@ -9,11 +9,14 @@ targets:
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/components/branch/BranchRow.tsx
+  - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/hooks/usePushSummary.ts
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useStatusBadge.ts
+  - ../../src/hooks/useOutgoingAttention.ts
   - ../../src/lib/push-summary.ts
   - ../../src/lib/remote-status.ts
+  - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
@@ -85,16 +88,22 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
   commits.
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)
+- The count of a push must read `3↑` when its commits are all the user's, and `mine (total)↑` only when some are
+  others' (`1 (3)↑`; `0 (3)↑` when none is theirs), then `· 2↓` for the remote commits it drops, `2↓` alone for a
+  force push that sends no commit. The status text of the branch row and the overview row read the same.
+  [@test] ../../src/lib/push-summary.test.ts (`reads as the status text of a branch row, the total in parentheses only when some commits are others'`)
+  [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`)
 
 ### Indicator
 
 - The indicator is a ghost button in the header, before the time of the last sync: an up arrow, the total commits and
   a bar.
-- Its accessible name must be the title of the overview, e.g. "12 commits to push in 7 branches".
+- Its accessible name must be the title of the overview, e.g. "12 commits to push in 7 branches", with ", 1 needs
+  attention" while the attention dot shows.
 - The bar must have a segment per outgoing branch, in the order of the rows, its width proportional to the commits of
   the branch; a force push without commits keeps a segment of one commit.
-- A segment must be stacked: the user's commits solid, the others' commits light, as `mine (total)↑` reads. The one
-  commit of a force push without commits is solid.
+- A segment must be stacked: the user's commits solid, the others' commits light, as `1 (3)↑` reads. The one commit of
+  a force push without commits is solid.
   [@test] ../../src/lib/push-summary.test.ts (`has a segment per branch, a force push without commits still visible`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the commits to push with a bar segment per branch`)
 - With more than 8 outgoing branches, the bar must have a segment per hue instead, so the segments stay readable.
@@ -102,6 +111,14 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
   ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
+- A branch that waits for its author, an open pull request with changes requested or failing checks
+  ([Pull Requests](../branch/pull-requests.spec.md)) or a robot that failed on the commit the branch is at
+  ([Patronus](../branch/patronus.spec.md)), must put a `destructive` dot on the icon of the indicator. The overview
+  explains it with a line per such branch, in the table order, below its title: "ABC-123 needs attention: changes
+  requested, failing checks", "ABC-123 needs attention: failed Safe Push".
+  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each branch waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column and a dot for a robot that failed on the branch tip`)
 - It must follow every sync and push result without a reload.
 
 ### Overview
@@ -111,9 +128,9 @@ is outgoing compares content, not hashes: the question is whether the remote has
   that differs, and how many branches are not checked yet.
 - The overview must list a row per outgoing branch in the order of the branch table, a branch nested under its issue
   where the table shows it.
-- A row must show the branch name, a bar proportional to the largest push, `mine (total)↑` as the status text of the
-  branch row (with `· N↓` for the remote commits a force push drops), the state word ("new" for a first push, "force"
-  for a force push, none for a plain push) and the push button of the branch row.
+- A row must show the branch name, a bar proportional to the largest push, the count as the status text of the branch
+  row reads it (`3↑`, `1 (3)↑ · 2↓`, [What is outgoing](#what-is-outgoing)), the state word ("new" for a first push,
+  "force" for a force push, none for a plain push) and the push button of the branch row.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should list the outgoing branches in the overview on hover`)
 - A row bar must be stacked as the segments of the indicator.
 - A legend must name the hues present ("push" for a safe push, "drops remote commits"), and, when some commits are not
@@ -150,6 +167,20 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 
 A push replaces exactly the remote state the user saw: the row's remote status, not Branch Deck's last push.
 
+- A push label must count the commits the push sends, whoever authored them: `Push (2)`, `Create Remote (3)`,
+  `Force Push (1)`; a force push that sends none is `Force Push`. The user's share is in the description: "1 commit to
+  push." when all are theirs, "2 of 3 commits to push are yours.", "3 commits to push, none of them yours.".
+  [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
+  [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`)
+- The description must say what the push does, one line each: a force push starts with "Force push replaces the
+  remote branch.", a first push ends with "The branch isn't on the remote yet: the push creates it.", the commits the
+  remote has and the branch lacks read "The remote has 2 commits your branch doesn't (by Ann and Bob).", and a rebased
+  branch says that the push replaces the remote commits with their rebased copies. An up to date branch says
+  "Everything is pushed." (the status text too). A pushed branch ends with "Pushed Today 10:00", as the
+  [branch preview](../branch/branch-preview.spec.md) says it.
+  [@test] ../../src/lib/remote-status.test.ts (`says what the remote has that the branch lacks, and by whom`, `says that everything is pushed in one sentence, and when it was pushed`, `says that the push creates a branch not on the remote`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`says that everything is pushed, and when, for an up to date branch`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
   branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
@@ -173,28 +204,36 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage), and its description on hover the last progress line of git, then what was sent so far and how fast,
-  "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)). The stages
+  "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's
+  line says the amount already (`Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s`). The stages
   weigh as for a fetch: counting 5 %, compressing 10 %, writing 80 %, the server resolving deltas 5 %; the percent
   never decreases, reaches the window at most every 100 ms, and the end of a stage always does, also the server's
   `Resolving deltas: 100% (2/2), completed with 2 local objects.`, which has no `, done.`.
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`push_stages_have_the_same_shares`, `writing_reports_the_amount_and_the_rate`, `reporter_sends_the_first_progress_and_every_stage_end`, `reporter_skips_a_stage_end_that_changes_nothing`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_reports_its_progress`)
-  [@test] ../../src/lib/transfer-progress.test.ts (`shows the percent once git reports a stage`)
+  [@test] ../../src/lib/transfer-progress.test.ts (`shows the percent once git reports a stage`, `shows the amount below git's line only when the line doesn't say it`)
   [@test] ../../src/stores/branch-sync.test.ts (`keeps the push progress only while the push runs`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`)
 
 ## User Experience
 
-- The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`.
+- The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`. The attention dot is
+  `size-1.5 rounded-full bg-destructive` on the top end corner of the icon (`absolute -top-0.5 -right-0.5`), so the
+  count and the bar keep their place; the parts are spaced by gaps, not margins.
 - The colours are the semantic tokens `bg-primary` and `bg-warning` for the user's commits, `bg-primary/40` and
   `bg-warning/40` for the others'. `info` is not a push colour. The segments of the branches are separated by a 2px gap
   of the surface, the two parts of a segment touch; both are rounded by `rounded-sm`, derived from `--radius`.
 - Text never takes a state colour: the counts, the state words and the legend use `text-muted-foreground`; the colour
   is carried by the bars and the legend swatches.
-- The overview is a `Popover` as wide as its content up to `max-w-lg`, aligned to the end of the button. The rows form a
-  grid, so the bars and the counts line up; a long branch name is truncated; a row bar sits on a `bg-muted` track.
-- The push buttons are aligned to the end of the rows.
-- The branch name is a plain button that underlines on hover.
+- The overview is a `Popover` as wide as its content up to `max-w-xl`, aligned to the end of the button. The rows form a
+  grid, so the bars and the counts line up; the name column is `minmax(8rem,max-content)`, so a name is truncated only
+  past 8rem, never to a letter; a row bar sits on a `bg-muted` track.
+- The chips column is at least `min-w-16` and its chips are aligned to its end, so the rows don't move when the chips
+  load; the push buttons are aligned to the end of the rows.
+- The branch name is a plain button that underlines on hover; the muted "on login" of a stacked branch follows it after
+  a gap and is never truncated.
+- The attention lines are muted `text-xs`, each after a `destructive` dot as the indicator's.
+- The footer lines wrap instead of truncating: an update state or a hint is read in full.
 - The push button opens its description on hover, as in the branch row. The dropped commits sit below a
   `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
   one truncated line, the author, the `font-mono` short id and the age a muted line below it.

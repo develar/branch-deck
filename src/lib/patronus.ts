@@ -98,9 +98,10 @@ export function isRobotOutdated(robot: PatronusRobot, localTip: string | undefin
   return robot.sourceRevision !== null && localTip !== undefined && localTip !== "" && robot.sourceRevision !== localTip
 }
 
-/** A failed robot of the commit the branch is at: the user has to act */
-export function needsPatronusAttention(robot: PatronusRobot, localTip: string | undefined): boolean {
-  return robot.status === "failure" && robot.sourceRevision !== null && robot.sourceRevision === localTip
+/** A failed robot of the commit the branch is at, the user has to act: "failed Safe Push"; null for any other robot */
+export function formatPatronusAttention(robot: PatronusRobot, localTip: string | undefined): string | null {
+  const failedOnTip = robot.status === "failure" && robot.sourceRevision !== null && robot.sourceRevision === localTip
+  return failedOnTip ? `failed ${formatPushMode(robot.pushMode)}` : null
 }
 
 const pushModeNames: Readonly<Record<PatronusPushMode, string>> = {

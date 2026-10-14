@@ -12,3 +12,14 @@ export function transferAmount(progress: TransferProgress | null): string | null
   }
   return progress.speed === null ? progress.transferred : `${progress.transferred} · ${progress.speed}`
 }
+
+/**
+ * `transferAmount` for a line below git's last progress line: null when that line says the amount already
+ * ("Writing objects:  45% (136/302), 2.61 MiB | 5.20 MiB/s"), the amount after a stage end that doesn't
+ */
+export function transferAmountNotInLine(progress: TransferProgress | null): string | null {
+  if (progress?.transferred == null || progress.line.includes(progress.transferred)) {
+    return null
+  }
+  return transferAmount(progress)
+}

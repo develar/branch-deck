@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
-import { formatAvailabilityHint, formatChecks, getPullRequestChipState, needsAuthorAttention } from "@/lib/pull-request"
+import { formatAuthorAttention, formatAvailabilityHint, formatChecks, getPullRequestChipState } from "@/lib/pull-request"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
@@ -46,12 +46,13 @@ describe("getPullRequestChipState", () => {
   })
 })
 
-describe("needsAuthorAttention", () => {
-  it("is set by requested changes or failing checks of an open pull request", () => {
-    expect(needsAuthorAttention(pullRequest({ reviewDecision: "changesRequested" }))).toBe(true)
-    expect(needsAuthorAttention(pullRequest({ checks: failing }))).toBe(true)
-    expect(needsAuthorAttention(pullRequest({ reviewDecision: "approved" }))).toBe(false)
-    expect(needsAuthorAttention(pullRequest({ state: "closed", reviewDecision: "changesRequested" }))).toBe(false)
+describe("formatAuthorAttention", () => {
+  it("names the requested changes and the failing checks of an open pull request", () => {
+    expect(formatAuthorAttention(pullRequest({ reviewDecision: "changesRequested" }))).toBe("changes requested")
+    expect(formatAuthorAttention(pullRequest({ checks: failing }))).toBe("failing checks")
+    expect(formatAuthorAttention(pullRequest({ reviewDecision: "changesRequested", checks: failing }))).toBe("changes requested, failing checks")
+    expect(formatAuthorAttention(pullRequest({ reviewDecision: "approved" }))).toBeNull()
+    expect(formatAuthorAttention(pullRequest({ state: "closed", reviewDecision: "changesRequested" }))).toBeNull()
   })
 })
 

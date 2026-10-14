@@ -3,6 +3,8 @@ import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
+import type { OutgoingAttention } from "@/lib/outgoing-attention"
+import { formatAttentionLine } from "@/lib/outgoing-attention"
 import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
 import { formatOutgoingCount, formatOutgoingTitle, getOutgoingLegend, getPushHue, outgoingBarFill } from "@/lib/push-summary"
 import { useBranch } from "@/stores/branch-sync"
@@ -12,6 +14,8 @@ export interface OutgoingPopoverProps {
   summary: PushSummary
   /** Branches with an open pull request; those with nothing to push get a row after the outgoing ones */
   reviewBranches?: readonly string[]
+  /** The branches that wait for their author: a line each below the title, the dot of the indicator explained */
+  attention?: readonly OutgoingAttention[]
   /** Closes the popover: a click on a branch name shows its row */
   onClose: () => void
   /** The pull request chip of a branch, between the state and the push button */
@@ -32,7 +36,7 @@ const stateWord: Readonly<Record<OutgoingState, string>> = {
  * the user's commits), the mine/total count, the state and the push button of the branch row. Pushing stays per branch.
  * The branches with an open pull request and nothing to push follow, so the overview says what the work waits on.
  */
-export function OutgoingPopover({ summary, reviewBranches = [], onClose, renderPullRequest, footer }: OutgoingPopoverProps) {
+export function OutgoingPopover({ summary, reviewBranches = [], attention = [], onClose, renderPullRequest, footer }: OutgoingPopoverProps) {
   const max = Math.max(1, ...summary.branches.map(branch => branch.count))
   const notes: string[] = []
   if (summary.mine !== summary.total) {
@@ -55,15 +59,17 @@ export function OutgoingPopover({ summary, reviewBranches = [], onClose, renderP
       <div className="flex flex-col gap-1">
         <PopoverTitle className="text-sm">{formatOutgoingTitle(summary, reviewBranches.length)}</PopoverTitle>
         {notes.length > 0 && <PopoverDescription className="text-xs">{notes.join(" · ")}</PopoverDescription>}
+        {attention.length > 0 && <AttentionLines attention={attention} />}
       </div>
 
       <div
         role="list"
         className={cn(
+          // a name gets at least 8rem before it truncates: the other columns are as wide as their content
           "grid items-center gap-x-3",
           renderPullRequest === undefined
-            ? "grid-cols-[minmax(0,max-content)_5rem_auto_auto_auto]"
-            : "grid-cols-[minmax(0,max-content)_5rem_auto_auto_auto_auto]",
+            ? "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_auto]"
+            : "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_auto_auto]",
         )}
       >
         {summary.branches.map(branch => (
@@ -75,9 +81,29 @@ export function OutgoingPopover({ summary, reviewBranches = [], onClose, renderP
       {summary.branches.length > 0 && <OutgoingLegend summary={summary} />}
 
       {/* hidden when every part renders nothing (a local baseline, no GitHub) */}
-      {footer !== undefined && <div className="flex flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>}
+      {footer !== undefined && <div className="flex min-w-0 flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>}
     </>
   )
+}
+
+/** "ABC-123 needs attention: changes requested", with the dot of the indicator; the text stays muted */
+function AttentionLines({ attention }: { attention: readonly OutgoingAttention[] }) {
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground" data-testid="outgoing-attention">
+      {attention.map(item => (
+        <li key={item.branchName} className="flex items-center gap-1.5" data-branch-name={item.branchName}>
+          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-destructive" />
+          <span className="min-w-0">{formatAttentionLine(item)}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** The pull request and Patronus chips of a row, aligned to the end of their column */
+function ReviewChipsCell({ name, renderPullRequest }: { name: string, renderPullRequest: (branchName: string) => ReactNode }) {
+  // at least 4rem, so the rows don't move when the chips load
+  return <span className="flex min-w-16 items-center justify-end gap-1">{renderPullRequest(name)}</span>
 }
 
 interface OutgoingRowProps {
@@ -100,7 +126,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
       <OutgoingRowBar branch={branch} max={max} />
       <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">{formatOutgoingCount(branch)}</span>
       <span className="text-xs text-muted-foreground">{stateWord[branch.state]}</span>
-      {renderPullRequest !== undefined && <span className="flex items-center gap-1">{renderPullRequest(branch.name)}</span>}
+      {renderPullRequest !== undefined && <ReviewChipsCell name={branch.name} renderPullRequest={renderPullRequest} />}
       <span className="flex justify-end">
         <OutgoingPushButton name={branch.name} />
       </span>
@@ -116,7 +142,7 @@ function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReve
       <span />
       <span className="text-xs text-muted-foreground">pushed</span>
       <span />
-      {renderPullRequest !== undefined && <span className="flex items-center gap-1">{renderPullRequest(name)}</span>}
+      {renderPullRequest !== undefined && <ReviewChipsCell name={name} renderPullRequest={renderPullRequest} />}
       <span />
     </div>
   )
@@ -127,13 +153,13 @@ function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: s
   return (
     <button
       type="button"
-      className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+      className="flex min-w-0 items-baseline gap-1.5 rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
       title={`Show ${name}`}
       onClick={() => onReveal(name)}
     >
-      {name}
+      <span className="truncate">{name}</span>
       {/* the popover has no tree: a stacked branch says what it is built on */}
-      <StackBaseLabel name={name} className="ml-1.5" />
+      <StackBaseLabel name={name} />
     </button>
   )
 }

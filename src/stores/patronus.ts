@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
@@ -13,11 +12,10 @@ import {
   formatPushMode,
   isPushingRobot,
   isRobotActive,
-  needsPatronusAttention,
 } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
-import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
+import { branchSyncStore, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
 import { runFetchBaseline } from "@/stores/update-project"
 
@@ -102,16 +100,10 @@ export function isRobotNeedingReview(robotId: string): boolean {
   return key !== null && patronusStore.getState().repositories[key]?.needsReview[robotId] === true
 }
 
-/** A robot of a branch failed on the commit the branch is at: the outgoing indicator gets a dot */
-export function usePatronusNeedsAttention(): boolean {
+/** The robots of the selected repository, by id; re-renders only when they change, not on every refresh */
+export function useRepositoryRobots(): Readonly<Record<string, PatronusRobot>> | undefined {
   const key = useRepositoryKey()
-  const robots = useStore(patronusStore, state => state.repositories[key]?.robots)
-  const branches = useBranchSync(state => state.branches)
-  return useMemo(() => Object.values(branches).some((branch) => {
-    const localTip = branch.commits[0]?.hash
-    const robot = findBranchRobot(robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null)
-    return robot !== undefined && needsPatronusAttention(robot, localTip)
-  }), [robots, branches])
+  return useStore(patronusStore, state => state.repositories[key]?.robots)
 }
 
 /** Non-hook variant of `useBranchRobot`, for menus built on open */
