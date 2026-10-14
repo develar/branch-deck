@@ -1,5 +1,5 @@
 use crate::commit_list::is_on_local_baseline;
-use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, read_raw_commits, write_commits_with_notes};
+use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, StoreUpdate, read_raw_commits, write_commits_with_notes};
 use crate::notes::{PREFIX, mapped_commit_id, notes_ref};
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::{HeadMoved, check_rewrite, ensure_no_operation_in_progress, get_current_branch};
@@ -29,23 +29,29 @@ pub struct RewordCommitParams {
 /// the current branch ahead of `baseline_branch`, if the range has a merge commit, and if the branch moved while the
 /// new commits were created.
 pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
-  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, &RefTransaction::new())
+  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, None).map(|(mapping, _)| mapping)
 }
 
 /// `reword_commits_batch` for a rewrite computed from the history at `expected_head`: fails with `HeadMoved` (as the
-/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves. The
-/// changes of `also` go into the transaction that moves the branch, so those refs move with it or not at all
-#[instrument(skip(git_executor, rewrites, also), fields(count = rewrites.len()))]
+/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves. `store`
+/// is written in the same `fast-import` run and its ref moves in the transaction that moves the branch, so both move
+/// or neither does; its new commit comes back with the mapping
+#[instrument(skip(git_executor, rewrites, store), fields(count = rewrites.len()))]
 pub fn reword_commits_batch_at(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   baseline_branch: &str,
   rewrites: Vec<RewordCommitParams>,
   expected_head: Option<&str>,
-  also: &RefTransaction,
-) -> Result<HashMap<String, String>> {
+  store: Option<&StoreUpdate<'_>>,
+) -> Result<(HashMap<String, String>, Option<String>)> {
   if rewrites.is_empty() {
-    return Ok(HashMap::new());
+    // the store moves only with a rewrite: `commit_writer::write_store_commit` writes it alone
+    return if store.is_some() {
+      Err(anyhow!("A store update needs a rewrite"))
+    } else {
+      Ok((HashMap::new(), None))
+    };
   }
 
   info!("Rewording {} commits", rewrites.len());
@@ -126,31 +132,36 @@ pub fn reword_commits_batch_at(
 
   let notes_ref = if notes.is_empty() { None } else { Some(notes_ref(git_executor, repo_path)?) };
   let notes = notes_ref.as_deref().map(|notes_ref| NotesOfWritten { notes_ref, notes });
-  let written = write_commits_with_notes(git_executor, repo_path, &new_commits, notes.as_ref())?;
+  let written = write_commits_with_notes(git_executor, repo_path, &new_commits, notes.as_ref(), store.map(|store| &store.commit))?;
   let new_tip = written.ids.last().ok_or_else(|| anyhow!("no commits were written"))?;
 
   let mut transaction = RefTransaction::new();
-  transaction
-    .update(&target.full_ref(), new_tip, Some(&target.head))
-    .delete(&written.temp_ref, None)
-    .extend(also);
+  transaction.update(&target.full_ref(), new_tip, Some(&target.head));
+  if let (Some(store), Some(store_commit)) = (store, &written.file_commit) {
+    store.add_to(&mut transaction, store_commit);
+  }
+  transaction.delete(&written.temp_ref, None);
   // a commit made meanwhile (e.g. in a terminal) is not dropped: the update fails instead
   if let Err(e) = transaction.commit(git_executor, repo_path, &format!("reword {} commits", rewrite_map.len())) {
     written.discard(git_executor, repo_path);
-    if let Some(expected) = expected_head {
-      let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
+    let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
+    if let Some(expected) = expected_head.filter(|expected| *expected != actual) {
       return Err(anyhow::Error::new(HeadMoved {
         branch: target.branch,
         expected: expected.to_string(),
         actual,
       }));
     }
-    return Err(anyhow!("Branch {} changed while rewording, sync and try again: {e:#}", target.branch));
+    return Err(anyhow!(
+      "Branch {} or a ref moved with it changed while rewording, sync and try again: {e:#}",
+      target.branch
+    ));
   }
 
   info!("Successfully reworded {} commits", rewrite_map.len());
 
-  Ok(to_recreate.iter().map(|id| (*id).to_string()).zip(written.ids).collect())
+  let store_commit = written.file_commit;
+  Ok((to_recreate.iter().map(|id| (*id).to_string()).zip(written.ids).collect(), store_commit))
 }
 
 /// The first-parent history of HEAD that a reword may recreate

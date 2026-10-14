@@ -3,6 +3,7 @@
 //! `fast-import` objects are readable only after the stream ends, so this suits batches whose commits are all known
 //! up front (reword, notes), not chains that must read each new commit back (the sync cherry-picks).
 
+use crate::ref_transaction::RefTransaction;
 use crate::reword_commits::complete_line;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -107,11 +108,40 @@ pub struct NewCommit<'a> {
   pub message: &'a [u8],
 }
 
+/// A commit of a small store whose tree holds one file, such as the issue groups
+#[derive(Debug, Clone, Copy)]
+pub struct FileCommit<'a> {
+  pub path: &'a str,
+  pub content: &'a [u8],
+  /// The previous commit of the store; `None` writes a root commit
+  pub parent: Option<&'a str>,
+  pub message: &'a str,
+}
+
+/// A new commit of a store and the ref it moves, with compare-and-swap on the parent (or the create of the ref)
+#[derive(Debug, Clone, Copy)]
+pub struct StoreUpdate<'a> {
+  pub store_ref: &'a str,
+  pub commit: FileCommit<'a>,
+}
+
+impl StoreUpdate<'_> {
+  /// Move the store's ref to `new_commit` in `transaction`, only if it is still at the parent (or does not exist)
+  pub fn add_to(&self, transaction: &mut RefTransaction, new_commit: &str) {
+    match self.commit.parent {
+      Some(parent) => transaction.update(self.store_ref, new_commit, Some(parent)),
+      None => transaction.create(self.store_ref, new_commit),
+    };
+  }
+}
+
 /// Commits written by `write_commits`, in input order. They are reachable from `temp_ref` until the caller deletes it,
 /// normally in the same `RefTransaction` that moves the real branch, or with `discard` if the rewrite is abandoned.
 #[derive(Debug)]
 pub struct WrittenCommits {
   pub ids: Vec<String>,
+  /// The commit of the `FileCommit` written in the same run
+  pub file_commit: Option<String>,
   pub temp_ref: String,
 }
 
@@ -148,13 +178,20 @@ pub struct NotesOfWritten<'a> {
 
 /// Write `commits` with one `git fast-import` run and return their ids
 pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>]) -> Result<WrittenCommits> {
-  write_commits_with_notes(git_executor, repo_path, commits, None)
+  write_commits_with_notes(git_executor, repo_path, commits, None, None)
 }
 
-/// `write_commits` that also attaches notes to the new commits, in one notes commit of the same `fast-import` run.
+/// `write_commits` that also attaches notes to the new commits, in one notes commit of the same `fast-import` run, and
+/// writes `file`, a commit of a store by the current user, after them on the temporary ref.
 /// The notes ref moves even if the caller later abandons the commits; a note on an unreachable commit is harmless.
-#[instrument(skip(git_executor, commits, notes), fields(count = commits.len()))]
-pub fn write_commits_with_notes(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>], notes: Option<&NotesOfWritten<'_>>) -> Result<WrittenCommits> {
+#[instrument(skip(git_executor, commits, notes, file), fields(count = commits.len()))]
+pub fn write_commits_with_notes(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  commits: &[NewCommit<'_>],
+  notes: Option<&NotesOfWritten<'_>>,
+  file: Option<&FileCommit<'_>>,
+) -> Result<WrittenCommits> {
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(commits.len() * 256);
   for (index, commit) in commits.iter().enumerate() {
@@ -180,48 +217,62 @@ pub fn write_commits_with_notes(git_executor: &GitCommandExecutor, repo_path: &s
     // a tree at the empty path replaces the whole tree of the commit
     stream.extend_from_slice(format!("M 040000 {} \"\"\n\nget-mark :{}\n", commit.tree, index + 1).as_bytes());
   }
-  if let Some(notes) = notes.filter(|notes| !notes.notes.is_empty()) {
+  let has_notes = notes.is_some_and(|notes| !notes.notes.is_empty());
+  let committer = if has_notes || file.is_some() {
+    Some(current_committer(git_executor, repo_path)?)
+  } else {
+    None
+  };
+  if let (Some(notes), Some(committer)) = (notes.filter(|notes| !notes.notes.is_empty()), &committer) {
     if let Some((index, _)) = notes.notes.iter().find(|(index, _)| *index >= commits.len()) {
       return Err(anyhow!("note for commit {index} of a batch of {}", commits.len()));
     }
-    let committer = current_committer(git_executor, repo_path)?;
     let targets = notes.notes.iter().map(|(index, content)| (format!(":{}", index + 1), content.as_str()));
-    push_notes_commit(&mut stream, git_executor, repo_path, notes.notes_ref, &committer, targets);
+    push_notes_commit(&mut stream, git_executor, repo_path, notes.notes_ref, committer, targets);
+  }
+  if let (Some(file), Some(committer)) = (file, &committer) {
+    let mark = commits.len() + 1;
+    if file.parent.is_none() {
+      stream.extend_from_slice(format!("reset {temp_ref}\n\n").as_bytes());
+    }
+    stream.extend_from_slice(format!("commit {temp_ref}\nmark :{mark}\ncommitter {committer}\n").as_bytes());
+    push_data(&mut stream, &complete_line(file.message));
+    if let Some(parent) = file.parent {
+      stream.extend_from_slice(format!("from {parent}\n").as_bytes());
+    }
+    stream.extend_from_slice(format!("deleteall\nM 100644 inline {}\n", file.path).as_bytes());
+    push_data(&mut stream, file.content);
+    stream.extend_from_slice(format!("\nget-mark :{mark}\n").as_bytes());
   }
   stream.extend_from_slice(b"done\n");
 
   let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path, &stream)?;
-  let ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
-  if ids.len() != commits.len() {
+  let mut ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
+  let file_commit = if file.is_some() { ids.pop() } else { None };
+  if ids.len() != commits.len() || file_commit.as_ref().is_none_or(String::is_empty) != file.is_none() {
     return Err(anyhow!("fast-import wrote {} of {} commits", ids.len(), commits.len()));
   }
-  Ok(WrittenCommits { ids, temp_ref })
+  Ok(WrittenCommits { ids, file_commit, temp_ref })
 }
 
-/// Write a commit whose tree holds the one file `path` with `content`, by the current user, with one `git fast-import`
-/// run: the history of a small store, such as the issue groups. `parent` continues that history; `None` writes a root
-/// commit. The commit is reachable from `temp_ref` until the caller deletes it, normally in the transaction that moves
-/// the store's ref
-#[instrument(skip(git_executor, content))]
-pub fn write_file_commit(git_executor: &GitCommandExecutor, repo_path: &str, path: &str, content: &[u8], parent: Option<&str>, message: &str) -> Result<WrittenCommits> {
-  let temp_ref = unique_temp_ref();
-  let committer = current_committer(git_executor, repo_path)?;
-  let mut stream = Vec::with_capacity(content.len() + 256);
-  stream.extend_from_slice(format!("commit {temp_ref}\nmark :1\ncommitter {committer}\n").as_bytes());
-  push_data(&mut stream, &complete_line(message));
-  if let Some(parent) = parent {
-    stream.extend_from_slice(format!("from {parent}\n").as_bytes());
+/// Write the commit of `store` with one `git fast-import` run and move its ref in one transaction, with `verify`
+/// (`(full ref, expected id)`, e.g. the checked out branch at the HEAD the store was computed for) in the same
+/// transaction. Returns the new commit of the store; on a failure nothing moves
+#[instrument(skip(git_executor, store))]
+pub fn write_store_commit(git_executor: &GitCommandExecutor, repo_path: &str, store: &StoreUpdate<'_>, verify: Option<(&str, &str)>, operation: &str) -> Result<String> {
+  let written = write_commits_with_notes(git_executor, repo_path, &[], None, Some(&store.commit))?;
+  let new_commit = written.file_commit.clone().ok_or_else(|| anyhow!("fast-import wrote no commit for {}", store.store_ref))?;
+  let mut transaction = RefTransaction::new();
+  if let Some((full_ref, expected)) = verify {
+    transaction.verify(full_ref, expected);
   }
-  stream.extend_from_slice(format!("deleteall\nM 100644 inline {path}\n").as_bytes());
-  push_data(&mut stream, content);
-  stream.extend_from_slice(b"\nget-mark :1\ndone\n");
-
-  let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw"], repo_path, &stream)?;
-  let id = String::from_utf8(output)?.trim().to_string();
-  if id.is_empty() {
-    return Err(anyhow!("fast-import wrote no commit for {path}"));
+  store.add_to(&mut transaction, &new_commit);
+  transaction.delete(&written.temp_ref, None);
+  if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
+    written.discard(git_executor, repo_path);
+    return Err(e);
   }
-  Ok(WrittenCommits { ids: vec![id], temp_ref })
+  Ok(new_commit)
 }
 
 /// Identity of the current user with the current time (`Name <email> <seconds> <tz>`), for new commits and notes

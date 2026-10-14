@@ -47,8 +47,9 @@ pub struct GroupedCommits {
   pub unassigned: Vec<Commit>,
   /// Branch name -> most frequent author email
   pub branch_emails: HashMap<String, Option<String>>,
-  /// The keys of the issue groups that group no commit, sorted
-  pub stale_issue_groups: Vec<String>,
+  /// The keys of the issue groups that group none of these commits, sorted: idle here, they may group the commits of
+  /// another branch or worktree
+  pub idle_issue_groups: Vec<String>,
 }
 
 /// What decides the group of a commit besides its subject (`issue_groups::read_grouping_inputs`)
@@ -283,7 +284,7 @@ impl CommitGrouper {
       branches: grouped_commits,
       unassigned: self.unassigned_commits,
       branch_emails,
-      stale_issue_groups: self.issue_groups.into_keys().filter(|key| !self.used_issue_groups.contains(key)).collect(),
+      idle_issue_groups: self.issue_groups.into_keys().filter(|key| !self.used_issue_groups.contains(key)).collect(),
     };
     (grouped, stacks)
   }

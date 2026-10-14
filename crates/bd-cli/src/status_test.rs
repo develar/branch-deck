@@ -355,12 +355,12 @@ fn issue_groups_in_status() {
       (&json!("parser"), &json!("issue_group"), Some(&json!(["ABC-1", "ABC-2"]))),
     ]
   );
-  assert_eq!(output["stale_issue_groups"], json!(["ABC-9"]));
+  assert_eq!(output["idle_issue_groups"], json!(["ABC-9"]));
   assert_eq!(output["issue_group_problems"][0]["line"], json!("not a line"));
 
   let (_, brief) = run_in(&repo, &["status", "--brief"]);
   assert_eq!(
-    (&brief["branches"][1]["issue_keys"], &brief["stale_issue_groups"]),
+    (&brief["branches"][1]["issue_keys"], &brief["idle_issue_groups"]),
     (&json!(["ABC-1", "ABC-2"]), &json!(["ABC-9"]))
   );
   assert_eq!(ids.len(), 3);

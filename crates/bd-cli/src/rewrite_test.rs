@@ -224,6 +224,14 @@ fn issue_groups_plan_and_undo() {
 
   let (exit_code, invalid) = group(&repo, &json!({ "issue_groups": { "parser": ["ABC-1"], "lexer": ["ABC-1"] } }), &[]);
   assert_error(&invalid, exit_code, 2, "invalid_plan");
+
+  // a token takes full ids only, and its map commit must be a write of the map
+  let (exit_code, refused) = run_in(&repo, &["undo", "groups:HEAD..refs/branch-deck/issue-groups"]);
+  assert_error(&refused, exit_code, 2, "invalid_arguments");
+  let (_, again) = group(&repo, &plan, &[]);
+  let written = again["undo_token"].as_str().unwrap().rsplit("..").next().unwrap().to_string();
+  let (exit_code, refused) = run_in(&repo, &["undo", &format!("groups:{head}..{written}")]);
+  assert_error(&refused, exit_code, 2, "invalid_arguments");
 }
 
 #[test_log::test]

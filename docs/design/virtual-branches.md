@@ -119,9 +119,11 @@ see it too.
 
 Only a regroup writes the map: a plan's `issue_groups` and `ungroup_issues`, and a rename, which renames the entries
 of the old name. It writes under the repository lock and in the ref transaction that moves HEAD, with
-compare-and-swap on both refs (see [Git Operations](git-operations.md)). A sync never writes it. A key that groups no
-commit is reported by `bd status` as stale and dropped by the next write. An issue group can be a stack parent, but it
-can't be restacked. See [Issue Groups](../../spec/branch/issue-groups.spec.md).
+compare-and-swap on both refs (see [Git Operations](git-operations.md)). A sync never writes it. The ref is shared by
+every branch and worktree, so a write changes only the keys it names. A key that groups no commit on this HEAD is
+`idle` in `bd status`, because it may group the commits of another branch; only `ungroup_issues` removes it. An issue
+group can be a stack parent, but it can't be stacked, by `restack` or by a plan path with a parent level. See
+[Issue Groups](../../spec/branch/issue-groups.spec.md).
 
 ### Stacked Branches
 

@@ -274,7 +274,14 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       ),
     ));
   };
-  undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(regroup_error)?;
+  undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|error| {
+    let mut error = regroup_error(error);
+    // the token names no write of the issue groups: a wrong argument, not a wrong plan
+    if error.code == ErrorCode::InvalidPlan {
+      error.code = ErrorCode::InvalidArguments;
+    }
+    error
+  })?;
   let head = match &token.head {
     Some((previous_head, _)) => previous_head.clone(),
     None => read_head(context)?.0,
