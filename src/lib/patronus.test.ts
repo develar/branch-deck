@@ -128,11 +128,16 @@ describe("formatRobotCommitNotice", () => {
 })
 
 describe("formatPatronusAttention", () => {
-  it("names a failed robot of the commit the branch is at", () => {
-    expect(formatPatronusAttention(robot({ status: "failure" }), "tip")).toBe("failed Safe Push")
-    expect(formatPatronusAttention(robot({ status: "failure", pushMode: "dryRun" }), "tip")).toBe("failed Dry Run")
-    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed")).toBeNull()
-    expect(formatPatronusAttention(robot({ status: "running" }), "tip")).toBeNull()
+  it("names a failed robot of the branch as it is, also after a sync rebuilt the branch", () => {
+    expect(formatPatronusAttention(robot({ status: "failure" }), "tip", null)).toBe("failed Safe Push")
+    expect(formatPatronusAttention(robot({ status: "failure", pushMode: "dryRun" }), "tip", null)).toBe("failed Dry Run")
+    expect(formatPatronusAttention(robot({ status: "failure" }), "rebuilt", rebuiltOnRobot)).toBe("failed Safe Push")
+    // fixed since: the branch changed
+    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed", unpushedOnRobot)).toBeNull()
+    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed", testRemoteStatus({ remoteTip: "fixed" }))).toBeNull()
+    // the remote status is not loaded yet
+    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed", null)).toBeNull()
+    expect(formatPatronusAttention(robot({ status: "running" }), "tip", null)).toBeNull()
   })
 })
 

@@ -336,9 +336,12 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 - The [outgoing overview](../repository/outgoing.spec.md) shows the chip next to the pull request chip of each row, as
   the shield alone (the state is its accessible name and in its popover): the branch names need the room.
-- The indicator gets a `destructive` dot when a robot failed on the commit the branch is at, and the overview a line
-  that says why: "ABC-123 needs attention: failed Safe Push" ([Outgoing Commits](../repository/outgoing.spec.md)).
-  [@test] ../../src/lib/patronus.test.ts (`names a failed robot of the commit the branch is at`)
+- The indicator gets a `destructive` dot when a robot failed on the branch as it is (the local tip, or the same commits
+  before a sync rebuilt them on a newer baseline, [above](#chip)), and the overview a line that says why: "ABC-123
+  needs attention: failed Safe Push" ([Outgoing Commits](../repository/outgoing.spec.md)). A branch changed since (a
+  fix) needs no attention.
+  [@test] ../../src/lib/patronus.test.ts (`names a failed robot of the branch as it is, also after a sync rebuilt the branch`)
+  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each branch waits for, in the table order, a branch once`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column and a dot for a robot that failed on the branch tip`)
 - The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button (a full list), named "Refresh

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { collectOutgoingAttention, formatAttentionLine, formatIndicatorLabel } from "@/lib/outgoing-attention"
 import type { Branch, BranchTableRow, SyncedCommit } from "@/stores/branch-sync"
-import { testBranch } from "@/stores/test-branch"
+import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
@@ -52,8 +52,10 @@ function failedRobot(branchName: string, sourceRevision: string): PatronusRobot 
 
 describe("collectOutgoingAttention", () => {
   it("names what each branch waits for, in the table order, a branch once", () => {
-    const names = ["login", "oauth", "docs", "api"]
+    const names = ["login", "oauth", "docs", "api", "cache"]
     const branches = Object.fromEntries(names.map(name => [name, branchAtTip(name)]))
+    // the sync rebuilt cache on a newer baseline: the remote has its commits as `cache-pushed`
+    branches.cache = { ...branches.cache!, remoteStatus: testRemoteStatus({ remoteTip: "cache-pushed" }) }
     const pullRequests = {
       login: openPullRequest("login", { reviewDecision: "changesRequested" }),
       oauth: openPullRequest("oauth", { checks: { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] } }),
@@ -64,12 +66,14 @@ describe("collectOutgoingAttention", () => {
       b: failedRobot("login", "login-tip"),
       // failed on a commit the branch no longer is at: fixed since
       c: failedRobot("docs", "old"),
+      d: failedRobot("cache", "cache-pushed"),
     }
     const issueRow: BranchTableRow = { kind: "issue", key: "issue:ABC-1", issueKey: "ABC-1", branchCount: 2 }
     expect(collectOutgoingAttention([issueRow, ...names.map(row)], branches, pullRequests, robots)).toEqual([
       { branchName: "login", reason: "changes requested, failed Safe Push" },
       { branchName: "oauth", reason: "failing checks" },
       { branchName: "api", reason: "failed Safe Push" },
+      { branchName: "cache", reason: "failed Safe Push" },
     ])
     expect(collectOutgoingAttention(names.map(row), branches, {}, undefined)).toEqual([])
   })

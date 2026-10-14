@@ -97,10 +97,14 @@ function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | 
   }
 }
 
-/** A failed robot of the commit the branch is at, the user has to act: "failed Safe Push"; null for any other robot */
-export function formatPatronusAttention(robot: PatronusRobot, localTip: string | undefined): string | null {
-  const failedOnTip = robot.status === "failure" && robot.sourceRevision !== null && robot.sourceRevision === localTip
-  return failedOnTip ? `failed ${formatPushMode(robot.pushMode)}` : null
+/**
+ * A failed robot of the branch as it is, the user has to act: "failed Safe Push"; null for any other robot. The branch as
+ * it is: the robot took the local tip, or the same commits before a sync rebuilt them on a newer baseline.
+ */
+export function formatPatronusAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null): string | null {
+  const onBranch = robot.sourceRevision !== null
+    && (robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased")
+  return robot.status === "failure" && onBranch ? `failed ${formatPushMode(robot.pushMode)}` : null
 }
 
 const pushModeNames: Readonly<Record<PatronusPushMode, string>> = {
