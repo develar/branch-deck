@@ -334,6 +334,13 @@ Virtual branches never touch HEAD, the index or the working tree.
 2. Each created commit is written with `commit-tree`, with the grouping prefix stripped from the subject and
    `branch-deck` as committer. The next commit merges onto it, and a conflict view reads it, so it must be readable at
    once. That is why the `fast-import` writer is not used here.
+   - **Deterministic copies.** The committer date is the newest committer date of the original and of every commit
+     below it in the virtual branch, the base included (the base's date comes with its tree lookup). The same
+     originals on the same base therefore give the same ids, even with the notes lost. The dates are unix seconds in
+     the local timezone, like the author date: the commit list does not read the original timezones yet.
+   - **Reuse checks the parent.** A commit whose note maps it to a commit of the existing branch reuses that commit
+     only if its first parent is the new parent (`rev-list --parents <branch> ^<base>`). A commit added below, or a
+     new base, copies the rest again. A branch whose commits are all reused still moves if its old tip had more.
 3. Known trees are seeded into the tree cache (`%T` of the listed commits, the tree of each new commit), and the
    cherry-pick takes the parent from the commit list instead of asking git.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as

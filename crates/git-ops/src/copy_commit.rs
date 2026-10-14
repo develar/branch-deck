@@ -3,7 +3,7 @@ use crate::commit_list::Commit;
 use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use tracing::{debug, instrument};
 
 /// Custom error type for copy commit operations
@@ -53,7 +53,10 @@ pub struct CreateCommitParams<'a> {
   pub progress_info: &'a ProgressInfo<'a>,
   pub git_executor: &'a GitCommandExecutor,
   pub tree_id_cache: &'a TreeIdCache,
-  pub existing_virtual_commits: Option<&'a HashSet<String>>, // For efficient batch verification
+  /// Commits of the existing virtual branch -> their first parent; `None` copies the commit
+  pub existing_virtual_commits: Option<&'a HashMap<String, String>>,
+  /// Committer date (unix seconds) of a new commit: the same input then writes the same commit
+  pub committer_timestamp: u32,
 }
 
 /// Result of copying one commit onto the virtual branch
@@ -79,29 +82,24 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     git_executor,
     tree_id_cache,
     existing_virtual_commits,
+    committer_timestamp,
   } = params;
 
-  if reuse_if_possible {
-    // First check if we have a mapped commit from git notes
-    if let Some(mapped_id) = &commit.mapped_commit_id {
-      // Verify the mapped commit still exists
-      let mapped_exists = if let Some(existing_commits) = existing_virtual_commits {
-        existing_commits.contains(mapped_id)
-      } else {
-        git_executor.commit_exists(repo_path, mapped_id)
-      };
-
-      if mapped_exists {
-        debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
-        // The note already maps to this commit, nothing to write
-        return Ok(CopiedCommit {
-          hash: mapped_id.clone(),
-          status: CommitSyncStatus::Unchanged,
-          note: None,
-        });
-      }
-      debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit no longer exists, will re-copy");
+  // the commit the note maps to is reused while it is still in the virtual branch, on the same parent
+  if reuse_if_possible
+    && let Some(mapped_id) = &commit.mapped_commit_id
+    && let Some(existing_commits) = existing_virtual_commits
+  {
+    if existing_commits.get(mapped_id).is_some_and(|parent| parent == new_parent_oid) {
+      debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
+      // The note already maps to this commit, nothing to write
+      return Ok(CopiedCommit {
+        hash: mapped_id.clone(),
+        status: CommitSyncStatus::Unchanged,
+        note: None,
+      });
     }
+    debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit is gone or has another parent, will re-copy");
   }
 
   // the commit list read the tree with the commit
@@ -148,6 +146,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
 
   // Use Unix timestamp directly (Git accepts this format)
   let author_date = commit.author_timestamp.to_string();
+  let committer_date = committer_timestamp.to_string();
 
   let env_vars = vec![
     ("GIT_AUTHOR_NAME", commit.author_name.as_str()),
@@ -155,6 +154,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     ("GIT_AUTHOR_DATE", &author_date),
     ("GIT_COMMITTER_NAME", "branch-deck"),
     ("GIT_COMMITTER_EMAIL", commit.author_email.as_str()),
+    ("GIT_COMMITTER_DATE", &committer_date),
   ];
 
   let output = git_executor

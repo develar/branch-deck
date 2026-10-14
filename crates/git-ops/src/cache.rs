@@ -5,18 +5,23 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 
-/// Thread-safe cache for tree IDs to avoid redundant git rev-parse calls
+/// Thread-safe cache for tree IDs (and the committer dates of the commits the branches are rebuilt on) to avoid
+/// redundant git calls
 /// Cache is per-sync operation to ensure fresh data
 /// Uses `DashMap` for high-performance concurrent access with lock-free reads
 #[derive(Clone)]
 pub struct TreeIdCache {
   cache: Arc<DashMap<String, String>>,
+  committer_timestamps: Arc<DashMap<String, u32>>,
 }
 
 impl TreeIdCache {
   /// Create a new empty cache
   pub fn new() -> Self {
-    Self { cache: Arc::new(DashMap::new()) }
+    Self {
+      cache: Arc::new(DashMap::new()),
+      committer_timestamps: Arc::new(DashMap::new()),
+    }
   }
 
   fn is_cacheable_key(commit_id: &str) -> bool {
@@ -56,6 +61,28 @@ impl TreeIdCache {
     }
 
     Ok(tree_id)
+  }
+
+  /// Get the committer date (unix seconds) of a commit; the same git call also caches its tree
+  #[instrument(skip(self, git_executor), fields(commit_id = %commit_id))]
+  pub fn get_committer_timestamp(&self, git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<u32, CopyCommitError> {
+    if let Some(timestamp) = self.committer_timestamps.get(commit_id) {
+      return Ok(*timestamp);
+    }
+
+    let output = git_executor
+      .execute_command(&["log", "-1", "--format=%T %ct", "--end-of-options", commit_id], repo_path)
+      .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to read commit {commit_id}: {e}")))?;
+    let (tree_id, timestamp) = output
+      .split_once(' ')
+      .and_then(|(tree_id, timestamp)| Some((tree_id, timestamp.parse::<u32>().ok()?)))
+      .ok_or_else(|| CopyCommitError::Other(anyhow::anyhow!("Unexpected output for commit {commit_id}: {output}")))?;
+
+    if Self::is_cacheable_key(commit_id) {
+      self.cache.insert(commit_id.to_string(), tree_id.to_string());
+      self.committer_timestamps.insert(commit_id.to_string(), timestamp);
+    }
+    Ok(timestamp)
   }
 }
 

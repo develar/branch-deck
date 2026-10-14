@@ -7,7 +7,7 @@ use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, cr
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::write_commit_notes;
 use git_ops::ref_transaction::RefTransaction;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Mutex;
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, error, instrument, warn};
@@ -79,11 +79,20 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
   let is_existing_branch = git_executor.ref_exists(repository_path, &format!("refs/heads/{full_branch_name}"));
   debug!(name = %full_branch_name, exists = is_existing_branch, "Checking if branch exists");
 
-  // If branch exists, get all its commits in one call for efficient reuse checking
+  // If branch exists, get all its commits with their first parents in one call for efficient reuse checking
+  let mut existing_tip = None;
   let existing_virtual_commits = if is_existing_branch {
-    match git_executor.execute_command(&["rev-list", &full_branch_name, &format!("^{parent_commit_hash}")], repository_path) {
+    match git_executor.execute_command(&["rev-list", "--parents", &full_branch_name, &format!("^{parent_commit_hash}")], repository_path) {
       Ok(output) => {
-        let commits: HashSet<String> = output.lines().map(|line| line.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        // newest first
+        existing_tip = output.split_whitespace().next().map(str::to_string);
+        let commits: HashMap<String, String> = output
+          .lines()
+          .filter_map(|line| {
+            let mut ids = line.split_whitespace();
+            Some((ids.next()?.to_string(), ids.next()?.to_string()))
+          })
+          .collect();
         debug!(name = %full_branch_name, commit_count = commits.len(), "Got existing virtual commits for reuse checking");
         Some(commits)
       }
@@ -97,6 +106,8 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
   };
 
   let mut current_parent_hash = parent_commit_hash.clone();
+  // a copy is never older than the commits below it, and its date depends only on the originals and the base
+  let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, parent_commit_hash)?;
   let mut last_commit_hash = String::new();
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<(String, String)> = Vec::new();
@@ -115,6 +126,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
     // If any commit in the branch's history up to this point has changed, we still need to copy this commit —
     // even if its own content didn't change — so that its parent reference is updated.
     let reuse_if_possible = is_existing_branch && !is_any_commit_changed;
+    committer_timestamp = committer_timestamp.max(commit.committer_timestamp);
 
     let progress_info = git_ops::copy_commit::ProgressInfo {
       branch_name: &branch_name,
@@ -134,6 +146,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
       git_executor,
       tree_id_cache,
       existing_virtual_commits: existing_virtual_commits.as_ref(),
+      committer_timestamp,
     };
 
     match process_single_commit(commit_params, &branch_name, &commit.id, &commits[current_commit_idx + 1..], progress, &progress_info)? {
@@ -166,7 +179,8 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
 
   let branch_sync_status: BranchSyncStatus;
   if is_existing_branch {
-    if is_any_commit_changed {
+    // every commit is reused, but commits at the end may have left the branch
+    if is_any_commit_changed || existing_tip.as_ref() != Some(&last_commit_hash) {
       branch_sync_status = BranchSyncStatus::Updated;
       debug!(name = %branch_name, "Branch was updated with new commits");
     } else {
@@ -300,3 +314,7 @@ fn process_single_commit<P: ProgressReporter>(
     Err(CopyCommitError::Other(e)) => Err(e),
   }
 }
+
+#[cfg(test)]
+#[path = "branch_processor_test.rs"]
+mod branch_processor_test;
