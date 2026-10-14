@@ -120,9 +120,10 @@ fn agent_help_names_every_command_and_option_that_exists() {
 
   let wrong: Vec<&&str> = NOT_IN_AGENT_HELP
     .iter()
-    .filter(|entry| match entry.split_once(" --") {
-      Some((command, option)) => !commands.get(command).is_some_and(|options| options.contains(option)) || is_named(Some(command), option),
-      None => {
+    .filter(|entry| {
+      if let Some((command, option)) = entry.split_once(" --") {
+        !commands.get(command).is_some_and(|options| options.contains(option)) || is_named(Some(command), option)
+      } else {
         let option = entry.trim_start_matches("--");
         !global.contains(option) || is_named(None, option)
       }
