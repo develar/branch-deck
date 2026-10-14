@@ -94,7 +94,7 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   `rounded-xl` is the most they get. They must stay visibly less round than the 10px island around them.
 - **Never hardcode a radius** (`rounded-[12px]`, `rounded-md` on a card). To change the overall feel, change `--radius`
   and check every component.
-- **Colours** use semantic tokens only, as in the Code Style section of `CLAUDE.md`.
+- **Colours** use semantic tokens only, as in the Code Style section of `AGENTS.md`.
 - **Spacing**:
   - islands in the main window are separated by `gap-6` (`BranchCreator`);
   - `IndexPage` has `py-4`, so the header island does not touch the title bar.

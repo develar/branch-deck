@@ -5,7 +5,7 @@ use sync_types::SyncEvent;
 use test_log::test;
 
 /// Test the core orphan scenario: virtual branch exists but original commits are gone from HEAD
-/// This tests what CLAUDE.md describes as orphaned: "Virtual branch exists but original commits are gone"
+/// This tests what AGENTS.md describes as orphaned: "Virtual branch exists but original commits are gone"
 #[test(tokio::test)]
 async fn test_true_orphan_case_when_original_commits_removed_from_head() {
   use sync_core::baseline::detect_baseline_branch;
