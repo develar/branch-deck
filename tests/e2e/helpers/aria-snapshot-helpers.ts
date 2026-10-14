@@ -21,11 +21,13 @@ export async function captureAriaSnapshot(
  * Base UI marks transitions with `data-starting-style`/`data-ending-style`, keeps a closing popup mounted
  * (`data-closed`, in a portal) until its exit transition ends, and sets measured sizes
  * (e.g. `--collapsible-panel-height`) while a panel animates. Infinite animations (spinners, pulse) are ignored.
- * A commit list is `aria-busy` until the file counts of its meta lines are read.
+ * A commit list is `aria-busy` until the file counts of its meta lines are read. Only a popup counts as closing: a
+ * collapsed accordion or collapsible inside an open dialog (the files of the commit preview) is `data-closed` for good.
  */
 async function waitForTransitionsSettled(page: Page): Promise<void> {
   await page.waitForFunction(() => {
-    if (document.querySelector("[data-starting-style], [data-ending-style], [data-base-ui-portal] [data-closed], table[aria-busy=true], ol[aria-busy=true]")) {
+    const closingPopup = "[data-base-ui-portal] :is([role=dialog], [role=alertdialog], [role=tooltip], [role=menu], [role=listbox])[data-closed]"
+    if (document.querySelector(`[data-starting-style], [data-ending-style], ${closingPopup}, table[aria-busy=true], ol[aria-busy=true]`)) {
       return false
     }
     return document.getAnimations().every(animation => animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity)
