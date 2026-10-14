@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { routePush } from "../helpers/push-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 const BRANCH_COUNT = 7
@@ -20,30 +21,6 @@ async function openOverview(page: Page): Promise<Locator> {
 
 function getOverviewRow(popover: Locator, name: string): Locator {
   return popover.locator(`[data-testid="outgoing-branch"][data-branch-name="${name}"]`)
-}
-
-interface PushResult {
-  unpushedCommits?: string[]
-  commitsBehind?: number
-}
-
-/** Answers `push_branch` in the page (the E2E server has no remote): the remote status after the push. */
-async function routePush(page: Page, results: Record<string, PushResult>) {
-  await page.route("**/invoke/push_branch", async (route) => {
-    const branchName = (route.request().postDataJSON() as { branchName: string }).branchName
-    const result = results[branchName] ?? {}
-    const unpushedCommits = result.unpushedCommits ?? []
-    await route.fulfill({
-      json: {
-        branchName,
-        remoteExists: true,
-        unpushedCommits,
-        commitsBehind: result.commitsBehind ?? 0,
-        myUnpushedCount: unpushedCommits.length,
-        lastPushTime: 1704139200,
-      },
-    })
-  })
 }
 
 test.describe("Outgoing indicator", () => {

@@ -3,12 +3,14 @@ import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
-import { formatOutgoingCount, formatPushSummaryTitle, getOutgoingLegend, outgoingBarFill } from "@/lib/push-summary"
+import { formatOutgoingCount, formatOutgoingTitle, getOutgoingLegend, outgoingBarFill } from "@/lib/push-summary"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
 export interface OutgoingPopoverProps {
   summary: PushSummary
+  /** Branches with an open pull request; those with nothing to push get a row after the outgoing ones */
+  reviewBranches?: readonly string[]
   /** Closes the popover: a click on a branch name shows its row */
   onClose: () => void
   /** The pull request chip of a branch, between the state and the push button */
@@ -27,8 +29,9 @@ const stateWord: Readonly<Record<OutgoingState, string>> = {
 /**
  * The overview of what is waiting to be pushed: a row per branch with a bar proportional to the largest push (solid for
  * the user's commits), the mine/total count, the state and the push button of the branch row. Pushing stays per branch.
+ * The branches with an open pull request and nothing to push follow, so the overview says what the work waits on.
  */
-export function OutgoingPopover({ summary, onClose, renderPullRequest, footer }: OutgoingPopoverProps) {
+export function OutgoingPopover({ summary, reviewBranches = [], onClose, renderPullRequest, footer }: OutgoingPopoverProps) {
   const max = Math.max(1, ...summary.branches.map(branch => branch.count))
   const notes: string[] = []
   if (summary.mine !== summary.total) {
@@ -38,6 +41,9 @@ export function OutgoingPopover({ summary, onClose, renderPullRequest, footer }:
     notes.push(`${summary.notLoaded} ${summary.notLoaded === 1 ? "branch" : "branches"} not checked yet`)
   }
 
+  const outgoingNames = new Set(summary.branches.map(branch => branch.name))
+  const reviewOnly = reviewBranches.filter(name => !outgoingNames.has(name))
+
   const reveal = (name: string) => {
     requestReveal({ branchName: name, commitIds: [] })
     onClose()
@@ -46,7 +52,7 @@ export function OutgoingPopover({ summary, onClose, renderPullRequest, footer }:
   return (
     <>
       <div className="flex flex-col gap-1">
-        <PopoverTitle className="text-sm">{formatPushSummaryTitle(summary)}</PopoverTitle>
+        <PopoverTitle className="text-sm">{formatOutgoingTitle(summary, reviewBranches.length)}</PopoverTitle>
         {notes.length > 0 && <PopoverDescription className="text-xs">{notes.join(" · ")}</PopoverDescription>}
       </div>
 
@@ -62,11 +68,13 @@ export function OutgoingPopover({ summary, onClose, renderPullRequest, footer }:
         {summary.branches.map(branch => (
           <OutgoingRow key={branch.name} branch={branch} max={max} onReveal={reveal} renderPullRequest={renderPullRequest} />
         ))}
+        {reviewOnly.map(name => <ReviewRow key={name} name={name} onReveal={reveal} renderPullRequest={renderPullRequest} />)}
       </div>
 
-      <OutgoingLegend summary={summary} />
+      {summary.branches.length > 0 && <OutgoingLegend summary={summary} />}
 
-      {footer !== undefined && <div className="border-t border-border pt-3 text-xs">{footer}</div>}
+      {/* hidden when every part renders nothing (a local baseline, no GitHub) */}
+      {footer !== undefined && <div className="flex flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>}
     </>
   )
 }
@@ -87,14 +95,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
       data-branch-name={branch.name}
       data-state={branch.state}
     >
-      <button
-        type="button"
-        className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-        title={`Show ${branch.name}`}
-        onClick={() => onReveal(branch.name)}
-      >
-        {branch.name}
-      </button>
+      <BranchNameButton name={branch.name} onReveal={onReveal} />
       <OutgoingRowBar branch={branch} max={max} />
       <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">{formatOutgoingCount(branch)}</span>
       <span className="text-xs text-muted-foreground">{stateWord[branch.state]}</span>
@@ -103,6 +104,34 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
         <OutgoingPushButton name={branch.name} />
       </span>
     </div>
+  )
+}
+
+/** A branch with nothing to push and an open pull request: the name and the chip, the other columns empty */
+function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReveal: (name: string) => void, renderPullRequest?: (branchName: string) => ReactNode }) {
+  return (
+    <div role="listitem" className="col-span-full grid min-h-7 grid-cols-subgrid items-center" data-testid="outgoing-review-branch" data-branch-name={name}>
+      <BranchNameButton name={name} onReveal={onReveal} />
+      <span />
+      <span className="text-xs text-muted-foreground">pushed</span>
+      <span />
+      {renderPullRequest !== undefined && <span className="flex items-center">{renderPullRequest(name)}</span>}
+      <span />
+    </div>
+  )
+}
+
+/** Shows the branch row */
+function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+      title={`Show ${name}`}
+      onClick={() => onReveal(name)}
+    >
+      {name}
+    </button>
   )
 }
 

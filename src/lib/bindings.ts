@@ -8,6 +8,11 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**  Pushes a specific branch to the remote repository and returns updated remote status */
 	pushBranch: (params: PushBranchParams) => typedError<RemoteStatusUpdate, CommandError>(__TAURI_INVOKE("push_branch", { params })),
+	/**
+	 *  The GitHub pull requests of the virtual branches, read through the `gh` CLI; when `gh` can't answer, the
+	 *  availability says why
+	 */
+	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, CommandError>(__TAURI_INVOKE("get_pull_requests", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
@@ -174,6 +179,19 @@ export type CacheClearResult = {
 	errors: string[],
 };
 
+export type ChecksState = "passing" | "failing" | "pending";
+
+/**  The checks of the head commit, summarized */
+export type ChecksSummary = {
+	/**  Failing if any check failed, else pending if any is still running, else passing */
+	state: ChecksState,
+	passed: number,
+	failed: number,
+	pending: number,
+	/**  The names of the failed checks, at most a few */
+	failedNames: string[],
+};
+
 export type ClearModelCacheParams = {
 	keepCurrent: boolean,
 };
@@ -315,6 +333,11 @@ export type GetFileContentForDiffParams = {
 	filePath: string,
 };
 
+export type GetPullRequestsParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+};
+
 export type GetUncommittedChangesParams = {
 	repositoryPath: string,
 };
@@ -449,6 +472,46 @@ export type PlannedGroup = {
 	folded: PlannedFixup[],
 };
 
+/**  A GitHub pull request of a virtual branch, as `gh pr list` reports it */
+export type PullRequest = {
+	number: number,
+	title: string,
+	url: string,
+	state: PullRequestState,
+	isDraft: boolean,
+	/**  null when the repository requires no review */
+	reviewDecision: ReviewDecision | null,
+	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
+	headRefName: string,
+	/**  The commit the pull request shows; differs from the local branch tip until the branch is pushed */
+	headRefOid: string,
+	/**  null when the head commit has no checks */
+	checks: ChecksSummary | null,
+	/**  Unix seconds */
+	updatedAt: number,
+	/**  The latest review of each reviewer, then the requested reviewers who have not reviewed since */
+	reviewers: Reviewer[],
+};
+
+/**  Whether pull requests can be listed for the repository */
+export type PullRequestAvailability = { status: "available" } | 
+/**  The `gh` CLI is not installed */
+{ status: "ghMissing" } | 
+/**  `gh` is not logged in (`gh auth login`) */
+{ status: "notAuthenticated" } | 
+/**  The push remote is not on github.com */
+{ status: "notGitHub" } | 
+/**  `gh` failed, e.g. offline or timed out */
+{ status: "error"; message: string };
+
+export type PullRequestState = "open" | "closed" | "merged";
+
+export type PullRequestsResult = {
+	availability: PullRequestAvailability,
+	/**  By virtual branch name (without the `{prefix}/virtual/` namespace); empty unless available */
+	pullRequests: { [key in string]: PullRequest },
+};
+
 export type PushBranchParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -476,6 +539,18 @@ export type RestoreBranchHeadParams = {
 	expectedHead: string,
 	previousHead: string,
 };
+
+export type ReviewDecision = "approved" | "changesRequested" | "reviewRequired";
+
+export type Reviewer = {
+	/**  The user login, or the team slug */
+	login: string,
+	state: ReviewerState,
+};
+
+export type ReviewerState = "approved" | "changesRequested" | "commented" | 
+/**  Asked to review and not reviewed since */
+"requested";
 
 export type RewordCommitsRequest = {
 	repositoryPath: string,

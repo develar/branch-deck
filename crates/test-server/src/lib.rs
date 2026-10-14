@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -64,6 +65,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", get(get_repository))
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
+    .route("/repositories/{id}/pull-requests", post(set_pull_requests).get(get_pull_request_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -80,6 +82,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
     .route("/invoke/squash_fixup_commits", post(tauri_command_bridge::squash_fixup_commits))
     .route("/invoke/update_project", post(tauri_command_bridge::update_project))
+    .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
@@ -369,6 +372,8 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     store,
     model_state,
     download_cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    pull_requests: std::sync::RwLock::new(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
+    pull_request_calls: std::sync::atomic::AtomicU32::new(0),
   };
   state.repositories.insert(id.to_string(), repo);
 }
@@ -409,6 +414,24 @@ pub async fn reword_commit(
       Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
   }
+}
+
+/// Sets what `get_pull_requests` answers for the repository. A pull request with an empty `headRefOid` shows the
+/// local tip of its branch at the time of the request (the test doesn't know the commit ids the sync creates).
+pub async fn set_pull_requests(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(result): Json<PullRequestsResult>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  *repo.pull_requests.write().expect("pull request fixture lock") = result;
+  Ok(StatusCode::OK)
+}
+
+/// How often the app asked for pull requests
+pub async fn get_pull_request_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  Ok(Json(serde_json::json!({ "calls": repo.pull_request_calls.load(std::sync::atomic::Ordering::SeqCst) })))
 }
 
 pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {

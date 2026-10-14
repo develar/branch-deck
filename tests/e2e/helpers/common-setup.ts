@@ -33,6 +33,11 @@ export async function setupTestRepository(
 
   await repoBuilder.init()
 
+  // the first sync asks for the pull requests
+  if (parsedOptions.pullRequests !== undefined) {
+    await repoBuilder.setPullRequests(parsedOptions.pullRequests)
+  }
+
   // Set initial store values if provided BEFORE navigating
   if (Object.keys(parsedOptions.initialStoreValues).length > 0 && repoBuilder.id) {
     const baseUrl = "http://localhost:3030"

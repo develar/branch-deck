@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { Card } from "@/components/ui/card"
 import { BranchRow } from "@/components/branch/BranchRow"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
+import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
@@ -100,7 +101,13 @@ export function BranchTableCard() {
       </div>
       {isPreviewLoaded && (
         <Suspense fallback={null}>
-          <BranchPreviewDialog names={branchNames} name={previewName} onNameChange={setPreviewName} onClose={() => setPreviewName(null)} />
+          <BranchPreviewDialog
+            names={branchNames}
+            name={previewName}
+            onNameChange={setPreviewName}
+            onClose={() => setPreviewName(null)}
+            renderPullRequestSection={branch => <BranchPullRequestSection branchName={branch.name} />}
+          />
         </Suspense>
       )}
     </Card>

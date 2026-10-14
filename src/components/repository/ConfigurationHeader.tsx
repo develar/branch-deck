@@ -6,10 +6,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
+import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
+import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
+import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { formatRelativeTime } from "@/lib/time"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -18,6 +21,10 @@ import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSetting
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
 
 const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
+
+function renderPullRequestChip(branchName: string) {
+  return <PullRequestChip branchName={branchName} />
+}
 
 export function ConfigurationHeader() {
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -28,6 +35,7 @@ export function ConfigurationHeader() {
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const lastSyncTime = selectedProject?.lastSyncTime
   const refusedUpdate = useRefusedUpdate()
+  const pullRequestOverview = usePullRequestOverview()
   // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
   const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)
   if (refusedUpdate !== null && !isRefusedDialogMounted) {
@@ -83,7 +91,17 @@ export function ConfigurationHeader() {
             // hidden while empty: an empty flex item would still take a gap
             <div className="flex items-center gap-1 empty:hidden">
               <UpdateProjectButton />
-              <OutgoingIndicator footer={<UpdateStateLine />} />
+              <OutgoingIndicator
+                renderPullRequest={renderPullRequestChip}
+                reviewBranches={pullRequestOverview.openBranches}
+                needsAttention={pullRequestOverview.needsAttention}
+                footer={(
+                  <>
+                    <UpdateStateLine />
+                    <PullRequestStatusLine />
+                  </>
+                )}
+              />
             </div>
           )}
           {lastSyncTime && !isSyncing && pathValidation.valid

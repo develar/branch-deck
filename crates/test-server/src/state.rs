@@ -2,8 +2,9 @@ use dashmap::DashMap;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, RwLock};
+use sync_types::pull_request::PullRequestsResult;
 
 pub struct AppState {
   pub repositories: DashMap<String, TestRepository>,
@@ -27,4 +28,8 @@ pub struct TestRepository {
   pub store: DashMap<String, serde_json::Value>,
   pub model_state: Arc<RwLock<ModelState>>,
   pub download_cancelled: Arc<AtomicBool>, // Per-repository download cancellation
+  /// What `get_pull_requests` answers (E2E never runs gh); not on GitHub until a test sets it
+  pub pull_requests: RwLock<PullRequestsResult>,
+  /// How often the app asked for pull requests, so a test can check the refresh policy
+  pub pull_request_calls: AtomicU32,
 }

@@ -7,6 +7,7 @@ import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { useMenuSync } from "@/hooks/useMenuSync"
+import { usePullRequestRefresh } from "@/hooks/usePullRequestRefresh"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { branchSyncStore, syncBranches, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
@@ -29,6 +30,7 @@ export function BranchCreator() {
     initRepository()
   }, [])
   useMenuSync()
+  usePullRequestRefresh()
   useWindowFocus(() => {
     void debouncedAutoSync()
   })

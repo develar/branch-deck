@@ -16,6 +16,7 @@ use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
+use commands::pull_requests::get_pull_requests;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::reword_commit::reword_commits;
@@ -44,6 +45,7 @@ pub fn run() {
   // aliases only add noise (and type `Channel<T>` arguments with the wrong phase)
   let ts_builder = Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
+    get_pull_requests,
     sync_branches,
     get_branch_prefix_from_git_config,
     browse_repository,

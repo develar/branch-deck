@@ -6167,6 +6167,7 @@ dependencies = [
  "pretty_assertions",
  "quick-xml",
  "serde",
+ "serde_json",
  "specta",
  "sync-test-utils",
  "sync-types",

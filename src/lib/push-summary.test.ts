@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { formatOutgoingCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import { formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { BranchStatus, RemoteStatus } from "@/stores/branch-sync"
 
 interface BranchOptions {
@@ -93,6 +93,8 @@ describe("summarizePushState", () => {
     expect(summary.branches).toEqual([])
     expect(summary.total).toBe(0)
     expect(summary.notLoaded).toBe(0)
+    // the indicator stays for an open pull request
+    expect(formatOutgoingTitle(summary, 2)).toBe("Nothing to push, 2 pull requests open")
   })
 })
 

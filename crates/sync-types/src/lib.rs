@@ -6,6 +6,7 @@ use serde::Serialize;
 
 pub mod branch_integration;
 pub mod issue_navigation;
+pub mod pull_request;
 
 /// Remote branch status information
 #[derive(Clone, Debug, Serialize)]

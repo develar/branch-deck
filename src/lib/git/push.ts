@@ -2,9 +2,13 @@ import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
+import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import { vcsRequestFactory } from "@/stores/repository"
 
-/** Pushes a virtual branch and updates its remote status from the result. Errors are reported with a toast. */
+/**
+ * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
+ * the branch now shows the pushed commit). Errors are reported with a toast.
+ */
 export async function pushBranch(branchName: string): Promise<void> {
   if (isBranchPushing(branchName)) {
     return
@@ -35,6 +39,7 @@ export async function pushBranch(branchName: string): Promise<void> {
         description: `Branch ${branchName} pushed successfully`,
       })
       setBranchRemoteStatus(branchName, toRemoteStatus(result.data))
+      void refreshPullRequestsAfterPush(branchName, branch.commits[0]?.hash)
     }
     else {
       notifyError("Push Failed", result.error)

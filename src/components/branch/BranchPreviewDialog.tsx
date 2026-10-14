@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
+import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
@@ -26,11 +27,13 @@ import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushBranch } from "@/lib/git/push"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
+import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
   /** The branches in the table order; ↑/↓ step through them */
@@ -46,7 +49,7 @@ export interface BranchPreviewDialogProps {
 /**
  * Centered preview of one branch, as the commit preview shows a commit: the name and the meta line, then the commits
  * newest first with their whole messages, so it reads like the description of a pull request.
- * ↑/↓ show the previous or next branch of the table, P pushes, Space and Escape close it.
+ * ↑/↓ show the previous or next branch of the table, P pushes, O opens the pull request, Space and Escape close it.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -67,6 +70,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   // as the push button of the row: only a branch that synced without an error has something to push
   const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, isSyncing, isPushing)
   const canPush = push !== null && !push.disabled && !processing
+  const pullRequest = usePullRequest(currentName ?? "")
 
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -78,6 +82,10 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     if (event.code === "KeyP" && canPush) {
       event.preventDefault()
       void pushBranch(branch!.name)
+    }
+    else if (event.code === "KeyO" && pullRequest !== undefined) {
+      event.preventDefault()
+      openPullRequest(pullRequest)
     }
   }
 
@@ -119,6 +127,12 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
           <PreviewDialogFooter start={<span data-testid="branch-preview-position">{`${index + 1} / ${names.length}`}</span>}>
             <PreviewNavigationHints count={names.length} />
+            {pullRequest !== undefined && (
+              <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
+                <Kbd>O</Kbd>
+                Open Pull Request
+              </Button>
+            )}
             {push !== null && (
               <Button variant="ghost" size="xs" disabled={!canPush} aria-busy={isPushing || undefined} onClick={() => void pushBranch(branch.name)}>
                 {isPushing ? <Spinner data-icon="inline-start" /> : <Kbd>P</Kbd>}
@@ -132,8 +146,12 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   )
 }
 
-/** Commit count, latest commit time, the status of the row (with its description on hover) and the last push time. */
+/**
+ * Commit count, latest commit time, the status of the row (with its description on hover), the last push time and the
+ * pull request chip.
+ */
 function BranchPreviewMeta({ branch }: { branch: Branch }) {
+  const pullRequest = usePullRequest(branch.name)
   const status = getStatusBadge(branch)
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = [<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>]
@@ -151,6 +169,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   )
   if (lastPushTime > 0) {
     items.push(<span data-testid="branch-preview-last-push">{`Pushed ${formatTimestamp(lastPushTime)}`}</span>)
+  }
+  if (pullRequest) {
+    items.push(<PullRequestChip branchName={branch.name} />)
   }
 
   return (

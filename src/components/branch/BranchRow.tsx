@@ -7,6 +7,7 @@ import { BranchActions } from "@/components/branch/BranchActions"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
+import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
@@ -107,7 +108,10 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
           </span>
         </td>
         <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-          <BranchStatusBadge branch={branch} />
+          <div className="flex items-center gap-2">
+            <BranchStatusBadge branch={branch} />
+            <PullRequestChip branchName={name} />
+          </div>
         </td>
         <td className="w-px px-4 py-4 whitespace-nowrap">
           <BranchActions branch={branch} />

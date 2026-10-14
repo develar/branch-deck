@@ -1,3 +1,5 @@
+import type { PullRequestsResult } from "../../../src/lib/bindings"
+
 export class TestRepositoryBuilder {
   private baseUrl = "http://localhost:3030"
   public id: string = ""
@@ -64,6 +66,25 @@ export class TestRepositoryBuilder {
 
     const data = await response.json()
     return data.newCommitId
+  }
+
+  /** Sets what `get_pull_requests` answers from now on (E2E never runs gh) */
+  async setPullRequests(result: PullRequestsResult): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/pull-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(result),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to set pull requests: ${response.status} ${await response.text()}`)
+    }
+  }
+
+  /** How often the app asked for pull requests */
+  async getPullRequestCalls(): Promise<number> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/pull-requests`)
+    const data = await response.json() as { calls: number }
+    return data.calls
   }
 
   async cleanup(): Promise<void> {

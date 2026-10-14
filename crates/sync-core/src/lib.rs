@@ -8,6 +8,7 @@ pub mod commit_grouper;
 pub mod delete_archived_branch;
 pub mod issue_navigation;
 pub mod move_commits;
+pub mod pull_requests;
 pub mod push;
 pub mod remote_command;
 pub mod remote_status;
@@ -21,6 +22,8 @@ pub mod update_project;
 
 #[cfg(test)]
 mod branch_prefix_test;
+#[cfg(test)]
+mod pull_requests_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

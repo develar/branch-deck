@@ -408,6 +408,11 @@ export const tauriMockScript = () => {
     "plugin:event": handleEventCommand,
     "plugin:path": handlePathCommand,
     "plugin:log": () => null, // Ignore log commands
+    // links open in the browser: record them for the test (`window.__OPENED_URLS__`)
+    "plugin:opener": (_cmd: string, payload: any) => {
+      ;((window as any).__OPENED_URLS__ ??= []).push(payload?.url)
+      return null
+    },
     
     // Repository commands
     "get_branch_prefix_from_git_config": (cmd: string, payload: any) => {

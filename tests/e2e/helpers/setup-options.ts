@@ -28,6 +28,12 @@ export const SetupRepoOptionsSchema = z.object({
    * Default: empty object - Only used for specific test scenarios
    */
   initialStoreValues: z.record(z.string(), z.any()).default({}),
+
+  /**
+   * What `get_pull_requests` answers (a `PullRequestsResult`, see `pull-request-helpers.ts`), set before the first sync
+   * Default: undefined - the repository is not on GitHub
+   */
+  pullRequests: z.any().optional(),
 })
 
 /**

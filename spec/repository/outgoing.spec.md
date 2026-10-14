@@ -73,7 +73,8 @@ The overview answers "what is my work waiting on" without scanning the branch ta
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the commits to push with a bar segment per branch`)
 - With more than 8 outgoing branches, the bar must have a segment per state instead, so the segments stay readable.
   [@test] ../../src/lib/push-summary.test.ts (`has a segment per state for many branches`)
-- The indicator must be hidden when nothing is outgoing, also right after the last push.
+- The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
+  ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
 - It must follow every sync and push result without a reload.
 
@@ -139,9 +140,6 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 
 ## Open Questions / Risks
 
-- Step 8 (pull requests) passes `renderPullRequest(branchName)` for the chip of a row, between the state word and the
-  push button, and adds a dot to the indicator when a pull request has changes requested or failing checks. The
-  indicator must then also show when a pull request is open and nothing is outgoing.
 - The `primary` green has a 2.2:1 contrast on the light card, the light tints 1.4–2.7:1; the counts and the state words
   carry the values in text.
 - Solid green and solid amber are 6.4 ΔE apart for deuteranopia (validator floor band): the 2px gaps, the state words
@@ -153,4 +151,5 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md): how ahead, behind and mine are computed.
 - [Branch Preview](../branch/branch-preview.spec.md): the same push button and labels.
+- [Pull Requests](../branch/pull-requests.spec.md): the chip column, the attention dot and the pull request footer line.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

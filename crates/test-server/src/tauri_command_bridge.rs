@@ -296,6 +296,28 @@ pub async fn update_project(
     .map_err(|e| command_failed("update the project", &e))
 }
 
+/// The fixture set by `POST /repositories/{id}/pull-requests`; gh never runs in E2E
+pub async fn get_pull_requests(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::pull_requests::GetPullRequestsParams>,
+) -> Result<Json<sync_types::pull_request::PullRequestsResult>, StatusCode> {
+  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  repo.pull_request_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+  let mut result = repo.pull_requests.read().expect("pull request fixture lock").clone();
+  drop(repo);
+  for pull_request in result.pull_requests.values_mut() {
+    if pull_request.head_ref_oid.is_empty() {
+      let full_ref = format!("refs/heads/{}", pull_request.head_ref_name);
+      pull_request.head_ref_oid = state
+        .git_executor
+        .execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], &params.repository_path)
+        .unwrap_or_default();
+    }
+  }
+  Ok(Json(result))
+}
+
 fn command_failed(operation: &str, e: &anyhow::Error) -> (StatusCode, String) {
   tracing::error!("Failed to {operation}: {e:#}");
   (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))

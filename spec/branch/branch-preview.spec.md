@@ -111,13 +111,13 @@ The arrows step through the branches of the table, and P pushes the shown branch
 
 ## Open Questions / Risks
 
-- Step 8 (pull request status) fills `renderPullRequestSection` above the commits and adds `O` to open the pull request.
 - No test covers a sync error notice or the disabled push during a sync.
 - Space right after a popover closes with Escape belongs to the trigger that got the focus back, until the pointer moves.
 - A long branch with many commits renders every message at once; the body is not virtualized.
 
 ## References
 
+- [Pull Requests](pull-requests.spec.md): the pull request section above the commits, the chip in the meta line and `O`.
 - [Commit Row](../commit/commit-row.spec.md): the commit preview, its keys and the focus rules of Space.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)
 - The preview follows macOS Quick Look, as the commit preview does.

@@ -121,6 +121,14 @@ export function formatPushSummaryTitle(summary: PushSummary): string {
   return `${plural(summary.total, "commit", "commits")} to push in ${plural(summary.branches.length, "branch", "branches")}`
 }
 
+/** The push summary title; with nothing to push, "Nothing to push, 2 pull requests open" */
+export function formatOutgoingTitle(summary: PushSummary, openPullRequests: number): string {
+  if (summary.branches.length > 0) {
+    return formatPushSummaryTitle(summary)
+  }
+  return `Nothing to push, ${plural(openPullRequests, "pull request", "pull requests")} open`
+}
+
 /** Fills of an outgoing bar: the hue of the state, solid for the user's commits, light for the others'. */
 export interface OutgoingBarFill {
   mine: string
