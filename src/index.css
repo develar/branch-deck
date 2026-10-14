@@ -1,4 +1,10 @@
-@import "tailwindcss";
+/*
+ * Scan only the app sources for class names: the automatic detection walked the whole checkout (Rust code, docs,
+ * e2e snapshots, agent worktrees), which took the build 37 s and added classes no component uses.
+ * The classes of @git-diff-view come with its own stylesheet below.
+ */
+@import "tailwindcss" source("../src");
+@source "../index.html";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 /* full InterVariable build (rsms): the fontsource files lack ss02, cv05, cv11 and other OpenType features */

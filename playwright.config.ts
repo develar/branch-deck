@@ -33,7 +33,8 @@ export default defineConfig({
   webServer: [
     {
       name: "test-server",
-      command: process.env.CI ? "cargo run -p test-server" : "pnpm test-server:dev",
+      // a running server is reused locally, e.g. `pnpm test-server:dev` that restarts on changes (needs watchexec)
+      command: "cargo run -p test-server",
       port: 3030,
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",

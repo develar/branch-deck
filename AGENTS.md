@@ -23,7 +23,7 @@ pnpm setup:e2e            # First-time setup: Install Playwright browsers
 pnpm e2e                  # Run Playwright E2E tests (auto-installs browsers if needed)
 pnpm e2e-up               # Run E2E tests and update snapshots
 DEBUG_E2E=1 pnpm e2e      # Run E2E tests with verbose debug output
-pnpm test-server:dev      # Run the E2E mock server with auto-restart (requires watchexec: `brew install watchexec`)
+pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (needs watchexec); `pnpm e2e` reuses it
 
 # Linting & Formatting
 pnpm lint                 # Run all linting and formatting
