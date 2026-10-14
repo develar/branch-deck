@@ -381,8 +381,8 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   rest again. A branch whose commits are all reused still moves if its old tip had more commits.
 - **Deterministic copies.** The committer date is the newest committer date of the original, the originals below it
   and the base (the base's date is read with its tree). The same originals on the same base give the same ids, even
-  after the notes are lost. The dates are unix seconds in the local timezone, like the author date: the commit list
-  does not read the original timezones yet.
+  after the notes are lost. Both dates keep the original's timezone (`%aI`, `%cI` of the commit list), so the copies
+  don't depend on the machine's timezone either.
 - **Rewords carry the notes.** A reword or move recreates every commit after the oldest reworded one, and its
   `fast-import` stream also writes the old commits' mapping notes onto the new ones (`N inline :<mark>`). A reworded
   commit keeps its note only if its virtual commit stays the same: the subject without the grouping prefix and the

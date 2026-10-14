@@ -68,6 +68,14 @@ pub struct CopiedCommit {
   pub note: Option<(String, String)>,
 }
 
+fn git_date(timestamp: u32, timezone: &str) -> String {
+  if timezone.is_empty() {
+    timestamp.to_string()
+  } else {
+    format!("{timestamp} {timezone}")
+  }
+}
+
 // Create or update a commit based on an original commit
 #[instrument(skip(params), fields(commit_id = %params.commit.id, branch = %params.progress_info.branch_name))]
 pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedCommit, CopyCommitError> {
@@ -144,9 +152,9 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
   // Create new commit using git commit-tree
   let commit_args = vec!["commit-tree", &tree_id, "-p", new_parent_oid, "-m", &commit_message];
 
-  // Use Unix timestamp directly (Git accepts this format)
-  let author_date = commit.author_timestamp.to_string();
-  let committer_date = committer_timestamp.to_string();
+  // `<unix seconds> <offset>` keeps the original timezone; without the offset git takes the local one
+  let author_date = git_date(commit.author_timestamp, &commit.author_timezone);
+  let committer_date = git_date(committer_timestamp, &commit.committer_timezone);
 
   let env_vars = vec![
     ("GIT_AUTHOR_NAME", commit.author_name.as_str()),

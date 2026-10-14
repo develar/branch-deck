@@ -217,3 +217,22 @@ async fn a_reworded_body_recopies_the_commit() {
     "Add login\n\nWith a remember-me box."
   );
 }
+
+#[tokio::test]
+async fn a_copy_keeps_the_timezones_of_the_original() {
+  let test_repo = TestRepo::new();
+  // older than the original, so the copy's committer date is the original's
+  test_repo.create_commit_with_timestamp("Initial commit", "README.md", "# Test", Some(1_600_000_000));
+  std::fs::write(test_repo.path().join("login.rs"), "// login").unwrap();
+  test_repo.git_executor().execute_command(&["add", "login.rs"], repo_path(&test_repo)).unwrap();
+  let env = [("GIT_AUTHOR_DATE", "1700000000 +0530"), ("GIT_COMMITTER_DATE", "1700000100 -0700")];
+  test_repo
+    .git_executor()
+    .execute_command_with_env(&["commit", "-m", "(auth) Add login"], repo_path(&test_repo), &env)
+    .unwrap();
+
+  sync(&test_repo).await;
+
+  let dates = test_repo.log(&["-1", "--format=%ad|%cd", "--date=raw", "test/virtual/auth"]).unwrap();
+  assert_eq!(dates.trim(), "1700000000 +0530|1700000100 -0700");
+}

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
+use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -163,14 +164,8 @@ pub fn get_archived_branch_commits(git_executor: &GitCommandExecutor, repository
   // Get all commits from merge-base to branch tip
   let range = format!("{merge_base}..{actual_branch_name}");
   debug!(branch = %actual_branch_name, merge_base = %merge_base, range = %range, "Getting all commits on branch since divergence");
-  let args = vec![
-    "--no-pager",
-    "log",
-    "--reverse",
-    "--no-merges",
-    "--pretty=format:%H%x1f%B%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%P%x1f%T%x1f%N%x1e",
-    &range,
-  ];
+  let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
+  let args = vec!["--no-pager", "log", "--reverse", "--no-merges", &pretty_format, &range];
 
   let output = git_executor.execute_command(&args, repository_path)?;
 

@@ -6,7 +6,7 @@ use tracing::{debug, instrument};
 
 /// `git log` pretty format for one commit record, parsed by `commit_list::parse_single_commit`.
 /// Fields are separated by `%x1f`, records are terminated by `%x1e`.
-pub const COMMIT_RECORD_FORMAT: &str = "%H%x1f%B%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%P%x1f%T%x1f%N%x1e";
+pub const COMMIT_RECORD_FORMAT: &str = "%H%x1f%B%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%P%x1f%T%x1f%aI%x1f%cI%x1f%N%x1e";
 
 /// Split `git log` output in `COMMIT_RECORD_FORMAT` into non-empty records
 fn commit_records(output: &str) -> impl Iterator<Item = &str> {

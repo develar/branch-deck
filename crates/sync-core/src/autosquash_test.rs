@@ -17,6 +17,8 @@ fn commit(id: &str, message: &str) -> Commit {
     author_email: "test@example.com".to_string(),
     author_timestamp: 1_234_567_890,
     committer_timestamp: 1_234_567_890,
+    author_timezone: String::new(),
+    committer_timezone: String::new(),
     subject,
     parent_id: None,
     tree_id: "tree".to_string(),

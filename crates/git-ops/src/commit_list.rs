@@ -23,6 +23,12 @@ pub struct Commit {
   pub author_timestamp: u32,
   #[serde(rename = "committerTime")]
   pub committer_timestamp: u32,
+  /// Offset of the author date, as git stores it (`+0200`); empty if unknown
+  #[serde(skip)]
+  pub author_timezone: String,
+  /// Offset of the committer date (`+0200`); empty if unknown
+  #[serde(skip)]
+  pub committer_timezone: String,
   #[serde(skip)]
   pub subject: String, // Original first line of the commit message
   #[serde(skip)]
@@ -134,6 +140,8 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   let committer_timestamp_field = fields.next().ok_or_else(|| anyhow!("Missing committer timestamp field"))?;
   let parents_field = fields.next().ok_or_else(|| anyhow!("Missing parents field"))?;
   let tree_id_field = fields.next().ok_or_else(|| anyhow!("Missing tree ID field"))?;
+  let author_date_field = fields.next().ok_or_else(|| anyhow!("Missing author date field"))?;
+  let committer_date_field = fields.next().ok_or_else(|| anyhow!("Missing committer date field"))?;
   let note_field = fields.next(); // Optional field
 
   // Parse fields
@@ -177,11 +185,22 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     author_email: author_email_field.to_string(),
     author_timestamp,
     committer_timestamp,
+    author_timezone: timezone_of(author_date_field),
+    committer_timezone: timezone_of(committer_date_field),
     parent_id,
     tree_id: tree_id_field.to_string(),
     note,
     mapped_commit_id,
   })
+}
+
+/// The offset of a strict ISO 8601 date (`%aI`, `2024-01-01T10:00:00+02:00`) as git stores it (`+0200`)
+fn timezone_of(iso_date: &str) -> String {
+  match iso_date.len().checked_sub(6).and_then(|start| iso_date.get(start..)) {
+    Some(offset) if offset.starts_with(['+', '-']) && offset.as_bytes()[3] == b':' => format!("{}{}", &offset[..3], &offset[4..]),
+    _ if iso_date.ends_with('Z') => "+0000".to_string(),
+    _ => String::new(),
+  }
 }
 
 #[cfg(test)]

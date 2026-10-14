@@ -36,6 +36,8 @@ fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timesta
     author_email: "test@example.com".to_string(),
     author_timestamp: timestamp,
     committer_timestamp: timestamp,
+    author_timezone: String::new(),
+    committer_timezone: String::new(),
     parent_id: None,
     tree_id: "tree123".to_string(),
     note: None,

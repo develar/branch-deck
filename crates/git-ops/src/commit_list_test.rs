@@ -207,7 +207,7 @@ fn test_git_log_format_debug() {
       "log",
       "--reverse",
       "--no-merges",
-      "--pretty=format:%H%x1f%B%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%P%x1f%T%x1f%N%x1e",
+      &format!("--pretty=format:{}", crate::commit_utils::COMMIT_RECORD_FORMAT),
       "origin/master..HEAD",
     ])
     .current_dir(test_repo.path())
@@ -328,4 +328,21 @@ fn test_multiple_commits_with_notes() {
   assert_eq!(commits[2].subject, "(feature) Third feature");
   assert_eq!(commits[2].note, Some("v-commit-v1:ghi789".to_string()));
   assert!(!commits[2].id.contains('\n'), "Commit ID should not contain newlines");
+}
+
+#[test]
+fn reads_the_timezones_of_the_author_and_committer_dates() {
+  let test_repo = TestRepo::new();
+  let repo_path = test_repo.path().to_str().unwrap();
+  test_repo.create_commit("Initial", "README.md", "# Test");
+  std::fs::write(test_repo.path().join("a.txt"), "a").unwrap();
+  let git_executor = test_repo.git_executor();
+  git_executor.execute_command(&["add", "a.txt"], repo_path).unwrap();
+  let env = [("GIT_AUTHOR_DATE", "1700000000 +0530"), ("GIT_COMMITTER_DATE", "1700000100 -0700")];
+  git_executor.execute_command_with_env(&["commit", "-m", "Add a"], repo_path, &env).unwrap();
+
+  let commit = crate::commit_utils::get_commit_info(git_executor, repo_path, "HEAD").unwrap();
+
+  assert_eq!((commit.author_timestamp, commit.author_timezone.as_str()), (1_700_000_000, "+0530"));
+  assert_eq!((commit.committer_timestamp, commit.committer_timezone.as_str()), (1_700_000_100, "-0700"));
 }
