@@ -95,6 +95,13 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 - **Never hardcode a radius** (`rounded-[12px]`, `rounded-md` on a card). To change the overall feel, change `--radius`
   and check every component.
 - **Colours** use semantic tokens only, as in the Code Style section of `AGENTS.md`.
+- **A colour means one thing** (statuses, chips, badges, callouts, their icons):
+  - `info`: already in the baseline: merged, landed, integrated;
+  - `success`: approved, passed, clean;
+  - `warning`: attention without a failure: blocked, outdated, a push that drops remote commits;
+  - `destructive`: a failure or a conflict;
+  - `primary`: the user's actions and selection: push, Sync, the folder icons, a selected or drop-target row;
+  - neutral (a `secondary` badge, muted text): a count or a routine state, such as the `SectionCardHeader` count.
 - **A note inside a form, a popover or a panel is a `Callout`** (`src/components/shared/Callout.tsx`), never a
   hand-rolled tinted box:
   - `tone` is `info`, `success`, `warning` or `destructive`; the box is `rounded-lg border-<tone>/20 bg-<tone>/10 p-3`;

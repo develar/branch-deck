@@ -190,7 +190,7 @@ renames branches.
   they block. See [Move Commits](move-commits.spec.md).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
 - A blocked branch must show a muted `blocked by <parent>` status with the reason as its tooltip, a disabled push
-  button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and, expanded, an info
+  button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and, expanded, a warning
   alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)

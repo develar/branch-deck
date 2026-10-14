@@ -336,7 +336,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
             {status === "Blocked" && <Badge variant="warning">Blocked</Badge>}
             {isAmendTarget && (
               <Tooltip>
-                <TooltipTrigger render={<Badge variant="info" />}>Amend target</TooltipTrigger>
+                <TooltipTrigger render={<Badge variant="primary" />}>Amend target</TooltipTrigger>
                 <TooltipContent>Changes will be amended to this commit</TooltipContent>
               </Tooltip>
             )}

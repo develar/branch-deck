@@ -43,12 +43,12 @@
   @apply px-4 sm:px-6 py-4;
 }
 
-/* indeterminate progress bar (inline form rows) */
 @theme {
   /* commit message text (bodies, the message editors): between text-xs and text-sm, on the text-sm line */
   --text-message: 0.8125rem;
   --text-message--line-height: 1.25rem;
 
+  /* indeterminate progress bar (inline form rows) */
   --animate-carousel: carousel 2s ease-in-out infinite;
 
   @keyframes carousel {

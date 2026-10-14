@@ -251,7 +251,7 @@ The commit hash popover shows the same header and body.
 - The message button follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
 - The message button is muted. It becomes `text-foreground` on hover.
 - Issue links are muted and become `text-foreground` on hover.
-- Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `info` Amend target.
+- Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `primary` Amend target (the target of the user's amend).
 
 ### Commit preview
 

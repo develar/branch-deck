@@ -12,13 +12,13 @@ export interface SectionCardHeaderProps {
   actions?: ReactNode
 }
 
-/** Card header: title with an optional item count badge, actions on the right. */
+/** Card header: title with an optional item count badge (neutral: a count is not a status), actions on the right. */
 export function SectionCardHeader({
   title,
   count,
   itemSingular = "item",
   itemPlural = "items",
-  badgeColor = "info",
+  badgeColor = "neutral",
   actions,
 }: SectionCardHeaderProps) {
   return (
