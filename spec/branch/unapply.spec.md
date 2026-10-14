@@ -39,7 +39,9 @@ transaction. The working tree is never written, so the dropped content stays in 
 ### Result
 
 - The commits of the branch must leave the current branch, and the commits after them must be replayed in order.
-- The virtual branch must move to the unapplied namespace.
+- The virtual branch must move to the unapplied namespace, under a name that no ref takes, lies below or lies above
+  (git refuses `a` next to `a/b`); a conflicting level gets the `-N` suffix (`feature-1/x`).
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`test_unapply_avoids_a_ref_below_the_name`, `test_unapply_avoids_a_ref_above_the_name`)
 - The drop and the rename must happen in one ref transaction. A failed drop must not leave a renamed branch.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_is_atomic`)
 

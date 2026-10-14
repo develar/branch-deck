@@ -54,6 +54,9 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   3. the subject without the `(prefix)`, the prefixes agreeing if the fixup names one;
   4. a subject (or, prefixes agreeing, a subject without the `(prefix)`) starting with the text.
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`matches_the_exact_subject_and_keeps_the_details`, `matches_the_subject_without_the_prefix`, `matches_a_unique_hash_prefix`, `falls_back_to_a_subject_starting_with_the_text`, `picks_the_oldest_of_duplicate_subjects`)
+- Prefixes agree when their text is the same. With [stacked branches](../branch/stacked-branches.spec.md) on, they agree
+  when they name the same leaf (`(login)` and `(auth/login)`), and the branch of a group is the leaf.
+  [@test] ../../crates/sync-core/src/autosquash_test.rs (`without_stacks_prefixes_are_compared_as_text`, `with_stacks_a_fixup_names_the_leaf_of_its_target`)
 - A fixup of a fixup goes to the final target. A fixup without a matching older commit (the target is newer, or outside
   the range) is an orphan: it is reported and not squashed.
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`resolves_a_fixup_of_a_fixup_to_the_final_target`, `orphans_a_fixup_without_an_older_target`)
