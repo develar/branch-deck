@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { getPushAction } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -10,36 +11,23 @@ export interface PushButtonState {
   disabled: boolean
 }
 
-function isRemoteUpToDate(branch: Branch): boolean {
-  const remoteStatus = branch.remoteStatus
-  return remoteStatus != null && remoteStatus.exists && remoteStatus.commitsAhead === 0 && remoteStatus.commitsBehind === 0
-}
-
-function needsForcePush(branch: Branch): boolean {
-  return branch.remoteStatus != null && branch.remoteStatus.commitsBehind > 0
-}
-
-function isFirstPush(branch: Branch): boolean {
-  return branch.remoteStatus != null && !branch.remoteStatus.exists
-}
-
 export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing: boolean): PushButtonState {
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
-  const upToDate = isRemoteUpToDate(branch)
+  const action = getPushAction(branch)
 
   let text = "Push"
   let tooltip = "Push branch to remote"
   if (remoteStatus != null && texts != null) {
     const { commitsAhead } = remoteStatus
-    if (upToDate) {
+    if (action === "upToDate") {
       tooltip = "All commits are already pushed"
     }
-    else if (isFirstPush(branch)) {
+    else if (action === "create") {
       text = commitsAhead > 0 ? `Create Remote (${commitsAhead})` : "Create Remote"
       tooltip = texts.tooltip
     }
-    else if (needsForcePush(branch) || branch.status === "Updated") {
+    else if (action === "force") {
       const mine = remoteStatus.myCommitsAhead ?? 0
       const count = mine > 0 ? mine : commitsAhead
       text = count > 0 ? `Force Push (${count})` : "Force Push"
@@ -57,7 +45,7 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
     text,
     color: texts != null ? texts.color : "primary",
     tooltip,
-    disabled: isPushing || isSyncing || branch.status === "Syncing" || upToDate,
+    disabled: isPushing || isSyncing || branch.status === "Syncing" || action === "upToDate",
   }
 }
 

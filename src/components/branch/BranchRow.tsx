@@ -13,7 +13,7 @@ import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useBranch } from "@/stores/branch-sync"
-import { useRevealRequest } from "@/stores/commit-move"
+import { requestReveal, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
 
@@ -48,15 +48,20 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
   // commits dragged from another list move here
   const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
 
-  // commits just moved here: show them (the commit list selects them)
-  const isRevealTarget = useRevealRequest(name) !== null && branch !== undefined
+  // commits just moved here: show them (the commit list selects them); a request without commits is done here
+  const reveal = useRevealRequest(name)
+  const isRevealTarget = reveal !== null && branch !== undefined
+  const revealsCommits = reveal !== null && reveal.commitIds.length > 0
   useEffect(() => {
     if (!isRevealTarget) {
       return
     }
     setExpanded(name, true)
     document.querySelector(`tr[data-branch-name="${CSS.escape(name)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-  }, [isRevealTarget, name, setExpanded])
+    if (!revealsCommits) {
+      requestReveal(null)
+    }
+  }, [isRevealTarget, revealsCommits, name, setExpanded])
 
   if (branch === undefined) {
     return null

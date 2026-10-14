@@ -11,7 +11,10 @@ export interface CommitDrag {
   commits: readonly Commit[]
 }
 
-/** Commits just moved into a branch: the branch row expands and scrolls into view, the commits are selected. */
+/**
+ * A branch to show: its row expands and scrolls into view, and its list selects the commits (just moved into it).
+ * Without commits, the row consumes the request.
+ */
 export interface RevealRequest {
   branchName: string
   commitIds: readonly string[]

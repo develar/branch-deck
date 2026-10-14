@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
+import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { formatRelativeTime } from "@/lib/time"
@@ -60,6 +61,7 @@ export function ConfigurationHeader() {
 
         {/* actions */}
         <div className="flex items-center gap-3">
+          {pathValidation.valid && <OutgoingIndicator />}
           {lastSyncTime && !isSyncing && pathValidation.valid
             ? (
                 <div className="text-xs text-muted-foreground">
