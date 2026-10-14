@@ -1,0 +1,4 @@
+# Generated files: GitHub collapses them in diffs and leaves them out of the language stats,
+# and `bd commits` leaves them out of the dependency edges between clusters.
+src/lib/bindings.ts linguist-generated
+tests/e2e/**/snapshots/** linguist-generated
