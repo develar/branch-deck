@@ -485,6 +485,19 @@ either one leaves the next push of the other valid:
   `--force-with-lease=<ref>` (leased on the remote-tracking ref) can. A record also keeps the pushed commit
   reachable, and no default refspec fetches or pushes `refs/branch-deck/`.
 
+#### Patronus review pre-check
+
+Read-only. Before a Safe Push, the code-owner review check of Patronus needs the commits of the virtual branch with
+the paths they change ([Patronus](../../spec/branch/patronus.spec.md)):
+
+- One `git log -z --no-renames --no-relative --name-only --max-count=501 --format=… ^<baseline> refs/heads/<p>/virtual/<n>`
+  (`read_review_commits` in `crates/sync-core/src/patronus.rs`): hash, parents, author, committer, the message, then the
+  NUL-terminated paths.
+- `--no-renames`: no rename detection on large commits; a rename is a delete and an add, whose owners both review it.
+  A deleted path stays in the list. `--no-relative` ignores a `diff.relative` setting.
+- 501 commits mean "too many": the check is skipped, as the IDE skips it at 500.
+- Starting a robot pushes nothing itself: the branch is pushed by `push_branch` first, then Patronus is asked over HTTP.
+
 ### Index policy
 
 When a rewrite changes HEAD's tree, the index has to follow. Otherwise `git status` shows the rewrite reversed as

@@ -395,6 +395,21 @@ pub async fn get_patronus_robot_details(
   }))
 }
 
+/// No problems: a test that needs some routes the command in the page
+pub async fn get_patronus_robot_problems(Json(_params): Json<sync_types::patronus::PatronusRobotParams>) -> Json<Vec<sync_types::patronus::PatronusProblem>> {
+  Json(Vec::new())
+}
+
+/// No review needed: a test that needs one routes the command in the page
+pub async fn get_patronus_review_requirement(Json(_params): Json<sync_types::patronus::PatronusBranchParams>) -> Json<sync_types::patronus::PatronusReviewRequirement> {
+  Json(sync_types::patronus::PatronusReviewRequirement {
+    required: false,
+    merge_request: None,
+    groups: Vec::new(),
+    skipped: false,
+  })
+}
+
 /// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch
 fn resolve_patronus_revisions(
   state: &AppState,

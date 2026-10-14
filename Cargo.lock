@@ -598,6 +598,7 @@ dependencies = [
  "specta-typescript",
  "sync-core",
  "sync-types",
+ "sync-utils",
  "tauri",
  "tauri-build",
  "tauri-plugin-devtools",

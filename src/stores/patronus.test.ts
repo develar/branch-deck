@@ -20,6 +20,7 @@ const { patronus, branches } = vi.hoisted(() => ({
     polls: [] as PollPatronusRobotsParams[],
     list: null as PatronusRobotsResult | null,
     poll: null as PatronusRobotsResult | null,
+    problemCalls: [] as string[],
   },
   branches: { current: {} as Record<string, unknown> },
 }))
@@ -33,6 +34,10 @@ vi.mock("@/lib/bindings", () => ({
     pollPatronusRobots: async (params: PollPatronusRobotsParams) => {
       patronus.polls.push(params)
       return { status: "ok", data: patronus.poll }
+    },
+    getPatronusRobotProblems: async (params: { robotId: string }) => {
+      patronus.problemCalls.push(params.robotId)
+      return { status: "ok", data: [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }] }
     },
   },
 }))
@@ -79,6 +84,7 @@ beforeEach(() => {
   resetPatronus()
   patronus.lists = []
   patronus.polls = []
+  patronus.problemCalls = []
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
   setBranches("auth")
@@ -182,6 +188,18 @@ describe("polling", () => {
     setPatronusWindowFocus(true)
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
     expect(patronus.polls).toHaveLength(0)
+  })
+})
+
+describe("review problems", () => {
+  it("reads the problems of a failed robot of a branch once", async () => {
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.problemCalls).toEqual(["r1"])
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
+    await refreshPatronus("manual")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.problemCalls).toEqual(["r1"])
   })
 })
 

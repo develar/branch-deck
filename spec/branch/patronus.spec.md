@@ -1,11 +1,12 @@
 ---
 name: Patronus
-description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; starting a Safe Push or a Dry Run of a branch, restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
+description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; starting a Safe Push or a Dry Run of a branch with the code-owner review it needs, restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/patronus.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
+  - ../../crates/patronus/src/review.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/patronus/src/token.rs
   - ../../crates/sync-core/src/patronus.rs
@@ -17,6 +18,8 @@ targets:
   - ../../src/components/branch/PatronusChip.tsx
   - ../../src/components/branch/InlinePatronusStart.tsx
   - ../../src/components/branch/PushGuardDialog.tsx
+  - ../../src/components/branch/PatronusReviewBlock.tsx
+  - ../../src/hooks/usePatronusReviewRequirement.ts
   - ../../src/hooks/usePatronusRobotDetails.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/lib/git/push.ts
@@ -116,8 +119,8 @@ poll of the running robots only while the window is focused.
   repeated by itself.
   [@test] ../../crates/patronus/src/service_test.rs (`background_requests_back_off_after_a_server_failure`)
   [@test] ../../crates/patronus/src/service_test.rs (`a_client_error_is_not_asked_again`)
-- One HTTP client with a kept-alive connection (connect timeout 5 s, list, poll and details 15 s, actions 30 s) and the
-  user agent
+- One HTTP client with a kept-alive connection (connect timeout 5 s, list, poll and details 15 s, the review pre-check
+  20 s, actions and merge requests 30 s) and the user agent
   `Branch Deck/<version> (<os>; <arch>)`, so Patronus can tell its load apart. `SAFEPUSH_PATRONUS_URL` (as for the
   CLI) points it at a staging instance.
 - An answer keeps the robot objects that did not change, so only the chips of changed robots render again; a failed
@@ -130,7 +133,8 @@ poll of the running robots only while the window is focused.
 - The Status cell of a branch row shows the chip after the pull request chip: a shield and the state. A branch without
   a robot shows nothing.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
-- Running and canceling are muted, failed `destructive`, a successful Safe Push "Merged" `info`, a successful dry run
+- Running and canceling are muted, failed `destructive`, failed for missing approvals "Needs review" `warning`, a
+  successful Safe Push "Merged" `info`, a successful dry run
   "Dry run passed" `success`, canceled muted. A robot that tests another commit than the local tip gets a `warning`
   dot, except a merged one.
   [@test] ../../src/lib/patronus.test.ts (`names the state in its hue; a successful dry run passed, a successful push merged`)
@@ -178,10 +182,46 @@ poll of the running robots only while the window is focused.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_start_right_after_the_push_is_asked_once_more_when_patronus_does_not_see_the_branch`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_failed_start_is_never_repeated`)
 
+### Code-owner review
+
+- Patronus fails a Safe Push whose changes miss the approvals the code owners require (`.ownership/review-rules.yaml`
+  of the target branch, PAT-A-109): the problem "Changes require review approval". The approvals count only in the
+  Space merge request linked to the robot. A dry run is not checked.
+- The Safe Push form checks the review before the start (never for a dry run, never for the chip): the commits of the
+  branch with their paths from one `git log` (a deleted path too; 500 commits or more skip the check, as the IDE does),
+  then `POST /pre-merge-approval-required-check`, in the cheap order: first without a merge request (Patronus asks Space
+  nothing); only when approvals are missing, the open merge request of the branch (`GET /space/merge-requests`), then
+  the check with it.
+  [@test] ../../crates/sync-core/src/patronus_test.rs (`reads_the_commits_of_the_branch_with_their_changed_paths`)
+  [@test] ../../crates/sync-core/src/patronus_test.rs (`does_not_read_a_branch_with_too_many_commits`)
+  [@test] ../../crates/patronus/src/review_test.rs (`no_merge_request_is_looked_up_when_no_approval_is_needed`)
+  [@test] ../../crates/patronus/src/review_test.rs (`names_the_missing_approvals_and_checks_again_with_the_merge_request`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
+- The pre-check is the heaviest call of the API: its answer is cached by the commits it checked (the tip and the oldest
+  commit): "no approval needed" for 10 minutes, "approvals missing" for 2 minutes, and Recheck asks at once. A found
+  merge request is kept for the session, "no merge request" for 5 minutes (a recheck asks again). An unavailable check
+  (503) is said and not asked again by itself.
+  [@test] ../../crates/patronus/src/review_test.rs (`a_required_review_is_asked_again_on_a_recheck`)
+  [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
+- The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
+  code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
+  Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Create Merge Request" (the
+  branch is pushed first; the merge request opens in the browser) or "Open IJ-CR-7", and Recheck. Start stays possible.
+  [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals, create the merge request and start with it`)
+- The start links the merge request of the branch (`spaceReview`), so its approvals count.
+- A robot that failed for missing approvals (its problems are read once per session, for the failed robots of the
+  branches) is "Needs review" in `warning`; its popover says how to go on and offers "Safe Push…" instead of Restart
+  (a restart would check the same merge request).
+  [@test] ../../src/lib/patronus.test.ts (`names a robot that failed for missing approvals "Needs review"`)
+  [@test] ../../src/stores/patronus.test.ts (`reads the problems of a failed robot of a branch once`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and offer a new Safe Push`)
+
 ### Restart and cancel
 
 - Restart (the popover, the branch menu) is offered for a failed, canceled or canceling robot started on the branch,
-  and for a passed dry run when the remote branch has a newer commit; Patronus refuses the others. A Safe Push of a
+  and for a passed dry run when the remote branch has a newer commit; Patronus refuses the others. Not for a robot that
+  failed for missing approvals. A Safe Push of a
   temporary ref (IDE, CLI) is not restarted from here: it would test its old commit. The restart is a new robot.
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
   [@test] ../../src/lib/patronus.test.ts (`restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit`)
@@ -243,11 +283,15 @@ poll of the running robots only while the window is focused.
   Patronus: `POST /repositories/{id}/patronus` sets what `get_patronus_robots` answers (an empty `sourceRevision` means
   the local tip of the robot's branch), what `poll_patronus_robots` answers (the fixture robots whose status differs
   from the known one) and the robot of `get_patronus_robot_details` (without checks); `GET` returns how often the app
-  listed and polled. The actions are answered in the page (`page.route`), which records their parameters.
+  listed and polled; `get_patronus_robot_problems` answers none and `get_patronus_review_requirement` "not required".
+  The actions are answered in the page (`page.route`), which records their parameters.
 - Against the real Patronus: `pnpm run tauri dev`, open a checkout of `ultimate`; the log has one line per request
   ("listed Patronus robots", "polled Patronus robots") with its duration.
 
 ## Open Questions / Risks
+
+- The pre-check is a hint: the review check of the robot decides (the chip shows it). `/space/merge-requests` finds only
+  an open merge request from the branch into the target.
 
 - The REST API is marked unstable (PAT-A-11): an unknown status or push mode shows as "Unknown status" instead of
   failing the list.

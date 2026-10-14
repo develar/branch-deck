@@ -2,11 +2,14 @@
 //! problems, the merge profiles). Each is one request or a few in parallel; the answers that don't change are cached:
 //! the details of a finished robot for the session, of a running one for a minute, the profiles for 10 minutes.
 
-use crate::client::{BranchRobotStartRequest, MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusError, ProblemDto, RobotDto, StartSupportedDto, TeamCityCheckDto};
+use crate::client::{
+  BranchRobotStartRequest, MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusError, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto,
+};
 use crate::service::{PatronusService, parse_push_mode, parse_status, to_robot};
 use std::time::{Duration, Instant};
 use sync_types::patronus::{
-  PatronusAvailability, PatronusChecks, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusStartOptions,
+  PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus,
+  PatronusStartOptions,
 };
 use tracing::{info, instrument};
 
@@ -69,6 +72,9 @@ impl PatronusService {
       problems: problems.unwrap_or_default().into_iter().map(to_problem).collect(),
     };
     let mut state = self.lock();
+    if parse_status(&details.robot.status).is_finished() {
+      state.problems.insert(robot_id.to_string(), details.problems.clone());
+    }
     if state.details.len() >= MAX_CACHED_DETAILS
       && let Some(oldest) = state.details.iter().min_by_key(|(_, (fetched_at, _))| *fetched_at).map(|(id, _)| id.clone())
     {
@@ -76,6 +82,20 @@ impl PatronusService {
     }
     state.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
     Ok(details)
+  }
+
+  /// The error problems of a finished robot, asked once per session (the chip names a missing review); the details
+  /// popover fills the same cache
+  #[instrument(skip(self))]
+  pub async fn robot_problems(&self, robot_id: &str) -> Result<Vec<PatronusProblem>, ActionError> {
+    if let Some(problems) = self.lock().problems.get(robot_id) {
+      return Ok(problems.clone());
+    }
+    let token = self.token(true).map_err(|result| availability_message(result.availability))?;
+    let response = self.client().get_problems(&token.value, robot_id).await;
+    let problems: Vec<PatronusProblem> = self.settle(response, &token.stamp).map_err(availability_message)?.into_iter().map(to_problem).collect();
+    self.lock().problems.insert(robot_id.to_string(), problems.clone());
+    Ok(problems)
   }
 
   /// The merge profiles of the target branch and the profile of the last robot of the branch as the default
@@ -139,6 +159,7 @@ impl PatronusService {
     target_branch: &str,
     mode: PatronusPushMode,
     profile_id: Option<String>,
+    merge_request: Option<PatronusMergeRequest>,
     just_pushed: bool,
   ) -> Result<PatronusRobot, ActionError> {
     let mode = match mode {
@@ -154,6 +175,10 @@ impl PatronusService {
       mode,
       source_branch_delete_policy: "NEVER",
       merge_profile_id: profile_id,
+      space_review: merge_request.map(|merge_request| SpaceReviewDto {
+        project_key: merge_request.project_key,
+        review_key: merge_request.review_key,
+      }),
     };
     let token = self.action_token()?;
     let mut response = self.client().start_robot(&token.value, &request).await;
@@ -200,13 +225,13 @@ impl PatronusService {
     Ok(to_robot(&robot, branch_prefix, self.client()))
   }
 
-  fn action_token(&self) -> Result<crate::token::Token, ActionError> {
+  pub(crate) fn action_token(&self) -> Result<crate::token::Token, ActionError> {
     self.token(false).map_err(|result| availability_message(result.availability))
   }
 }
 
 /// What the user reads when an action can't be done
-fn availability_message(availability: PatronusAvailability) -> ActionError {
+pub(crate) fn availability_message(availability: PatronusAvailability) -> ActionError {
   match availability {
     PatronusAvailability::NotLoggedIn => "Run ./safePush.cmd once to log in to Patronus".to_string(),
     PatronusAvailability::Error { message } => message,

@@ -32,6 +32,15 @@ export const commands = {
 	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
 	/**  The current status of one robot, read right before a push into its branch */
 	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
+	/**  The error problems of a finished robot, once per session: the chip names a missing review */
+	getPatronusRobotProblems: (params: PatronusRobotParams) => typedError<PatronusProblem[], CommandError>(__TAURI_INVOKE("get_patronus_robot_problems", { params })),
+	/**
+	 *  Whether the code owners still have to approve the commits of the branch before a Safe Push can merge it, and the
+	 *  merge request whose approvals count. One `git log` for the commits and their paths, then Patronus.
+	 */
+	getPatronusReviewRequirement: (params: PatronusBranchParams) => typedError<PatronusReviewRequirement, CommandError>(__TAURI_INVOKE("get_patronus_review_requirement", { params })),
+	/**  Opens the merge request of the branch on Space, by Patronus for the user */
+	createPatronusMergeRequest: (params: PatronusBranchParams) => typedError<PatronusMergeRequest, CommandError>(__TAURI_INVOKE("create_patronus_merge_request", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
@@ -583,6 +592,17 @@ export type PatronusAvailability = { status: "available" } |
 /**  Patronus failed or could not be reached */
 { status: "error"; message: string };
 
+export type PatronusBranchParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
+	/**  The virtual branch, without the `{prefix}/virtual/` namespace */
+	branchName: string,
+	/**  Ask Patronus again instead of the cached answer (the user waits for approvals) */
+	recheck?: boolean,
+};
+
 /**  The CI checks of a robot, counted */
 export type PatronusChecks = {
 	/**  The build configurations of the first failed checks */
@@ -593,6 +613,14 @@ export type PatronusChecks = {
 	/**  Passed or skipped */
 	passed: number,
 	canceled: number,
+};
+
+export type PatronusMergeRequest = {
+	/**  e.g. `IJ` */
+	projectKey: string,
+	/**  e.g. `IJ-CR-221762` */
+	reviewKey: string,
+	url: string,
 };
 
 export type PatronusProblem = {
@@ -613,6 +641,33 @@ export type PatronusProfile = {
 export type PatronusPushMode = 
 /**  Only the checks: nothing is pushed */
 "dryRun" | "rebase" | "rebaseAutosquash" | "squashAll" | "merge" | "unknown";
+
+/**  Whether the code owners still have to approve the branch before a Safe Push can merge it */
+export type PatronusReviewRequirement = {
+	/**  Approvals are missing: a Safe Push of the branch would fail its review check */
+	required: boolean,
+	/**  The open merge request of the branch on Space; looked up only when approvals are required */
+	mergeRequest: PatronusMergeRequest | null,
+	/**  The groups whose approval is missing, with who can approve */
+	groups: PatronusReviewerGroup[],
+	/**  The branch has too many commits to check (as in the IDE); the robot checks them anyway */
+	skipped: boolean,
+};
+
+export type PatronusReviewer = {
+	fullName: string,
+	username: string,
+	/**  Not absent and not opted out of reviews */
+	available: boolean,
+	/**  Patronus suggests them for this change */
+	suggested: boolean,
+};
+
+export type PatronusReviewerGroup = {
+	/**  e.g. "Air Plugin Release Team" */
+	name: string,
+	reviewers: PatronusReviewer[],
+};
 
 /**  One Patronus run: it rebases the source branch onto the target, runs the checks and, unless it is a dry run, pushes */
 export type PatronusRobot = {
@@ -898,6 +953,8 @@ export type StartPatronusRobotParams = {
 	 *  asked once more a few seconds later
 	 */
 	justPushed: boolean,
+	/**  The merge request whose approvals the review check of the robot counts; null without one */
+	mergeRequest: PatronusMergeRequest | null,
 };
 
 /**  Parameters for requesting branch name suggestions */

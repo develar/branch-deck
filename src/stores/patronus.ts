@@ -1,9 +1,9 @@
 import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
-import type { KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
+import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { findBranchRobot, isRobotActive, needsPatronusAttention } from "@/lib/patronus"
+import { REVIEW_APPROVAL_SUBSYSTEM, findBranchRobot, isRobotActive, needsPatronusAttention } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
@@ -33,6 +33,8 @@ export interface RepositoryPatronus {
   /** `Date.now()` of the last answer, 0 = never */
   readonly fetchedAt: number
   readonly isRefreshing: boolean
+  /** By robot id, of the failed robots of the branches: failed for missing code-owner approvals */
+  readonly needsReview: Readonly<Record<string, boolean>>
 }
 
 export interface PatronusState {
@@ -42,7 +44,7 @@ export interface PatronusState {
 
 export const patronusStore = createStore<PatronusState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false }
+const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {} }
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -72,6 +74,18 @@ export function useBranchRobot(branchName: string): PatronusRobot | undefined {
   const localTip = useBranchTip(branchName)
   const remoteTip = useBranchRemoteTip(branchName)
   return useStore(patronusStore, state => findBranchRobot(state.repositories[key]?.robots, branchName, localTip, remoteTip))
+}
+
+/** The robot failed for missing code-owner approvals (its problems are read once, see `loadReviewProblems`) */
+export function useRobotNeedsReview(robotId: string | undefined): boolean {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => robotId !== undefined && state.repositories[key]?.needsReview[robotId] === true)
+}
+
+/** Non-hook variant of `useRobotNeedsReview`, for menus built on open */
+export function isRobotNeedingReview(robotId: string): boolean {
+  const key = currentKey()
+  return key !== null && patronusStore.getState().repositories[key]?.needsReview[robotId] === true
 }
 
 /** A robot of a branch failed on the commit the branch is at: the outgoing indicator gets a dot */
@@ -227,7 +241,44 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
       update(key, () => ({ isRefreshing: false }))
     }
   })
-  return listed.then(() => schedulePoll(false))
+  return listed.then(() => {
+    schedulePoll(false)
+    void loadReviewProblems(key)
+  })
+}
+
+const problemsInFlight = new Set<string>()
+
+/**
+ * Reads the problems of the failed robots of the branches once (a finished robot does not change; the backend caches
+ * them too), to name a robot that failed for missing approvals "Needs review".
+ */
+async function loadReviewProblems(key: string): Promise<void> {
+  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const entry = patronusStore.getState().repositories[key]
+  if (entry === undefined) {
+    return
+  }
+  for (const branch of Object.values(branchSyncStore.getState().branches)) {
+    const robot = findBranchRobot(entry.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
+    if (robot === undefined || robot.status !== "failure" || robot.id in entry.needsReview || problemsInFlight.has(robot.id)) {
+      continue
+    }
+    problemsInFlight.add(robot.id)
+    try {
+      const result = await commands.getPatronusRobotProblems({ repositoryPath, branchPrefix, robotId: robot.id })
+      if (result.status === "ok") {
+        const needsReview = result.data.some(problem => problem.subsystem === REVIEW_APPROVAL_SUBSYSTEM)
+        update(key, previous => ({ needsReview: { ...previous.needsReview, [robot.id]: needsReview } }))
+      }
+    }
+    catch {
+      // an extra: the chip says "Failed"
+    }
+    finally {
+      problemsInFlight.delete(robot.id)
+    }
+  }
 }
 
 /** The running robots of the branches of the selected repository, with the status the app knows */
@@ -280,6 +331,7 @@ export function pollPatronus(): Promise<void> {
     }
     finally {
       schedulePoll(true)
+      void loadReviewProblems(key)
     }
   })
 }
@@ -324,15 +376,23 @@ export function upsertPatronusRobot(robot: PatronusRobot): void {
 
 /**
  * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
- * its tip, `justPushed`). Resolves to the robot, now polled while it runs; throws what Patronus said.
+ * its tip, `justPushed`), with the merge request whose approvals its review check counts. Resolves to the robot, now
+ * polled while it runs; throws what Patronus said.
  */
-export async function startPatronusRobot(branchName: string, mode: PatronusPushMode, profileId: string | null, justPushed: boolean): Promise<PatronusRobot> {
+export async function startPatronusRobot(
+  branchName: string,
+  mode: PatronusPushMode,
+  profileId: string | null,
+  mergeRequest: PatronusMergeRequest | null,
+  justPushed: boolean,
+): Promise<PatronusRobot> {
   const result = await commands.startPatronusRobot({
     ...patronusRequest(),
     baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
     branchName,
     mode,
     profileId,
+    mergeRequest,
     justPushed,
   })
   if (result.status === "error") {
@@ -386,6 +446,7 @@ export function setPatronusWindowFocus(focused: boolean): void {
 
 /** Forgets the gates, the timer and the data (tests) */
 export function resetPatronus(): void {
+  problemsInFlight.clear()
   listGates.reset()
   pollGates.reset()
   clearTimeout(pollTimer)

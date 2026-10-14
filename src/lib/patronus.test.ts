@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, formatPatronusAvailabilityHint, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked, needsPatronusAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked, needsPatronusAttention } from "@/lib/patronus"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -57,6 +57,12 @@ describe("getPatronusChipState", () => {
     expect(getPatronusChipState(robot({ status: "canceled" }), "tip")).toMatchObject({ kind: "canceled", color: "neutral" })
   })
 
+  it("names a robot that failed for missing approvals \"Needs review\"", () => {
+    expect(getPatronusChipState(robot({ status: "failure" }), "tip", true)).toMatchObject({ kind: "needsReview", color: "warning", label: "Needs review" })
+    // only a failure
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", true).kind).toBe("running")
+  })
+
   it("marks a robot that tests another commit than the local tip, except a merged one", () => {
     expect(getPatronusChipState(robot({ status: "failure" }), "newer").outdated).toBe(true)
     expect(getPatronusChipState(robot({ status: "running" }), undefined).outdated).toBe(false)
@@ -93,6 +99,8 @@ describe("actions", () => {
     expect(canRestartRobot(robot({ status: "success", pushMode: "dryRun" }), "IJPL-1", "newer")).toBe(true)
     // a Safe Push of a temporary ref restarts its old commit: not offered
     expect(canRestartRobot(robot({ status: "failure", branchName: null }), "IJPL-1", null)).toBe(false)
+    // a restart would check the same merge request without approvals
+    expect(canRestartRobot(robot({ status: "failure" }), "IJPL-1", null, true)).toBe(false)
   })
 
   it("cancels a running robot only", () => {
@@ -117,5 +125,19 @@ describe("actions", () => {
   it("offers a profile for the modes it allows; none listed allows any", () => {
     expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: [] }, "dryRun")).toBe(true)
     expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: ["dryRun"] }, "rebaseAutosquash")).toBe(false)
+  })
+})
+
+describe("formatReviewerGroup", () => {
+  it("names the group and the available reviewers Patronus suggests", () => {
+    expect(formatReviewerGroup({
+      name: "Air Plugin Release Team",
+      reviewers: [
+        { fullName: "Alice", username: "alice", available: true, suggested: true },
+        { fullName: "Bob", username: "bob", available: false, suggested: true },
+        { fullName: "Carol", username: "carol", available: true, suggested: false },
+      ],
+    })).toBe("Air Plugin Release Team (suggested: Alice)")
+    expect(formatReviewerGroup({ name: "Bazel QA", reviewers: [] })).toBe("Bazel QA")
   })
 })

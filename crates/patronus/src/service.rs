@@ -38,6 +38,12 @@ pub(crate) struct ServiceState {
   pub(crate) details: HashMap<String, (Instant, crate::actions::CachedDetails)>,
   /// By `project/repository/target`: the answer of `robot-start-supported`
   pub(crate) start_supported: HashMap<String, (Instant, Result<crate::client::StartSupportedDto, String>)>,
+  /// By `repository/target/tip/base`: the review requirement and how long it holds
+  pub(crate) reviews: HashMap<String, (Instant, Duration, sync_types::patronus::PatronusReviewRequirement)>,
+  /// By `repository/source/target`: the open merge request, None = none (asked again after a while)
+  pub(crate) merge_requests: HashMap<String, (Instant, Option<crate::client::MergeRequestDto>)>,
+  /// By robot id, of finished robots: the error problems
+  pub(crate) problems: HashMap<String, Vec<sync_types::patronus::PatronusProblem>>,
 }
 
 struct Backoff {

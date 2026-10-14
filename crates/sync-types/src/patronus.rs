@@ -226,4 +226,68 @@ pub struct StartPatronusRobotParams {
   /// The branch was pushed right before: Space may not show it to Patronus yet, so a start that does not find it is
   /// asked once more a few seconds later
   pub just_pushed: bool,
+  /// The merge request whose approvals the review check of the robot counts; null without one
+  pub merge_request: Option<PatronusMergeRequest>,
+}
+
+/// Whether the code owners still have to approve the branch before a Safe Push can merge it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusReviewRequirement {
+  /// Approvals are missing: a Safe Push of the branch would fail its review check
+  pub required: bool,
+  /// The open merge request of the branch on Space; looked up only when approvals are required
+  pub merge_request: Option<PatronusMergeRequest>,
+  /// The groups whose approval is missing, with who can approve
+  pub groups: Vec<PatronusReviewerGroup>,
+  /// The branch has too many commits to check (as in the IDE); the robot checks them anyway
+  pub skipped: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusMergeRequest {
+  /// e.g. `IJ`
+  pub project_key: String,
+  /// e.g. `IJ-CR-221762`
+  pub review_key: String,
+  pub url: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusReviewerGroup {
+  /// e.g. "Air Plugin Release Team"
+  pub name: String,
+  pub reviewers: Vec<PatronusReviewer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusReviewer {
+  pub full_name: String,
+  pub username: String,
+  /// Not absent and not opted out of reviews
+  pub available: bool,
+  /// Patronus suggests them for this change
+  pub suggested: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusBranchParams {
+  pub repository_path: String,
+  pub branch_prefix: String,
+  /// As the sync detected it, e.g. `origin/master`
+  pub baseline_branch: String,
+  /// The virtual branch, without the `{prefix}/virtual/` namespace
+  pub branch_name: String,
+  /// Ask Patronus again instead of the cached answer (the user waits for approvals)
+  #[serde(default)]
+  pub recheck: bool,
 }

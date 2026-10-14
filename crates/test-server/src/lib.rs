@@ -91,6 +91,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
     .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
+    .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
+    .route("/invoke/get_patronus_review_requirement", post(tauri_command_bridge::get_patronus_review_requirement))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))

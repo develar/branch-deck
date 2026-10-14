@@ -3,15 +3,17 @@ use git_ops::model::to_final_branch_name;
 use model_tauri::blocking::run_blocking;
 use model_tauri::command_error::CommandError;
 use moka::sync::Cache;
-use patronus::client::{PATRONUS_URL, PatronusClient};
+use patronus::client::{PATRONUS_URL, PatronusClient, PreMergeCommitDto};
+use patronus::review::ReviewSubject;
 use patronus::service::PatronusService;
 use patronus::token::find_user_token;
 use std::time::Duration;
-use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
+use sync_core::patronus::{ReviewCommit, SpaceRepository, find_space_repository, find_target_branch, read_review_commits};
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
-  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, StartPatronusRobotParams,
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusMergeRequest, PatronusProblem, PatronusReviewRequirement,
+  PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, StartPatronusRobotParams,
 };
+use sync_utils::timestamp::{format_utc_timestamp, parse_rfc3339_timestamp};
 use tauri::State;
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
@@ -129,6 +131,7 @@ pub async fn start_patronus_robot(
       &target,
       params.mode,
       params.profile_id,
+      params.merge_request,
       params.just_pushed,
     )
     .await
@@ -154,4 +157,82 @@ pub async fn cancel_patronus_robot(patronus: State<'_, PatronusState>, params: P
 #[specta::specta]
 pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, CommandError> {
   patronus.service.robot_status(&params.robot_id).await.map_err(CommandError::new)
+}
+
+/// The error problems of a finished robot, once per session: the chip names a missing review
+#[tauri::command]
+#[specta::specta]
+pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<Vec<PatronusProblem>, CommandError> {
+  patronus.service.robot_problems(&params.robot_id).await.map_err(CommandError::new)
+}
+
+/// Whether the code owners still have to approve the commits of the branch before a Safe Push can merge it, and the
+/// merge request whose approvals count. One `git log` for the commits and their paths, then Patronus.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_patronus_review_requirement(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  params: PatronusBranchParams,
+) -> Result<PatronusReviewRequirement, CommandError> {
+  let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
+  let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
+  let source_branch = to_final_branch_name(&params.branch_prefix, &params.branch_name)?;
+  let git = (*git_executor).clone();
+  let path = params.repository_path.clone();
+  let baseline = params.baseline_branch.clone();
+  let branch_ref = format!("refs/heads/{source_branch}");
+  let Some(commits) = run_blocking(move || read_review_commits(&git, &path, &baseline, &branch_ref)).await? else {
+    return Ok(PatronusReviewRequirement {
+      required: false,
+      merge_request: None,
+      groups: Vec::new(),
+      skipped: true,
+    });
+  };
+  let commits: Vec<PreMergeCommitDto> = commits.into_iter().map(to_pre_merge_commit).collect();
+  let subject = ReviewSubject {
+    project_key: &repository.project_key,
+    repository: &repository.name,
+    target_branch: &target,
+    source_branch: &source_branch,
+    base: commits.last().map_or("", |commit| commit.hash.as_str()),
+    commits: &commits,
+  };
+  patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)
+}
+
+/// Opens the merge request of the branch on Space, by Patronus for the user
+#[tauri::command]
+#[specta::specta]
+pub async fn create_patronus_merge_request(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  params: PatronusBranchParams,
+) -> Result<PatronusMergeRequest, CommandError> {
+  let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
+  let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
+  let source_branch = to_final_branch_name(&params.branch_prefix, &params.branch_name)?;
+  patronus
+    .service
+    .create_merge_request(&repository.project_key, &repository.name, &source_branch, &target)
+    .await
+    .map_err(CommandError::new)
+}
+
+/// The commit as the pre-check reads it: the dates in UTC
+fn to_pre_merge_commit(commit: ReviewCommit) -> PreMergeCommitDto {
+  let utc = |date: &str| parse_rfc3339_timestamp(date).map_or_else(|| date.to_string(), format_utc_timestamp);
+  PreMergeCommitDto {
+    author_date: utc(&commit.author_date),
+    committer_date: utc(&commit.committer_date),
+    hash: commit.hash,
+    is_merge_commit: commit.is_merge,
+    message: commit.message,
+    author_name: commit.author_name,
+    author_email: commit.author_email,
+    commiter_name: commit.committer_name,
+    commiter_email: commit.committer_email,
+    changed_paths: commit.changed_paths,
+  }
 }

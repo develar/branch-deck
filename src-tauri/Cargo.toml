@@ -34,6 +34,7 @@ tauri.workspace = true
 serde.workspace = true
 sync-core = { path = "../crates/sync-core", features = ["specta"] }
 sync-types = { path = "../crates/sync-types", features = ["specta"] }
+sync-utils = { path = "../crates/sync-utils" }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }
 # Referenced by the `tauri::generate_context!` expansion, not by source code
 #noinspection CargoUnusedDependency

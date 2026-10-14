@@ -15,7 +15,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
-import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /**
@@ -140,7 +140,7 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
   ]
   if (robot !== undefined) {
     const mode = formatPushMode(robot.pushMode)
-    if (canRestartRobot(robot, branch.name, branch.remoteStatus?.remoteTip ?? null)) {
+    if (canRestartRobot(robot, branch.name, branch.remoteStatus?.remoteTip ?? null, isRobotNeedingReview(robot.id))) {
       items.push({ label: `Restart ${mode}`, icon: RotateCcwIcon, onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`) })
     }
     if (canCancelRobot(robot)) {

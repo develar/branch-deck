@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod client;
+pub mod review;
 pub mod service;
 pub mod token;
 
@@ -10,6 +11,8 @@ pub mod token;
 mod actions_test;
 #[cfg(test)]
 mod fake_patronus;
+#[cfg(test)]
+mod review_test;
 #[cfg(test)]
 mod service_test;
 #[cfg(test)]

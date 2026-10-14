@@ -29,6 +29,15 @@ pub(crate) struct FakePatronus {
   pub last_updates: Mutex<serde_json::Value>,
   /// The body of the last start request
   pub last_start: Mutex<serde_json::Value>,
+  /// The pre-check answers approval required for a request without this review key… and with it unless approved
+  pub review_required: std::sync::atomic::AtomicBool,
+  pub review_approved: std::sync::atomic::AtomicBool,
+  /// The open merge request of the branch, if any
+  pub merge_request: Mutex<Option<serde_json::Value>>,
+  pub check_calls: AtomicU32,
+  pub merge_request_calls: AtomicU32,
+  /// The review keys of the pre-checks, in order
+  pub checked_review_keys: Mutex<Vec<Option<String>>>,
 }
 
 impl FakePatronus {
@@ -174,6 +183,32 @@ pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
           {"id": "lsc", "name": "Large Scale Change", "description": "All the tests", "allowedPushModes": ["REBASE_AUTOSQUASH", "DRY_RUN"]},
           {"id": "emergency", "name": "Emergency", "allowedPushModes": [], "isEmergency": true},
         ]}))
+      }),
+    )
+    .route(
+      "/app/rest/v1/pre-merge-approval-required-check",
+      post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
+        fake.check_calls.fetch_add(1, Ordering::SeqCst);
+        let review_key = body["spaceReviewKey"].as_str().map(str::to_string);
+        let required = fake.review_required.load(Ordering::SeqCst) && !(review_key.is_some() && fake.review_approved.load(Ordering::SeqCst));
+        fake.checked_review_keys.lock().unwrap().push(review_key);
+        fake.answer(serde_json::json!({
+          "approvalRequired": required,
+          "reviewerGroups": if required { serde_json::json!([{"groupName": "Air Plugin Release Team", "reviewers": [{"spaceUsername": "alice", "fullName": "Alice", "isAvailable": true, "isSuggested": true}]}]) } else { serde_json::json!([]) },
+        }))
+      }),
+    )
+    .route(
+      "/app/rest/v1/space/merge-requests",
+      get(|State(fake): State<Arc<FakePatronus>>| async move {
+        fake.merge_request_calls.fetch_add(1, Ordering::SeqCst);
+        let found: Vec<serde_json::Value> = fake.merge_request.lock().unwrap().iter().cloned().collect();
+        fake.answer(serde_json::json!({"mergeRequests": found, "repositories": []}))
+      })
+      .post(|State(fake): State<Arc<FakePatronus>>| async move {
+        let created = serde_json::json!({"projectKey": "IJ", "reviewKey": "IJ-CR-2", "url": "https://jetbrains.team/p/ij/reviews/2"});
+        *fake.merge_request.lock().unwrap() = Some(created.clone());
+        fake.answer(created)
       }),
     )
     .with_state(fake.clone());

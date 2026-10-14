@@ -1,15 +1,18 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot } from "@/lib/bindings"
+import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { UIColor } from "@/lib/ui-types"
 
 /** What the chip shows of a robot */
-export type PatronusChipKind = "running" | "failed" | "merged" | "passed" | "canceled" | "unknown"
+export type PatronusChipKind = "running" | "failed" | "needsReview" | "merged" | "passed" | "canceled" | "unknown"
+
+/** The subsystem of the problem "Changes require review approval": the code owners did not approve */
+export const REVIEW_APPROVAL_SUBSYSTEM = "OWNERSHIP_REVIEW_APPROVAL_CHECK"
 
 export interface PatronusChipState {
   kind: PatronusChipKind
-  color: Extract<UIColor, "success" | "error" | "info" | "neutral">
-  /** "Running", "Canceling", "Failed", "Merged", "Dry run passed", "Canceled" */
+  color: Extract<UIColor, "success" | "error" | "info" | "warning" | "neutral">
+  /** "Running", "Canceling", "Failed", "Needs review", "Merged", "Dry run passed", "Canceled" */
   label: string
   /** The robot tests another commit than the local branch tip: a `warning` dot */
   outdated: boolean
@@ -56,9 +59,14 @@ function isPreferred(robot: PatronusRobot, other: PatronusRobot): boolean {
   return difference === 0 ? robot.startTime > other.startTime : difference > 0
 }
 
-/** How the chip shows a robot. `localTip` is the commit of the local virtual branch, undefined while unknown. */
-export function getPatronusChipState(robot: PatronusRobot, localTip: string | undefined): PatronusChipState {
-  const described = describeStatus(robot)
+/**
+ * How the chip shows a robot. `localTip` is the commit of the local virtual branch, undefined while unknown;
+ * `needsReview`: the robot failed for missing code-owner approvals.
+ */
+export function getPatronusChipState(robot: PatronusRobot, localTip: string | undefined, needsReview = false): PatronusChipState {
+  const described = robot.status === "failure" && needsReview
+    ? { kind: "needsReview" as const, color: "warning" as const, label: "Needs review" }
+    : describeStatus(robot)
   return {
     ...described,
     // a merged robot is done: the sync archives the branch once the baseline has it
@@ -135,10 +143,12 @@ export function isRobotOnBranch(robot: PatronusRobot, branchName: string): boole
 
 /**
  * Patronus restarts a failed or canceled robot of a branch on its newest commit, a canceling one too; a successful dry
- * run only when the branch has a newer commit on the remote. A merged robot or a running one is never restarted.
+ * run only when the branch has a newer commit on the remote. A merged robot or a running one is never restarted, nor
+ * one that failed for missing approvals.
  */
-export function canRestartRobot(robot: PatronusRobot, branchName: string, remoteTip: string | null): boolean {
-  if (!isRobotOnBranch(robot, branchName)) {
+export function canRestartRobot(robot: PatronusRobot, branchName: string, remoteTip: string | null, needsReview = false): boolean {
+  // a restart keeps the merge request of the robot, which has no approvals: a new Safe Push with one is the way
+  if (!isRobotOnBranch(robot, branchName) || needsReview) {
     return false
   }
   switch (robot.status) {
@@ -171,4 +181,10 @@ export function isStartBlocked(robot: PatronusRobot | undefined, localTip: strin
 /** The profile allows the mode; no modes listed = any */
 export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {
   return profile.allowedPushModes.length === 0 || profile.allowedPushModes.includes(mode)
+}
+
+/** "Air Plugin Release Team (suggested: Alice, Bob)" */
+export function formatReviewerGroup(group: PatronusReviewerGroup): string {
+  const suggested = group.reviewers.filter(reviewer => reviewer.suggested && reviewer.available).map(reviewer => reviewer.fullName)
+  return suggested.length === 0 ? group.name : `${group.name} (suggested: ${suggested.join(", ")})`
 }

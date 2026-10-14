@@ -48,3 +48,83 @@ pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &s
   }
   Ok(upstream.remote_ref.strip_prefix("refs/heads/").map(str::to_string))
 }
+
+/// A commit of a virtual branch as the code-owner review check of Patronus reads it: who changed which paths
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewCommit {
+  pub hash: String,
+  pub is_merge: bool,
+  pub message: String,
+  pub author_name: String,
+  pub author_email: String,
+  /// RFC 3339, as git prints it (`%aI`)
+  pub author_date: String,
+  pub committer_name: String,
+  pub committer_email: String,
+  pub committer_date: String,
+  /// Every path the commit touches, a deleted one too: the robot checks the owners of all of them
+  pub changed_paths: Vec<String>,
+}
+
+/// The IDE does not check branches with this many commits either: the request would be huge
+pub const MAX_REVIEW_COMMITS: usize = 500;
+
+/// The format of one commit: a record separator, then NUL-separated fields, the message last
+const REVIEW_COMMIT_FORMAT: &str = "--format=%x1e%H%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B";
+
+/// The commits of `branch_ref` that `baseline_branch` lacks, newest first, with their changed paths, in one `git log`.
+/// None for `MAX_REVIEW_COMMITS` or more. Renames are a delete and an add (no rename detection on large commits);
+/// `--no-relative` ignores a `diff.relative` setting of the user.
+pub fn read_review_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, branch_ref: &str) -> anyhow::Result<Option<Vec<ReviewCommit>>> {
+  let max_count = format!("--max-count={}", MAX_REVIEW_COMMITS + 1);
+  let exclusion = format!("^{baseline_branch}");
+  let output = git_executor.execute_command_raw(
+    &[
+      "log",
+      "-z",
+      "--no-renames",
+      "--no-relative",
+      "--name-only",
+      &max_count,
+      REVIEW_COMMIT_FORMAT,
+      &exclusion,
+      branch_ref,
+      "--",
+    ],
+    repository_path,
+  )?;
+  let commits = parse_review_commits(&output);
+  Ok((commits.len() <= MAX_REVIEW_COMMITS).then_some(commits))
+}
+
+/// `git log -z --name-only` with `REVIEW_COMMIT_FORMAT`: `\x1e` + 9 fields, a NUL, then `\n` and the NUL-terminated paths
+fn parse_review_commits(output: &str) -> Vec<ReviewCommit> {
+  output
+    .split('\x1e')
+    .filter(|record| !record.is_empty())
+    .filter_map(|record| {
+      let mut fields = record.split('\0');
+      let mut next = || fields.next().map(str::to_string);
+      let hash = next()?;
+      let parents = next()?;
+      let commit = ReviewCommit {
+        hash,
+        is_merge: parents.split_whitespace().count() > 1,
+        author_name: next()?,
+        author_email: next()?,
+        author_date: next()?,
+        committer_name: next()?,
+        committer_email: next()?,
+        committer_date: next()?,
+        message: next()?.trim_end().to_string(),
+        changed_paths: Vec::new(),
+      };
+      let changed_paths = fields
+        .map(|path| path.trim_start_matches('\n'))
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect();
+      Some(ReviewCommit { changed_paths, ..commit })
+    })
+    .collect()
+}

@@ -1,6 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import type { Page, Route } from "@playwright/test"
-import type { PatronusRobot, PatronusRobotDetails, PatronusStartOptions } from "../../../src/lib/bindings"
+import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions } from "../../../src/lib/bindings"
+import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
@@ -99,6 +100,68 @@ test.describe("Patronus actions", () => {
     await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")
     await expect(popover.getByTestId("patronus-checks")).toHaveText("1 failing (Fast Tests), 9 passed")
     await expect(popover.getByTestId("patronus-problems")).toHaveText("Tests failed")
+  })
+
+  test.describe("code-owner review", () => {
+    const MERGE_REQUEST: PatronusMergeRequest = { projectKey: "IJ", reviewKey: "IJ-CR-7", url: "https://jetbrains.team/p/ij/reviews/7" }
+    const REQUIRED: PatronusReviewRequirement = {
+      required: true,
+      mergeRequest: null,
+      groups: [{ name: "Air Plugin Release Team", reviewers: [{ fullName: "Alice", username: "alice", available: true, suggested: true }] }],
+      skipped: false,
+    }
+
+    test("should name the missing approvals, create the merge request and start with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      await routePush(page, {})
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      const checks = await routeCommand(page, "get_patronus_review_requirement", params => params.recheck === true ? { ...REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REQUIRED)
+      const creates = await routeCommand(page, "create_patronus_merge_request", () => MERGE_REQUEST)
+      const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
+
+      await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Safe Push…" }).click()
+      const review = page.getByTestId("patronus-review")
+      await expect(review).toHaveAttribute("data-state", "required")
+      await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team (suggested: Alice)")
+
+      await review.getByRole("button", { name: "Create Merge Request" }).click()
+      // pushed first: Space opens a merge request of a pushed branch
+      await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+      await expect(review).toHaveAttribute("data-state", "approved")
+      await expect(review).toHaveText("Approved in IJ-CR-7.")
+      expect(await getOpenedUrls(page)).toEqual([MERGE_REQUEST.url])
+      expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
+      expect(checks.map(params => params.recheck)).toEqual([false, true])
+
+      await page.getByTestId("patronus-start-form").getByRole("button", { name: /Start Safe Push/ }).click()
+      await expect(chip(page, "JIRA-456")).toHaveText("Running")
+      expect(starts).toEqual([expect.objectContaining({ mergeRequest: MERGE_REQUEST })])
+    })
+
+    test("should not check the review of a dry run", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      const checks = await routeCommand(page, "get_patronus_review_requirement", () => REQUIRED)
+      await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Dry Run…" }).click()
+      await expect(page.getByTestId("patronus-start-explanation")).toContainText("nothing is pushed")
+      await expect(page.getByTestId("patronus-review")).toHaveCount(0)
+      expect(checks).toHaveLength(0)
+    })
+
+    test("should say \"Needs review\" for a robot that failed for missing approvals, and offer a new Safe Push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
+      await setupRobots(page, setupRepo, syncAndWaitForBranches, FAILED)
+      await expect(chip(page, "ABC-123")).toHaveText("Needs review")
+      await expect(chip(page, "ABC-123")).toHaveAttribute("data-color", "warning")
+
+      const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
+      await expect(popover.getByTestId("patronus-needs-review")).toBeVisible()
+      await expect(popover.getByRole("button", { name: "Restart" })).toHaveCount(0)
+      await popover.getByRole("button", { name: "Safe Push…" }).click()
+      await expect(page.getByTestId("patronus-start-form")).toBeVisible()
+    })
   })
 
   test.describe("pushing into a branch whose Safe Push runs", () => {

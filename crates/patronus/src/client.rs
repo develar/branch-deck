@@ -15,6 +15,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const LIST_TIMEOUT: Duration = Duration::from_secs(15);
 /// A start checks the branch in Space first, which can take a while
 pub const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
+/// The server gives up after 10 s (503)
+pub const REVIEW_CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+/// Patronus asks Space live; nginx gives up after 60 s
+pub const MERGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// A transient failure of a GET is asked again once, after this pause
 const GET_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -149,6 +153,95 @@ pub struct BranchRobotStartRequest {
   /// `NEVER`: the virtual branch stays, the sync archives it once it is merged
   pub source_branch_delete_policy: &'static str,
   pub merge_profile_id: Option<String>,
+  /// The merge request whose approvals the review check counts
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub space_review: Option<SpaceReviewDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceReviewDto {
+  pub project_key: String,
+  pub review_key: String,
+}
+
+/// A commit with its changed paths, as `pre-merge-approval-required-check` reads it
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreMergeCommitDto {
+  pub hash: String,
+  pub is_merge_commit: bool,
+  pub message: String,
+  pub author_name: String,
+  pub author_email: String,
+  // sic: the field is spelled so in the Patronus DTO
+  pub commiter_name: String,
+  pub commiter_email: String,
+  /// UTC, `2026-10-14T09:30:00Z`
+  pub author_date: String,
+  pub committer_date: String,
+  pub changed_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreMergeCheckRequest<'a> {
+  pub space_project_key: &'a str,
+  pub space_repository_name: &'a str,
+  pub target_branch: &'a str,
+  pub commits: &'a [PreMergeCommitDto],
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub space_review_key: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreMergeCheckResponse {
+  pub approval_required: bool,
+  #[serde(default)]
+  pub reviewer_groups: Vec<ReviewerGroupDto>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewerGroupDto {
+  pub group_name: String,
+  #[serde(default)]
+  pub reviewers: Vec<ReviewerDto>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewerDto {
+  pub space_username: String,
+  pub full_name: String,
+  #[serde(default)]
+  pub is_available: bool,
+  #[serde(default)]
+  pub is_suggested: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRequestDto {
+  pub project_key: String,
+  pub review_key: String,
+  pub url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeRequestsDto {
+  merge_requests: Vec<MergeRequestDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeRequestCreateDto<'a> {
+  project_key: &'a str,
+  repository_name: &'a str,
+  source_branch: &'a str,
+  target_branch: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -307,6 +400,58 @@ impl PatronusClient {
   pub async fn cancel_robot(&self, token: &str, robot_id: &str) -> Result<(), PatronusError> {
     let response = self.http.put(self.robot_path(robot_id, "/cancel")).bearer_auth(token).timeout(ACTION_TIMEOUT).send().await;
     read_empty(response).await
+  }
+
+  /// Whether the code owners have to approve the commits; the heaviest call of the API (it decodes the ownership
+  /// snapshots of the target branch), never repeated by itself
+  #[instrument(skip(self, token, request), fields(commits = request.commits.len(), review = ?request.space_review_key))]
+  pub async fn pre_merge_check(&self, token: &str, request: &PreMergeCheckRequest<'_>) -> Result<PreMergeCheckResponse, PatronusError> {
+    let started = Instant::now();
+    let response = self
+      .http
+      .post(format!("{}/app/rest/v1/pre-merge-approval-required-check", self.base_url))
+      .json(request)
+      .bearer_auth(token)
+      .timeout(REVIEW_CHECK_TIMEOUT)
+      .send()
+      .await;
+    let answer: PreMergeCheckResponse = read_json(response).await?;
+    info!(
+      required = answer.approval_required,
+      elapsed_ms = started.elapsed().as_millis(),
+      "checked the code-owner review"
+    );
+    Ok(answer)
+  }
+
+  /// The open merge requests from `source_branch` into `target_branch` (branch names); Patronus asks Space for them
+  #[instrument(skip(self, token))]
+  pub async fn find_merge_requests(&self, token: &str, repository: &str, source_branch: &str, target_branch: &str) -> Result<Vec<MergeRequestDto>, PatronusError> {
+    let query = [("repository", repository), ("sourceBranch", source_branch), ("targetBranch", target_branch)];
+    let url = reqwest::Url::parse_with_params(&format!("{}/app/rest/v1/space/merge-requests", self.base_url), query).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
+    let response = self.http.get(url).bearer_auth(token).timeout(MERGE_REQUEST_TIMEOUT).send().await;
+    let found: MergeRequestsDto = read_json(response).await?;
+    Ok(found.merge_requests)
+  }
+
+  /// Opens a merge request on Space, by Patronus for the user
+  #[instrument(skip(self, token))]
+  pub async fn create_merge_request(&self, token: &str, project_key: &str, repository: &str, source_branch: &str, target_branch: &str) -> Result<MergeRequestDto, PatronusError> {
+    let body = MergeRequestCreateDto {
+      project_key,
+      repository_name: repository,
+      source_branch,
+      target_branch,
+    };
+    let response = self
+      .http
+      .post(format!("{}/app/rest/v1/space/merge-requests", self.base_url))
+      .json(&body)
+      .bearer_auth(token)
+      .timeout(MERGE_REQUEST_TIMEOUT)
+      .send()
+      .await;
+    read_json(response).await
   }
 
   fn robot_path(&self, robot_id: &str, suffix: &str) -> String {

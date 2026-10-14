@@ -1,4 +1,5 @@
-use crate::patronus::{SpaceRepository, find_target_branch, parse_space_repository};
+use crate::patronus::{MAX_REVIEW_COMMITS, SpaceRepository, find_target_branch, parse_space_repository, read_review_commits};
+use std::fmt::Write;
 use test_utils::git_test_utils::TestRepo;
 
 #[test]
@@ -49,4 +50,54 @@ fn the_target_is_the_branch_of_origin_the_baseline_tracks() {
   clone.add_remote("fork", upstream.path().to_str().unwrap()).unwrap();
   git.execute_command(&["fetch", "--quiet", "fork"], path).unwrap();
   assert_eq!(find_target_branch(git, path, &format!("fork/{default_branch}")).unwrap(), None);
+}
+
+#[test]
+fn reads_the_commits_of_the_branch_with_their_changed_paths() {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let path = repo.path().to_str().unwrap();
+  let git = repo.git_executor();
+  git.execute_command(&["branch", "baseline"], path).unwrap();
+  repo.create_commit_with_files("IJPL-1 first\n\nThe body", &[("a.txt", "a"), ("dir/b c.txt", "b")]);
+  git.execute_command(&["rm", "--quiet", "a.txt"], path).unwrap();
+  repo.create_commit("IJPL-1 second", "c.txt", "c");
+
+  let commits = read_review_commits(git, path, "baseline", "HEAD").unwrap().unwrap();
+  assert_eq!(
+    commits.iter().map(|commit| commit.message.as_str()).collect::<Vec<_>>(),
+    ["IJPL-1 second", "IJPL-1 first\n\nThe body"]
+  );
+  // a deleted path counts: its owners review the deletion
+  assert_eq!(commits[0].changed_paths, ["a.txt", "c.txt"]);
+  assert_eq!(commits[1].changed_paths, ["a.txt", "dir/b c.txt"]);
+  assert!(!commits[0].is_merge);
+  assert!(commits[0].author_date.contains('T'), "{}", commits[0].author_date);
+  assert_ne!(commits[0].author_email, "");
+}
+
+#[test]
+fn does_not_read_a_branch_with_too_many_commits() {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let path = repo.path().to_str().unwrap();
+  let git = repo.git_executor();
+  let base = git.execute_command(&["rev-parse", "HEAD"], path).unwrap();
+  // MAX_REVIEW_COMMITS + 1 commits without a work tree: one fast-import
+  let mut stream = String::new();
+  for index in 0..=MAX_REVIEW_COMMITS {
+    let from = if index == 0 { format!("from {base}\n") } else { String::new() };
+    write!(
+      stream,
+      "commit refs/heads/long\ncommitter Me <me@example.com> 1700000000 +0000\ndata 1\nc\n{from}M 644 inline f.txt\ndata {}\n{index}\n",
+      index.to_string().len()
+    )
+    .unwrap();
+  }
+  git.execute_command_with_input(&["fast-import", "--quiet"], path, &stream).unwrap();
+  assert_eq!(read_review_commits(git, path, &base, "refs/heads/long").unwrap(), None);
+  assert_eq!(
+    read_review_commits(git, path, &base, "refs/heads/long~1").unwrap().map(|commits| commits.len()),
+    Some(MAX_REVIEW_COMMITS)
+  );
 }

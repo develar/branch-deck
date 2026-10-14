@@ -2,7 +2,9 @@ import { useEffect, useState } from "react"
 import { FlaskConicalIcon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { PatronusReviewBlock } from "@/components/branch/PatronusReviewBlock"
 import { InlineForm } from "@/components/shared/InlineForm"
+import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { PatronusPushMode, PatronusStartOptions } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { pushBranch } from "@/lib/git/push"
@@ -62,20 +64,28 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const needsPush = remoteTip !== localTip
   const blocked = isStartBlocked(robot, localTip)
   const canStart = options !== null && options.supported && !blocked && !processing && !isPushing && localTip !== undefined
+  // the code owners don't check a dry run
+  const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
+  const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
+
+  /** The branch on the remote with its tip: a start and a merge request need it */
+  const pushIfNeeded = async (): Promise<boolean | null> => {
+    if (!needsPush) {
+      return false
+    }
+    setPushing(true)
+    const pushed = await pushBranch(branchName)
+    setPushing(false)
+    // the push reported its failure
+    return pushed ? true : null
+  }
 
   const start = async () => {
-    let justPushed = false
-    if (needsPush) {
-      setPushing(true)
-      const pushed = await pushBranch(branchName)
-      setPushing(false)
-      // the push reported its failure
-      if (!pushed) {
-        return
-      }
-      justPushed = true
+    const justPushed = await pushIfNeeded()
+    if (justPushed === null) {
+      return
     }
-    await withRowProcessing(branchName, () => startPatronusRobot(branchName, mode, profile === NO_PROFILE ? null : profile, justPushed), {
+    await withRowProcessing(branchName, () => startPatronusRobot(branchName, mode, profile === NO_PROFILE ? null : profile, mergeRequest, justPushed), {
       processingMessage: `Starting the ${modeName}…`,
       success: started => ({ title: `${modeName} started`, description: started.name }),
       error: error => ({ title: `Cannot start the ${modeName}`, description: error instanceof Error ? error.message : String(error) }),
@@ -125,6 +135,12 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
             </SelectContent>
           </Select>
         </label>
+      )}
+      {mode === "rebaseAutosquash" && options?.supported === true && (
+        <PatronusReviewBlock
+          review={review}
+          onCreateMergeRequest={async () => (await pushIfNeeded()) === null ? null : (await review.createMergeRequest()).url}
+        />
       )}
       {needsPush && (
         <p className="text-sm text-muted-foreground" data-testid="patronus-start-push-note">The branch is pushed first: Patronus starts from the remote branch.</p>

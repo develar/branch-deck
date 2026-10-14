@@ -1,6 +1,6 @@
 import { useState } from "react"
 import type { ComponentType } from "react"
-import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, TriangleAlertIcon } from "lucide-react"
+import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
@@ -14,11 +14,13 @@ import { runRobotAction } from "@/lib/patronus-actions"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
-import { cancelPatronusRobot, restartPatronusRobot, useBranchRobot } from "@/stores/patronus"
+import { openInline } from "@/stores/inline-row-action"
+import { cancelPatronusRobot, isPatronusAvailable, restartPatronusRobot, useBranchRobot, useRobotNeedsReview } from "@/stores/patronus"
 
 const icons: Readonly<Record<PatronusChipKind, ComponentType<{ className?: string }>>> = {
   running: ShieldEllipsisIcon,
   failed: ShieldXIcon,
+  needsReview: ShieldAlertIcon,
   merged: ShieldCheckIcon,
   passed: ShieldCheckIcon,
   canceled: ShieldOffIcon,
@@ -35,11 +37,12 @@ export function PatronusChip({ branchName, compact = false }: { branchName: stri
   const robot = useBranchRobot(branchName)
   const localTip = useBranchTip(branchName)
   const [open, setOpen] = useState(false)
+  const needsReview = useRobotNeedsReview(robot?.id)
   if (robot === undefined) {
     return null
   }
 
-  const chip = getPatronusChipState(robot, localTip)
+  const chip = getPatronusChipState(robot, localTip, needsReview)
   const Icon = icons[chip.kind]
   return (
     <StatusChip
@@ -77,7 +80,8 @@ export interface PatronusRobotDetailsProps {
  * chip popover and the branch preview show it.
  */
 export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails }: PatronusRobotDetailsProps) {
-  const chip = getPatronusChipState(robot, localTip)
+  const needsReview = useRobotNeedsReview(robot.id)
+  const chip = getPatronusChipState(robot, localTip, needsReview)
   const Icon = icons[chip.kind]
   const details = usePatronusRobotDetails(robot.id, robot.status, loadDetails)
   const remoteTip = useBranchRemoteTip(branchName)
@@ -154,8 +158,21 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
         </ul>
       )}
 
+      {needsReview && (
+        <p className="text-xs text-warning" data-testid="patronus-needs-review">
+          The code owners did not approve the changes. Get the approvals in a merge request, then start a new Safe Push: a
+          restart would check the same merge request.
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        {canRestartRobot(robot, branchName, remoteTip) && (
+        {needsReview && isPatronusAvailable() && (
+          <Button variant="outline" size="xs" onClick={() => openInline("safe-push", branchName)}>
+            <ShieldCheckIcon data-icon="inline-start" />
+            Safe Push…
+          </Button>
+        )}
+        {canRestartRobot(robot, branchName, remoteTip, needsReview) && (
           <Button variant="outline" size="xs" onClick={() => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)}>
             <RotateCcwIcon data-icon="inline-start" />
             Restart
