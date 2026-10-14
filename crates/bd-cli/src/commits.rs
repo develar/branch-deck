@@ -2,12 +2,14 @@ use crate::context::RepoContext;
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, FileChange, read_commit_diffs, read_commit_patches};
 use crate::error::CliError;
+use crate::generated::generated_paths;
 use crate::output::SchemaVersion;
 use crate::status::{read_grouping, read_head};
 use git_ops::commit_list::Commit;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_core::autosquash::{FixupKind, plan_autosquash};
 use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, parse_subject};
 use sync_utils::issue_pattern::find_issue_number;
@@ -23,6 +25,9 @@ pub struct CommitsArgs {
   /// Only the commits of this branch, and the edges and overlaps that involve it
   #[arg(long)]
   pub branch: Option<String>,
+  /// Keep lock files and generated files in the dependencies and the overlaps
+  #[arg(long)]
+  pub include_generated: bool,
 }
 
 /// `bd commits`: every commit ahead of the baseline, oldest first, with what ties them together
@@ -35,9 +40,11 @@ pub struct CommitsOutput {
   pub baseline: String,
   /// Oldest first, the order they are applied in
   pub commits: Vec<CommitEntry>,
-  /// `from` depends on `to`: its hunks touch lines `to` added (approximate, see docs/guidelines/agent-cli.md)
+  /// `from` depends on `to`: its hunks touch lines `to` added (approximate, see docs/guidelines/agent-cli.md). Lock
+  /// files and generated files don't count without --include-generated
   pub dependencies: Vec<DependencyEdge>,
-  /// For each pair of current branches, the files both change
+  /// For each pair of current branches, the files both change; without lock files and generated files unless
+  /// --include-generated
   pub cluster_overlap: Vec<ClusterOverlap>,
 }
 
@@ -101,6 +108,9 @@ pub struct FileEntry {
   pub deletions: Option<u32>,
   #[serde(skip_serializing_if = "std::ops::Not::not")]
   pub binary: bool,
+  /// A lock file, or marked `linguist-generated` or `-diff` in the attributes
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  pub generated: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -144,6 +154,26 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
     HashMap::new()
   };
   let fixups = fixup_targets(&head, &ordered);
+  let generated = if args.files || !args.include_generated {
+    let paths = diffs
+      .iter()
+      .flat_map(|diff| &diff.files)
+      .flat_map(|change| std::iter::once(change.path.as_str()).chain(change.old_path.as_deref()));
+    generated_paths(&context.git, &context.repository, paths)?
+  } else {
+    HashSet::new()
+  };
+  let is_generated = |change: &FileChange| generated.contains(&change.path) || change.old_path.as_ref().is_some_and(|path| generated.contains(path));
+  // the same positions as `diffs`, without the generated files
+  let linked_diffs: Cow<[CommitDiff]> = if args.include_generated {
+    Cow::Borrowed(&diffs)
+  } else {
+    let diffs = diffs.iter().map(|diff| CommitDiff {
+      id: diff.id.clone(),
+      files: diff.files.iter().filter(|change| !is_generated(change)).cloned().collect(),
+    });
+    Cow::Owned(diffs.collect())
+  };
 
   let short = context.short_ids(grouping.commit_ids.iter().map(String::as_str).chain(std::iter::once(head.as_str())));
   let diff_of: HashMap<&str, &CommitDiff> = diffs.iter().map(|diff| (diff.id.as_str(), diff)).collect();
@@ -171,15 +201,17 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
           target: target.as_deref().map(|target| short.get(target).to_string()),
           target_subject: commit.subject[parsed.autosquash.len()..].to_string(),
         }),
-        files: args
-          .files
-          .then(|| diff_of.get(commit.id.as_str()).map_or_else(Vec::new, |diff| diff.files.iter().map(file_entry).collect())),
+        files: args.files.then(|| {
+          diff_of
+            .get(commit.id.as_str())
+            .map_or_else(Vec::new, |diff| diff.files.iter().map(|change| file_entry(change, is_generated(change))).collect())
+        }),
         patch: patches.remove(&commit.id),
       }
     })
     .collect();
 
-  let dependencies = compute_dependencies(&diffs)
+  let dependencies = compute_dependencies(&linked_diffs)
     .into_iter()
     .filter(|edge| in_scope(group_of(edge.from)) || in_scope(group_of(edge.to)))
     .map(|edge| DependencyEdge {
@@ -189,7 +221,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
     })
     .collect();
 
-  let cluster_overlap = cluster_overlap(&diffs, |id| by_id.get(id).and_then(|(_, group)| *group))
+  let cluster_overlap = cluster_overlap(&linked_diffs, |id| by_id.get(id).and_then(|(_, group)| *group))
     .into_iter()
     .filter(|overlap| args.branch.as_ref().is_none_or(|name| overlap.branches.contains(name)))
     .collect();
@@ -228,7 +260,7 @@ fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)]) -> HashMap<Str
   targets
 }
 
-fn file_entry(change: &FileChange) -> FileEntry {
+fn file_entry(change: &FileChange, generated: bool) -> FileEntry {
   FileEntry {
     path: change.path.clone(),
     old_path: change.old_path.clone(),
@@ -236,6 +268,7 @@ fn file_entry(change: &FileChange) -> FileEntry {
     additions: (!change.binary).then_some(change.additions),
     deletions: (!change.binary).then_some(change.deletions),
     binary: change.binary,
+    generated,
   }
 }
 

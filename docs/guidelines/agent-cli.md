@@ -88,7 +88,7 @@ for all the commits.
 - `parent` (the parent of a stacked branch) and `pull_request` (from `sync_core::pull_requests`) are reserved, and
   left out until stacks and pull request status exist.
 
-### `bd commits [--files] [--patch] [--branch <b>]`
+### `bd commits [--files] [--patch] [--branch <b>] [--include-generated]`
 
 Prints every commit ahead of the baseline, oldest first, which is the order they are applied in.
 
@@ -112,10 +112,25 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   still computed over every commit.
 - `dependencies` are edges where `from` depends on `to`, an older commit, through `files`.
 - `cluster_overlap` lists, for each pair of current branches, the files both change.
+- Lock files and generated files don't count in `dependencies` and `cluster_overlap` (see below);
+  `--include-generated` keeps them. `--files` still lists them, with `"generated": true`.
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw -p -U0`
 process. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
 `--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output.
+
+#### Lock files and generated files
+
+Nobody edits them by hand, and they link every commit that touches them, so by default they are left out. A file is
+generated when:
+
+- its name is a lock file: `Cargo.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `go.sum`,
+  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/bd-cli/src/generated.rs`);
+- or the attributes of HEAD mark it `linguist-generated` or `-diff` (which `binary` implies). One
+  `git check-attr --source=HEAD --stdin -z` process checks all paths.
+
+Other generated files, such as bindings or snapshots, count until `.gitattributes` marks them, e.g.
+`src/lib/bindings.ts linguist-generated`.
 
 #### How dependencies are approximated
 

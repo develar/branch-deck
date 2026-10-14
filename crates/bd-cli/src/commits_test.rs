@@ -139,3 +139,40 @@ fn dependency_edges_and_cluster_overlap() {
   assert_eq!(output["dependencies"], json!([]));
   assert_eq!(output["cluster_overlap"].as_array().unwrap().len(), 2);
 }
+
+#[test_log::test]
+fn generated_files_are_flagged_and_unlinked() {
+  let repo = repo_with_baseline(&[
+    (".gitattributes", "gen/** linguist-generated\n"),
+    ("Cargo.lock", &numbered_lines(5)),
+    ("gen/types.ts", &numbered_lines(5)),
+  ]);
+  for (name, line, timestamp) in [("one", "line 2\n", 1_700_000_100), ("two", "line 3\n", 1_700_000_200)] {
+    for path in ["Cargo.lock", "gen/types.ts"] {
+      let content = std::fs::read_to_string(repo.path().join(path)).unwrap();
+      write(&repo, path, content.replace(line, &format!("{name}\n")));
+    }
+    commit_all(&repo, &format!("({name}) Regenerate"), timestamp);
+  }
+
+  let (exit_code, output) = run_in(&repo, &["commits", "--files"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    by_subject(&output, "(one) Regenerate")["files"],
+    json!([
+      { "path": "Cargo.lock", "status": "M", "additions": 1, "deletions": 1, "generated": true },
+      { "path": "gen/types.ts", "status": "M", "additions": 1, "deletions": 1, "generated": true },
+    ])
+  );
+  assert_eq!(output["dependencies"], json!([]));
+  assert_eq!(output["cluster_overlap"], json!([]));
+
+  let (exit_code, output) = run_in(&repo, &["commits", "--include-generated"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let commits = output["commits"].as_array().unwrap();
+  assert_eq!(
+    output["dependencies"],
+    json!([{ "from": commits[1]["id"], "to": commits[0]["id"], "files": ["Cargo.lock", "gen/types.ts"] }])
+  );
+  assert_eq!(output["cluster_overlap"], json!([{ "branches": ["one", "two"], "files": ["Cargo.lock", "gen/types.ts"] }]));
+}

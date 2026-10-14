@@ -7,6 +7,7 @@ pub mod context;
 pub mod dependencies;
 pub mod diff_scan;
 pub mod error;
+pub mod generated;
 pub mod output;
 pub mod schema;
 pub mod status;
