@@ -42,7 +42,7 @@ export function ConflictingFilesPage() {
               />
             </div>
           )
-        : <LoadingState message="Loading conflicting files data..." />}
+        : <LoadingState message="Loading conflicting files data…" />}
     </div>
   )
 }

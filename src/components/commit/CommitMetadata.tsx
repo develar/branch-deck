@@ -12,13 +12,13 @@ export interface CommitMetadataProps {
   authorTime?: number
   committerTime?: number
   fileCount?: number
-  /** Extra items (e.g. the branch name), each after a `•` separator */
+  /** Extra items (e.g. the branch name), each after a `·` separator */
   extra?: readonly ReactNode[]
 }
 
 /**
  * The meta line of every commit presentation: short hash (and the synced hash), author, time, file count and extras,
- * separated by `•`, in `text-xs text-muted-foreground`.
+ * separated by `·`, in `text-xs text-muted-foreground`.
  */
 export function CommitMetadata({ hash, newHash, author, authorTime, committerTime, fileCount, extra = [] }: CommitMetadataProps) {
   const items: ReactNode[] = []
@@ -45,7 +45,7 @@ export function CommitMetadata({ hash, newHash, author, authorTime, committerTim
       {/* items of one commit never reorder, so the index is a stable key */}
       {items.map((item, index) => (
         <Fragment key={index}>
-          <span>•</span>
+          <span>·</span>
           {item}
         </Fragment>
       ))}

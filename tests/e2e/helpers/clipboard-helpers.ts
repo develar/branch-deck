@@ -66,8 +66,8 @@ export async function testCopyButton(
   // Click the copy button
   await button.click()
 
-  // Wait for tooltip to change to "Copied!"
-  const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied!\")")
+  // Wait for tooltip to change to "Copied"
+  const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied\")")
   await expect(copiedTooltip).toBeVisible()
 
   // Verify the original tooltip is no longer visible

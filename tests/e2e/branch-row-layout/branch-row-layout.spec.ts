@@ -151,8 +151,8 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     // Verify button reverts to initial state after timeout
     await expect(iconElement).toHaveClass(copyIcon)
 
-    // First verify the "Copied!" tooltip is no longer visible
-    const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied!\")")
+    // First verify the "Copied" tooltip is no longer visible
+    const copiedTooltip = page.locator("[role=\"tooltip\"]:has-text(\"Copied\")")
     await expect(copiedTooltip).not.toBeVisible()
 
     // Move mouse away from button first and let the tooltip finish its exit animation

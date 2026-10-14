@@ -94,7 +94,7 @@ export function BranchCreator() {
                 <li>(auth) Add login form</li>
                 <li>YT-123 Fix bug</li>
               </ul>
-              <p>BranchDeck will automatically group your commits into virtual branches.</p>
+              <p>Branch Deck will automatically group your commits into virtual branches.</p>
               {archivedBranchCount > 0 && (
                 <p className="text-sm text-muted-foreground">Your archived branches are shown below.</p>
               )}

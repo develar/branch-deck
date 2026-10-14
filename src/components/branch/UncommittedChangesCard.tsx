@@ -49,7 +49,7 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
             <div className="flex items-center justify-center py-8">
               <div className="flex items-center gap-3">
                 <Spinner className="size-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Loading uncommitted changes...</span>
+                <span className="text-sm text-muted-foreground">Loading uncommitted changes…</span>
               </div>
             </div>
           )

@@ -21,7 +21,7 @@ export function ModelDownloadProgress({ variant }: ModelDownloadProgressProps) {
     >
       {downloadProgress
         ? <DownloadProgressContent event={downloadProgress} showCancelButton={isPopover} />
-        : <div className="text-muted-foreground">Initializing download...</div>}
+        : <div className="text-muted-foreground">Initializing download…</div>}
     </div>
   )
 }
@@ -44,7 +44,7 @@ function DownloadProgressContent({ event, showCancelButton }: { event: DownloadP
                   {event.data.totalFiles}
                   {" "}
                   {event.data.totalFiles === 1 ? "file" : "files"}
-                  ...
+                  …
                 </p>
               )
             : <p className="font-semibold">{event.data.fileName}</p>}
@@ -116,7 +116,7 @@ function DownloadProgressContent({ event, showCancelButton }: { event: DownloadP
       )
 
     case "Completed":
-      return <p className="font-semibold text-success">All files downloaded successfully!</p>
+      return <p className="font-semibold text-success">All files downloaded</p>
 
     case "Error":
       return (
@@ -130,7 +130,7 @@ function DownloadProgressContent({ event, showCancelButton }: { event: DownloadP
       )
 
     case "Cancelled":
-      return <p className="text-muted-foreground">Download cancelled</p>
+      return <p className="text-muted-foreground">Download canceled</p>
   }
 }
 
@@ -141,7 +141,7 @@ function formatBytes(bytes: number): string {
 
 function formatTime(seconds: number): string {
   if (seconds === 0) {
-    return "Finishing..."
+    return "Finishing…"
   }
   if (seconds < 60) {
     return `${seconds}s`

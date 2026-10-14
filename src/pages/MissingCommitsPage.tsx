@@ -79,7 +79,7 @@ export function MissingCommitsPage() {
             <div className="flex min-h-[400px] items-center justify-center">
               <div className="flex flex-col items-center gap-3 text-center">
                 <Spinner className="size-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Loading missing commits data...</p>
+                <p className="text-sm text-muted-foreground">Loading missing commits data…</p>
               </div>
             </div>
           )}

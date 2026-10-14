@@ -16,10 +16,10 @@ export interface CopyButtonProps {
   className?: string
 }
 
-/** Icon button copying text; its tooltip switches to "Copied!" in place for a moment. */
+/** Icon button copying text; its tooltip switches to "Copied" in place for a moment. */
 export function CopyButton({ text, tooltip = "Copy to clipboard", size = "icon-xs", variant = "ghost", alwaysVisible = false, className }: CopyButtonProps) {
   const { isCopied, tooltipOpen, setTooltipOpen, copyToClipboard } = useCopyToClipboard()
-  const tooltipText = isCopied ? "Copied!" : tooltip
+  const tooltipText = isCopied ? "Copied" : tooltip
 
   const handleClick = (event: MouseEvent) => {
     event.stopPropagation()
@@ -30,7 +30,7 @@ export function CopyButton({ text, tooltip = "Copy to clipboard", size = "icon-x
     <div className={cn("copy-button transition-opacity", !alwaysVisible && "opacity-0", className)}>
       <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
         <TooltipTrigger
-          // keep the tooltip open on click, so its text switches to "Copied!" in place
+          // keep the tooltip open on click, so its text switches to "Copied" in place
           closeOnClick={false}
           render={(
             <Button

@@ -68,7 +68,7 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
       return result.data.data
     },
     {
-      processingMessage: `Amending changes to ${branch.name}...`,
+      processingMessage: `Amending changes to ${branch.name}…`,
       success: ({ amendedCommitId, rebasedToCommit }) => ({
         title: `${branch.name}: Changes Amended`,
         description: `Amended commit ${amendedCommitId.slice(0, 8)} → ${rebasedToCommit.slice(0, 8)}`,
@@ -77,7 +77,7 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
       error: (error) => {
         if (error instanceof AmendConflictError) {
           openInline("amend-conflict", branch.name, error.conflict)
-          return { title: "Conflict detected", description: "Opening conflict resolver..." }
+          return { title: "Conflict detected", description: "Opening conflict resolver…" }
         }
         return {
           title: `${branch.name}: Failed to Amend Changes`,

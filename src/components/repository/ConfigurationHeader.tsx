@@ -76,7 +76,7 @@ export function ConfigurationHeader() {
             <PopoverContent className="w-auto min-w-[200px] gap-2 p-3">
               <label className="flex items-center gap-2 text-sm">
                 <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
-                Auto-sync on focus
+                Auto-sync on Focus
               </label>
               <div className="text-xs text-muted-foreground">
                 Automatically sync when the window gains focus

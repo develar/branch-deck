@@ -86,7 +86,7 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
                   <div className="flex items-center justify-center py-8">
                     <div className="flex items-center gap-3">
                       <Spinner className="text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Loading file content...</span>
+                      <span className="text-sm text-muted-foreground">Loading file content…</span>
                     </div>
                   </div>
                 )}

@@ -31,7 +31,7 @@ async function runAddIssueReference(issueReference: string, branch: Branch): Pro
       return result.data
     },
     {
-      processingMessage: `Adding ${issueReference} to ${branch.name}...`,
+      processingMessage: `Adding ${issueReference} to ${branch.name}…`,
       success: ({ updatedCount, skippedCount }) => {
         if (updatedCount === 0) {
           return { title: "No Changes Made", description: `All ${skippedCount} commits already have issue references`, duration: 5000 }

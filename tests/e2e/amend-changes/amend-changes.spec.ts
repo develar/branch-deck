@@ -34,7 +34,7 @@ test.describe("Amend Changes Feature", () => {
     await openAmendDialog(page, "feature-auth")
 
     // Wait for uncommitted changes to finish loading (wait for spinner to disappear)
-    await page.waitForSelector("text=Loading uncommitted changes...", { state: "detached", timeout: 10000 })
+    await page.waitForSelector("text=Loading uncommitted changes…", { state: "detached", timeout: 10000 })
 
     // Verify the dialog title
     const dialogTitle = await page.textContent("h1, h2, [role=\"heading\"]")

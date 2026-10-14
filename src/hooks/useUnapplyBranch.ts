@@ -33,7 +33,7 @@ export async function unapplyBranch(branch: Branch): Promise<void> {
       return result.data
     },
     {
-      processingMessage: `Unapplying ${branch.name}...`,
+      processingMessage: `Unapplying ${branch.name}…`,
       success: data => ({
         title: `${branch.name}: Branch Unapplied`,
         description: `${data.commitsRemoved.length} commits removed from HEAD, branch moved to ${data.unappliedBranchName}`,
