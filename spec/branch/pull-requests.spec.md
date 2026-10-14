@@ -126,11 +126,11 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 
 ### Chip
 
-- The Status cell of a branch row shows the chip after the status text: the pull request icon and `#760`. A branch
-  without a pull request shows nothing.
+- The Status cell of a branch row shows the chip in its second column, after the status text
+  ([Branch Row](branch-row.spec.md)): the pull request icon and `#760`. A branch without a pull request shows nothing.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
 - The hue of an open pull request follows the review decision: approved `success`, changes requested `destructive`,
-  review required and no decision muted. A draft is muted with a dashed outline and the draft icon; a merged one `info`
+  review required and no decision muted. A draft is muted with the draft icon; a merged one `info`
   with the merge icon; a closed one muted with the closed icon. A draft, merged or closed pull request shows its state,
   not the decision.
   [@test] ../../src/lib/pull-request.test.ts (`colours an open pull request by its review decision`)
@@ -178,8 +178,9 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 
 ## User Experience
 
-- The chip is text-sized (`text-xs`, `size-3.5` icon, tabular figures), a plain button that underlines on hover; only
-  the draft has an outline (`border-dashed`). The dots are `size-1.5 rounded-full`, as the status dot of the row.
+- The chip is text-sized (`text-xs`, `size-3.5` icon, tabular figures), a plain button that underlines on hover, with
+  the `rounded-2xl` focus ring of buttons and badges. No chip has an outline: a draft shows by its icon and its muted
+  hue. The dots are `size-1.5 rounded-full shrink-0`, as the status dot of the row.
 - `info` is the merged colour; push states never use it ([Outgoing Commits](../repository/outgoing.spec.md)).
 - The details popover is `w-80`, aligned to the start of the chip; in the preview the same details sit in a nested
   `rounded-lg` panel.
@@ -202,6 +203,7 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 
 ## References
 
+- [Branch Row](branch-row.spec.md): the Status cell and the anatomy of the chip details
 - [Outgoing Commits](../repository/outgoing.spec.md)
 - [Branch Preview](branch-preview.spec.md)
 - [Patronus](patronus.spec.md): the other review status, shown next to the chip

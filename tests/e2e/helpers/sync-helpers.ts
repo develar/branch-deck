@@ -69,7 +69,7 @@ export async function waitForBranchSyncComplete(page: Page, branchName: string):
   await expect(statusCell.locator("[role=\"progressbar\"]")).not.toBeVisible()
 
   // Now wait for the status badge to appear and verify it's not "syncing"
-  const statusBadge = statusCell.locator(".lowercase")
+  const statusBadge = statusCell.getByTestId("branch-status")
   await expect(statusBadge).toBeVisible()
 
   // Verify the status is not "syncing" - it should be "created", "updated", etc.

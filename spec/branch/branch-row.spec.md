@@ -1,0 +1,269 @@
+---
+name: Branch Row
+description: Requirements for a row of the branch table and of the archived table, the name cell with the tree of stacked and issue branches, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the push button, hover and click; and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+style: plain-1
+targets:
+  - ../../src/components/branch/BranchTableCard.tsx
+  - ../../src/components/branch/BranchRow.tsx
+  - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/components/branch/BranchNameCell.tsx
+  - ../../src/components/branch/IssueFamilyRow.tsx
+  - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/branch/BranchStatusBadge.tsx
+  - ../../src/components/branch/StatusChip.tsx
+  - ../../src/components/branch/PullRequestChip.tsx
+  - ../../src/components/branch/PatronusChip.tsx
+  - ../../src/components/branch/LandedChip.tsx
+  - ../../src/components/branch/BranchActions.tsx
+  - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/components/shared/TableHeader.tsx
+  - ../../src/hooks/useStatusBadge.ts
+  - ../../src/hooks/usePushButton.ts
+  - ../../src/hooks/useRowExpansion.ts
+  - ../../src/lib/remote-status.ts
+  - ../../src/lib/push-summary.ts
+  - ../../src/lib/status-chip.ts
+  - ../../src/lib/ui-types.ts
+  - ../../src/stores/branch-sync.ts
+  - ../../src/index.css
+  - ../../src/components/branch/ArchivedBranchTableCard.tsx
+  - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
+  - ../../src/components/branch/ArchivedDateCell.tsx
+  - ../../src/components/branch/ArchivedBranchExpanded.tsx
+  - ../../src/lib/integration-commit.ts
+  - ../../src/stores/archived-branches.ts
+---
+
+# Branch Row
+
+Status: Implemented
+Date: 2026-10-14
+
+## Summary
+
+The branch table lists the active virtual branches, one row per branch; the archived table below it lists the branches
+a sync archived. A row reads from left to right: the folder that expands the commits and the branch name, the commit
+count, the Status cell and the actions. The Status cell has one status text and up to three chips (the pull request,
+the Patronus robot, the landed commits), each kind in its own column, so a look down the table compares like with
+like. Stacked branches and the branches of an issue hang under their parent as a tree, and the rail of an expanded
+parent's commits runs into the rule of its children.
+
+## Goals
+
+- Read the state of every branch in one look: the status text, then each chip kind, in the same column of every row.
+- Keep the table still: chips that load after the sync do not reflow it, and a long subject truncates.
+- One meaning per colour, in the row and in its chips: `info` merged or landed, `warning` attention, `destructive` a
+  failure, the push colour for the push.
+- Show a stack as one tree: the rail of a parent's commits and the rule of its children are one line.
+
+## Non-goals
+
+- The commit rows of an expanded branch: [Commit Row](../commit/commit-row.spec.md).
+- What the chips say and when they refresh: [Pull Requests](pull-requests.spec.md), [Patronus](patronus.spec.md),
+  [Landed Commits](../repository/landed-commits.spec.md).
+- The push labels, colours, descriptions and the push itself: [Outgoing Commits](../repository/outgoing.spec.md).
+- The menu items and the inline forms: [Move Commits](move-commits.spec.md), [Unapply](unapply.spec.md),
+  [Patronus](patronus.spec.md).
+- The order of the rows and the placement of stacked branches: [Stacked Branches](stacked-branches.spec.md).
+
+## Requirements
+
+### Columns
+
+- The branch table must have the columns Branch Name, Commits, Status and Actions. The name must take the free width,
+  the other columns their content width. Commits and Status hide below `sm`.
+- The Status column must be 16rem wide at least, so chips that arrive after the sync do not reflow the table.
+- A long name or subject must truncate, not wrap: the row stays one line high.
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
+
+### Name cell
+
+- The name cell must show, in this order: the folder button that expands the commits, the branch name with its issue
+  keys as links, the issue chip of a branch whose issue has no row above it, the fixup count, a mark (the archived
+  "New"), then the latest subject, muted, with its conventional-commit prefix dimmed.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
+  [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in branch names`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
+- A branch without commits and without an error must have no folder button.
+
+### Tree
+
+- A branch nested under the branch of its issue, under its issue row or under the branch it stacks on must be indented
+  one step per level (`--bd-nesting-step`, 1.75rem) and draw one rule per level over the whole row height. The rule of
+  level n sits 2rem + (n − 1) steps from the cell edge, under the left wall of the folder icon of the row above.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`)
+  [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`, `heads the branches of an issue without a branch of its own with an issue row`)
+- The commits of an expanded branch at depth d must sit behind a rail at the rule of level d + 1, with the rules of
+  the branch's own levels beside them, so the tree continues past them. When the next rows are its children, the rail
+  must run to the bottom of the cell, into their rule.
+- The commit subjects must start at the branch name.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should continue the commit rail of a parent into the rule of its children`)
+- An issue row without a branch of its own heads its branches with the issue key and the count of its branches. Its
+  icon box has the size of the folder button, so the rule of its branches sits under the icon.
+
+### Commits cell
+
+- The commits cell must show "1 commit" or "N commits", muted.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
+
+### Status cell
+
+- The Status cell must be a grid of three columns: the status text (7rem at least), the pull request chip, then the
+  Patronus chip and the Landed chip, in this order. A missing chip leaves its column empty, and the next chip keeps its
+  own column.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+- The status text must follow the first that applies: the sync progress ("syncing 3/10…"), an error or a conflict
+  ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), the remote status ("not
+  pushed", "up to date", "3 (5)↑ · 2↓"), then the result of the sync ("created", "updated", "unchanged").
+- Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
+  status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
+  ([Push colours](../repository/outgoing.spec.md#push-colours)).
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
+  [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`, `is neutral for a safe push of no commit of the user`)
+- The status text must show as written: the texts are lower case already, and an issue key or an error text keeps its
+  case ("blocked by IJPL-123"). Nothing changes the case in CSS; the branch preview shows the same text.
+- Hovering the status text must open its description: the remote status in a sentence and the last push time, the
+  reason of a block, the error.
+- A chip must be a text-sized button. Hovering it opens its details; a click opens its item (the pull request, the
+  robot), or the details when it has none (Landed), and never toggles the row.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
+- The details of every chip must have one anatomy: the state line (the icon and the state in the hue of the chip), the
+  title or a sentence on what it means, `dl` rows, the notices, then the actions.
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should show the profile, the checks and the problems in the popover`)
+
+### Blocked
+
+- A blocked stacked branch must have one treatment: the muted status "blocked by <parent>" after a `warning` dot, a
+  disabled push button, and, expanded, a `warning` alert with the reason and "Show <parent>", which reveals the parent.
+  Its commits carry the `warning` Blocked badge.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
+
+### Actions cell
+
+- The copy button must always be visible and copy the full branch name, `{prefix}/virtual/{name}`.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
+- The push button must follow [Outgoing Commits](../repository/outgoing.spec.md): its label ("Push (2)", "Create
+  Remote (3)", "Force Push (1)"), its colour (the push colour of the branch as the text of a ghost button, neutral when
+  up to date) and its description on hover, with the remote commits a force push drops and the progress of a running
+  push. A branch with an error or without commits has no push button.
+  [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
+
+### Hover and click
+
+- A row must show the pointer and `bg-muted` on hover; an expanded row keeps `bg-muted/50`.
+- A click on the row or on its folder button must toggle its commits. A click on another button, a chip or a link in
+  the row must not.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
+- A right-click must open the branch menu. A row running an inline action has no menu.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display context menu with copy options`)
+- Space over a row must open the [branch preview](branch-preview.spec.md).
+  [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
+- While commits are dragged, every row that takes them must show a dashed outline, and the row under the pointer the
+  primary tint and a solid outline.
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
+- A reveal (a branch clicked in the outgoing overview, "Show auth", moved commits) must expand the row and scroll it
+  into view.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
+
+### Archived table
+
+- The archived table must have the columns Branch Name, Status, Integrated and Actions. The name shows the last
+  segment of the archived branch path; the full name is copied.
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should render archived branches card`)
+- The status must be one of three words, in muted text after its icon: "Merged" with the merge icon in `info` (the
+  merged colour of the chips), "Partially merged · 1 of 2" with the pie icon, muted, and "Not merged" with the
+  warning triangle in `warning`. A spinner shows while the integration is detected.
+- The tooltip of the status must hold the counts and the merge commit: "3 commits, merged as abc12345 by Safe Push
+  Robot, 2 hours ago", "1 of 2 commits merged; the original commits are no longer in HEAD", "1 commit, none merged; the
+  original commits are no longer in HEAD". An exact match adds a `success` "Exact confidence" badge.
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should name the integration status in words, with the counts in the tooltip`)
+  [@test] ../../src/lib/integration-commit.test.ts (`names the commit count and the merge commit`, `says what it knows when the count or the merge commit is unknown`, `names the merged part, or says that none merged`)
+- The Integrated column must show when the branch was integrated.
+- Expanded, an integrated branch must show the merged-by line above its commits: the commit icon in `info`, "Merged as
+  abc12345 by Safe Push Robot, 2 hours ago", the author on hover, and a button that copies the full hash.
+  [@test] ../../src/lib/integration-commit.test.ts (`names the short hash, the committer and how long ago`)
+  [@test] ../../src/stores/archived-branches.test.ts (`keeps the commit that merged the branch`)
+- A branch a sync of this session archived must show an `info` "New" badge after its name until the Landed island is
+  dismissed.
+  [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
+- The menu of an archived row must offer the copy items and "Delete Archived Branch", which asks for the branch name.
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete archived branch via context menu`)
+
+## User Experience
+
+### Row
+
+- Every cell has `py-4`. The name cell has `px-6`, a nested one `pl-8 pr-6`; the other cells `px-4`, `w-px` and
+  `whitespace-nowrap`. The Status `<th>` has `min-w-[16rem]`.
+- The folder button is a ghost `icon-xs` button in `text-primary`. The name is `text-sm font-medium`, the subject
+  `text-xs text-muted-foreground`, its prefix `font-mono text-muted-foreground/70`.
+- The tree rules and the commit rail are neutral `border-l border-border` lines (`bd-nesting-level`,
+  `bd-nesting-leaf` and `--bd-nesting-step` in `src/index.css`).
+- The commit count is `text-sm text-muted-foreground`.
+
+### Status
+
+- The grid is `grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2`; the third column is a
+  `flex gap-2` of the Patronus and the Landed chip.
+- The status text is `text-sm text-muted-foreground`, at most `max-w-40` and truncated, after a `size-1.5` dot. The
+  badge is the subtle badge of its colour.
+- A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
+  badges (its focus ring), without a border or an outline, and underlined on hover. A dot is `size-1.5 rounded-full
+  shrink-0`. The details popover is `w-80` with `p-3`.
+- The colours: `info` merged and landed; `warning` attention (blocked, a pull request or a robot behind the branch,
+  "Needs review"); `destructive` a failure or a conflict; `success` approved or passed; the push colour (`primary`, or
+  `warning` for a push that drops remote commits) for the push only.
+- The blocked alert is the `warning` alert with the warning triangle; its "Show auth" link is `text-warning`.
+
+### Actions
+
+- The copy button is a ghost `icon-xs` button, muted.
+- The push button is a ghost `xs` button with the upload icon, its text in the push colour (`ghostButtonColorClass`).
+
+### Archived table
+
+- The status icon is `size-4`, the word `text-sm text-muted-foreground`. "New" is an `info` badge.
+- An expanded archived row is `bg-muted`; its merged-by line is `text-sm text-muted-foreground`, behind the rail of the
+  commits.
+
+### Dark theme
+
+- The rows use only shadcn semantic tokens and no `dark:` variants.
+
+## Testing / Local Run
+
+- `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/stores/branch-sync.test.ts`, `src/lib/push-summary.test.ts`,
+  `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
+- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/archived-branches` and the chip specs.
+  E2E reads the status text by `data-testid="branch-status"`, the tree rules by `nesting-rule`, the rail by
+  `commit-rail` and the archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
+
+## Open Questions / Risks
+
+- A status text longer than 7rem ("blocked by IJPL-123", "2 (3)↑ · 1↓") moves the chips of its row to the right, and the
+  third column follows the width of the pull request chip of its row: the chips line up across rows with short texts
+  and the same chips only.
+- 16rem fits the status text and one or two chips; a row with all three widens the column once, when they load.
+- The inline form row and the amend conflict row of a nested branch draw no tree rules: the tree pauses while a form is
+  open.
+- The commit subjects start at the name from `sm` up only: below it the commit rows have `px-4`, the name cell `px-6`.
+- No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
+- A branch without commits has no folder button, so its name starts 2rem further left than the others.
+
+## References
+
+- [Commit Row](../commit/commit-row.spec.md): the commits of an expanded row and their rail
+- [Outgoing Commits](../repository/outgoing.spec.md): the push labels, the push colours and the push
+- [Pull Requests](pull-requests.spec.md), [Patronus](patronus.spec.md), [Landed Commits](../repository/landed-commits.spec.md):
+  the chips
+- [Stacked Branches](stacked-branches.spec.md): the tree
+- [Branch Preview](branch-preview.spec.md), [Move Commits](move-commits.spec.md)
+- [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

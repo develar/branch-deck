@@ -40,7 +40,7 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
 function IntegrationCommitLine({ commit }: { commit: UpstreamCommit }) {
   return (
     <div className="group flex items-center gap-2 pl-4 text-sm text-muted-foreground" data-testid="archived-branch-integration-commit">
-      <GitCommitHorizontalIcon className="size-4 shrink-0 text-success" />
+      <GitCommitHorizontalIcon className="size-4 shrink-0 text-info" />
       <span className="truncate" title={`Authored by ${commit.author}`}>{describeIntegrationCommit(commit)}</span>
       <CopyButton text={() => commit.id} tooltip="Copy the commit hash" />
     </div>

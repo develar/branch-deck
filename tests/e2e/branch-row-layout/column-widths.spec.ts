@@ -1,3 +1,4 @@
+// @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
@@ -24,11 +25,14 @@ test.describe("Branch table column widths", () => {
     expect(name!.width).toBeGreaterThan(row!.width / 2)
     // the right columns are no wider than their content plus padding (px-4 = 16px each side)
     const padding = 2 * 16 + 1
-    for (const [cell, box] of [[commits, commitsBox], [status, statusBox], [actions, actionsBox]] as const) {
+    for (const [cell, box] of [[commits, commitsBox], [actions, actionsBox]] as const) {
       const content = await cell.locator("> *").first().boundingBox()
       expect(content).not.toBeNull()
       expect(box!.width).toBeLessThanOrEqual(content!.width + padding)
     }
+    // the Status column keeps its 16rem minimum (the status text and a chip or two), so chips that load later don't
+    // reflow the table; "not pushed" without chips fits in it
+    expect(statusBox!.width).toBeCloseTo(16 * 16, 0)
 
     // the long subject is still truncated, not wrapped: the row stays a single line high
     expect(row!.height).toBeLessThan(80)

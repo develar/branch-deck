@@ -74,22 +74,25 @@ export function BranchTableCard() {
             <tr>
               <TableHeader>Branch Name</TableHeader>
               <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
-              <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
+              {/* room for the status text and a chip or two, so the table doesn't reflow when the chips arrive */}
+              <TableHeader className="hidden w-px min-w-[16rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
               <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map((row) => {
+            {rows.map((row, rowIndex) => {
               if (row.kind === "issue") {
                 return <IssueFamilyRow key={row.key} issueKey={row.issueKey} branchCount={row.branchCount} />
               }
               const name = row.name
+              const next = rows.at(rowIndex + 1)
               return (
                 <BranchRow
                   key={name}
                   name={name}
                   depth={row.depth}
                   showIssueKey={row.showIssueKey}
+                  hasChildren={next?.kind === "branch" && next.depth > row.depth}
                   expanded={expandedKeys.has(name)}
                   onToggleExpanded={toggleExpanded}
                   setExpanded={setExpanded}

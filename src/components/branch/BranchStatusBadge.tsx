@@ -19,13 +19,13 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
           openOnHover
           delay={300}
           nativeButton={false}
-          // E2E locates the status text by the `lowercase` class
+          // the texts are lower case already ("blocked by IJPL-123" keeps its issue key); E2E reads the `branch-status` test id
           render={exceptional
-            ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate lowercase" />
+            ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate" data-testid="branch-status" />
             : <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" />}
         >
           {!exceptional && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
-          {exceptional ? status.text : <span className="truncate lowercase">{status.text}</span>}
+          {exceptional ? status.text : <span className="truncate" data-testid="branch-status">{status.text}</span>}
         </PopoverTrigger>
         <PopoverContent className="w-auto max-w-sm px-3 py-2 text-sm leading-snug break-words whitespace-pre-line">
           {status.tooltip}

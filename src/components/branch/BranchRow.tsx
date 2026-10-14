@@ -39,6 +39,8 @@ export interface BranchRowProps {
   depth?: number
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
+  /** The next rows are nested under this one: the rail of its expanded commits continues into their rule */
+  hasChildren?: boolean
   expanded: boolean
   onToggleExpanded: (name: string) => void
   setExpanded: (name: string, expanded: boolean) => void
@@ -48,7 +50,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey = false, hasChildren = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
@@ -113,11 +115,19 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
           </span>
         </td>
         <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-          <div className="flex items-center gap-2">
+          {/*
+            three columns, so each chip kind keeps its column across rows: the status text (7rem at least), the pull
+            request chip, then the Patronus and Landed chips; `justify-start` keeps the auto columns at their content width
+          */}
+          <div className="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
             <BranchStatusBadge branch={branch} />
-            <PullRequestChip branchName={name} />
-            <PatronusChip branchName={name} />
-            <LandedChip branchName={name} />
+            <div className="col-start-2 flex">
+              <PullRequestChip branchName={name} />
+            </div>
+            <div className="col-start-3 flex gap-2">
+              <PatronusChip branchName={name} />
+              <LandedChip branchName={name} />
+            </div>
           </div>
         </td>
         <td className="w-px px-4 py-4 whitespace-nowrap">
@@ -166,7 +176,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
       {expanded && (
         <tr>
           <td colSpan={columnCount} className="px-0 py-4">
-            <ActiveBranchExpanded branch={branch} depth={depth} highlightTipCommit={activeInline?.type === "amend-changes"} />
+            <ActiveBranchExpanded branch={branch} depth={depth} hasChildren={hasChildren} highlightTipCommit={activeInline?.type === "amend-changes"} />
           </td>
         </tr>
       )}

@@ -8,8 +8,6 @@ export interface StatusChipProps {
   /** The accessible name, e.g. "Pull request #760: Approved" */
   label: string
   color: StatusChipColor
-  /** Extra classes of the trigger, e.g. the dashed outline of a draft */
-  className?: string
   /** `data-*` attributes of the trigger, read by E2E tests */
   data: Readonly<Record<`data-${string}`, string | boolean | undefined>>
   /** The icon, the text and the dots */
@@ -23,10 +21,11 @@ export interface StatusChipProps {
 }
 
 /**
- * A text-sized status after the branch status (pull request, Patronus robot): a plain button that underlines on hover,
- * opens its details on hover and the item on click. A click does not toggle the row.
+ * A text-sized status after the branch status (pull request, Patronus robot, landed commits): a plain button that
+ * underlines on hover, opens its details on hover and the item on click. A click does not toggle the row. No chip has an
+ * outline: the icon and the hue tell the state; the focus ring follows the `rounded-2xl` of buttons and badges.
  */
-export function StatusChip({ label, color, className, data, children, details, detailsTestId, onActivate, onOpenChange }: StatusChipProps) {
+export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange }: StatusChipProps) {
   return (
     <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger
@@ -38,9 +37,8 @@ export function StatusChip({ label, color, className, data, children, details, d
             {...data}
             aria-label={label}
             className={cn(
-              "inline-flex h-5 shrink-0 items-center gap-1 rounded-lg border border-transparent px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
+              "inline-flex h-5 shrink-0 items-center gap-1 rounded-2xl px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
               statusChipTextColors[color],
-              className,
             )}
             onClick={(event) => {
               // the row toggles on click
@@ -61,5 +59,5 @@ export function StatusChip({ label, color, className, data, children, details, d
 
 /** The `size-1.5` dot of a chip, as the status dot of the row */
 export function StatusChipDot({ color, testId }: { color: "error" | "warning", testId: string }) {
-  return <span aria-hidden data-testid={testId} className={cn("size-1.5 rounded-full", color === "error" ? "bg-destructive" : "bg-warning")} />
+  return <span aria-hidden data-testid={testId} className={cn("size-1.5 shrink-0 rounded-full", color === "error" ? "bg-destructive" : "bg-warning")} />
 }

@@ -174,10 +174,11 @@ renames branches.
 ### UI
 
 - The branch table must show each branch under the branch it stacks on, depth-first and newest first among siblings,
-  with one rule per level under the icon of the row above; its expanded commits follow the depth. A branch whose
-  parent has no row, or whose parents form a cycle, stays at the top level.
+  with one rule per level under the icon of the row above; its expanded commits follow the depth, and the rail of a
+  parent's commits runs into the rule of its children ([Branch Row](branch-row.spec.md)). A branch whose parent has no
+  row, or whose parents form a cycle, stays at the top level.
   [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a branch whose parent has no row, or whose parents form a cycle, at the top level`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should continue the commit rail of a parent into the rule of its children`)
 - Issue families must be formed from the stack roots only. A stacked branch of another issue than its parent shows its
   issue as a chip. Without stacked branches the table is as before.
   [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`)
@@ -189,9 +190,9 @@ renames branches.
 - Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name the children
   they block. See [Move Commits](move-commits.spec.md).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
-- A blocked branch must show a muted `blocked by <parent>` status with the reason as its tooltip, a disabled push
-  button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and, expanded, an info
-  alert with a link that reveals the parent.
+- A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
+  a disabled push button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and,
+  expanded, a `warning` alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
 - Where the tree isn't visible, a stacked branch must say what it is built on ("on auth"): the Outgoing overview and the
@@ -212,6 +213,7 @@ renames branches.
 
 ## References
 
+- [Branch Row](branch-row.spec.md): the tree rules and the blocked row
 - [Virtual Branches](../../docs/design/virtual-branches.md)
 - [Git Operations](../../docs/design/git-operations.md)
 - [Fixups](../commit/fixups.spec.md)
