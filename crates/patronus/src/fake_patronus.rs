@@ -19,8 +19,6 @@ pub(crate) struct FakePatronus {
   pub detail_calls: AtomicU32,
   pub start_supported_calls: AtomicU32,
   pub start_calls: AtomicU32,
-  /// The first starts answer 400, as for a branch Space does not show yet
-  pub unseen_starts: AtomicU32,
   pub restart_calls: AtomicU32,
   pub cancel_calls: AtomicU32,
   /// The query of the last list request
@@ -109,13 +107,8 @@ pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       .post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
         fake.start_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_start.lock().unwrap() = body;
-        if fake.unseen_starts.load(Ordering::SeqCst) > 0 {
-          fake.unseen_starts.fetch_sub(1, Ordering::SeqCst);
-          return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "INVALID_INPUT", "description": "Reference refs/heads/me/virtual/IJPL-1 does not exist"})),
-          )
-            .into_response();
+        if *fake.status.lock().unwrap() != 200 {
+          return fake.answer(serde_json::Value::Null);
         }
         (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response()
       }),

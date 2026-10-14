@@ -2,24 +2,20 @@
 //! problems, the merge profiles). Each is one request or a few in parallel; the answers that don't change are cached:
 //! the details of a finished robot for the session, of a running one for a minute, the profiles for 10 minutes.
 
-use crate::client::{
-  BranchRobotStartRequest, MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusError, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto,
-};
+use crate::client::{BranchRobotStartRequest, MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto};
 use crate::service::{PatronusService, parse_push_mode, parse_status, to_robot};
 use std::time::{Duration, Instant};
 use sync_types::patronus::{
   PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus,
   PatronusStartOptions,
 };
-use tracing::{info, instrument};
+use tracing::instrument;
 
 /// The details of a running robot change: asked again after this
 const RUNNING_DETAILS_TTL: Duration = Duration::from_secs(60);
 /// The profiles of a branch change rarely
 const START_SUPPORTED_TTL: Duration = Duration::from_secs(600);
 const START_SUPPORTED_ERROR_TTL: Duration = Duration::from_secs(60);
-/// Space may show a branch pushed a moment ago to Patronus a little later
-const UNSEEN_BRANCH_RETRY_DELAY: Duration = Duration::from_secs(5);
 /// Details kept at most; the oldest go first
 const MAX_CACHED_DETAILS: usize = 200;
 /// Failed check names kept for the popover
@@ -147,8 +143,7 @@ impl PatronusService {
   }
 
   /// Starts a Safe Push or a Dry Run of the pushed virtual branch `source_branch` (`refs/heads/…`) into `target_branch`.
-  /// Never repeated, except once a few seconds later when the branch was pushed right before and Patronus does not see
-  /// it yet (400).
+  /// Never repeated: Patronus fetches a branch pushed right before while it handles the start.
   #[allow(clippy::too_many_arguments)]
   #[instrument(skip(self))]
   pub async fn start(
@@ -160,7 +155,6 @@ impl PatronusService {
     mode: PatronusPushMode,
     profile_id: Option<String>,
     merge_request: Option<PatronusMergeRequest>,
-    just_pushed: bool,
   ) -> Result<PatronusRobot, ActionError> {
     let mode = match mode {
       PatronusPushMode::DryRun => "DRY_RUN",
@@ -181,12 +175,7 @@ impl PatronusService {
       }),
     };
     let token = self.action_token()?;
-    let mut response = self.client().start_robot(&token.value, &request).await;
-    if just_pushed && matches!(response, Err(PatronusError::Http { status: 400, .. })) {
-      info!("Patronus does not see the pushed branch yet; asking once more");
-      tokio::time::sleep(UNSEEN_BRANCH_RETRY_DELAY).await;
-      response = self.client().start_robot(&token.value, &request).await;
-    }
+    let response = self.client().start_robot(&token.value, &request).await;
     let robot_id = self.settle(response, &token.stamp).map_err(availability_message)?;
     self.fetch_robot(branch_prefix, &robot_id).await
   }

@@ -185,9 +185,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   takes the newest commit of the branch. The robot shows at once and is polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
-- A start is never repeated by itself, with one exception: right after the push, Space may not show the branch to
-  Patronus yet, so a 400 is asked once more 5 s later.
-  [@test] ../../crates/patronus/src/actions_test.rs (`a_start_right_after_the_push_is_asked_once_more_when_patronus_does_not_see_the_branch`)
+- A start is never repeated by itself, not even right after the push: Patronus fetches the pushed branch while it
+  handles the start.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_failed_start_is_never_repeated`)
 
 ### Merged

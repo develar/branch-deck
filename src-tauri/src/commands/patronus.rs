@@ -132,7 +132,6 @@ pub async fn start_patronus_robot(
       params.mode,
       params.profile_id,
       params.merge_request,
-      params.just_pushed,
     )
     .await
     .map_err(CommandError::new)

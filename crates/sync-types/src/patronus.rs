@@ -223,9 +223,6 @@ pub struct StartPatronusRobotParams {
   pub branch_name: String,
   pub mode: PatronusPushMode,
   pub profile_id: Option<String>,
-  /// The branch was pushed right before: Space may not show it to Patronus yet, so a start that does not find it is
-  /// asked once more a few seconds later
-  pub just_pushed: bool,
   /// The merge request whose approvals the review check of the robot counts; null without one
   pub merge_request: Option<PatronusMergeRequest>,
 }

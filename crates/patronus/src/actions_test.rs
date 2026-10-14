@@ -73,7 +73,6 @@ async fn starts_a_robot_on_the_pushed_branch_and_keeps_the_branch() {
       PatronusPushMode::RebaseAutosquash,
       Some("lsc".to_string()),
       None,
-      false,
     )
     .await
     .unwrap();
@@ -93,37 +92,24 @@ async fn starts_a_robot_on_the_pushed_branch_and_keeps_the_branch() {
 }
 
 #[tokio::test]
-async fn a_start_right_after_the_push_is_asked_once_more_when_patronus_does_not_see_the_branch() {
-  let (fake, client) = start_fake().await;
-  let (service, _) = service(client, token("t"));
-  fake.unseen_starts.store(1, Ordering::SeqCst);
-  let robot = service
-    .start("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None, true)
-    .await
-    .unwrap();
-  assert_eq!((robot.id.as_str(), fake.start_calls.load(Ordering::SeqCst)), ("started", 2));
-
-  // without a push right before, a 400 is the answer
-  fake.unseen_starts.store(1, Ordering::SeqCst);
-  let error = service
-    .start("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None, false)
-    .await
-    .unwrap_err();
-  assert_eq!(error, "Reference refs/heads/me/virtual/IJPL-1 does not exist");
-  assert_eq!(fake.start_calls.load(Ordering::SeqCst), 3);
-}
-
-#[tokio::test]
 async fn a_failed_start_is_never_repeated() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   fake.set_status(503);
   let error = service
-    .start("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None, true)
+    .start("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None)
     .await
     .unwrap_err();
   assert_eq!(error, "no such repository");
   assert_eq!(fake.start_calls.load(Ordering::SeqCst), 1);
+
+  // nor a 400 right after a push: Patronus fetches the pushed branch while it handles the start
+  fake.set_status(400);
+  service
+    .start("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None)
+    .await
+    .unwrap_err();
+  assert_eq!(fake.start_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

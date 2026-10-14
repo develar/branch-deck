@@ -1031,11 +1031,6 @@ export type StartPatronusRobotParams = {
 	branchName: string,
 	mode: PatronusPushMode,
 	profileId: string | null,
-	/**
-	 *  The branch was pushed right before: Space may not show it to Patronus yet, so a start that does not find it is
-	 *  asked once more a few seconds later
-	 */
-	justPushed: boolean,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
 };

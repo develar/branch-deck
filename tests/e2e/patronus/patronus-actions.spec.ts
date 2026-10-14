@@ -86,7 +86,7 @@ test.describe("Patronus actions", () => {
     await expect(chip(page, "JIRA-456")).toHaveText("Running")
     await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
     expect(options[0]).toMatchObject({ baselineBranch: "origin/master", lastRobotId: null })
-    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash", profileId: "lsc", justPushed: true })])
+    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash", profileId: "lsc" })])
   })
 
   test("should restart a failed robot and cancel a running one from the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {

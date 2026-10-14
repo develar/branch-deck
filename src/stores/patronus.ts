@@ -465,7 +465,7 @@ export function upsertPatronusRobot(robot: PatronusRobot): void {
 
 /**
  * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
- * its tip, `justPushed`), with the merge request whose approvals its review check counts. Resolves to the robot, now
+ * its tip), with the merge request whose approvals its review check counts. Resolves to the robot, now
  * polled while it runs; throws what Patronus said.
  */
 export async function startPatronusRobot(
@@ -473,7 +473,6 @@ export async function startPatronusRobot(
   mode: PatronusPushMode,
   profileId: string | null,
   mergeRequest: PatronusMergeRequest | null,
-  justPushed: boolean,
 ): Promise<PatronusRobot> {
   const result = await commands.startPatronusRobot({
     ...patronusRequest(),
@@ -482,7 +481,6 @@ export async function startPatronusRobot(
     mode,
     profileId,
     mergeRequest,
-    justPushed,
   })
   if (result.status === "error") {
     throw new Error(result.error.message)

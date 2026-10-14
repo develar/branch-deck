@@ -68,24 +68,22 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
 
-  /** The branch on the remote with its tip: a start and a merge request need it */
-  const pushIfNeeded = async (): Promise<boolean | null> => {
+  /** The branch on the remote with its tip: a start and a merge request need it. False when the push failed (it said so). */
+  const pushIfNeeded = async (): Promise<boolean> => {
     if (!needsPush) {
-      return false
+      return true
     }
     setPushing(true)
     const pushed = await pushBranch(branchName)
     setPushing(false)
-    // the push reported its failure
-    return pushed ? true : null
+    return pushed
   }
 
   const start = async () => {
-    const justPushed = await pushIfNeeded()
-    if (justPushed === null) {
+    if (!(await pushIfNeeded())) {
       return
     }
-    await withRowProcessing(branchName, () => startPatronusRobot(branchName, mode, profile === NO_PROFILE ? null : profile, mergeRequest, justPushed), {
+    await withRowProcessing(branchName, () => startPatronusRobot(branchName, mode, profile === NO_PROFILE ? null : profile, mergeRequest), {
       processingMessage: `Starting the ${modeName}…`,
       success: started => ({ title: `${modeName} started`, description: started.name }),
       error: error => ({ title: `Cannot start the ${modeName}`, description: error instanceof Error ? error.message : String(error) }),
@@ -139,7 +137,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       {mode === "rebaseAutosquash" && options?.supported === true && (
         <PatronusReviewBlock
           review={review}
-          onCreateMergeRequest={async () => (await pushIfNeeded()) === null ? null : (await review.createMergeRequest()).url}
+          onCreateMergeRequest={async () => (await pushIfNeeded()) ? (await review.createMergeRequest()).url : null}
         />
       )}
       {needsPush && (
