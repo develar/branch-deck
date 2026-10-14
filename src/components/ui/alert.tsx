@@ -1,4 +1,4 @@
-// local customisation: literal `alert` class in the cva base and `success | warning | info` variants
+// local customisation: literal `alert` class in the cva base, `success | warning | info` variants and a tinted `destructive` variant
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
@@ -10,9 +10,9 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
-        destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
         // subtle semantic variants: tinted background + coloured text
+        destructive:
+          "border-destructive/25 bg-destructive/10 text-destructive *:data-[slot=alert-description]:text-destructive/90",
         success:
           "border-success/25 bg-success/10 text-success *:data-[slot=alert-description]:text-success/90",
         warning:

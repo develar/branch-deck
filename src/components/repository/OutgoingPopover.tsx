@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import type { OutgoingAttention } from "@/lib/outgoing-attention"
@@ -120,7 +121,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
       className="col-span-full grid min-h-7 grid-cols-subgrid items-center"
       data-testid="outgoing-branch"
       data-branch-name={branch.name}
-      data-state={branch.state}
+      data-status={branch.state}
     >
       <BranchNameButton name={branch.name} onReveal={onReveal} />
       <OutgoingRowBar branch={branch} max={max} />
@@ -151,16 +152,22 @@ function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReve
 /** Shows the branch row */
 function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: string) => void }) {
   return (
-    <button
-      type="button"
-      className="flex min-w-0 items-baseline gap-1.5 rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-      title={`Show ${name}`}
-      onClick={() => onReveal(name)}
-    >
-      <span className="truncate">{name}</span>
-      {/* the popover has no tree: a stacked branch says what it is built on */}
-      <StackBaseLabel name={name} />
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <button
+            type="button"
+            className="flex min-w-0 items-baseline gap-1.5 rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+            onClick={() => onReveal(name)}
+          />
+        )}
+      >
+        <span className="truncate">{name}</span>
+        {/* the popover has no tree: a stacked branch says what it is built on */}
+        <StackBaseLabel name={name} />
+      </TooltipTrigger>
+      <TooltipContent>{`Show ${name}`}</TooltipContent>
+    </Tooltip>
   )
 }
 

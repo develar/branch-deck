@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { ChevronRightIcon, ClipboardCopyIcon, TriangleAlertIcon } from "lucide-react"
+import { ChevronRightIcon, CopyIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DialogTitle } from "@/components/ui/dialog"
@@ -11,7 +11,7 @@ import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, Pr
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
+import { copyText } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
 import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/update-conflict"
@@ -145,12 +145,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
   const fetchTime = lastFetchTime(shown, project?.lastFetchTime)
   const copyPrompt = async () => {
     const prompt = buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime })
-    try {
-      await navigator.clipboard.writeText(prompt)
+    if (await copyText(prompt)) {
       toast.add({ type: "success", title: "Prompt copied", description: "Paste it into your coding agent" })
-    }
-    catch (error) {
-      notifyError("Copy Failed", error)
     }
   }
 
@@ -208,7 +204,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
       <PreviewDialogFooter start={<span>{`${shown.branch} ← ${upstream}`}</span>}>
         <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
         <Button size="xs" data-testid="copy-agent-prompt" onClick={() => void copyPrompt()}>
-          <ClipboardCopyIcon data-icon="inline-start" />
+          <CopyIcon data-icon="inline-start" />
           Copy Prompt for Agent
         </Button>
       </PreviewDialogFooter>

@@ -3,6 +3,7 @@ import { FolderClosedIcon, FolderOpenIcon } from "lucide-react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { formatFixupCount } from "@/lib/autosquash"
 import { getSimpleBranchName } from "@/lib/branch"
@@ -35,19 +36,27 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
     // the rule spans the row height, under the icon of the row above (`--bd-nesting-step` in index.css)
     <div className={cn("flex min-w-0 items-center gap-2", depth > 0 && "bd-nesting-leaf")} data-testid={depth > 0 ? "nesting-rule" : undefined}>
       {canExpand && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="shrink-0 text-primary hover:text-primary aria-expanded:text-primary"
-          aria-label={expanded ? "Collapse" : "Expand"}
-          aria-expanded={expanded}
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggleExpanded()
-          }}
-        >
-          <FolderIcon />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={(
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0 text-primary hover:text-primary aria-expanded:text-primary"
+                // every row has one: the label names the branch
+                aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
+                aria-expanded={expanded}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onToggleExpanded()
+                }}
+              />
+            )}
+          >
+            <FolderIcon />
+          </TooltipTrigger>
+          <TooltipContent>{expanded ? "Collapse" : "Expand"}</TooltipContent>
+        </Tooltip>
       )}
       {/* an issue key in the name is a link, but the name keeps the foreground colour */}
       <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" linkClassName="text-foreground hover:underline" />

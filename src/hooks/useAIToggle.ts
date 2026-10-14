@@ -53,7 +53,7 @@ function getStatusIconClassName(aiMode: AIMode, isDownloading: boolean, hasError
     case "disabled":
       return "text-muted-foreground"
     case "initial":
-      return "text-muted-foreground hover:text-primary"
+      return "text-muted-foreground group-hover/button:text-primary"
   }
 }
 

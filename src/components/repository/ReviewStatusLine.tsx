@@ -12,7 +12,7 @@ export interface ReviewStatusLineProps {
   checkedAt: number
   isRefreshing: boolean
   onRefresh: () => void
-  /** The accessible name of the Refresh button, "Refresh pull requests": two such lines sit in one footer */
+  /** The accessible name of the Refresh button, naming what it refreshes: "Refresh pull requests"; two such lines sit in one footer */
   refreshLabel: string
   testId: string
   refreshTestId: string

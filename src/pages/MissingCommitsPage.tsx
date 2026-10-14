@@ -1,7 +1,8 @@
-import { CircleCheckIcon, FileDiffIcon } from "lucide-react"
+import { FileDiffIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
+import { Callout } from "@/components/shared/Callout"
 import { ConflictCommitContext } from "@/components/conflict/ConflictCommitContext"
 import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
 import { MissingCommitsDetails } from "@/components/conflict/MissingCommitsDetails"
@@ -33,15 +34,8 @@ export function MissingCommitsPage() {
                 {/* Divergence insight (matching the main view) */}
                 {missingCommitsData.mergeBase && (
                   <div className="border-t border-border bd-padding-card">
-                    <div className="flex flex-col gap-2 rounded-lg bg-warning/5 p-3 ring-1 ring-warning/30">
-                      <div className="flex items-center gap-2">
-                        <FileDiffIcon className="size-4 text-warning" />
-                        <span className="text-sm font-medium text-foreground">
-                          Insight: Missing commits modified the conflicting files
-                        </span>
-                      </div>
-
-                      <p className="text-sm text-muted-foreground">
+                    <Callout tone="warning" icon={FileDiffIcon} title="Insight: Missing commits modified the conflicting files">
+                      <p>
                         {"Common ancestor: "}
                         <CommitHashPopover
                           hash={missingCommitsData.mergeBase.hash}
@@ -51,11 +45,9 @@ export function MissingCommitsPage() {
                           authorTime={missingCommitsData.mergeBase.time}
                         />
                         {" "}
-                        <span className="text-muted-foreground">
-                          {`(${missingCommitsData.divergenceSummary.commitsAheadInSource} commits behind source, ${missingCommitsData.divergenceSummary.commitsAheadInTarget} commits behind target)`}
-                        </span>
+                        {`(${missingCommitsData.divergenceSummary.commitsAheadInSource} commits behind source, ${missingCommitsData.divergenceSummary.commitsAheadInTarget} commits behind target)`}
                       </p>
-                    </div>
+                    </Callout>
                   </div>
                 )}
               </Card>
@@ -65,23 +57,16 @@ export function MissingCommitsPage() {
                 ? <MissingCommitsDetails missingCommits={missingCommitsData.missingCommits} isInWindow />
                 : (
                     <Card className="gap-0 py-0">
-                      <div className="bd-padding-card">
-                        <div className="flex flex-col items-center gap-3 py-8 text-center">
-                          <CircleCheckIcon className="size-12 text-success" />
-                          <p className="text-sm text-muted-foreground">No missing commits found for this conflict.</p>
-                        </div>
-                      </div>
+                      <p className="bd-padding-card text-sm text-muted-foreground">No missing commits found for this conflict.</p>
                     </Card>
                   )}
             </div>
           )
         : (
-            <div className="flex min-h-[400px] items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-center">
-                <Spinner className="size-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Loading missing commits data…</p>
-              </div>
-            </div>
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              Loading missing commits…
+            </p>
           )}
     </div>
   )

@@ -1,9 +1,13 @@
-import { useState } from "react"
-import { SettingsIcon } from "lucide-react"
+import { useRef, useState } from "react"
+import type { ReactNode } from "react"
+import { Settings2Icon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { DialogTitle } from "@/components/ui/dialog"
+import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { InlineCode } from "@/components/shared/InlineCode"
+import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 
 interface BranchPrefixHelpProps {
   disabled: boolean
@@ -16,7 +20,7 @@ export function BranchPrefixHelp({ disabled, configured }: BranchPrefixHelpProps
   const warn = !configured && !disabled
   return (
     <>
-      <Tooltip disabled={configured}>
+      <Tooltip>
         <TooltipTrigger
           render={(
             <Button
@@ -29,9 +33,9 @@ export function BranchPrefixHelp({ disabled, configured }: BranchPrefixHelpProps
             />
           )}
         >
-          <SettingsIcon />
+          <Settings2Icon />
         </TooltipTrigger>
-        <TooltipContent>Please configure the branch prefix</TooltipContent>
+        <TooltipContent>{configured ? "Configure branch prefix" : "Please configure the branch prefix"}</TooltipContent>
       </Tooltip>
       <BranchPrefixHelpDialog open={open} onOpenChange={setOpen} />
     </>
@@ -43,88 +47,79 @@ interface BranchPrefixHelpDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-const inlineCodeClass = "rounded bg-background px-1 py-0.5 text-xs"
-
+/** How to set the branch prefix: the global command, the grouping patterns, the per-repository command. */
 export function BranchPrefixHelpDialog({ open, onOpenChange }: BranchPrefixHelpDialogProps) {
+  const bodyRef = useRef<HTMLDivElement>(null)
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 p-0 sm:max-w-lg">
-        {/* rendered as h2 (Base UI default); E2E reads the dialog title from `h2, h3` */}
-        <DialogTitle className="sr-only">Configure Branch Prefix</DialogTitle>
-        <div className="flex max-h-[90vh] flex-col gap-6 overflow-y-auto p-6">
-          <p className="text-sm text-foreground">
-            The branch prefix is automatically prepended to your virtual branches. Setting a personal prefix (like your username) helps identify your branches in a shared repository.
-          </p>
+    <PreviewDialogFrame data-testid="branch-prefix-help-dialog" width="md" open={open} onOpenChange={onOpenChange} initialFocus={bodyRef}>
+      <PreviewDialogHeader>
+        <DialogTitle className="leading-5">Configure the branch prefix</DialogTitle>
+        <p className="text-xs text-muted-foreground">
+          The branch prefix is automatically prepended to your virtual branches. Setting a personal prefix (like your username) helps identify your branches in a shared repository.
+        </p>
+      </PreviewDialogHeader>
 
-          <div className="flex flex-col gap-4">
-            {/* prefix for all repositories */}
-            <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/50 p-4">
-              <h3 className="text-sm font-semibold text-foreground">
-                Set your global branch prefix
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Run this command in your terminal to set a global prefix for all repositories:
-              </p>
-              <div className="flex flex-col gap-2">
-                <div className="overflow-x-auto rounded bg-background p-3">
-                  <code className="font-mono text-xs">git config --global branchdeck.branchPrefix yourUsername</code>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Replace "yourUsername" with your preferred prefix (e.g., your name or initials)
-                </p>
-              </div>
-            </div>
+      <PreviewDialogBody ref={bodyRef}>
+        <div className="flex flex-col gap-6 text-sm">
+          <HelpBlock title="Set your global branch prefix">
+            <p className="text-muted-foreground">Run this command in your terminal to set a global prefix for all repositories:</p>
+            <CommandLine>git config --global branchdeck.branchPrefix yourUsername</CommandLine>
+            <p className="text-xs text-muted-foreground">
+              Replace "yourUsername" with your preferred prefix (e.g., your name or initials)
+            </p>
+          </HelpBlock>
 
-            {/* how it works */}
-            <div className="flex flex-col gap-3 rounded-lg border border-info/20 bg-info/5 p-4">
-              <h3 className="text-sm font-semibold text-foreground">
-                How It Works
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Branch Deck groups commits based on message patterns:
-              </p>
-              <ul className="flex flex-col gap-2 text-sm">
-                <PatternExample label="Explicit prefix:" message="(feature-login)" branch="john/virtual/feature-login" />
-                <PatternExample label="Issue numbers:" message="ABC-123: Fix bug" branch="john/virtual/ABC-123" />
-                <PatternExample label="With subsystem:" message="[threading] ABC-123: Fix bug" branch="john/virtual/ABC-123" />
-              </ul>
-              <p className="text-xs text-muted-foreground">
-                Explicit prefixes take precedence over issue numbers. The
-                {" "}
-                <code className={inlineCodeClass}>virtual</code>
-                {" "}
-                prefix is always automatically prepended.
-              </p>
-            </div>
+          <HelpBlock title="How it works">
+            <p className="text-muted-foreground">Branch Deck groups commits based on message patterns:</p>
+            <ul className="flex flex-col gap-2">
+              <PatternExample label="Explicit prefix:" message="(feature-login)" branch="john/virtual/feature-login" />
+              <PatternExample label="Issue numbers:" message="ABC-123: Fix bug" branch="john/virtual/ABC-123" />
+              <PatternExample label="With subsystem:" message="[threading] ABC-123: Fix bug" branch="john/virtual/ABC-123" />
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              {"Explicit prefixes take precedence over issue numbers. The "}
+              <InlineCode>virtual</InlineCode>
+              {" prefix is always automatically prepended."}
+            </p>
+          </HelpBlock>
 
-            {/* repository-specific */}
-            <div className="flex flex-col gap-2 border-t border-border pt-4">
-              <p className="text-sm text-muted-foreground">
-                You can also set this value per repository using:
-              </p>
-              <div className="overflow-x-auto rounded bg-background p-3">
-                <code className="font-mono text-xs">git config branchdeck.branchPrefix repoSpecificPrefix</code>
-              </div>
-            </div>
-          </div>
+          <HelpBlock title="Per repository">
+            <p className="text-muted-foreground">You can also set this value per repository using:</p>
+            <CommandLine>git config branchdeck.branchPrefix repoSpecificPrefix</CommandLine>
+          </HelpBlock>
         </div>
-      </DialogContent>
-    </Dialog>
+      </PreviewDialogBody>
+
+      <PreviewDialogFooter>
+        <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
+      </PreviewDialogFooter>
+    </PreviewDialogFrame>
   )
+}
+
+function HelpBlock({ title, children }: { title: string, children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="font-medium">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+/** A command on its own line, scrolled rather than wrapped */
+function CommandLine({ children }: { children: string }) {
+  return <pre className="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs">{children}</pre>
 }
 
 function PatternExample({ label, message, branch }: { label: string, message: string, branch: string }) {
   return (
-    <li className="flex items-start gap-2">
-      <span className="text-muted-foreground">•</span>
-      <div className="flex flex-1 flex-col gap-1">
-        <span className="font-medium">{label}</span>
-        <div className="text-muted-foreground">
-          <code className={inlineCodeClass}>{message}</code>
-          <span className="mx-2">→</span>
-          <code className={inlineCodeClass}>{branch}</code>
-        </div>
-      </div>
+    <li className="flex flex-col gap-1">
+      <span className="font-medium">{label}</span>
+      <span className="text-muted-foreground">
+        <InlineCode>{message}</InlineCode>
+        <span className="px-2">→</span>
+        <InlineCode>{branch}</InlineCode>
+      </span>
     </li>
   )
 }

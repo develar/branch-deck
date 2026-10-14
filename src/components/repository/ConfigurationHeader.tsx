@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -59,7 +60,7 @@ export function ConfigurationHeader() {
 
   return (
     <Card className="gap-0 py-0" data-testid="configuration-header">
-      <div className="flex h-14 items-center justify-between gap-4 px-4">
+      <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
         {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <RepositorySelector disabled={isSyncing} />
@@ -115,11 +116,14 @@ export function ConfigurationHeader() {
           <div className="flex items-center gap-1">
             <SyncButton />
             <Popover>
-              <PopoverTrigger
-                render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />}
-              >
-                <Settings2Icon />
-              </PopoverTrigger>
+              <Tooltip>
+                <PopoverTrigger
+                  render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}
+                >
+                  <Settings2Icon />
+                </PopoverTrigger>
+                <TooltipContent>Sync settings</TooltipContent>
+              </Tooltip>
               <PopoverContent align="end" className="w-auto min-w-[200px] gap-2 p-3">
                 <label className="flex items-center gap-2 text-sm">
                   <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />

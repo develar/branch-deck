@@ -175,13 +175,13 @@ test.describe("Patronus actions", () => {
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await page.getByRole("menuitem", { name: "Safe Push…" }).click()
       const review = page.getByTestId("patronus-review")
-      await expect(review).toHaveAttribute("data-state", "required")
+      await expect(review).toHaveAttribute("data-status", "required")
       await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team (suggested: Alice)")
 
       await review.getByRole("button", { name: "Create Merge Request" }).click()
       // pushed first: Space opens a merge request of a pushed branch
       await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
-      await expect(review).toHaveAttribute("data-state", "approved")
+      await expect(review).toHaveAttribute("data-status", "approved")
       await expect(review).toHaveText("Approved in IJ-CR-7.")
       expect(await getOpenedUrls(page)).toEqual([MERGE_REQUEST.url])
       expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
@@ -229,7 +229,7 @@ test.describe("Patronus actions", () => {
 
       await getPushButton(findBranchRow(page, "JIRA-456")).click()
       await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-      await dialog.getByRole("button", { name: "Back" }).click()
+      await page.keyboard.press("Escape")
       await expect(dialog).toBeHidden()
       expect(pushes).toHaveLength(0)
       expect(statuses).toHaveLength(1)
@@ -283,7 +283,7 @@ test.describe("Patronus actions", () => {
       // the robot still runs: the same question, and Back pushes nothing
       const dialog = page.getByTestId("push-guard-dialog")
       await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-      await dialog.getByRole("button", { name: "Back" }).click()
+      await page.keyboard.press("Escape")
       await expect(dialog).toBeHidden()
       expect(pushes.map(push => push.expectedRemote)).toEqual([null])
       expect(statuses).toHaveLength(2)

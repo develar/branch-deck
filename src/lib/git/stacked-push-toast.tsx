@@ -1,14 +1,10 @@
 import { toast } from "@/components/ui/toast"
-import { notifyError } from "@/lib/errors"
+import { copyText } from "@/lib/clipboard"
 import { pullRequestBaseOf } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName } from "@/stores/repository"
-
-export function copyText(text: string): void {
-  navigator.clipboard.writeText(text).catch((error: unknown) => notifyError("Copy Failed", error))
-}
 
 /** The pull request base of a branch, as `gh` takes it */
 export function getPullRequestBase(branch: Branch): string {
@@ -59,7 +55,7 @@ export function showStackedPushToast(branch: Branch): void {
         ),
     timeout: 10_000,
     ...((pullRequest === undefined || retarget) && {
-      actionProps: { children: retarget ? "Copy gh pr edit" : "Copy gh pr create", onClick: () => copyText(command) },
+      actionProps: { children: retarget ? "Copy gh pr edit" : "Copy gh pr create", onClick: () => void copyText(command) },
     }),
   })
 }

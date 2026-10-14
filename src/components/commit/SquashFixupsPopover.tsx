@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
-import { CombineIcon, CornerDownRightIcon, LoaderCircleIcon } from "lucide-react"
+import { CombineIcon, CornerDownRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
+import { Spinner } from "@/components/ui/spinner"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { squashFixups } from "@/hooks/useSquashFixups"
 import { formatFixupCount, getAutosquashScope, getDisplaySubject, getFixupMarker, getListFixups } from "@/lib/autosquash"
@@ -48,7 +49,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
   if (plan === null) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <LoaderCircleIcon className="size-3 animate-spin" />
+        <Spinner className="size-3" />
         Reading the fixups…
       </div>
     )
@@ -87,9 +88,9 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
       )}
 
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button size="sm" disabled={fixups.count === 0 || isSquashing} onClick={squash} data-testid="squash-fixups-confirm">
-          {isSquashing ? <LoaderCircleIcon data-icon="inline-start" className="animate-spin" /> : <CombineIcon data-icon="inline-start" />}
+        <Button size="xs" variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button size="xs" disabled={fixups.count === 0 || isSquashing} onClick={squash} data-testid="squash-fixups-confirm">
+          {isSquashing ? <Spinner data-icon="inline-start" /> : <CombineIcon data-icon="inline-start" />}
           Squash
         </Button>
       </div>

@@ -45,14 +45,10 @@ export function ArchivedBranchTableCard() {
           itemSingular="branch"
           itemPlural="branches"
           badgeColor="neutral"
-          actions={(
-            <>
-              <ArchivedBranchesHelpPopover />
-              <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
-            </>
-          )}
+          actions={<ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />}
         />
       )}
+      actions={<ArchivedBranchesHelpPopover />}
     >
       <table className="w-full">
         <thead className="border-b border-border bg-muted/50">
@@ -96,7 +92,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
         name={name}
         expanded={expanded}
         processing={processing}
-        className={cn(expanded && "bg-muted", branch.isLoadingCommits && "animate-pulse")}
+        className={cn(expanded && "bg-muted/50", branch.isLoadingCommits && "animate-pulse")}
         onToggle={toggle}
         menu={<ContextMenuItems groups={getArchivedContextMenuItems(name)} />}
       >
@@ -116,7 +112,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           <ArchivedDateCell branch={branch} />
         </td>
         <td className="w-px px-4 py-4 whitespace-nowrap">
-          <CopyButton text={() => name} tooltip="Copy full branch name" alwaysVisible />
+          <CopyButton text={() => name} tooltip="Copy full branch name" label={`Copy full name of ${name}`} alwaysVisible />
         </td>
       </BranchContextMenuRow>
 

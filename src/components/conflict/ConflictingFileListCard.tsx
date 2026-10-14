@@ -1,4 +1,4 @@
-import { ExternalLinkIcon } from "lucide-react"
+import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
@@ -42,7 +42,7 @@ export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarke
           badgeColor="warning"
           actions={!isInWindow && (
             <Button size="xs" variant="ghost" onClick={openConflictingFilesWindow}>
-              <ExternalLinkIcon data-icon="inline-start" />
+              <AppWindowIcon data-icon="inline-start" />
               Open in Window
             </Button>
           )}

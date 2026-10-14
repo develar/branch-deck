@@ -1,4 +1,5 @@
-import { ArchiveXIcon, TriangleAlertIcon } from "lucide-react"
+import { ArchiveXIcon } from "lucide-react"
+import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { unapplyBranch } from "@/hooks/useUnapplyBranch"
 import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
@@ -27,19 +28,13 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
         }
       }}
     >
-      <div className="flex items-start gap-3 rounded-lg border border-warning/20 bg-warning/10 p-4">
-        <TriangleAlertIcon className="mt-0.5 size-5 shrink-0 text-warning" />
-        <div className="flex flex-col gap-2 text-sm">
-          <p className="font-medium text-warning">
-            {`This will remove ${commitCount} commit${commitCount === 1 ? "" : "s"} from HEAD`}
-          </p>
-          <p className="text-muted-foreground">
-            The commits will be preserved in the unapplied branch, but removed from your current working branch.
-            This action can be undone by reapplying the commits later.
-          </p>
-          {children.length > 0 && <StackChildrenNote parent={branchName} children={children} />}
-        </div>
-      </div>
+      <Callout tone="warning" title={`This will remove ${commitCount} commit${commitCount === 1 ? "" : "s"} from HEAD`}>
+        <p>
+          The commits will be preserved in the unapplied branch, but removed from your current working branch.
+          This action can be undone by reapplying the commits later.
+        </p>
+        {children.length > 0 && <StackChildrenNote parent={branchName} children={children} />}
+      </Callout>
     </InlineForm>
   )
 }

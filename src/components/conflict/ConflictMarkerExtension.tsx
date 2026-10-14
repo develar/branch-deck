@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { CircleAlertIcon, GitBranchIcon, GitCommitHorizontalIcon, GitMergeIcon, SplitIcon } from "lucide-react"
+import { GitBranchIcon, GitCommitHorizontalIcon, GitPullRequestIcon, SplitIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import type { ConflictCommit } from "@/lib/bindings"
@@ -52,7 +52,7 @@ const markerStyles: Record<ConflictMarkerType, MarkerStyle> = {
     description: "Conflict separator",
   },
   "conflict-end": {
-    icon: GitMergeIcon,
+    icon: GitPullRequestIcon,
     iconClassName: "text-success",
     textClassName: "text-success",
     borderClassName: "border-success",
@@ -61,7 +61,7 @@ const markerStyles: Record<ConflictMarkerType, MarkerStyle> = {
 }
 
 const fallbackStyle: MarkerStyle = {
-  icon: CircleAlertIcon,
+  icon: TriangleAlertIcon,
   iconClassName: "text-muted-foreground",
   textClassName: "",
   borderClassName: "border-border",

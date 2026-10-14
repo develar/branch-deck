@@ -1,4 +1,5 @@
-import { TriangleAlertIcon, UngroupIcon } from "lucide-react"
+import { UngroupIcon } from "lucide-react"
+import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
@@ -28,10 +29,9 @@ export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
         })
       }}
     >
-      <div className="flex items-start gap-3 rounded-lg border border-warning/20 bg-warning/10 p-4">
-        <TriangleAlertIcon className="mt-0.5 size-5 shrink-0 text-warning" />
+      <Callout tone="warning">
         <StackChildrenNote parent={branchName} children={children} />
-      </div>
+      </Callout>
     </InlineForm>
   )
 }

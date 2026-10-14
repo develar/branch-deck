@@ -85,8 +85,8 @@ flowchart TB
    - squash: the newest baseline commit whose message has the subject of the branch tip.
 
    The cache stores it as `"x": [id, author, committer]` (the time is `ia`); a note written before has no `x` and
-   still parses, without a commit. The archived card shows it as "Merged as abc12345 by <committer>, 2 hours ago",
-   with the full hash to copy.
+   still parses, without a commit. The archived card shows it as "Merged as abc12345 by <committer>",
+   with the full hash to copy; the "Integrated" column shows the time once.
 
 8. **Decision**: `ArchivedBranchesFound` carries `newlyArchived`, the branches this sync archived
    **Rationale**: Archiving is the moment a branch landed; the archived card marks those rows "New" for the rest of

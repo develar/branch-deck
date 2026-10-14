@@ -29,7 +29,7 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, depth
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
       {genericError !== undefined
         ? (
-            <Alert variant="destructive" className="border-transparent bg-destructive/10">
+            <Alert variant="destructive">
               <AlertDescription>{genericError}</AlertDescription>
             </Alert>
           )

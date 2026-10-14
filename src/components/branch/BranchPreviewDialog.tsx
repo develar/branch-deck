@@ -135,7 +135,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
             </div>
           </PreviewDialogBody>
 
-          <PreviewDialogFooter start={<span data-testid="branch-preview-position">{`${index + 1} / ${names.length}`}</span>}>
+          <PreviewDialogFooter start={<span data-testid="branch-preview-position" className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}>
             <PreviewNavigationHints count={names.length} />
             {pullRequest !== undefined && (
               <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
@@ -157,7 +157,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               </Button>
             )}
             {push !== null && (
-              <Button variant="ghost" size="xs" disabled={!canPush} aria-busy={isPushing || undefined} onClick={() => void pushBranch(branch.name)}>
+              <Button variant="ghost" size="xs" className="tabular-nums" disabled={!canPush} aria-busy={isPushing || undefined} onClick={() => void pushBranch(branch.name)}>
                 {isPushing ? <Spinner data-icon="inline-start" /> : <Kbd>P</Kbd>}
                 {isPushing ? transferLabel("Pushing", pushProgress) : push.text}
               </Button>
@@ -226,7 +226,7 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
   }
 
   return (
-    <Alert variant="destructive" data-testid="branch-preview-conflict" className="border-transparent bg-destructive/10">
+    <Alert variant="destructive" data-testid="branch-preview-conflict">
       <TriangleAlertIcon />
       {genericError === undefined
         ? (

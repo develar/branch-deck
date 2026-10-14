@@ -42,18 +42,16 @@ export function ConflictingFilesPage() {
               />
             </div>
           )
-        : <LoadingState message="Loading conflicting files data…" />}
+        : <LoadingState message="Loading conflicting files…" />}
     </div>
   )
 }
 
 function LoadingState({ message }: { message: string }) {
   return (
-    <div className="flex min-h-[400px] items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <Spinner className="size-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">{message}</p>
-      </div>
-    </div>
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Spinner className="size-4" />
+      {message}
+    </p>
   )
 }

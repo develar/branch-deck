@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import type { ReactNode } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
 import { DiffModeEnum, DiffView } from "@git-diff-view/react"
-import { GitBranchIcon, GitMergeIcon, GitPullRequestIcon, InfoIcon } from "lucide-react"
+import { GitBranchIcon, GitCommitHorizontalIcon, GitPullRequestIcon, InfoIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { Alert } from "@/components/ui/alert"
@@ -79,10 +79,7 @@ export function GitDiffMergeView({ conflicts, conflictInfo }: GitDiffMergeViewPr
             </AccordionPrimitive.Root>
           )
         : (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <GitMergeIcon className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No conflicts to display</p>
-            </div>
+            <p className="text-sm text-muted-foreground">No conflicts to display</p>
           )}
     </div>
   )
@@ -108,7 +105,7 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
     <ResizablePanelGroup orientation="horizontal" defaultLayout={defaultLayout ?? initialLayout} onLayoutChanged={onLayoutChanged} className="h-[600px] w-full">
       <ResizablePanel id="base" collapsible collapsedSize={0} minSize="15">
         <DiffPanel
-          icon={GitMergeIcon}
+          icon={GitCommitHorizontalIcon}
           title="Base (Common Ancestor)"
           description={(
             <>

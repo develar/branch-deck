@@ -1,15 +1,17 @@
 import type { UpstreamCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import { formatRelativeTime } from "@/lib/time"
 
-/** "Merged as abc12345 by Safe Push Robot, 2 hours ago": the baseline commit that brought an archived branch in */
-export function describeIntegrationCommit(commit: UpstreamCommit, now: number = Date.now()): string {
-  return `Merged as ${formatShortHash(commit.id)} by ${commit.committer}, ${formatRelativeTime(commit.time * 1000, now)}`
+/**
+ * "Merged as abc12345 by Safe Push Robot": the baseline commit that brought an archived branch in. No time: the
+ * "Integrated" column of the row shows it.
+ */
+export function describeIntegrationCommit(commit: UpstreamCommit): string {
+  return `Merged as ${formatShortHash(commit.id)} by ${commit.committer}`
 }
 
 /**
- * The tooltip of "Merged" in the archived table: "3 commits, merged as abc12345 by Safe Push Robot, 2 hours ago"; the
- * count or the merge commit alone when the other is unknown, null when both are.
+ * The tooltip of "Merged" in the archived table: "3 commits, merged as abc12345 by Safe Push Robot"; the count or the
+ * merge commit alone when the other is unknown, null when both are.
  */
 export function describeMergedBranch(commitCount: number, commit: UpstreamCommit | undefined): string | null {
   const count = commitCount > 0 ? formatCommitCount(commitCount) : null

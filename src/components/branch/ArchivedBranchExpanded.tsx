@@ -1,10 +1,12 @@
 import { useEffect } from "react"
 import { GitCommitHorizontalIcon } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommitList } from "@/components/commit/CommitList"
 import { CopyButton } from "@/components/shared/CopyButton"
-import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
+import { InlineCode } from "@/components/shared/InlineCode"
 import type { UpstreamCommit } from "@/lib/bindings"
+import { formatShortHash } from "@/lib/hash"
 import { describeIntegrationCommit } from "@/lib/integration-commit"
 import type { ArchivedBranch } from "@/stores/archived-branches"
 import { loadCommitsForBranch } from "@/stores/archived-branches"
@@ -29,7 +31,7 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
             </div>
           )
         : branch.loadError
-          ? <div className="text-destructive">{`Failed to load commits: ${branch.loadError}`}</div>
+          ? <p className="text-sm text-destructive">{`Failed to load commits: ${branch.loadError}`}</p>
           : branch.commits && branch.commits.length > 0
             ? <CommitList commits={branch.commits} variant="compact" showFileCount={false} />
             : <div className="text-sm text-muted-foreground">No commits found</div>}
@@ -37,19 +39,22 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
   )
 }
 
-/** "Merged as abc12345 by …, 2 hours ago", with a button that copies the full hash */
+/** "Merged as abc12345 by …" (the row shows the time), the author on hover, with a button that copies the full hash */
 function IntegrationCommitLine({ commit }: { commit: UpstreamCommit }) {
+  const hash = formatShortHash(commit.id)
+  const [before, after] = describeIntegrationCommit(commit).split(hash)
   return (
     <div className="group flex items-center gap-2 pl-4 text-sm text-muted-foreground" data-testid="archived-branch-integration-commit">
       <GitCommitHorizontalIcon className="size-4 shrink-0 text-info" />
-      <span className="truncate" title={`Authored by ${commit.author}`}><IntegrationCommitText commit={commit} /></span>
+      <Tooltip>
+        <TooltipTrigger render={<span className="truncate" />}>
+          {before}
+          <InlineCode plain>{hash}</InlineCode>
+          {after}
+        </TooltipTrigger>
+        <TooltipContent>{`Authored by ${commit.author}`}</TooltipContent>
+      </Tooltip>
       <CopyButton text={() => commit.id} tooltip="Copy the commit hash" />
     </div>
   )
-}
-
-/** The text of the line, aging while it is shown; only it re-renders on the tick */
-function IntegrationCommitText({ commit }: { commit: UpstreamCommit }) {
-  const now = useNow(RELATIVE_TIME_TICK_MS)
-  return describeIntegrationCommit(commit, now)
 }

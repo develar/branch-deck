@@ -4,7 +4,8 @@ import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
 import { pushStack } from "@/lib/git/push"
-import { copyText, getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
+import { copyText } from "@/lib/clipboard"
+import { getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
 import { stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -29,7 +30,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     groups[0]!.push({
       label: "Copy PR Base",
       icon: CopyIcon,
-      onSelect: () => copyText(getPullRequestBase(branch)),
+      onSelect: () => void copyText(getPullRequestBase(branch)),
     })
   }
 
@@ -120,7 +121,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   const retargetCommand = isStacksEnabled() ? getRetargetCommand(branch) : null
   if (retargetCommand !== null) {
-    historyActions.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => copyText(retargetCommand) })
+    historyActions.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
   }
   if (historyActions.length > 0) {
     groups.push(historyActions)

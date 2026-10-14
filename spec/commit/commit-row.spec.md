@@ -93,7 +93,8 @@ The commit hash popover shows the same header and body.
 ### Commit preview
 
 - A row must show the message button only when the message has more lines than the subject.
-- The message button must be an icon button with `aria-haspopup="dialog"` and the label "Show full commit message".
+- The message button must be an icon button with `aria-haspopup="dialog"`, the label "Show full commit message" and the
+  same text as its tooltip.
 - The message button must open the preview of its commit.
 - The row must not render the body.
 - The preview must show the whole subject, the meta line and the body.
@@ -250,7 +251,7 @@ The commit hash popover shows the same header and body.
 - The message button follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
 - The message button is muted. It becomes `text-foreground` on hover.
 - Issue links are muted and become `text-foreground` on hover.
-- Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `info` Amend target.
+- Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `primary` Amend target (the target of the user's amend).
 
 ### Commit preview
 

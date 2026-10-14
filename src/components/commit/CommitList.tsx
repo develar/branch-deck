@@ -1,10 +1,10 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
-import { LoaderCircleIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitMessageButton } from "@/components/commit/CommitMessage"
@@ -155,7 +155,7 @@ export function CommitList<T extends CommitUnion>({
       {portalTarget}
       <table
         ref={tableRef}
-        className="w-full rounded-lg focus:outline-none"
+        className="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
         tabIndex={selectable ? 0 : -1}
         onKeyDown={handleKeyDown}
       >
@@ -246,10 +246,18 @@ const CommitRow = memo(function CommitRow(props: CommitRowProps) {
       : { draggable: true, onDragStart: (event: DragEvent) => onDragStart(event, commit), onDragEnd }),
   }
 
+  // a missing commit's file diffs, below its row content
+  const after = renderAfterCommit?.(commit, index)
   const cell = (
     <td className="bd-padding-list-item">
-      <CommitCellContent {...props} />
-      {renderAfterCommit?.(commit, index)}
+      {after == null
+        ? <CommitCellContent {...props} />
+        : (
+            <div className="flex flex-col gap-3">
+              <CommitCellContent {...props} />
+              {after}
+            </div>
+          )}
     </td>
   )
 
@@ -312,7 +320,8 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
 
   return (
-    <div className="flex flex-col gap-1">
+    // gap-3: the header and the error or conflict below it (the header alone has no sibling)
+    <div className="flex flex-col gap-3">
       <CommitHeader
         subject={subject}
         hash={hash}
@@ -328,7 +337,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
             <LandedCommitMarker commitId={hash} />
             {status === "Pending" && (
               <Badge variant="secondary">
-                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+                <Spinner data-icon="inline-start" />
                 Pending
               </Badge>
             )}
@@ -336,7 +345,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
             {status === "Blocked" && <Badge variant="warning">Blocked</Badge>}
             {isAmendTarget && (
               <Tooltip>
-                <TooltipTrigger render={<Badge variant="info" />}>Amend target</TooltipTrigger>
+                <TooltipTrigger render={<Badge variant="primary" />}>Amend target</TooltipTrigger>
                 <TooltipContent>Changes will be amended to this commit</TooltipContent>
               </Tooltip>
             )}
@@ -344,23 +353,19 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         )}
       />
 
-      {error && (
-        <div className="mt-2">
-          {error.MergeConflict
-            ? (
-                <Suspense fallback={null}>
-                  <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />
-                </Suspense>
-              )
-            : error.Generic && (
-              <Alert variant="destructive" className="border-transparent bg-destructive/10 py-2">
-                <AlertDescription>
-                  <p className="text-xs">{error.Generic}</p>
-                </AlertDescription>
-              </Alert>
-            )}
-        </div>
-      )}
+      {error?.MergeConflict
+        ? (
+            <Suspense fallback={null}>
+              <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />
+            </Suspense>
+          )
+        : error?.Generic && (
+          <Alert variant="destructive" className="py-2">
+            <AlertDescription>
+              <p className="text-xs">{error.Generic}</p>
+            </AlertDescription>
+          </Alert>
+        )}
     </div>
   )
 }

@@ -133,14 +133,14 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
           <Button
             variant="ghost"
             size="sm"
-            className={cn(description.tone === "muted" && phase === null && "text-muted-foreground")}
+            className={cn("tabular-nums", description.tone === "muted" && phase === null && "text-muted-foreground")}
             disabled={phase !== null}
             // the tooltip with the progress line stays reachable while the update runs
             focusableWhenDisabled
             aria-busy={phase !== null || undefined}
             aria-label={`Update Project: ${summary}`}
             data-testid="update-project-button"
-            data-state={state}
+            data-status={state}
             onClick={() => void runUpdateProject()}
           />
         )}
@@ -192,7 +192,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
         {transfer === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landed.length > 0} className="size-3 shrink-0" />}
         {/* wraps: the overview is at most `max-w-xl`, and a truncated state says nothing */}
-        <span className="min-w-0">
+        <span className="min-w-0 tabular-nums">
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
           {": "}
@@ -202,6 +202,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
       <Button
         variant="ghost"
         size="xs"
+        className="tabular-nums"
         disabled={phase !== null}
         // full opacity while the update runs, as the header button
         focusableWhenDisabled

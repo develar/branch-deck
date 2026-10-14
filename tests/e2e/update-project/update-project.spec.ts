@@ -31,13 +31,13 @@ test.describe("Update Project", () => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     const button = updateButton(page)
-    await expect(button).toHaveAttribute("data-state", "clean")
+    await expect(button).toHaveAttribute("data-status", "clean")
     await expect(button).toHaveText("Update")
     await expectTooltip(page, "Rebases cleanly onto origin/master")
 
     await button.click()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
-    await expect(button).toHaveAttribute("data-state", "upToDate")
+    await expect(button).toHaveAttribute("data-status", "upToDate")
     await expectTooltip(page, /Up to date with origin\/master.*Fetched just now/)
     await verifyCommitCount(findBranchRow(page, "feature-auth"), "1 commit")
   })
@@ -100,7 +100,7 @@ test.describe("Update Project", () => {
     await setupRepo("update_conflict")
     await syncAndWaitForBranches()
     const button = updateButton(page)
-    await expect(button).toHaveAttribute("data-state", "conflict")
+    await expect(button).toHaveAttribute("data-status", "conflict")
     await expect(button.getByTestId("update-state-icon")).toBeVisible()
     await expectTooltip(page, "Conflicts in 1 file: src/app.txt")
 
@@ -134,14 +134,14 @@ test.describe("Update Project", () => {
     await expect(dialog).toBeHidden()
     // nothing changed
     await verifyCommitCount(findBranchRow(page, "feature-auth"), "2 commits")
-    await expect(button).toHaveAttribute("data-state", "conflict")
+    await expect(button).toHaveAttribute("data-status", "conflict")
   })
 
   test("should explain uncommitted changes that block the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("update_blocked")
     await syncAndWaitForBranches()
     const button = updateButton(page)
-    await expect(button).toHaveAttribute("data-state", "blocked")
+    await expect(button).toHaveAttribute("data-status", "blocked")
     await expectTooltip(page, "Your uncommitted changes in src/app.txt overlap origin/master")
 
     await button.click()
@@ -159,7 +159,7 @@ test.describe("Update Project", () => {
     await setupRepo("simple")
     await syncAndWaitForBranches()
     const button = updateButton(page)
-    await expect(button).toHaveAttribute("data-state", "upToDate")
+    await expect(button).toHaveAttribute("data-status", "upToDate")
     await expect(button.getByTestId("update-state-icon")).toHaveCount(0)
     // the `simple` template never fetched: the tooltip doesn't claim a state nobody asked the remote for ("Up to date
     // with origin/master" after a fetch: the first test)

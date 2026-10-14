@@ -71,7 +71,7 @@ function LandedBranchRow({ branch, showCommitter }: { branch: LandedBranch, show
       <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >

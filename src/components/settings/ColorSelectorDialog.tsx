@@ -1,7 +1,10 @@
+import { useId, useRef } from "react"
 import colors from "tailwindcss/colors"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DialogTitle } from "@/components/ui/dialog"
+import { Kbd } from "@/components/ui/kbd"
+import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { PRIMARY_COLOR_NAMES } from "@/lib/theme"
 import { setPrimaryColor, useAppSettings } from "@/stores/settings/appSettings"
 
@@ -26,14 +29,17 @@ const PRIMARY_COLOR_OPTIONS: readonly ColorOption[] = PRIMARY_COLOR_NAMES.map(na
  */
 export function ColorSelectorDialog({ open, onOpenChange }: ColorSelectorDialogProps) {
   const primaryColor = useAppSettings(state => state.primaryColor)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const labelId = useId()
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-72" data-testid="color-selector-dialog">
-        <DialogHeader>
-          <DialogTitle>Theme</DialogTitle>
-        </DialogHeader>
-        <fieldset>
-          <legend className="mb-2 text-[11px] leading-none font-semibold">Primary</legend>
+    <PreviewDialogFrame data-testid="color-selector-dialog" width="sm" open={open} onOpenChange={onOpenChange} initialFocus={bodyRef}>
+      <PreviewDialogHeader>
+        <DialogTitle className="leading-5">Theme</DialogTitle>
+      </PreviewDialogHeader>
+
+      <PreviewDialogBody ref={bodyRef}>
+        <div role="group" aria-labelledby={labelId} className="flex flex-col gap-2">
+          <p id={labelId} className="text-xs font-medium text-muted-foreground">Primary</p>
           <div className="grid grid-cols-3 gap-1">
             {PRIMARY_COLOR_OPTIONS.map((color) => {
               const isSelected = primaryColor === color.name
@@ -41,9 +47,9 @@ export function ColorSelectorDialog({ open, onOpenChange }: ColorSelectorDialogP
                 <Button
                   key={color.name}
                   variant="outline"
-                  size="sm"
+                  size="xs"
                   aria-pressed={isSelected}
-                  className={cn("justify-start rounded-sm text-[11px] capitalize", isSelected && "bg-muted")}
+                  className={cn("justify-start capitalize", isSelected && "bg-muted")}
                   onClick={() => {
                     setPrimaryColor(color.name)
                   }}
@@ -54,8 +60,12 @@ export function ColorSelectorDialog({ open, onOpenChange }: ColorSelectorDialogP
               )
             })}
           </div>
-        </fieldset>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </PreviewDialogBody>
+
+      <PreviewDialogFooter>
+        <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
+      </PreviewDialogFooter>
+    </PreviewDialogFrame>
   )
 }

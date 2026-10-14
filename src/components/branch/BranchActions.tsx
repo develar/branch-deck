@@ -7,7 +7,7 @@ import { getFullBranchName } from "@/stores/repository"
 export function BranchActions({ branch }: { branch: Branch }) {
   return (
     <div className="flex items-center gap-2">
-      <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" alwaysVisible />
+      <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} alwaysVisible />
 
       {!branch.hasError && branch.commitCount > 0 && <BranchPushButton branch={branch} />}
     </div>

@@ -160,7 +160,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
                     aria-label="Commit message"
                     data-testid="commit-message-editor"
                     // the raw message, as git stores it: the first line is the subject, the grouping prefix included
-                    className="min-h-48 font-mono text-[13px] leading-5"
+                    className="min-h-48 font-mono text-message"
                     value={draft}
                     disabled={isSaving}
                     spellCheck

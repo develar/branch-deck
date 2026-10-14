@@ -169,9 +169,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
 - A relative time must age while it is shown, without a sync or a fetch: "Last synced 1 minute ago" next to the button,
   the fetch time of the tooltip and of the footer line, "Pull requests checked" and "Patronus checked" in the overview,
-  the times of the Landed island and chips, of the commits a force push drops and of the commit that merged an archived
-  branch. One interval per interval length renews them every 15 s (`useNow`), so "1 minute ago" is at most a tick late;
-  only the text re-renders.
+  the times of the Landed island and chips, and of the commits a force push drops. One interval per interval length
+  renews them every 15 s (`useNow`), so "1 minute ago" is at most a tick late; only the text re-renders.
   [@test] ../../src/hooks/useNow.test.ts (`ticks every listener of an interval length at once, with one interval that stops with the last listener`)
   [@test] ../../src/hooks/useNow.test.ts (`ages a relative time without anything else changing: "Last synced just now" becomes "1 minute ago"`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)

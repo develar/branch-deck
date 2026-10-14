@@ -1,7 +1,8 @@
 import { useMemo } from "react"
-import { FileDiffIcon, GitMergeIcon } from "lucide-react"
+import { FileDiffIcon, TriangleAlertIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
+import { Callout } from "@/components/shared/Callout"
 import { getConflictMarkerCommits } from "@/components/conflict/conflict-marker-commits"
 import { ConflictingFileListCard } from "@/components/conflict/ConflictingFileListCard"
 import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
@@ -24,16 +25,12 @@ export function MergeConflictViewer({ conflict, branchName }: MergeConflictViewe
       {/* the commit that cannot be applied, why, and how to resolve it */}
       <Card className="gap-4 bd-padding-card shadow-none">
         {/* the commit row above already shows the commit, so only the title is repeated here */}
-        <p className="flex items-center gap-3 text-sm font-medium text-foreground">
-          <GitMergeIcon className="size-5 shrink-0 text-destructive" />
+        <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <TriangleAlertIcon className="size-4 shrink-0 text-destructive" />
           Cherry-pick conflict detected
         </p>
 
-        <div className="flex flex-col gap-1 rounded-lg bg-warning/5 px-4 py-3 text-sm text-muted-foreground ring-1 ring-warning/30">
-          <p className="flex items-center gap-2 font-medium text-foreground">
-            <FileDiffIcon className="size-4 text-warning" />
-            {`${missingCommitCount} missing ${missingCommitCount === 1 ? "commit" : "commits"} modified the conflicting files`}
-          </p>
+        <Callout tone="warning" icon={FileDiffIcon} title={`${missingCommitCount} missing ${missingCommitCount === 1 ? "commit" : "commits"} modified the conflicting files`}>
           <p>
             {"Common ancestor "}
             <CommitHashPopover
@@ -45,7 +42,7 @@ export function MergeConflictViewer({ conflict, branchName }: MergeConflictViewe
             />
             {`: ${analysis.divergenceSummary.commitsAheadInSource} commits behind the source, ${analysis.divergenceSummary.commitsAheadInTarget} behind the target`}
           </p>
-        </div>
+        </Callout>
 
         <ConflictResolutionHint />
       </Card>

@@ -6,7 +6,7 @@ export interface TimeWithPopoverProps {
   committerTime?: number
 }
 
-/** Author time; if the commit time differs, hovering shows both. */
+/** Author time; if the commit time differs, hovering (or focusing) the time, a button, shows both. */
 export function TimeWithPopover({ authorTime, committerTime }: TimeWithPopoverProps) {
   if (!committerTime || authorTime === committerTime) {
     return <span>{formatTimestamp(authorTime)}</span>
@@ -14,7 +14,7 @@ export function TimeWithPopover({ authorTime, committerTime }: TimeWithPopoverPr
 
   return (
     <Popover>
-      <PopoverTrigger openOnHover nativeButton={false} render={<span />}>
+      <PopoverTrigger openOnHover className="rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
         {formatTimestamp(authorTime)}
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3">

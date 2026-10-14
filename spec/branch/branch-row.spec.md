@@ -181,14 +181,15 @@ parent's commits runs into the rule of its children.
   merged colour of the chips), "Partially merged · 1 of 2" with the pie icon, muted, and "Not merged" with the
   warning triangle in `warning`. A spinner shows while the integration is detected.
 - The tooltip of the status must hold the counts and the merge commit: "3 commits, merged as abc12345 by Safe Push
-  Robot, 2 hours ago", "1 of 2 commits merged; the original commits are no longer in HEAD", "1 commit, none merged; the
-  original commits are no longer in HEAD". An exact match adds a `success` "Exact confidence" badge.
+  Robot", "1 of 2 commits merged; the original commits are no longer in HEAD", "1 commit, none merged; the original
+  commits are no longer in HEAD". An exact match adds a `success` "Exact confidence" badge.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should name the integration status in words, with the counts in the tooltip`)
   [@test] ../../src/lib/integration-commit.test.ts (`names the commit count and the merge commit`, `says what it knows when the count or the merge commit is unknown`, `names the merged part, or says that none merged`)
 - The Integrated column must show when the branch was integrated.
 - Expanded, an integrated branch must show the merged-by line above its commits: the commit icon in `info`, "Merged as
-  abc12345 by Safe Push Robot, 2 hours ago", the author on hover, and a button that copies the full hash.
-  [@test] ../../src/lib/integration-commit.test.ts (`names the short hash, the committer and how long ago`)
+  abc12345 by Safe Push Robot" (the hash in the monospace font, no time: the Integrated column shows it), the author on
+  hover, and a button that copies the full hash.
+  [@test] ../../src/lib/integration-commit.test.ts (`names the short hash and the committer, not the time the row already shows`)
   [@test] ../../src/stores/archived-branches.test.ts (`keeps the commit that merged the branch`)
 - A branch a sync of this session archived must show an `info` "New" badge after its name until the Landed island is
   dismissed.
