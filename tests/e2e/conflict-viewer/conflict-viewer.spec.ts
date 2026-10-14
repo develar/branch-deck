@@ -143,6 +143,8 @@ test.describe("Conflict Viewer Feature", () => {
     })
 
     test("should show the commit header on hover over the common ancestor hash", async ({ page }) => {
+      // the unassigned commits render above the table after the branches: the hover must come after that shift
+      await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await expandBranch(page, bugFixBranch)
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
