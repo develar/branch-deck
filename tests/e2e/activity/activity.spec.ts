@@ -74,6 +74,8 @@ testWithIssueLinks.describe("Activity", () => {
     await getBranchDetailsRow(page, "ABC-123").getByTestId("selection-actions").getByRole("button", { name: "Squash" }).click()
     const dialog = page.getByTestId("squash-dialog")
     await expect(dialog).toBeVisible()
+    // the shortcut is the editor's: pressed before the dialog moved the focus there, it does nothing
+    await expect(dialog.getByTestId("squash-message-editor")).toBeFocused()
     await page.keyboard.press("ControlOrMeta+Enter")
     await expect(dialog).toBeHidden()
     await verifyCommitCount(row, "3 commits")
