@@ -164,10 +164,14 @@ status is read through the `gh` CLI, never written; opening a pull request opens
   push button. The branches with an open pull request and nothing to push follow the outgoing rows, with "pushed" and
   the chip.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
-- The indicator gets a `destructive` dot when an open pull request has changes requested or failing checks.
-  [@test] ../../src/lib/pull-request.test.ts (`is set by requested changes or failing checks of an open pull request`)
+- The indicator gets a `destructive` dot when an open pull request has changes requested or failing checks, and the
+  overview a line that says why: "ABC-123 needs attention: changes requested, failing checks"
+  ([Outgoing Commits](../repository/outgoing.spec.md)).
+  [@test] ../../src/lib/pull-request.test.ts (`names the requested changes and the failing checks of an open pull request`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
 - With nothing to push and an open pull request, the indicator stays: the pull request icon and the count of open pull
-  requests, named "Nothing to push, 1 pull request open"; the overview has the same title.
+  requests, named "Nothing to push, 1 pull request open" (", 1 needs attention" after it with the dot); the overview has
+  the same title.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should keep the indicator for an open pull request when nothing is outgoing`)
 - The footer of the overview has a line "Pull requests checked just now" with a Refresh button. When `gh` can't answer,
   the line is a quiet hint instead: "Install the GitHub CLI (gh) to see pull requests", "Run gh auth login to see pull

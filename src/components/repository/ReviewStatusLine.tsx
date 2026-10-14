@@ -17,9 +17,8 @@ export interface ReviewStatusLineProps {
 export function ReviewStatusLine({ hint, checkedText, isRefreshing, onRefresh, testId, refreshTestId }: ReviewStatusLineProps) {
   return (
     <div className="flex items-center justify-between gap-3" data-testid={testId}>
-      <span className="min-w-0 truncate text-muted-foreground" title={hint ?? undefined}>
-        {hint ?? checkedText}
-      </span>
+      {/* wraps: a hint is read in full */}
+      <span className="min-w-0 text-muted-foreground">{hint ?? checkedText}</span>
       <Button variant="ghost" size="xs" disabled={isRefreshing} data-testid={refreshTestId} onClick={onRefresh}>
         {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
         Refresh

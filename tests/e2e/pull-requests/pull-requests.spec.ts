@@ -5,7 +5,7 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
-import { hoverStatusChip, openBranchPreview, openOutgoingOverview, switchBranchPreview } from "../helpers/review-status-helpers"
+import { hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, switchBranchPreview } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -137,8 +137,8 @@ test.describe("Pull request chip", () => {
 
 test.describe("Pull requests in the outgoing overview", () => {
   test("should show the chips in a column and a dot for a pull request that waits for the author", async ({ page }) => {
-    await expect(page.getByTestId("outgoing-attention-dot")).toBeVisible()
-    const popover = await openOutgoingOverview(page)
+    // the overview says what the dot means
+    const popover = await openOverviewWithAttention(page, "12 commits to push in 7 branches", "ABC-123 needs attention: changes requested, failing checks")
     const row = popover.locator("[data-testid=outgoing-branch][data-branch-name=ABC-123]")
     await expect(row.getByTestId("pull-request-chip")).toHaveText("#761")
     await expect(popover.locator("[data-testid=outgoing-branch][data-branch-name=feature-auth]").getByTestId("pull-request-chip")).toHaveCount(0)
@@ -180,7 +180,7 @@ baseTest.describe("Pull requests without GitHub", () => {
     await expect(page.getByText("Branch test-branch pushed successfully")).toBeVisible()
 
     const indicator = page.getByTestId("outgoing-indicator")
-    await expect(indicator).toHaveAccessibleName("Nothing to push, 1 pull request open")
+    await expect(indicator).toHaveAccessibleName("Nothing to push, 1 pull request open, 1 needs attention")
     await expect(indicator.getByTestId("outgoing-review-count")).toHaveText("1")
     await expect(indicator.getByTestId("outgoing-attention-dot")).toBeVisible()
     const popover = await openOutgoingOverview(page)

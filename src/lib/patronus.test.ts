@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked, needsPatronusAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -70,11 +70,12 @@ describe("getPatronusChipState", () => {
   })
 })
 
-describe("needsPatronusAttention", () => {
-  it("is set by a failed robot of the commit the branch is at", () => {
-    expect(needsPatronusAttention(robot({ status: "failure" }), "tip")).toBe(true)
-    expect(needsPatronusAttention(robot({ status: "failure" }), "fixed")).toBe(false)
-    expect(needsPatronusAttention(robot({ status: "running" }), "tip")).toBe(false)
+describe("formatPatronusAttention", () => {
+  it("names a failed robot of the commit the branch is at", () => {
+    expect(formatPatronusAttention(robot({ status: "failure" }), "tip")).toBe("failed Safe Push")
+    expect(formatPatronusAttention(robot({ status: "failure", pushMode: "dryRun" }), "tip")).toBe("failed Dry Run")
+    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed")).toBeNull()
+    expect(formatPatronusAttention(robot({ status: "running" }), "tip")).toBeNull()
   })
 })
 

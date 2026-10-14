@@ -9,11 +9,14 @@ targets:
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/components/branch/BranchRow.tsx
+  - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/hooks/usePushSummary.ts
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useStatusBadge.ts
+  - ../../src/hooks/useOutgoingAttention.ts
   - ../../src/lib/push-summary.ts
   - ../../src/lib/remote-status.ts
+  - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
@@ -90,7 +93,8 @@ is outgoing compares content, not hashes: the question is whether the remote has
 
 - The indicator is a ghost button in the header, before the time of the last sync: an up arrow, the total commits and
   a bar.
-- Its accessible name must be the title of the overview, e.g. "12 commits to push in 7 branches".
+- Its accessible name must be the title of the overview, e.g. "12 commits to push in 7 branches", with ", 1 needs
+  attention" while the attention dot shows.
 - The bar must have a segment per outgoing branch, in the order of the rows, its width proportional to the commits of
   the branch; a force push without commits keeps a segment of one commit.
 - A segment must be stacked: the user's commits solid, the others' commits light, as `mine (total)↑` reads. The one
@@ -102,6 +106,14 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
   ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
+- A branch that waits for its author, an open pull request with changes requested or failing checks
+  ([Pull Requests](../branch/pull-requests.spec.md)) or a robot that failed on the commit the branch is at
+  ([Patronus](../branch/patronus.spec.md)), must put a `destructive` dot on the icon of the indicator. The overview
+  explains it with a line per such branch, in the table order, below its title: "ABC-123 needs attention: changes
+  requested, failing checks", "ABC-123 needs attention: failed Safe Push".
+  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each branch waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column and a dot for a robot that failed on the branch tip`)
 - It must follow every sync and push result without a reload.
 
 ### Overview
@@ -185,16 +197,23 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 
 ## User Experience
 
-- The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`.
+- The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`. The attention dot is
+  `size-1.5 rounded-full bg-destructive` on the top end corner of the icon (`absolute -top-0.5 -right-0.5`), so the
+  count and the bar keep their place; the parts are spaced by gaps, not margins.
 - The colours are the semantic tokens `bg-primary` and `bg-warning` for the user's commits, `bg-primary/40` and
   `bg-warning/40` for the others'. `info` is not a push colour. The segments of the branches are separated by a 2px gap
   of the surface, the two parts of a segment touch; both are rounded by `rounded-sm`, derived from `--radius`.
 - Text never takes a state colour: the counts, the state words and the legend use `text-muted-foreground`; the colour
   is carried by the bars and the legend swatches.
-- The overview is a `Popover` as wide as its content up to `max-w-lg`, aligned to the end of the button. The rows form a
-  grid, so the bars and the counts line up; a long branch name is truncated; a row bar sits on a `bg-muted` track.
-- The push buttons are aligned to the end of the rows.
-- The branch name is a plain button that underlines on hover.
+- The overview is a `Popover` as wide as its content up to `max-w-xl`, aligned to the end of the button. The rows form a
+  grid, so the bars and the counts line up; the name column is `minmax(8rem,max-content)`, so a name is truncated only
+  past 8rem, never to a letter; a row bar sits on a `bg-muted` track.
+- The chips column is at least `min-w-16` and its chips are aligned to its end, so the rows don't move when the chips
+  load; the push buttons are aligned to the end of the rows.
+- The branch name is a plain button that underlines on hover; the muted "on login" of a stacked branch follows it after
+  a gap and is never truncated.
+- The attention lines are muted `text-xs`, each after a `destructive` dot as the indicator's.
+- The footer lines wrap instead of truncating: an update state or a hint is read in full.
 - The push button opens its description on hover, as in the branch row. The dropped commits sit below a
   `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
   one truncated line, the author, the `font-mono` short id and the age a muted line below it.

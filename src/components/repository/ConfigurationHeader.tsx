@@ -14,11 +14,11 @@ import { PullRequestStatusLine } from "@/components/repository/PullRequestStatus
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
+import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { formatRelativeTime } from "@/lib/time"
 import { useBranchSync } from "@/stores/branch-sync"
-import { usePatronusNeedsAttention } from "@/stores/patronus"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
@@ -45,7 +45,7 @@ export function ConfigurationHeader() {
   const lastSyncTime = selectedProject?.lastSyncTime
   const refusedUpdate = useRefusedUpdate()
   const pullRequestOverview = usePullRequestOverview()
-  const patronusNeedsAttention = usePatronusNeedsAttention()
+  const attention = useOutgoingAttention()
   // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
   const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)
   if (refusedUpdate !== null && !isRefusedDialogMounted) {
@@ -104,7 +104,7 @@ export function ConfigurationHeader() {
               <OutgoingIndicator
                 renderPullRequest={renderReviewChips}
                 reviewBranches={pullRequestOverview.openBranches}
-                needsAttention={pullRequestOverview.needsAttention || patronusNeedsAttention}
+                attention={attention}
                 footer={(
                   <>
                     <UpdateStateLine />

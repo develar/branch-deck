@@ -150,7 +150,8 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
         {transfer === null && description.tone === "success" && <CheckIcon className="size-3 shrink-0 text-success" />}
         {transfer === null && description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
-        <span className="truncate">
+        {/* wraps: the overview is at most `max-w-xl`, and a truncated state says nothing */}
+        <span className="min-w-0">
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
           {transfer === null
