@@ -1,17 +1,20 @@
 //! `bd group`, `bd rename`, `bd restack`, `bd unstack` and `bd undo`: message-only history rewrites through
-//! `sync_core::regroup`, which validates before it writes and holds the repository lock
+//! `sync_core::regroup`, which validates before it writes. bd holds the repository lock over the rewrite, the
+//! descriptions of a plan and, with --sync, the sync
 
 use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
+use crate::describe::Description;
+use crate::error::{CliError, ErrorBody, ErrorCode};
+use crate::group_plan::{changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
 use crate::status::read_head;
+use crate::sync_command::{SyncOutput, lock, sync_locked};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use sync_core::regroup::{
-  RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, describe_problem, problem_commits, regroup_commits_core, rename_branch_core, restack_branch_core,
-  undo_regroup_core,
+  RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
 };
 use sync_core::stack::StackForest;
 
@@ -21,6 +24,9 @@ pub struct RewriteArgs {
   /// Print the resulting subjects and the stack forest; write nothing
   #[arg(long)]
   pub dry_run: bool,
+  /// Then rebuild the virtual branches as `bd sync` does, under the same repository lock
+  #[arg(long, conflicts_with = "dry_run")]
+  pub sync: bool,
   /// Rewrite only if HEAD is still this commit (the `head` that `bd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
@@ -32,7 +38,7 @@ pub struct RewriteArgs {
 #[derive(Debug, Default, clap::Args)]
 pub struct GroupArgs {
   /// The plan `{"branches": {"path": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]}, "ungroup_issues":
-  /// [keys]}`; default: stdin
+  /// [keys], "descriptions": {"branch": {"title", "body"}}}`; default: stdin
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
   #[command(flatten)]
@@ -108,6 +114,27 @@ pub struct RewriteOutput {
   /// With --map: old -> new id of every commit ahead of the baseline
   #[serde(skip_serializing_if = "Option::is_none")]
   pub map: Option<Vec<IdMapping>>,
+  /// The branches whose description the plan's `descriptions` set (or, with --dry-run, would set): the ones that differ
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub described: Vec<String>,
+  /// With --sync: the `bd sync` output after the rewrite; exit code 1 when a branch conflicts
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub sync: Option<SyncOutput>,
+  /// A step after the rewrite failed (a description or the sync): the rewrite stays (`undo_token` undoes it), and the
+  /// exit code is this error's
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub after_write_error: Option<ErrorBody>,
+}
+
+impl RewriteOutput {
+  /// 0, 1 when the sync conflicts, or the exit code of `after_write_error`
+  pub fn exit_code(&self) -> i32 {
+    match (&self.after_write_error, &self.sync) {
+      (Some(error), _) => error.code.exit_code(),
+      (None, Some(sync)) if sync.has_conflicts() => ErrorCode::Conflict.exit_code(),
+      _ => 0,
+    }
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -158,37 +185,73 @@ pub struct UndoOutput {
   pub undone_issue_groups: Option<String>,
 }
 
-fn options(context: &RepoContext, args: &RewriteArgs) -> RegroupOptions {
-  RegroupOptions {
-    expect_head: args.expect_head.clone(),
-    dry_run: args.dry_run,
-    lock_timeout: context.lock_timeout,
-  }
-}
-
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
   let text = match &args.plan {
     Some(path) => std::fs::read_to_string(path).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read {}: {e}", path.display())))?,
     None => std::io::read_to_string(std::io::stdin()).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read the plan from stdin: {e}")))?,
   };
-  let plan: RegroupPlan = serde_json::from_str(&text).map_err(|e| CliError::new(ErrorCode::InvalidPlan, format!("The plan is not valid JSON of the expected shape: {e}")))?;
-  let outcome = regroup_commits_core(&context.git, &context.repository, &plan, &options(context, &args.rewrite)).map_err(regroup_error)?;
-  Ok(rewrite_output(context, "group", &args.rewrite, &outcome))
+  let plan = parse_group_plan(&text)?;
+  rewrite(context, "group", &args.rewrite, &plan.descriptions, |options| {
+    regroup_commits_accepted(&context.git, &context.repository, &plan.regroup, options, |outcome| {
+      check_descriptions(&plan.descriptions, &outcome.commits)
+    })
+  })
 }
 
 pub fn rename(context: &RepoContext, args: &RenameArgs) -> Result<RewriteOutput, CliError> {
-  let outcome = rename_branch_core(&context.git, &context.repository, &args.old, &args.new, &options(context, &args.rewrite)).map_err(regroup_error)?;
-  Ok(rewrite_output(context, "rename", &args.rewrite, &outcome))
+  rewrite(context, "rename", &args.rewrite, &BTreeMap::new(), |options| {
+    rename_branch_core(&context.git, &context.repository, &args.old, &args.new, options)
+  })
 }
 
 pub fn restack(context: &RepoContext, args: &RestackArgs) -> Result<RewriteOutput, CliError> {
-  let outcome = restack_branch_core(&context.git, &context.repository, &args.branch, Some(&args.parent), &options(context, &args.rewrite)).map_err(regroup_error)?;
-  Ok(rewrite_output(context, "restack", &args.rewrite, &outcome))
+  rewrite(context, "restack", &args.rewrite, &BTreeMap::new(), |options| {
+    restack_branch_core(&context.git, &context.repository, &args.branch, Some(&args.parent), options)
+  })
 }
 
 pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutput, CliError> {
-  let outcome = restack_branch_core(&context.git, &context.repository, &args.branch, None, &options(context, &args.rewrite)).map_err(regroup_error)?;
-  Ok(rewrite_output(context, "unstack", &args.rewrite, &outcome))
+  rewrite(context, "unstack", &args.rewrite, &BTreeMap::new(), |options| {
+    restack_branch_core(&context.git, &context.repository, &args.branch, None, options)
+  })
+}
+
+/// Run `regroup` under the repository lock (none for a dry run), then under the same lock write the changed
+/// `descriptions` and, with --sync, sync. A failure after the rewrite is `after_write_error`, so the output keeps the
+/// undo token
+fn rewrite(
+  context: &RepoContext,
+  operation: &str,
+  args: &RewriteArgs,
+  descriptions: &BTreeMap<String, Description>,
+  regroup: impl FnOnce(&RegroupOptions) -> Result<RegroupOutcome, RegroupError>,
+) -> Result<RewriteOutput, CliError> {
+  let held_lock = if args.dry_run { None } else { Some(lock(context)?) };
+  let options = RegroupOptions {
+    expect_head: args.expect_head.clone(),
+    dry_run: args.dry_run,
+    lock_timeout: context.lock_timeout,
+    held_lock: held_lock.as_ref(),
+  };
+  // read before the rewrite: only the writes can fail after it
+  let described = changed_descriptions(context, descriptions)?;
+  let outcome = regroup(&options).map_err(regroup_error)?;
+  let mut output = rewrite_output(context, operation, args, &outcome);
+  output.described = described.iter().map(|(branch, _, _)| (*branch).to_string()).collect();
+  if args.dry_run {
+    return Ok(output);
+  }
+  if let Err(error) = write_descriptions(context, &described) {
+    output.after_write_error = Some(error.to_output().error);
+    return Ok(output);
+  }
+  if args.sync {
+    match sync_locked(context) {
+      Ok(sync) => output.sync = Some(sync),
+      Err(error) => output.after_write_error = Some(error.to_output().error),
+    }
+  }
+  Ok(output)
 }
 
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
@@ -311,6 +374,9 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
         })
         .collect()
     }),
+    described: Vec::new(),
+    sync: None,
+    after_write_error: None,
   }
 }
 

@@ -165,9 +165,6 @@ pub struct BranchStatus {
   pub commit_count: usize,
   /// The tip of the virtual branch as last synced; `null` if it was never synced
   pub tip: Option<String>,
-  /// The pull request of the branch (not available yet: it will be the read-only status of `sync_core::pull_requests`)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub pull_request: Option<serde_json::Value>,
   /// With --stats
   #[serde(skip_serializing_if = "Option::is_none")]
   pub stats: Option<BranchStats>,
@@ -394,7 +391,6 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           description: descriptions
             .get(&reference_of(&branch.name))
             .map(|description| DescriptionTitle { title: description.title.clone() }),
-          pull_request: None,
           issue_key: branch.issue_key.clone(),
           latest_time: branch.latest_commit_time,
           commit_count: branch.commits.len(),

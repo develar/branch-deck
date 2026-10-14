@@ -23,6 +23,7 @@ targets:
   - ../../crates/bd-cli/src/version.rs
   - ../../crates/bd-cli/build.rs
   - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-cli/src/group_plan.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
@@ -96,6 +97,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `version` and `error` outputs, and the real outputs must use
   only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
+- `status`, `commits`, `suggest`, `check`, `schema` and `version` must write no ref, config, index or working tree:
+  at most git objects and the object cache (none with `--no-cache`); `bd --help` and `bd help agent` must say so in
+  one line.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error.
@@ -203,6 +208,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_errors_and_exit_codes`)
 - Fixups not in the plan must follow their targets.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`fixups_follow_their_targets`)
+- `descriptions` of the plan (`{branch: {title, body}}`) must be validated with it, before anything is written: a
+  title of one line that is not empty, and a branch that has commits after the plan, else `invalid_plan`. bd must
+  write the ones that differ after the ref transaction, under the same lock, as `bd describe` does, and list them in
+  `described`; a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_descriptions_and_sync_under_one_lock`, `descriptions_are_validated_with_the_plan`)
+- `--sync` must run the sync of `bd sync` after the writes, without releasing the repository lock in between, and add
+  its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write or sync must
+  keep the rewrite output and name the error in `after_write_error`. `--sync` must not go with `--dry-run`.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_descriptions_and_sync_under_one_lock`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
 - `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
   move the branch only from the HEAD the plan was computed for.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`expect_head_is_a_compare_and_swap`)
@@ -236,8 +250,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd check`
 
 - `bd check` must apply a plan (stdin or `--plan`; the current grouping without one) in memory, validate it like a
-  regroup (exit 2 when invalid), place the branches as a stacked sync does and build each one, parents first, writing
-  objects only: refs, notes and HEAD must not change.
+  regroup (exit 2 when invalid, `descriptions` included), place the branches as a stacked sync does and build each
+  one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
 - Per branch it must print `ok`, a light conflict (commit, subject, files and the older commits outside the branch
@@ -340,7 +354,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd describe`
 
-- `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`.
+- `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The
+  `descriptions` of a `bd group` plan set several at once.
 - `--title`, `--body` and `--body-file` must set it as `title`, a blank line and the body, keeping the part not
   given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
@@ -353,7 +368,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd help agent`
 
-- It must print the agent workflow as text and mark the commands that don't exist yet.
+- It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
+  --sync` with the descriptions in the plan, and `bd push` after the user approves. It must name every command and
+  every long option except a listed few, and name no command or option that doesn't exist.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
 

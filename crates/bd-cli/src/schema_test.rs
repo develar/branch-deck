@@ -136,9 +136,15 @@ fn outputs_match_schema() {
   write(&repo, "c.txt", "c\n");
   commit_all(&repo, "PROJ-2 Add c", 1_700_000_400);
   let plan = tempfile::NamedTempFile::new().unwrap();
-  std::fs::write(plan.path(), json!({ "issue_groups": { "proj": ["PROJ-1", "PROJ-2"] } }).to_string()).unwrap();
-  let (_, rewrite) = run_in(&repo, &["group", "--plan", plan.path().to_str().unwrap()]);
+  let descriptions = json!({ "proj": { "title": "Proj", "body": "Body" } });
+  std::fs::write(
+    plan.path(),
+    json!({ "issue_groups": { "proj": ["PROJ-1", "PROJ-2"] }, "descriptions": descriptions }).to_string(),
+  )
+  .unwrap();
+  let (_, rewrite) = run_in(&repo, &["group", "--sync", "--plan", plan.path().to_str().unwrap()]);
   assert_eq!(rewrite.get("error"), None, "{rewrite}");
+  assert!(rewrite["sync"].is_object() && rewrite["described"].is_array(), "{rewrite}");
   assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &rewrite, "rewrite of issue groups");
   let (_, status) = run_in(&repo, &["status"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with issue groups");

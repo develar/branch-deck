@@ -13,7 +13,7 @@ use crate::issue_groups::{
   ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, prepare_issue_groups_write, read_grouping_inputs, read_issue_groups_commit, validate_issue_group_name, validate_issue_key,
 };
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository};
+use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
 use crate::stack::{StackForest, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -51,21 +51,25 @@ pub struct RegroupPlan {
 }
 
 #[derive(Debug, Clone)]
-pub struct RegroupOptions {
+pub struct RegroupOptions<'a> {
   /// The HEAD the plan was made for (`bd status` printed it); abbreviated ids are fine. Another HEAD is `HeadMoved`,
   /// also for a regroup that changes only the issue groups
   pub expect_head: Option<String>,
   /// Compute and validate the result, write nothing
   pub dry_run: bool,
   pub lock_timeout: Duration,
+  /// The repository lock the caller holds, so that it can write more under it (`bd group --sync`); `None` takes the
+  /// lock for the regroup only
+  pub held_lock: Option<&'a RepositoryLock>,
 }
 
-impl Default for RegroupOptions {
+impl Default for RegroupOptions<'_> {
   fn default() -> Self {
     Self {
       expect_head: None,
       dry_run: false,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
+      held_lock: None,
     }
   }
 }
@@ -284,9 +288,21 @@ impl From<Assignment> for Change {
 }
 
 /// Apply `plan` in one history rewrite
-#[instrument(skip(git_executor, plan), fields(branches = plan.branches.len(), unassign = plan.unassign.len()))]
 pub fn regroup_commits_core(git_executor: &GitCommandExecutor, repository_path: &str, plan: &RegroupPlan, options: &RegroupOptions) -> Result<RegroupOutcome, RegroupError> {
-  regroup_with(git_executor, repository_path, options, |snapshot| resolve_plan(snapshot, plan))
+  regroup_commits_accepted(git_executor, repository_path, plan, options, |_| Ok(()))
+}
+
+/// `regroup_commits_core` with one more check of the validated result before anything is written: `accept` refuses
+/// it with an error, e.g. a plan field the caller handles (the descriptions of `bd group`)
+#[instrument(skip(git_executor, plan, accept), fields(branches = plan.branches.len(), unassign = plan.unassign.len()))]
+pub fn regroup_commits_accepted(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  plan: &RegroupPlan,
+  options: &RegroupOptions,
+  accept: impl FnOnce(&RegroupOutcome) -> Result<(), RegroupError>,
+) -> Result<RegroupOutcome, RegroupError> {
+  regroup_accepted(git_executor, repository_path, options, |snapshot| resolve_plan(snapshot, plan), accept)
 }
 
 /// Rename branch `old_leaf` to `new_leaf` (a leaf, without `/`): every commit whose prefix path names `old_leaf` gets it
@@ -462,7 +478,18 @@ fn regroup_with(
   options: &RegroupOptions,
   assign: impl FnOnce(&Snapshot) -> Result<Change, RegroupError>,
 ) -> Result<RegroupOutcome, RegroupError> {
-  let _lock = if options.dry_run {
+  regroup_accepted(git_executor, repository_path, options, assign, |_| Ok(()))
+}
+
+/// `regroup_with`, with `accept` to refuse the validated result before anything is written
+fn regroup_accepted(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  options: &RegroupOptions,
+  assign: impl FnOnce(&Snapshot) -> Result<Change, RegroupError>,
+  accept: impl FnOnce(&RegroupOutcome) -> Result<(), RegroupError>,
+) -> Result<RegroupOutcome, RegroupError> {
+  let _lock = if options.dry_run || options.held_lock.is_some() {
     None
   } else {
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
@@ -480,6 +507,7 @@ fn regroup_with(
 
   let change = assign(&snapshot)?;
   let mut outcome = apply_in_memory(&snapshot, change)?;
+  accept(&outcome)?;
   if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none()) {
     return Ok(outcome);
   }

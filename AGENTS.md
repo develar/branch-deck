@@ -126,7 +126,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
   user. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
-  `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`.
+  `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`. The one named exception: a
+  branch description costs one `git config` per changed branch (`bd describe`, `descriptions` of a `bd group` plan),
+  because git has no batch config writer; read them with one `--get-regexp`.
 - Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts.
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated

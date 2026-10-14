@@ -56,11 +56,12 @@ repositories: all operations run through the Git CLI.
 - **Agent CLI** (`branch-deck cli`, or the binary symlinked as `bd`; `bd.exe` next to the app on Windows): a coding
   agent reads the branches, the unassigned commits and every commit ahead of the baseline as JSON, with the files, the
   dependencies between commits and per branch statistics, to cluster commits into branches; `--brief` views with the
-  areas of each commit and the units that must stay together fit in one read, and `bd suggest` proposes a grouping,
-  already checked. It applies the grouping
-  with `bd group`, one validated rewrite of the commit messages that can be undone, after `bd check` built every
-  branch of the plan without writing refs. It rebuilds the branches with `bd sync`, keeps their pull request text with
-  `bd describe` and pushes them with a lease, parents first, with `bd push`; `bd help agent` prints the workflow.
+  areas of each commit and the units that must stay together fit in one read. `bd suggest` proposes a grouping,
+  already checked by a trial sync, with whole issue branches as issue groups that rewrite no subject. One
+  `bd group --sync` call applies the plan (one validated rewrite of the commit messages that can be undone), writes
+  the pull request texts of its `descriptions` and rebuilds the branches; `bd check` tries an edited plan first,
+  without writing refs. `bd push` pushes the branches with a lease, parents first; `bd help agent` prints the
+  workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
   `~/.agents/skills`, so coding agents know when to use it.
 - Auto-sync when the window gets focus, auto-update, light and dark theme.

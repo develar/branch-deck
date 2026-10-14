@@ -84,7 +84,10 @@ written, except by Update Project (its own section below).
      current time, as with `git rebase`.
    - Signatures are stripped because they would no longer be valid.
 6. **Batch**: one process per operation phase, not one per item. Never parse translated text; rely on exit codes and
-   on `--porcelain` and `-z` output.
+   on `--porcelain` and `-z` output. **One named exception:** a branch description (`branch.<name>.description`,
+   `bd describe` and the `descriptions` of a `bd group` plan) costs one `git config` process per branch, because git
+   has no batch writer for config. The current descriptions are still read with one `git config --get-regexp`, and
+   only the ones that differ are written.
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
    early with an upgrade hint.
 
@@ -182,7 +185,20 @@ a message rewrite keeps HEAD's tree.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
-the app and parallel `bd` processes. A dry run reads only and takes no lock. Sync doesn't take it yet.
+the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync` and `bd push` take it; the
+app's sync doesn't take it yet.
+
+**One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and
+passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no lock of its own and the lock has no gap:
+
+1. Read the current descriptions (one `git config --get-regexp`), when the plan has `descriptions`.
+2. The regroup above. Before it writes, `regroup_commits_accepted` lets bd refuse the result: a description without a
+   title of one line, or of a branch that has no commits after the plan, is `invalid_plan`.
+3. After the ref transaction: one `git config` per changed description (the exception of the batch rule).
+4. With `--sync`: the sync of `bd sync` (`sync_locked`).
+
+A failure in step 3 or 4 leaves the rewrite in place; the output keeps the undo token and names the error in
+`after_write_error`.
 
 Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/move_commits.rs`,
 `crates/sync-core/src/issue_groups.rs`, `crates/sync-core/src/repository_lock.rs`.

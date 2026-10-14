@@ -13,6 +13,7 @@ pub mod describe;
 pub mod diff_scan;
 pub mod error;
 pub mod generated;
+pub mod group_plan;
 pub mod install;
 pub mod numstat;
 pub mod output;
@@ -24,7 +25,7 @@ pub mod suggest;
 pub mod sync_command;
 pub mod version;
 
-use crate::agent_help::{AGENT_HELP, skill_text};
+use crate::agent_help::{AGENT_HELP, READ_ONLY, skill_text};
 use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::context::{Environment, RepoContext, RepoOptions};
@@ -33,11 +34,11 @@ use crate::error::{CliError, ErrorCode};
 use crate::install::{InstallArgs, install, skill_command};
 use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
-use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
+use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
-use crate::sync_command::{SyncOutput, sync};
+use crate::sync_command::sync;
 use crate::version::{VERSION, version};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
@@ -51,6 +52,7 @@ use std::path::PathBuf;
   name = "bd",
   version = VERSION,
   about = "Branch Deck for agents: JSON on stdout. Start with `bd help agent`",
+  after_help = READ_ONLY,
   disable_help_subcommand = true
 )]
 struct Cli {
@@ -79,7 +81,8 @@ enum Command {
   Status(StatusArgs),
   /// Every commit ahead of the baseline, with dependency edges and file overlap between branches
   Commits(CommitsArgs),
-  /// Move commits between branches by their subject prefixes: one validated rewrite for a whole plan read from stdin
+  /// Move commits between branches by their subject prefixes: one validated rewrite for a whole plan read from stdin,
+  /// then the descriptions it names and, with --sync, a sync
   Group(GroupArgs),
   /// Rename a branch in every commit prefix, its children included
   Rename(RenameArgs),
@@ -92,8 +95,8 @@ enum Command {
   /// Suggest a grouping of the commits into branches: a plan for `bd group`, checked by a trial sync; exit code 1 when a
   /// branch of it still conflicts
   Suggest(SuggestArgs),
-  /// Would the branches build with this plan (stdin or --plan)? A trial sync that writes objects only; exit code 1 when
-  /// a branch conflicts or is blocked
+  /// Would the branches build with this plan (stdin or --plan)? A trial sync; exit code 1 when a branch conflicts or is
+  /// blocked
   Check(CheckArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 on a conflict
   Sync,
@@ -174,16 +177,17 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Status(args) => context().and_then(|context| status(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),
-    Command::Group(args) => context().and_then(|context| group(&context, args)).and_then(|output| print(out, &output)),
-    Command::Rename(args) => context().and_then(|context| rename(&context, args)).and_then(|output| print(out, &output)),
-    Command::Restack(args) => context().and_then(|context| restack(&context, args)).and_then(|output| print(out, &output)),
-    Command::Unstack(args) => context().and_then(|context| unstack(&context, args)).and_then(|output| print(out, &output)),
+    // with --sync, a conflict changes only the exit code, as for `bd sync`
+    Command::Group(args) => return print_summary(out, context().and_then(|context| group(&context, args)), RewriteOutput::exit_code),
+    Command::Rename(args) => return print_summary(out, context().and_then(|context| rename(&context, args)), RewriteOutput::exit_code),
+    Command::Restack(args) => return print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
+    Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     // the summary is the output either way; a conflict or a block only changes the exit code
-    Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), SyncOutput::has_conflicts),
+    Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),
     Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
-    Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| !output.check.ok),
-    Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| !output.ok),
+    Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| conflict_if(!output.check.ok)),
+    Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
     Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
@@ -203,14 +207,17 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
   }
 }
 
-/// Print the output of a command that fails softly: exit code 1 when `failed` says so, as for a conflict
-fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>, failed: impl Fn(&T) -> bool) -> i32 {
-  let printed = result.and_then(|output| print(out, &output).map(|()| failed(&output)));
-  match printed {
-    Ok(true) => ErrorCode::Conflict.exit_code(),
-    Ok(false) => 0,
+/// Print the output of a command that fails softly, with the exit code `exit_code` gives it, e.g. 1 for a conflict
+fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>, exit_code: impl Fn(&T) -> i32) -> i32 {
+  match result.and_then(|output| print(out, &output).map(|()| exit_code(&output))) {
+    Ok(exit_code) => exit_code,
     Err(error) => print_error(out, &error),
   }
+}
+
+/// The exit code of a conflict when `conflict`, else 0
+fn conflict_if(conflict: bool) -> i32 {
+  if conflict { ErrorCode::Conflict.exit_code() } else { 0 }
 }
 
 fn print<T: Serialize>(out: &mut dyn Write, value: &T) -> Result<(), CliError> {
@@ -229,6 +236,8 @@ fn io_error(error: std::io::Error) -> CliError {
   CliError::new(ErrorCode::GitError, format!("Cannot write the output: {error}"))
 }
 
+#[cfg(test)]
+mod agent_help_test;
 #[cfg(test)]
 mod areas_test;
 #[cfg(test)]
