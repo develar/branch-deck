@@ -16,7 +16,7 @@ pub mod status;
 
 use crate::agent_help::AGENT_HELP;
 use crate::commits::{CommitsArgs, commits};
-use crate::context::{Environment, RepoContext};
+use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::error::{CliError, ErrorCode};
 use crate::output::write_json;
 use crate::schema::schema_output;
@@ -40,6 +40,9 @@ struct Cli {
   /// Print full commit ids instead of abbreviated ones
   #[arg(long, global = true)]
   full_ids: bool,
+  /// Neither read nor write the object cache in `$GIT_COMMON_DIR/branch-deck/cache`
+  #[arg(long, global = true)]
+  no_cache: bool,
   /// Log to stderr: -v debug, -vv trace
   #[arg(short, long, action = ArgAction::Count, global = true)]
   verbose: u8,
@@ -103,7 +106,13 @@ fn init_logging(verbose: u8) {
 }
 
 fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
-  let context = || RepoContext::resolve(environment, cli.repo.as_deref(), cli.prefix.as_deref(), cli.full_ids);
+  let options = RepoOptions {
+    repo: cli.repo.as_deref(),
+    prefix: cli.prefix.as_deref(),
+    full_ids: cli.full_ids,
+    no_cache: cli.no_cache,
+  };
+  let context = || RepoContext::resolve(environment, &options);
   let result = match &cli.command {
     Command::Status(args) => context().and_then(|context| status(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),

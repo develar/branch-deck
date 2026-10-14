@@ -1,4 +1,5 @@
-use crate::diff_scan::{CommitDiff, FileChange, Hunk, parse_commit_diffs};
+use crate::diff_scan::{CommitDiff, parse_commit_diffs};
+use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
 
 fn change(status: char, path: &str) -> FileChange {

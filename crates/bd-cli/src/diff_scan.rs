@@ -4,36 +4,12 @@
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::cache::ObjectCache;
+use object_cache::commit_diff::{FileChange, Hunk};
 use tracing::instrument;
 
 /// The marker the `--format` puts before each commit id
 const RECORD_START: u8 = 0x1e;
-
-/// One `@@ -old_start,old_lines +new_start,new_lines @@` header
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Hunk {
-  pub old_start: u32,
-  pub old_lines: u32,
-  pub new_start: u32,
-  pub new_lines: u32,
-}
-
-/// A changed file of a commit
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileChange {
-  /// `A`, `M`, `D`, `R` (rename), `T` (type change) or `C` (copy)
-  pub status: char,
-  /// The path after the commit
-  pub path: String,
-  /// The path before a rename or copy
-  pub old_path: Option<String>,
-  pub additions: u32,
-  pub deletions: u32,
-  /// Git shows no lines for the file, as `-` in `--numstat`
-  pub binary: bool,
-  /// In the order of the patch, ascending
-  pub hunks: Vec<Hunk>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitDiff {
@@ -54,6 +30,27 @@ pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, ids: &[Stri
   args.extend(DIFF_OPTIONS);
   let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
   parse_commit_diffs(&output)
+}
+
+/// `read_commit_diffs` through the cache: git runs once for the ids the cache misses, and its results are written back
+pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, ids: &[String]) -> Result<Vec<CommitDiff>> {
+  let mut cached = cache.get_commit_diffs(ids);
+  let missing: Vec<String> = ids.iter().filter(|id| !cached.contains_key(*id)).cloned().collect();
+  tracing::debug!(cached = cached.len(), missing = missing.len(), "commit diffs");
+  let read = read_commit_diffs(git, repository, &missing)?;
+  cache.put_commit_diffs(read.iter().map(|diff| (diff.id.as_str(), &diff.files)));
+  for diff in read {
+    cached.insert(diff.id, diff.files);
+  }
+  Ok(
+    ids
+      .iter()
+      .map(|id| CommitDiff {
+        id: id.clone(),
+        files: cached.remove(id).unwrap_or_default(),
+      })
+      .collect(),
+  )
 }
 
 /// The patch of each of `ids` (in this order) with three lines of context, in one process

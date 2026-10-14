@@ -17,7 +17,7 @@ The code is in `crates/bd-cli`. Windows needs a console sidecar and is not suppo
 ## Invocation
 
 ```bash
-branch-deck cli [-C <repo>] [--prefix <p>] [--full-ids] [-v] <command> [options]
+branch-deck cli [-C <repo>] [--prefix <p>] [--full-ids] [--no-cache] [-v] <command> [options]
 cargo run -p branch-deck -- cli status -C .   # from a checkout
 ```
 
@@ -29,6 +29,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   output echoes the prefix.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
   (`git_ops::rewrite_plan::short_id`). When two ids of one output share that prefix, all ids in it get longer.
+- `--no-cache` neither reads nor writes the object cache (see below).
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr stays empty.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the
   app, the CLI never asks a login shell for git.
@@ -104,8 +105,9 @@ for all the commits.
   - `diffstat` is the net change of the synced virtual branch: its tip against `base`, the parent of the oldest
     commit ahead of the baseline, which a sync rebuilds every branch on. It is exact while the tip is synced with
     the current commits, and `null` for a branch that was never synced.
-  - It costs three more git processes for all branches together: one `log --numstat`, one `diff-tree --stdin` with
-    a `<tip> <base>` line per synced branch, and one `check-attr`.
+  - It costs at most three more git processes for all branches together: the commit diffs the cache misses (the same
+    `-U0` pass and cache as `bd commits`), one `diff-tree --stdin` with a `<tip> <base>` line per synced branch, and
+    one `check-attr`.
 
 ### `bd commits [--files] [--patch] [--branch <b>] [--include-generated]`
 
@@ -135,7 +137,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   `--include-generated` keeps them. `--files` still lists them, with `"generated": true`.
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw -p -U0`
-process. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
+process, for the commits the object cache misses. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
 `--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output.
 
 #### Lock files and generated files
@@ -169,6 +171,21 @@ This is in `crates/bd-cli/src/dependencies.rs`.
 The approximation sees only text. It misses semantic dependencies, such as a call to a function that another commit
 adds in another file. It can also report independent edits that happen to be next to each other. Treat an edge as
 "these can't be cherry-picked apart without a conflict", not as a proof.
+
+### The object cache
+
+The changes of a commit never change, so `bd commits` and `bd status --stats` keep them in a disk cache keyed by the
+commit id (`crates/object-cache`, LMDB through heed):
+
+- It lives in `$GIT_COMMON_DIR/branch-deck/cache/`, so all worktrees share it. The app and parallel `bd` calls can use
+  it at once: LMDB serializes writers through its lock file, and readers never wait.
+- git runs only for the ids the cache misses, in one batch process, and the results are written back in one
+  transaction.
+- The cap is the LMDB map size, 1 GiB by default. A write that finds the map full clears the cache and is retried.
+- The schema version is part of each database name (`commit_diff.v1`). Opening drops the databases of older versions.
+- Any cache failure is a miss, logged with `-v`; it never fails a command. `--no-cache` bypasses it.
+- `commit_tree` (commit → tree) and `merge_result` ((base, commit, target) trees → result tree or conflict files) are
+  there for sync and `bd check`, which don't use them yet.
 
 ### `bd schema`
 

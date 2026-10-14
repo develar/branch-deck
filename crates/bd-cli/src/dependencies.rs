@@ -13,7 +13,8 @@
 //! The approximation sees only text: it misses semantic dependencies (a call to a function another commit added in
 //! another file) and over-reports independent edits that happen to be adjacent.
 
-use crate::diff_scan::{CommitDiff, FileChange, Hunk};
+use crate::diff_scan::CommitDiff;
+use object_cache::commit_diff::{FileChange, Hunk};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// `from` depends on `to` (an older commit), through `files`; both are positions in the input

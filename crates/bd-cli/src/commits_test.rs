@@ -1,5 +1,6 @@
 use crate::fixture_test::{commit_all, git, numbered_lines, repo_with_baseline, run_in, write};
 use git_ops::rewrite_plan::short_id;
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -175,4 +176,32 @@ fn generated_files_are_flagged_and_unlinked() {
     json!([{ "from": commits[1]["id"], "to": commits[0]["id"], "files": ["Cargo.lock", "gen/types.ts"] }])
   );
   assert_eq!(output["cluster_overlap"], json!([{ "branches": ["one", "two"], "files": ["Cargo.lock", "gen/types.ts"] }]));
+}
+
+#[test_log::test]
+fn cached_output_equals_uncached() {
+  let repo = repo_with_baseline(&[("shared.txt", &numbered_lines(30)), ("Cargo.lock", "a\n")]);
+  write(&repo, "shared.txt", numbered_lines(30).replace("line 2\n", "line 2\nadded\n"));
+  let first = commit_all(&repo, "(first) Add a line", 1_700_000_100);
+  write(&repo, "shared.txt", numbered_lines(30).replace("line 2\n", "line 2\nchanged\n"));
+  write(&repo, "Cargo.lock", "b\n");
+  write(&repo, "image.bin", [0u8, 1]);
+  let second = commit_all(&repo, "(second) Change it", 1_700_000_200);
+  let cache_dir = repo.path().join(".git/branch-deck/cache");
+
+  let (_, uncached) = run_in(&repo, &["--no-cache", "commits", "--files"]);
+  assert!(!cache_dir.exists(), "--no-cache creates no cache");
+  let (_, cold) = run_in(&repo, &["commits", "--files"]);
+  assert!(cache_dir.join("data.mdb").exists());
+  let cached = ObjectCache::open(&repo.path().join(".git")).get_commit_diffs(&[first, second]);
+  assert_eq!(cached.len(), 2, "the cold run filled the cache");
+  let (_, warm) = run_in(&repo, &["commits", "--files"]);
+  assert_eq!(cold, uncached);
+  assert_eq!(warm, uncached);
+  assert_ne!(warm["dependencies"], json!([]));
+
+  // status --stats reads the same cache
+  let (_, uncached) = run_in(&repo, &["--no-cache", "status", "--stats"]);
+  let (_, warm) = run_in(&repo, &["status", "--stats"]);
+  assert_eq!(warm, uncached);
 }

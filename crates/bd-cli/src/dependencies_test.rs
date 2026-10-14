@@ -1,5 +1,6 @@
 use crate::dependencies::{Dependency, compute_dependencies};
-use crate::diff_scan::{CommitDiff, FileChange, Hunk};
+use crate::diff_scan::CommitDiff;
+use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
 
 /// A text change of `path` with hunks `(old_start, old_lines, new_start, new_lines)`

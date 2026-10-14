@@ -1,7 +1,7 @@
 cargo-features = ["profile-rustflags"]
 
 [workspace]
-members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-types", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli"]
+members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-types", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli", "crates/object-cache"]
 resolver = "2"
 
 [workspace.package]

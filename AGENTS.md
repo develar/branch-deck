@@ -227,6 +227,8 @@ crates/
 ├── git-executor/    # Git CLI executor
 ├── git-ops/         # Git operations library
 ├── sync-core/       # Branch sync logic
+├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
+├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── model-ai/        # AI model inference & domain logic
 ├── model-core/      # Core AI types (e.g. candle, tokenizers)
 ├── model-tauri/     # Tauri integration for AI models

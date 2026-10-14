@@ -1,8 +1,9 @@
-//! Line counts per file without patches: per commit from one `git log --numstat -z`, per tree pair from one
-//! `git diff-tree --stdin --numstat -z`.
+//! Line counts per file: of the diffs of tree pairs from one `git diff-tree --stdin --numstat -z`, or of a cached commit
+//! diff.
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::commit_diff::FileChange;
 use std::collections::HashMap;
 use tracing::instrument;
 
@@ -18,20 +19,19 @@ pub struct NumstatEntry {
   pub deletions: Option<u32>,
 }
 
+impl From<&FileChange> for NumstatEntry {
+  fn from(change: &FileChange) -> Self {
+    Self {
+      path: change.path.clone(),
+      old_path: change.old_path.clone(),
+      additions: (!change.binary).then_some(change.additions),
+      deletions: (!change.binary).then_some(change.deletions),
+    }
+  }
+}
+
 /// Diff options that make the counts independent of the user's diff config
 const NUMSTAT_OPTIONS: [&str; 6] = ["--numstat", "-z", "-M", "--no-ext-diff", "--no-textconv", "--no-relative"];
-
-/// The entries of each of `ids`, by commit id, in one process
-#[instrument(skip(git, ids), fields(commits = ids.len()))]
-pub fn read_commit_numstats(git: &GitCommandExecutor, repository: &str, ids: &[String]) -> Result<HashMap<String, Vec<NumstatEntry>>> {
-  if ids.is_empty() {
-    return Ok(HashMap::new());
-  }
-  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H"];
-  args.extend(NUMSTAT_OPTIONS);
-  let output = git.execute_command_with_input_raw(&args, repository, &lines(ids.iter().map(String::as_str)))?;
-  Ok(parse_numstats(&output))
-}
 
 /// The entries of the diff from `base` to each `tip`, by tip, in one process. A pair without changes has no entry
 #[instrument(skip(git, tips), fields(tips = tips.len()))]

@@ -1,10 +1,11 @@
-//! `bd status --stats`: what each branch changes, from three processes for all branches (one `log --numstat`, one
-//! `diff-tree --stdin` and one `check-attr`)
+//! `bd status --stats`: what each branch changes, from at most three processes for all branches: the commit diffs the
+//! cache misses (one `log -p -U0`), one `diff-tree --stdin` and one `check-attr`
 
 use crate::context::RepoContext;
+use crate::diff_scan::read_commit_diffs_cached;
 use crate::error::CliError;
 use crate::generated::generated_paths;
-use crate::numstat::{NumstatEntry, read_commit_numstats, read_tree_numstats};
+use crate::numstat::{NumstatEntry, read_tree_numstats};
 use crate::output::ShortIds;
 use git_ops::commit_list::Commit;
 use schemars::JsonSchema;
@@ -89,7 +90,11 @@ pub fn branch_stats(
   short: &ShortIds,
 ) -> Result<HashMap<String, BranchStats>, CliError> {
   let ids: Vec<String> = branches.iter().flat_map(|branch| branch.commits).map(|commit| commit.id.clone()).collect();
-  let numstats = read_commit_numstats(&context.git, &context.repository, &ids)?;
+  // the per-commit changes `bd commits` caches; a miss costs one `-U0` patch pass for all missing commits
+  let numstats: HashMap<String, Vec<NumstatEntry>> = read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), &ids)?
+    .into_iter()
+    .map(|diff| (diff.id, diff.files.iter().map(NumstatEntry::from).collect()))
+    .collect();
   let tips: Vec<&str> = branches.iter().filter_map(|branch| branch.tip).collect();
   let diffstats = match base {
     Some(base) => read_tree_numstats(&context.git, &context.repository, base, &tips)?,

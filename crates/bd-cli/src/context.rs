@@ -2,6 +2,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
+use object_cache::cache::ObjectCache;
 use std::path::{Path, PathBuf};
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use tracing::debug;
@@ -31,6 +32,14 @@ impl Environment {
   }
 }
 
+/// The global options that select the repository and how it is read
+pub struct RepoOptions<'a> {
+  pub repo: Option<&'a Path>,
+  pub prefix: Option<&'a str>,
+  pub full_ids: bool,
+  pub no_cache: bool,
+}
+
 /// The repository a command runs on
 pub struct RepoContext {
   pub git: GitCommandExecutor,
@@ -38,16 +47,19 @@ pub struct RepoContext {
   pub repository: String,
   pub prefix: String,
   pub short_ids: bool,
+  /// `git rev-parse --git-common-dir`, shared by all worktrees: the cache lives there
+  pub git_common_dir: PathBuf,
+  pub use_cache: bool,
 }
 
 impl RepoContext {
   /// Resolve git, the repository top level and the branch prefix: `--prefix`, else the app setting
   /// `globalUserBranchPrefix`, else `branchdeck.branchPrefix`. An empty prefix is an error
-  pub fn resolve(environment: &Environment, repo: Option<&Path>, prefix: Option<&str>, full_ids: bool) -> Result<Self, CliError> {
+  pub fn resolve(environment: &Environment, options: &RepoOptions<'_>) -> Result<Self, CliError> {
     let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
     let git = GitCommandExecutor::with_info(info);
 
-    let directory = match repo {
+    let directory = match options.repo {
       Some(repo) if repo.is_relative() => environment.cwd.join(repo),
       Some(repo) => repo.to_path_buf(),
       None => environment.cwd.clone(),
@@ -56,13 +68,14 @@ impl RepoContext {
       return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
     }
     let directory = directory.to_string_lossy();
-    let (output, exit_code) = git.execute_command_with_status(&["rev-parse", "--show-toplevel"], &directory)?;
-    if exit_code != 0 || output.trim().is_empty() {
+    let (output, exit_code) = git.execute_command_with_status(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-common-dir"], &directory)?;
+    let mut lines = output.lines().map(str::trim);
+    let (0, Some(repository), Some(git_common_dir)) = (exit_code, lines.next().filter(|line| !line.is_empty()), lines.next()) else {
       return Err(CliError::new(ErrorCode::NotARepository, format!("Not inside a git working tree: {directory}")));
-    }
-    let repository = output.trim().to_string();
+    };
+    let (repository, git_common_dir) = (repository.to_string(), PathBuf::from(git_common_dir));
 
-    let prefix = match prefix {
+    let prefix = match options.prefix {
       Some(prefix) => prefix.trim().to_string(),
       None => match environment.settings_file.as_deref().and_then(read_app_branch_prefix) {
         Some(prefix) => prefix,
@@ -80,8 +93,19 @@ impl RepoContext {
       git,
       repository,
       prefix,
-      short_ids: !full_ids,
+      short_ids: !options.full_ids,
+      git_common_dir,
+      use_cache: !options.no_cache,
     })
+  }
+
+  /// The object cache of the repository, or a disabled one with --no-cache
+  pub fn cache(&self) -> ObjectCache {
+    if self.use_cache {
+      ObjectCache::open(&self.git_common_dir)
+    } else {
+      ObjectCache::disabled()
+    }
   }
 
   /// `ids` are all the commit ids the output names

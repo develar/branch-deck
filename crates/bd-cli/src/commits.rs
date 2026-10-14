@@ -1,11 +1,12 @@
 use crate::context::RepoContext;
 use crate::dependencies::compute_dependencies;
-use crate::diff_scan::{CommitDiff, FileChange, read_commit_diffs, read_commit_patches};
+use crate::diff_scan::{CommitDiff, read_commit_diffs_cached, read_commit_patches};
 use crate::error::CliError;
 use crate::generated::generated_paths;
 use crate::output::SchemaVersion;
 use crate::status::{read_grouping, read_head};
 use git_ops::commit_list::Commit;
+use object_cache::commit_diff::FileChange;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -146,7 +147,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
   let in_scope = |group: Option<&str>| args.branch.as_deref().is_none_or(|name| group == Some(name));
 
   // the dependencies need every commit, whatever the scope
-  let diffs = read_commit_diffs(&context.git, &context.repository, &grouping.commit_ids)?;
+  let diffs = read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), &grouping.commit_ids)?;
   let mut patches: HashMap<String, String> = if args.patch {
     let ids: Vec<String> = ordered.iter().filter(|(_, group)| in_scope(*group)).map(|(commit, _)| commit.id.clone()).collect();
     read_commit_patches(&context.git, &context.repository, &ids)?.into_iter().collect()
