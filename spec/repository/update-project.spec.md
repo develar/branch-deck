@@ -66,8 +66,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   - up to date: the upstream has nothing the branch lacks;
   - clean, as a fast-forward or a rebase;
   - conflict, with the files that likely conflict, the local commits oldest first, and the upstream commits that
-    change those files (the newest 50, oldest first); each commit has its author, time and the likely conflicting
-    files it changes;
+    change those files (the newest 50, oldest first); each commit has its author and author time, its committer and
+    committer time (for an upstream commit, about when it reached the upstream, e.g. when a robot landed it) and the
+    likely conflicting files it changes;
   - blocked, with the local paths that overlap the update: uncommitted or staged changes on a file the upstream
     changes, an untracked file where it adds one, an ignored file where it adds one.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
@@ -185,9 +186,14 @@ The header shows whether an update would apply cleanly, from a check that every 
   when the baseline was fetched.
 - The conflict title counts the files, "1 file conflicts with origin/master" or "6 files conflict with origin/master";
   without known files it says "Your commits conflict with origin/master".
-- A conflict lists the files that likely conflict, each with the local commits ("yours") and the upstream commits
-  (with author and time) that change it. The list of all local commits, oldest first, comes collapsed below; the
-  commits that change a likely conflicting file are marked. Without known files that list is open.
+- A conflict lists the files that likely conflict, each with the local commits ("yours", with their author time) and
+  the upstream commits that change it. An upstream commit shows its author and both times when they differ by more
+  than an hour, "Daniil Bubnov · authored 13 days ago · landed 2 hours ago", else one, "Daniil Bubnov, 13 days ago":
+  a commit written long ago can have reached the upstream just now. The list of all local commits, oldest first, comes
+  collapsed below; the commits that change a likely conflicting file are marked. Without known files that list is
+  open.
+  [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
+  [@test] ../../src/lib/update-conflict.test.ts (`gives one time when the commit landed within an hour of being written`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
@@ -198,7 +204,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push, stash untracked changes
   first and pop them at the end) and the steps (rebase, resolve keeping the upstream change and the intent of the
   commit, build and test, continue, report each resolution). Each likely conflicting file names the local commits and
-  the upstream commits (with subject and author) that change it.
+  the upstream commits that change it, each upstream one with its subject, author and both dates: "(Daniil Bubnov,
+  authored 2026-10-01, in origin/master since 2026-10-14)".
   [@test] ../../src/lib/agent-prompt.test.ts (`names the repository, the branch, the upstream and the exact ids`)
   [@test] ../../src/lib/agent-prompt.test.ts (`lists the local commits oldest first`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names the commits on both sides of each likely conflicting file`)
@@ -214,7 +221,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body starts with one line on what to do,
   then lists the files, each as its name and then its muted directory, which is clipped from its start on a narrow
   window, with a copy button on hover; the commits of each side sit below in aligned columns (side, hash, subject,
-  author and time); the full list is a `Collapsible` with a `TriangleAlertIcon` `text-warning` mark. The footer shows
+  then the time for yours and the author with the times for the upstream's, muted); the full list is a `Collapsible` with a `TriangleAlertIcon` `text-warning` mark. The footer shows
   `master ← origin/master`, `Esc Close` and the primary button.
 
 ## Testing / Local Run
@@ -224,6 +231,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 - `pnpm test:unit` covers the state words and the prompt.
 - `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict` and
   `update_blocked`: a clone with a bare upstream at `.git/upstream.git`, already fetched, so the update works offline.
+  The upstream commit that conflicts landed two days after it was written, so the dialog and the prompt show both
+  times (`e2e_templates_have_the_expected_update_states` checks it).
 
 ## Open Questions / Risks
 

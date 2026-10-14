@@ -1,4 +1,4 @@
-import type { UpdateCheck } from "@/lib/bindings"
+import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { groupConflictFiles } from "@/lib/update-conflict"
 
@@ -23,6 +23,20 @@ function bullets(lines: readonly string[]): string {
 
 function numbered(lines: readonly string[]): string {
   return lines.map((line, index) => `${index + 1}. ${line}`).join("\n")
+}
+
+/** `2026-10-14`, UTC, of Unix seconds */
+function formatDate(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toISOString().slice(0, 10)
+}
+
+/**
+ * `cccccccc Change line 2 (Dana Lee, authored 2026-10-01, in origin/master since 2026-10-14)`: the committer time is
+ * about when the commit landed in the upstream
+ */
+function upstreamCommitLine(commit: UpdateCommit, upstream: string): string {
+  const dates = `authored ${formatDate(commit.time)}, in ${upstream} since ${formatDate(commit.committerTime)}`
+  return `${formatShortHash(commit.id)} ${commit.subject} (${commit.author}, ${dates})`
 }
 
 function stateLines(check: UpdateCheck, fetchTime: number | null): string {
@@ -52,7 +66,7 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime }: AgentProm
       const files = groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(({ path, local, upstream }) => {
         const sides = [
           ...(local.length === 0 ? [] : [`changed by my ${local.map(commit => formatShortHash(commit.id)).join(", ")}`]),
-          ...upstream.map(commit => `changed upstream by ${formatShortHash(commit.id)} ${commit.subject} (${commit.author})`),
+          ...upstream.map(commit => `changed upstream by ${upstreamCommitLine(commit, check.upstream)}`),
         ]
         return [path, ...sides.map(side => `  - ${side}`)].join("\n")
       })

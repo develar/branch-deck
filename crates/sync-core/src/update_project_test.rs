@@ -267,18 +267,35 @@ fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
   let first = clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(1_700_000_100));
   let second = clone.create_commit_with_timestamp("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n", Some(1_700_000_200));
   upstream.create_commit("Upstream other", "other.txt", "upstream other\n");
-  git(&upstream, &["config", "user.name", "Dana Lee"]);
-  let upstream_change = upstream.create_commit_with_timestamp("Upstream change", "shared.txt", "one\nupstream two\nthree\n", Some(1_700_000_300));
+  // written by Dana Lee, landed a day later by a robot: the committer is another person at another time
+  write(&upstream, "shared.txt", "one\nupstream two\nthree\n");
+  git(&upstream, &["add", "shared.txt"]);
+  upstream
+    .git_executor()
+    .execute_command_with_env(
+      &["commit", "-q", "-m", "Upstream change"],
+      path(&upstream),
+      &[
+        ("GIT_AUTHOR_NAME", "Dana Lee"),
+        ("GIT_AUTHOR_DATE", "1700000300 +0000"),
+        ("GIT_COMMITTER_NAME", "Patronus"),
+        ("GIT_COMMITTER_DATE", "1700090000 +0000"),
+      ],
+    )
+    .unwrap();
+  let upstream_change = upstream.head();
   let head = clone.head();
   let reflog_before = reflog(&clone);
 
   let result = update(&clone).unwrap();
   let check = result.check;
-  let commit = |id: String, subject: &str, author: &str, time: u32, files: &[&str]| UpdateCommit {
+  let commit = |id: String, subject: &str, (author, time): (&str, u32), (committer, committer_time): (&str, u32), files: &[&str]| UpdateCommit {
     id,
     subject: subject.to_string(),
     author: author.to_string(),
     time,
+    committer: committer.to_string(),
+    committer_time,
     files: files.iter().map(ToString::to_string).collect(),
   };
   // only the commits that change the conflicting file carry it; the upstream lists only those
@@ -287,10 +304,16 @@ fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
     UpdateState::Conflict {
       files: vec!["shared.txt".to_string()],
       commits: vec![
-        commit(first, "(auth) Add login", "Test User", 1_700_000_100, &[]),
-        commit(second, "(auth) Change two", "Test User", 1_700_000_200, &["shared.txt"]),
+        commit(first, "(auth) Add login", ("Test User", 1_700_000_100), ("Test User", 1_700_000_100), &[]),
+        commit(second, "(auth) Change two", ("Test User", 1_700_000_200), ("Test User", 1_700_000_200), &["shared.txt"]),
       ],
-      upstream_commits: vec![commit(upstream_change, "Upstream change", "Dana Lee", 1_700_000_300, &["shared.txt"])],
+      upstream_commits: vec![commit(
+        upstream_change,
+        "Upstream change",
+        ("Dana Lee", 1_700_000_300),
+        ("Patronus", 1_700_090_000),
+        &["shared.txt"]
+      )],
     }
   );
   assert_eq!((check.branch.as_str(), check.upstream.as_str()), ("master", "origin/master"));
@@ -509,9 +532,11 @@ fn e2e_templates_have_the_expected_update_states() {
   assert_eq!(fs::read_to_string(format!("{repo}/src/config.txt")).unwrap(), "debug=true\n", "the dirty file is kept");
 
   let (_, state) = check("update_conflict", templates::update_conflict());
+  // the dialog shows when the upstream commit was written and, more than an hour later, when it landed
   assert!(
     matches!(&state, UpdateState::Conflict { files, commits, upstream_commits }
-      if files == &["src/app.txt"] && commits.len() == 2 && upstream_commits.len() == 1),
+      if files == &["src/app.txt"] && commits.len() == 2 && upstream_commits.len() == 1
+        && upstream_commits[0].committer_time > upstream_commits[0].time + 3600),
     "{state:?}"
   );
   let (repo, state) = check("landed_upstream", templates::landed_upstream());

@@ -11,8 +11,9 @@ function check(state: UpdateState): UpdateCheck {
   return { branch: "master", upstream: "origin/master", head: H, upstreamHead: U, base: B, state, fetchedAt: null }
 }
 
-function commit(id: string, subject: string, author: string, files: string[] = []): UpdateCommit {
-  return { id: id.repeat(40), subject, author, time: 1_700_000_000, files }
+/** Authored 2023-11-14 (UTC); committed then too, unless `committerTime` says otherwise */
+function commit(id: string, subject: string, author: string, files: string[] = [], committerTime = 1_700_000_000): UpdateCommit {
+  return { id: id.repeat(40), subject, author, time: 1_700_000_000, committer: author, committerTime, files }
 }
 
 const conflict = check({
@@ -22,7 +23,8 @@ const conflict = check({
     commit("a", "(auth) Add login", "Me"),
     commit("b", "(auth) Change line 2", "Me", ["src/app.txt"]),
   ],
-  upstreamCommits: [commit("c", "Change line 2 upstream", "Dana Lee", ["src/app.txt", "src/config.txt"])],
+  // landed on 2023-11-16
+  upstreamCommits: [commit("c", "Change line 2 upstream", "Dana Lee", ["src/app.txt", "src/config.txt"], 1_700_100_000)],
 })
 
 describe("buildAgentPrompt", () => {
@@ -42,13 +44,15 @@ describe("buildAgentPrompt", () => {
 
   it("names the commits on both sides of each likely conflicting file", () => {
     const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null })
+    // an upstream commit with its author, when it was written, and when it landed (the committer time)
+    const upstream = "cccccccc Change line 2 upstream (Dana Lee, authored 2023-11-14, in origin/master since 2023-11-16)"
     expect(prompt).toContain([
       "Files that likely conflict:",
       "- src/app.txt",
       "  - changed by my bbbbbbbb",
-      "  - changed upstream by cccccccc Change line 2 upstream (Dana Lee)",
+      `  - changed upstream by ${upstream}`,
       "- src/config.txt",
-      "  - changed upstream by cccccccc Change line 2 upstream (Dana Lee)",
+      `  - changed upstream by ${upstream}`,
     ].join("\n"))
   })
 

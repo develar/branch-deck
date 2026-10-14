@@ -1187,6 +1187,10 @@ export type UpdateCommit = {
 	author: string,
 	/**  Author time, Unix seconds */
 	time: number,
+	/**  Who wrote the commit object: the author, or whoever rebased or landed it (a Safe Push robot) */
+	committer: string,
+	/**  Committer time, Unix seconds: for an upstream commit, about when it reached the upstream */
+	committerTime: number,
 	/**  The likely conflicting files that the commit changes; empty for most commits */
 	files: string[],
 };
