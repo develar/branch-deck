@@ -72,6 +72,10 @@ is outgoing compares content, not hashes: the question is whether the remote has
   - "push" otherwise (`Push (2)`).
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
+- The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
+  and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
+  `commitsBehind` counts them all.
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
 - The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
   commits.
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
 import { formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 interface BranchOptions {
   remote?: Partial<RemoteStatus> | null
@@ -10,9 +11,7 @@ interface BranchOptions {
 }
 
 function branch(name: string, { remote = {}, hasError = false, commitCount = 3 }: BranchOptions = {}) {
-  const remoteStatus: RemoteStatus | null = remote === null
-    ? null
-    : { exists: true, unpushedCommits: [], commitsAhead: 0, commitsBehind: 0, myCommitsAhead: 0, fastForward: true, lastPushTime: 0, remoteTip: null, ...remote }
+  const remoteStatus: RemoteStatus | null = remote === null ? null : testRemoteStatus(remote)
   return { name, remoteStatus, hasError, commitCount }
 }
 

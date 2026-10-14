@@ -58,7 +58,8 @@ function remoteStatusUpdate(branchName: string, unpushedCount: number): RemoteSt
     myUnpushedCount: unpushedCount,
     fastForward: true,
     lastPushTime: 0,
-    remoteTip: null,
+    droppedCommits: [],
+    remoteTip: `${branchName}-remote`,
   }
 }
 

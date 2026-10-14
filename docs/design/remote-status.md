@@ -26,7 +26,10 @@ Additionally, when virtual branches are rebased onto the latest baseline, they c
 Compare content, not hashes, with Git's cherry-pick algorithm:
 - **Commits ahead** are the commits whose content the remote lacks: the baseline and the rebased copies of pushed
   commits are left out. A branch only rebased onto a newer baseline is up to date.
-- **Commits behind** are the remote commits whose content the branch lacks: a push drops them.
+- **Commits behind** are the remote commits whose content the branch lacks: a push drops them. The status lists the
+  newest ten (`dropped_commits`: id, subject, author, time), so the Force Push button can say what it drops.
+- **Remote tip** (`remote_tip`) is the commit of the remote-tracking ref the counts were computed against. A push leases on it: it
+  replaces the remote branch only as the status showed it ([Git Operations](git-operations.md), "Push lease").
 - **"My commits"** are the commits ahead authored by the user.
 - **Fast-forward** says whether the remote branch is an ancestor of the local one. A rebased branch is not, so its push
   is a force push; it follows the refs, not the result of the last sync, and stays the same across restarts.
@@ -83,10 +86,13 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
 - **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` says whether the remote branch exists and
   returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The
   [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
+  The walks below use this commit, not the ref name, so a fetch meanwhile can't make the counts disagree with it.
 - **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H %ae ^baseline
   origin/branch...local`; the user's commits are the ones whose author email matches.
-- **Commits behind (patch-aware)**: `git rev-list --cherry-pick --left-only --count origin/branch...local`
-- **Fast-forward**: `git merge-base --is-ancestor origin/branch local`, when nothing is behind.
+- **Commits behind (patch-aware)**: `git rev-list --cherry-pick --left-only --date-order
+  --format=%H%x00%at%x00%an%x00%s <remote tip>...local`, newest first (a child before its parent): the line count
+  is `commits_behind`, the first ten are `dropped_commits`.
+- **Fast-forward**: `git merge-base --is-ancestor <remote tip> local`, when nothing is behind.
 - **Branch not on the remote**: `git rev-list --format=%H %ae ^baseline local`.
 
 The cherry-pick algorithm ensures accurate comparison:
@@ -136,10 +142,10 @@ When branches are rebased onto latest master, the remote still has old pre-rebas
 ## Performance Considerations
 
 - **Constraint**: Must not slow down status calculation
-- **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine, behind) and a `merge-base` only
-  when nothing is behind; the
-  `^baseline` exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push.
-  The commits ahead no longer carry baseline hashes to the UI.
+- **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine, behind with the dropped
+  commits) and a `merge-base` only when nothing is behind; the `^baseline` exclusion keeps the walk to the branch's own
+  commits instead of every baseline commit since the last push. The commits ahead no longer carry baseline hashes to
+  the UI.
 
 ## References
 

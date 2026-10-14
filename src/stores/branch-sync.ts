@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { AutosquashPlan, BranchError, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UpdateCheck } from "@/lib/bindings"
+import type { AutosquashPlan, BranchError, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, DroppedCommit, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UpdateCheck } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
@@ -36,8 +36,10 @@ export interface RemoteStatus {
   fastForward: boolean
   /** Unix timestamp, 0 = never pushed */
   lastPushTime: number
-  /** The commit the remote branch points to; null when it does not exist */
+  /** The remote commit the status was computed against, null without a remote branch; a push replaces only it */
   remoteTip: string | null
+  /** The newest of the remote commits a push drops, newest first; `commitsBehind` counts them all */
+  droppedCommits: readonly DroppedCommit[]
 }
 
 export type BranchStatus = "Syncing" | BranchSyncStatus
@@ -445,7 +447,7 @@ export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus):
   updateBranch(name, branch => ({ ...branch, remoteStatus }))
 }
 
-type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "fastForward" | "lastPushTime"> & Partial<Pick<RemoteStatusUpdate, "remoteTip">>
+type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits">
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
   return {
@@ -456,7 +458,8 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     myCommitsAhead: update.myUnpushedCount ?? 0,
     fastForward: update.fastForward,
     lastPushTime: update.lastPushTime ?? 0,
-    remoteTip: update.remoteTip ?? null,
+    remoteTip: update.remoteTip,
+    droppedCommits: update.droppedCommits,
   }
 }
 

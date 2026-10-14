@@ -2,10 +2,10 @@ use super::test_helpers::{options_with_strategy, setup_test_repos};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use sync_core::remote_status::compute_remote_status_for_branch;
+use sync_core::remote_status::{DROPPED_COMMITS_LIMIT, compute_remote_status_for_branch};
 use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
+use sync_types::{DroppedCommit, SyncEvent};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -279,6 +279,8 @@ async fn test_compute_remote_status_directly() {
   assert_eq!(result.unpushed_commits.len(), 0, "Should be up to date after push");
   assert_eq!(result.my_unpushed_count, 0, "Should be up to date after push");
   assert_eq!(result.commits_behind, 0, "Should be up to date after push");
+  assert_eq!(result.dropped_commits, []);
+  assert_eq!(result.remote_tip, Some(latest_commit), "the status names the remote commit it compared with");
   assert!(result.fast_forward);
 }
 
@@ -512,4 +514,44 @@ async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
   assert_eq!(result.commits_behind, 0);
   assert!(!result.fast_forward);
   assert_eq!(result.remote_tip.as_deref(), Some(first.as_str()), "the remote still has the commit before the rebase");
+}
+
+/// Someone else added commits to the pushed branch: a push drops them. They are listed newest first, with their author
+/// and time, up to the limit; the count covers them all, and the status names the remote head it compared with
+#[test(tokio::test)]
+async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
+  let scenario = TestScenario::new().with_author("user@example.com", "Test User");
+  scenario.setup_development_branch();
+  let first = scenario.local_repo.create_commit("(feature) First", "first.txt", "first");
+  scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+
+  scenario.upstream_repo.checkout("user/virtual/feature").unwrap();
+  configure_test_author(&scenario.upstream_repo, "other@example.com", "Other User");
+  let theirs: Vec<String> = (0..12_i64)
+    .map(|index| {
+      scenario
+        .upstream_repo
+        .create_commit_with_timestamp(&format!("Their fix {index}"), &format!("fix{index}.txt"), "fix", Some(1_700_000_000 + index * 60))
+    })
+    .collect();
+  scenario.local_repo.fetch_prune("origin").unwrap();
+
+  let result = feature_status(&scenario);
+
+  assert_eq!(result.remote_tip.as_ref(), theirs.last());
+  assert_eq!(result.commits_behind, 12);
+  let listed: Vec<&str> = result.dropped_commits.iter().map(|commit| commit.id.as_str()).collect();
+  let newest: Vec<&str> = theirs.iter().rev().take(DROPPED_COMMITS_LIMIT).map(String::as_str).collect();
+  assert_eq!(listed, newest);
+  assert_eq!(
+    result.dropped_commits[0],
+    DroppedCommit {
+      id: theirs[11].clone(),
+      subject: "Their fix 11".to_string(),
+      author: "Other User".to_string(),
+      author_time: 1_700_000_660,
+    }
+  );
+  assert!(!result.fast_forward);
 }

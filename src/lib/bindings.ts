@@ -370,16 +370,14 @@ export type DownloadProgress = { type: "Started"; data: {
 	message: string,
 } };
 
-/**  How far a fetch or a push is, for the button that runs it */
-export type TransferProgress = {
-	/**  The whole transfer, 0 to 100, never decreasing */
-	percent: number,
-	/**  Received (fetch) or sent (push) so far, as git prints it, e.g. "5.79 MiB" */
-	transferred: string | null,
-	/**  The transfer rate, as git prints it, e.g. "32.57 MiB/s" */
-	speed: string | null,
-	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
-	line: string,
+/**  A commit of the remote branch whose content the local branch lacks: a push drops it */
+export type DroppedCommit = {
+	id: string,
+	subject: string,
+	/**  The author's name */
+	author: string,
+	/**  Unix timestamp */
+	authorTime: number,
 };
 
 /**  Represents the diff between two versions of a file. */
@@ -824,12 +822,20 @@ export type PushBranchParams = {
 export type RemoteStatusUpdate = {
 	branchName: string,
 	remoteExists: boolean,
-	/**  The commit the remote branch points to; null when it does not exist */
+	/**
+	 *  The commit the remote branch points to, the one the status was computed against; `None` when it does not exist.
+	 *  A push leases on it, so it replaces the remote branch only as the status showed it
+	 */
 	remoteTip: string | null,
 	/**  Commits of the branch whose content the remote lacks, oldest first; all the commits of a branch not on the remote */
 	unpushedCommits: string[],
 	/**  Commits of the remote whose content the branch lacks: a push drops them */
 	commitsBehind: number,
+	/**
+	 *  The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`
+	 *  (`commits_behind` is the total)
+	 */
+	droppedCommits: DroppedCommit[],
 	/**  Of the unpushed commits, the ones authored by the current user */
 	myUnpushedCount: number,
 	/**  The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites */
@@ -1044,6 +1050,18 @@ export type SyncEvent =
 	/**  Why the check failed, e.g. a rebase in progress; the sync itself does not fail */
 	checkError: string | null,
 } };
+
+/**  How far a fetch or a push is, for the button that runs it */
+export type TransferProgress = {
+	/**  The whole transfer, 0 to 100, never decreasing */
+	percent: number,
+	/**  Received (fetch) or sent (push) so far, as git prints it, e.g. "5.79 MiB" */
+	transferred: string | null,
+	/**  The transfer rate, as git prints it, e.g. "32.57 MiB/s" */
+	speed: string | null,
+	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
+	line: string,
+};
 
 export type UnapplyBranchParams = {
 	repositoryPath: string,

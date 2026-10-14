@@ -17,18 +17,35 @@ pub mod stack;
 pub struct RemoteStatusUpdate {
   pub branch_name: String,
   pub remote_exists: bool,
-  /// The commit the remote branch points to; null when it does not exist
+  /// The commit the remote branch points to, the one the status was computed against; `None` when it does not exist.
+  /// A push leases on it, so it replaces the remote branch only as the status showed it
   pub remote_tip: Option<String>,
   /// Commits of the branch whose content the remote lacks, oldest first; all the commits of a branch not on the remote
   pub unpushed_commits: Vec<String>,
   /// Commits of the remote whose content the branch lacks: a push drops them
   pub commits_behind: u32,
+  /// The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`
+  /// (`commits_behind` is the total)
+  pub dropped_commits: Vec<DroppedCommit>,
   /// Of the unpushed commits, the ones authored by the current user
   pub my_unpushed_count: u32,
   /// The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites
   pub fast_forward: bool,
   /// Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed)
   pub last_push_time: u32,
+}
+
+/// A commit of the remote branch whose content the local branch lacks: a push drops it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DroppedCommit {
+  pub id: String,
+  pub subject: String,
+  /// The author's name
+  pub author: String,
+  /// Unix timestamp
+  pub author_time: u32,
 }
 
 /// Progress events for sync operations

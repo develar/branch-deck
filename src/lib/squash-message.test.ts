@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"
 import type { RemoteStatus, SyncedCommit } from "@/stores/branch-sync"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 describe("buildSquashMessage", () => {
   it("keeps the oldest message and appends the others as paragraphs without their prefix", () => {
@@ -44,15 +45,11 @@ describe("countPushedCommits", () => {
     authorTime: 0,
     committerTime: 0,
   })
-  const remote = (exists: boolean, unpushedCommits: string[]): RemoteStatus => ({
+  const remote = (exists: boolean, unpushedCommits: string[]): RemoteStatus => testRemoteStatus({
     exists,
     unpushedCommits,
     commitsAhead: unpushedCommits.length,
-    commitsBehind: 0,
     myCommitsAhead: unpushedCommits.length,
-    fastForward: true,
-    lastPushTime: 0,
-    remoteTip: null,
   })
 
   it("counts the synced commits that are not ahead of the remote branch", () => {
