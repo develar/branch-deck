@@ -2,6 +2,7 @@ use crate::autosquash::{
   AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedFixup, PlannedGroup, SquashFixupsParams, SquashFixupsResult, build_fixup_message, get_autosquash_plan_core,
   plan_autosquash, squash_fixup_commits_core,
 };
+use crate::commit_grouper::GroupingInputs;
 use crate::test_commit::commit;
 use git_ops::commit_list::Commit;
 use pretty_assertions::assert_eq;
@@ -28,7 +29,7 @@ fn summary(plan: &AutosquashPlan) -> (Vec<String>, Vec<&str>) {
 }
 
 fn plan(messages: &[&str]) -> (Vec<String>, Vec<String>) {
-  let plan = plan_autosquash("c-head".to_string(), &commits(messages), false);
+  let plan = plan_autosquash("c-head".to_string(), &commits(messages), &GroupingInputs::with_stacks(false));
   let (groups, orphans) = summary(&plan);
   (groups, orphans.into_iter().map(str::to_string).collect())
 }
@@ -48,7 +49,7 @@ fn matches_the_exact_subject_and_keeps_the_details() {
       "squash! (docs) Document\n\nMore",
       "amend! (auth) Add login\n\n(auth) Log in",
     ]),
-    false,
+    &GroupingInputs::with_stacks(false),
   );
   assert_eq!(
     plan,
@@ -109,7 +110,7 @@ fn matches_a_unique_hash_prefix() {
     // too short
     commit("ffff3333", "fixup! abc"),
   ];
-  let plan = plan_autosquash("head".to_string(), &commits, false);
+  let plan = plan_autosquash("head".to_string(), &commits, &GroupingInputs::with_stacks(false));
   assert_eq!(summary(&plan), (groups(&["abcd1234 <- ffff1111", "abcd5678 <- ffff0000"]), vec!["ffff2222", "ffff3333"]));
 }
 
@@ -124,7 +125,11 @@ fn falls_back_to_a_subject_starting_with_the_text() {
 
 #[test]
 fn strips_every_marker_and_takes_the_kind_from_the_first() {
-  let plan = plan_autosquash("head".to_string(), &commits(&["Add a", "fixup! fixup! Add a", "squash!  amend! Add a"]), false);
+  let plan = plan_autosquash(
+    "head".to_string(),
+    &commits(&["Add a", "fixup! fixup! Add a", "squash!  amend! Add a"]),
+    &GroupingInputs::with_stacks(false),
+  );
   let kinds: Vec<FixupKind> = plan.groups[0].folded.iter().map(|fixup| fixup.kind).collect();
   assert_eq!(summary(&plan), (groups(&["c0 <- c1, c2"]), vec![]));
   assert_eq!(kinds, [FixupKind::Fixup, FixupKind::Squash]);
@@ -134,13 +139,16 @@ fn strips_every_marker_and_takes_the_kind_from_the_first() {
 fn resolves_a_fixup_of_a_fixup_to_the_final_target() {
   let commits = vec![commit("aaaa0000", "Add a"), commit("bbbb0000", "fixup! Add a"), commit("cccc0000", "fixup! bbbb0000")];
   assert_eq!(
-    summary(&plan_autosquash("head".to_string(), &commits, false)),
+    summary(&plan_autosquash("head".to_string(), &commits, &GroupingInputs::with_stacks(false))),
     (groups(&["aaaa0000 <- bbbb0000, cccc0000"]), vec![])
   );
 
   // a fixup of an orphan has no target either
   let commits = vec![commit("aaaa0000", "fixup! Gone"), commit("bbbb0000", "fixup! aaaa0000")];
-  assert_eq!(summary(&plan_autosquash("head".to_string(), &commits, false)), (vec![], vec!["aaaa0000", "bbbb0000"]));
+  assert_eq!(
+    summary(&plan_autosquash("head".to_string(), &commits, &GroupingInputs::with_stacks(false))),
+    (vec![], vec!["aaaa0000", "bbbb0000"])
+  );
 }
 
 #[test]
@@ -153,7 +161,7 @@ fn orphans_a_fixup_without_an_older_target() {
   // the target is newer than the fixup
   assert_eq!(plan(&["fixup! Add a", "Add a"]), (vec![], groups(&["c0"])));
   // the target is not in the range
-  let outside = plan_autosquash("head".to_string(), &commits(&["Add b", "fixup! (auth) Add a"]), false);
+  let outside = plan_autosquash("head".to_string(), &commits(&["Add b", "fixup! (auth) Add a"]), &GroupingInputs::with_stacks(false));
   assert_eq!(
     outside.orphans,
     [OrphanFixup {
@@ -318,7 +326,7 @@ fn refuses_to_combine_messages_in_another_encoding() {
 }
 
 fn stacked_plan(messages: &[&str]) -> AutosquashPlan {
-  plan_autosquash("head".to_string(), &commits(messages), true)
+  plan_autosquash("head".to_string(), &commits(messages), &GroupingInputs::with_stacks(true))
 }
 
 #[test]
@@ -347,10 +355,18 @@ fn with_stacks_another_leaf_does_not_agree() {
 
 #[test]
 fn without_stacks_prefixes_are_compared_as_text() {
-  let plan = plan_autosquash("head".to_string(), &commits(&["(auth/login) Add form", "fixup! (login) Add form"]), false);
+  let plan = plan_autosquash(
+    "head".to_string(),
+    &commits(&["(auth/login) Add form", "fixup! (login) Add form"]),
+    &GroupingInputs::with_stacks(false),
+  );
   assert_eq!(summary(&plan), (vec![], vec!["c1"]));
   assert_eq!(plan.orphans[0].branch.as_deref(), Some("login"));
-  let plan = plan_autosquash("head".to_string(), &commits(&["(auth/login) Add form", "fixup! (auth/login) Add form"]), false);
+  let plan = plan_autosquash(
+    "head".to_string(),
+    &commits(&["(auth/login) Add form", "fixup! (auth/login) Add form"]),
+    &GroupingInputs::with_stacks(false),
+  );
   assert_eq!(plan.groups[0].branch.as_deref(), Some("auth/login"));
 }
 

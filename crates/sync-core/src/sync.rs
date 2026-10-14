@@ -1,10 +1,11 @@
 use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
-use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
+use crate::issue_groups::read_grouping_inputs;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
-use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states, place_branches, stacks_enabled};
-use crate::update_project::{BaselineCheck, check_baseline_update};
+use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states, place_branches};
+use crate::update_project::{BaselineCheck, check_baseline_update_with};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::STACK_NOTES_REF;
@@ -94,10 +95,13 @@ fn compute_branch_summary(commits: &[Commit]) -> String {
   fallback_summary.unwrap_or_default()
 }
 
-/// A branch is an issue branch only while no commit names it with an explicit prefix
-fn branch_origin(commits: &[Commit]) -> BranchOrigin {
+/// A branch is an issue branch only while no commit names it with an explicit prefix and every commit carries its
+/// name as the key; a commit of another key came in through the issue groups
+fn branch_origin(branch_name: &str, commits: &[Commit]) -> BranchOrigin {
   if commits.iter().any(|c| parse_subject(&c.subject).prefix.is_some()) {
     BranchOrigin::Prefix
+  } else if commits.iter().any(|c| find_issue_number(&c.stripped_subject) != Some(branch_name)) {
+    BranchOrigin::IssueGroup
   } else {
     BranchOrigin::Issue
   }
@@ -124,7 +128,7 @@ pub(crate) fn prepare_branches_for_ui(
   let mut grouped_branches_for_ui = Vec::with_capacity(grouped_commits.len());
 
   for (branch_name, commits) in grouped_commits {
-    let origin = branch_origin(commits);
+    let origin = branch_origin(branch_name, commits);
     let issue_key = branch_issue_key(branch_name, origin, commits);
     let summary = if issue_key.is_some() || has_issue_reference(branch_name) {
       compute_branch_summary(commits)
@@ -225,17 +229,20 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 
   // Detect the baseline branch (origin/master, origin/main, or local master/main)
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+  // the stack setting and the issue groups; the update check groups the landed commits with them too
+  let grouping = read_grouping_inputs(git_executor, repository_path)?;
   // on the blocking pool of the runtime this phase runs on
   let update_check = tokio::runtime::Handle::current().spawn_blocking({
     let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
     let baseline_branch = baseline_branch.clone();
+    let grouping = grouping.clone();
     let progress = progress.clone();
-    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, &progress)
+    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, &grouping, &progress)
   });
 
   // Use streaming commit processing
-  let mut grouper = CommitGrouper::new_with_stacks(stacks_enabled(git_executor, repository_path)?);
+  let mut grouper = CommitGrouper::new_with(&grouping);
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
     grouper.add_commit(commit);
     Ok(())
@@ -249,6 +256,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
       branches,
       unassigned,
       branch_emails,
+      ..
     },
     forest,
   ) = grouper.finish_with_stacks();
@@ -281,6 +289,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branches: prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref()),
     baseline_branch: baseline_branch.clone(),
     stacks: stacks.is_some(),
+    issue_groups: grouping.issue_groups.entries,
   })?;
 
   Ok(PreparedSync {
@@ -610,9 +619,15 @@ fn virtual_tips(branch_refs: HashMap<String, String>, branch_prefix: &str) -> Ha
 /// Check the update of the checked out branch onto the baseline, record what landed since the previous sync and send
 /// `BaselineStatus`. A failed check is logged and reported in the event, it never fails the sync; only a failure to send
 /// the event does.
-fn send_baseline_status(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: String, progress: &dyn ProgressReporter) -> Result<()> {
+fn send_baseline_status(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  baseline_branch: String,
+  grouping: &GroupingInputs,
+  progress: &dyn ProgressReporter,
+) -> Result<()> {
   let start = std::time::Instant::now();
-  let result = check_baseline_update(git_executor, repository_path, &baseline_branch);
+  let result = check_baseline_update_with(git_executor, repository_path, &baseline_branch, grouping);
   info!(elapsed_ms = start.elapsed().as_millis(), ok = result.is_ok(), "update check done");
   let (baseline_check, check_error) = match result {
     Ok(baseline_check) => (baseline_check, None),
@@ -622,12 +637,10 @@ fn send_baseline_status(git_executor: &GitCommandExecutor, repository_path: &str
     }
   };
   let landed = match &baseline_check {
-    Some(BaselineCheck { check, .. }) => stacks_enabled(git_executor, repository_path)
-      .and_then(|stacks| record_sync(git_executor, repository_path, check, stacks))
-      .unwrap_or_else(|e| {
-        warn!(error = %format!("{e:#}"), "can't record the landed commits");
-        Vec::new()
-      }),
+    Some(BaselineCheck { check, .. }) => record_sync(git_executor, repository_path, check, grouping).unwrap_or_else(|e| {
+      warn!(error = %format!("{e:#}"), "can't record the landed commits");
+      Vec::new()
+    }),
     None => Vec::new(),
   };
   let (update, landing) = baseline_check.map_or((None, Vec::new()), |BaselineCheck { check, landing }| (Some(Box::new(check)), landing));

@@ -135,3 +135,21 @@ describe("groupFor with stacked branches", () => {
     expect(groupFor("(/) Nothing", true)).toBeNull()
   })
 })
+
+describe("groupFor with issue groups", () => {
+  const issueGroups = { "ABC-1": "parser", "ABC-2": "parser" }
+
+  it.each([
+    ["ABC-1 Add grammar", { branch: "parser", origin: "issueGroup" }],
+    ["fix(api): ABC-2 Fix grammar", { branch: "parser", origin: "issueGroup" }],
+    ["fixup! ABC-1 Add grammar", { branch: "parser", origin: "issueGroup" }],
+    ["XYZ-3 Other issue", { branch: "XYZ-3", origin: "issue" }],
+    ["(lexer) ABC-1 Add tokens", { branch: "lexer", origin: "prefix" }],
+  ])("groups %j as the backend does: prefix, then issue group, then issue key", (message, group) => {
+    expect(groupFor(message, false, issueGroups)).toEqual(group)
+  })
+
+  it("puts the issue group of a key in the stack forest as a root", () => {
+    expect(groupFor("ABC-1 Add grammar", true, issueGroups)).toEqual({ branch: "parser", origin: "issueGroup", parent: null })
+  })
+})

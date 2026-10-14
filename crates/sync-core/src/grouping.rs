@@ -1,6 +1,7 @@
 use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::{CommitGrouper, GroupedCommits};
-use crate::stack::{StackForest, empty_parent_states, place_branches, read_only_detection, stacks_enabled};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
+use crate::issue_groups::read_grouping_inputs;
+use crate::stack::{StackForest, empty_parent_states, place_branches, read_only_detection};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -22,25 +23,28 @@ pub struct BranchGrouping {
   pub commit_ids: Vec<String>,
   /// The parent of the oldest commit, which the virtual branches are rebuilt on; `None` without commits
   pub base: Option<String>,
-  /// Stacked branches are on (`branchdeck.stacks`)
-  pub stacks: bool,
+  /// The stack setting and the issue groups the commits were grouped with
+  pub grouping: GroupingInputs,
+  /// The keys of the issue groups that group no commit ahead of the baseline
+  pub stale_issue_groups: Vec<String>,
   /// How the branches stack; `None` with stacked branches off
   pub forest: Option<StackForest>,
   /// With stacked branches on, where each branch with commits goes, as a sync places it
   pub placements: Option<IndexMap<String, BranchStack>>,
 }
 
-/// Group the commits ahead of the baseline by prefix or issue key: the first phase of a sync without its events, two
-/// to five git processes (the stack setting, baseline detection and one `log`), with stacked branches two more for
-/// placing them (the branches under `branch_prefix` and the detection notes of parents without commits). Integration
+/// Group the commits ahead of the baseline by prefix, issue group or issue key: the first phase of a sync without its
+/// events, three to six git processes (the stack setting, the issue groups, baseline detection and one `log`), with
+/// stacked branches two more for placing them (the branches under `branch_prefix` and the detection notes of parents
+/// without commits). Integration
 /// detection runs only for a parent whose virtual branch the next sync archives, and writes no note. No update check,
 /// no network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
 
-  let stacks = stacks_enabled(git_executor, repository_path)?;
-  let mut grouper = CommitGrouper::new_with_stacks(stacks);
+  let grouping = read_grouping_inputs(git_executor, repository_path)?;
+  let mut grouper = CommitGrouper::new_with(&grouping);
   let mut commit_ids = Vec::new();
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
     commit_ids.push(commit.id.clone());
@@ -54,6 +58,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
       branches,
       unassigned,
       branch_emails,
+      stale_issue_groups,
     },
     forest,
   ) = grouper.finish_with_stacks();
@@ -73,7 +78,8 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,
     base,
-    stacks,
+    grouping,
+    stale_issue_groups,
     forest,
     placements,
   })

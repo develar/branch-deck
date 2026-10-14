@@ -112,6 +112,20 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
 /// the branch moved since, or if the trees differ: then the index and the working tree would no longer match HEAD.
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head(git_executor: &GitCommandExecutor, repo_path: &str, expected_head: &str, previous_head: &str, operation: &str) -> Result<(), CopyCommitError> {
+  restore_branch_head_with(git_executor, repo_path, expected_head, previous_head, operation, &RefTransaction::new())
+}
+
+/// `restore_branch_head` that also applies the changes of `also` in the same transaction: those refs move back with
+/// the branch or not at all
+#[instrument(skip(git_executor, also))]
+pub fn restore_branch_head_with(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  expected_head: &str,
+  previous_head: &str,
+  operation: &str,
+  also: &RefTransaction,
+) -> Result<(), CopyCommitError> {
   let target = check_rewrite_range(git_executor, repo_path, &[previous_head]).map_err(|e| refusal(format!("{e:#}")))?;
   if target.head != expected_head {
     return Err(refusal(format!("Branch {} changed after the rewrite, it can't be undone", target.branch)));
@@ -127,7 +141,7 @@ pub fn restore_branch_head(git_executor: &GitCommandExecutor, repo_path: &str, e
   }
 
   let mut transaction = RefTransaction::new();
-  transaction.update(&target.full_ref(), previous_head, Some(expected_head));
+  transaction.update(&target.full_ref(), previous_head, Some(expected_head)).extend(also);
   transaction
     .commit(git_executor, repo_path, operation)
     .map_err(|e| CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, it can't be undone: {e:#}", target.branch)))

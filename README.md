@@ -21,6 +21,10 @@ repositories: all operations run through the Git CLI.
   `auth`, and the branch table shows the stack as a tree. Stack a branch on another one, unstack it or rename a parent
   from the branch menu; Move to… takes `auth/login`. A branch whose parent has a conflict or is missing is blocked
   instead of moved.
+- **Issue groups**: one branch for the commits of several issues, without a rewrite. `ABC-1 Parse lists` and
+  `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
+  name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and
+  the app shows and renames them.
 - **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection, with branch
   name suggestions from an on-device AI model, or move commits to an existing branch.
 - **Conflict viewer**: when grouping changes the order of dependent commits, Branch Deck shows the conflicting files in a
@@ -74,8 +78,9 @@ Two kinds of prefix are involved:
 Grouping rules, checked on the first line of the commit message:
 
 1. An explicit `(name)` prefix wins.
-2. Otherwise an issue key (`JIRA-123`, `ABC-456`) groups the commit; a leading `[subsystem]` tag is ignored, so
-   `[threading] IJPL-163558: Fix observability` goes to `IJPL-163558`.
+2. Otherwise an issue key (`JIRA-123`, `ABC-456`) groups the commit: into its issue group, if it has one, else into a
+   branch of the key; a leading `[subsystem]` tag is ignored, so `[threading] IJPL-163558: Fix observability` goes to
+   `IJPL-163558`.
 3. Commits with neither stay on the main branch as unassigned.
 
 See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout and storage.

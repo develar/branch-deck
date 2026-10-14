@@ -4,12 +4,14 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
+use crate::status::read_head;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use sync_core::regroup::{
-  RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, describe_problem, problem_commits, regroup_commits_core, rename_branch_core, restack_branch_core, undo_rewrite_core,
+  RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, describe_problem, problem_commits, regroup_commits_core, rename_branch_core, restack_branch_core,
+  undo_regroup_core,
 };
 use sync_core::stack::StackForest;
 
@@ -29,7 +31,8 @@ pub struct RewriteArgs {
 
 #[derive(Debug, Default, clap::Args)]
 pub struct GroupArgs {
-  /// The plan `{"branches": {"path": [ids]}, "unassign": [ids]}`; default: stdin
+  /// The plan `{"branches": {"path": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]}, "ungroup_issues":
+  /// [keys]}`; default: stdin
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
   #[command(flatten)]
@@ -64,7 +67,7 @@ pub struct UnstackArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
-  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`
+  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>` or both joined by `+`
   pub token: String,
 }
 
@@ -82,9 +85,13 @@ pub struct RewriteOutput {
   pub new_head: String,
   /// The commits whose message changed (or would change)
   pub rewritten: usize,
-  /// Pass to `bd undo` to restore `previous_head`; omitted for a dry run or when nothing changed
+  /// Pass to `bd undo` to restore `previous_head` and the issue groups: `H1..H2`, `groups:G1..G2` or
+  /// `H1..H2+groups:G1..G2`; omitted for a dry run or when nothing changed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
+  /// When the issue groups change (or would change): every issue group afterwards with its keys
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub issue_groups: Option<BTreeMap<String, Vec<String>>>,
   /// Every branch afterwards with its commits (new ids), oldest first
   pub groups: BTreeMap<String, Vec<String>>,
   /// The unassigned commits afterwards, oldest first
@@ -141,10 +148,14 @@ pub struct UndoOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// HEAD now: the `previous_head` of the token
+  /// HEAD now: the `previous_head` of the token, or HEAD as it is for a token of the issue groups only
   pub head: String,
-  /// The HEAD that was undone
-  pub undone: String,
+  /// The HEAD that was undone; omitted for a token of the issue groups only
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub undone: Option<String>,
+  /// The commit of the issue groups that was undone; omitted for a token without them
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub undone_issue_groups: Option<String>,
 }
 
 fn options(context: &RepoContext, args: &RewriteArgs) -> RegroupOptions {
@@ -181,20 +192,30 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
 }
 
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
-  let Some((previous_head, new_head)) = args.token.split_once("..").filter(|(previous, new)| !previous.is_empty() && !new.is_empty()) else {
+  let Some(token) = UndoToken::parse(&args.token) else {
     return Err(CliError::new(
       ErrorCode::InvalidArguments,
-      format!("{:?} is not an undo token (<previous head>..<new head>)", args.token),
+      format!(
+        "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, or both joined by +)",
+        args.token
+      ),
     ));
   };
-  undo_rewrite_core(&context.git, &context.repository, previous_head, new_head, context.lock_timeout).map_err(regroup_error)?;
-  let short = context.short_ids([previous_head, new_head]);
+  undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(regroup_error)?;
+  let head = match &token.head {
+    Some((previous_head, _)) => previous_head.clone(),
+    None => read_head(context)?.0,
+  };
+  let undone = token.head.as_ref().map(|(_, new_head)| new_head.as_str());
+  let undone_issue_groups = token.issue_groups.as_ref().map(|(_, new)| new.as_str());
+  let short = context.short_ids(std::iter::once(head.as_str()).chain(undone).chain(undone_issue_groups));
   Ok(UndoOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
-    head: short.get(previous_head).to_string(),
-    undone: short.get(new_head).to_string(),
+    head: short.get(&head).to_string(),
+    undone: undone.map(|id| short.get(id).to_string()),
+    undone_issue_groups: undone_issue_groups.map(|id| short.get(id).to_string()),
   })
 }
 
@@ -206,6 +227,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     RegroupError::InvalidPlan { .. } => ErrorCode::InvalidPlan,
     RegroupError::NotAheadOfBaseline { .. } => ErrorCode::NotAheadOfBaseline,
     RegroupError::HeadMoved(_) => ErrorCode::HeadMoved,
+    RegroupError::GroupsMoved(_) => ErrorCode::GroupsMoved,
     RegroupError::Locked(_) => ErrorCode::Locked,
     RegroupError::OperationInProgress(_) => ErrorCode::OperationInProgress,
     RegroupError::DetachedHead(_) => ErrorCode::DetachedHead,
@@ -237,7 +259,13 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
     }
   }
   let changed = outcome.changed_count();
-  let wrote = !args.dry_run && outcome.new_head != outcome.previous_head;
+  let issue_groups = outcome.issue_groups.as_ref().map(|change| {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (key, name) in &change.entries {
+      groups.entry(name.clone()).or_default().push(key.clone());
+    }
+    groups
+  });
   RewriteOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -247,7 +275,8 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
     previous_head: short.get(&outcome.previous_head).to_string(),
     new_head: short.get(&outcome.new_head).to_string(),
     rewritten: changed,
-    undo_token: wrote.then(|| format!("{}..{}", outcome.previous_head, outcome.new_head)),
+    undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
+    issue_groups,
     groups,
     unassigned,
     problems: outcome

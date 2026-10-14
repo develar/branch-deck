@@ -47,6 +47,18 @@ impl RefTransaction {
     self
   }
 
+  /// Fail the whole transaction unless `full_ref` still points at `expected_id`; the ref itself does not change
+  pub fn verify(&mut self, full_ref: &str, expected_id: &str) -> &mut Self {
+    let _ = writeln!(self.commands, "verify {full_ref} {expected_id}");
+    self
+  }
+
+  /// Add the changes of `other`, so that one `update-ref` applies both or neither
+  pub fn extend(&mut self, other: &RefTransaction) -> &mut Self {
+    self.commands.push_str(&other.commands);
+    self
+  }
+
   #[must_use]
   pub fn is_empty(&self) -> bool {
     self.commands.is_empty()

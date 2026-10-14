@@ -28,7 +28,7 @@ use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
-use commands::stack_operations::{rename_branch, restack_branch};
+use commands::stack_operations::{rename_branch, restack_branch, undo_issue_groups};
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
@@ -75,6 +75,7 @@ pub fn run() {
     move_commits_to_branch,
     rename_branch,
     restack_branch,
+    undo_issue_groups,
     add_issue_reference_to_commits,
     reword_commits,
     squash_commits,

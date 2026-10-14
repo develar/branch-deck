@@ -4,17 +4,19 @@ import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { renameBranch } from "@/hooks/useStackActions"
-import { getBranch, getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
+import { getBranch, getStackDescendants, hasIssueGroup, useBranch, useStacksEnabled } from "@/stores/branch-sync"
 import { closeInline, withPostSubmit } from "@/stores/inline-row-action"
 
 /**
  * Renames a branch by moving all its commits to the new name; an issue branch gets an explicit prefix on every commit
- * (the issue key stays in the messages). An existing name merges the branches. With stacked branches on, the branches
+ * (the issue key stays in the messages). An issue group is renamed in the issue groups, without a rewrite, and so are
+ * the issue groups of a prefix branch. An existing name merges the branches. With stacked branches on, the branches
  * stacked on it follow: the name changes in their prefixes too.
  */
 export function InlineRenameBranchInput({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
   const isIssueBranch = branch?.origin === "Issue"
+  const isIssueGroup = branch?.origin === "IssueGroup"
   const [name, setName] = useState(isIssueBranch ? "" : branchName)
   const stacks = useStacksEnabled()
   const { sanitizedBranchName, validationState, isValid } = useBranchNameValidation(name, { stacks, leafOnly: true })
@@ -24,6 +26,9 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
 
   const commitCount = branch?.commitCount ?? 0
   let helpText = isIssueBranch ? `Adds the prefix to ${commitCount === 1 ? "the commit" : `all ${commitCount} commits`}; ${branchName} stays in the messages` : undefined
+  if (isIssueGroup) {
+    helpText = "Renames the issue group: the commit messages stay as they are"
+  }
   if (isValid && existing) {
     helpText = `Moves the commits into the existing branch ${sanitizedBranchName}`
   }
@@ -48,7 +53,8 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
       onSubmit={() => {
         const target = sanitizedBranchName
         withPostSubmit(async () => {
-          if (stacks) {
+          // the rename core also renames the issue groups of the branch
+          if (stacks || hasIssueGroup(branchName)) {
             await renameBranch(branchName, target)
             return
           }

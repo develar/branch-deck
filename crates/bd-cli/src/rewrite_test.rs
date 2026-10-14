@@ -172,3 +172,55 @@ fn rename_restack_unstack_and_undo() {
   let (exit_code, output) = run_in(&repo, &["rename", "auth", "a/b"]);
   assert_error(&output, exit_code, 2, "invalid_plan");
 }
+
+#[test_log::test]
+fn issue_groups_plan_and_undo() {
+  let (repo, ids) = repo_with(&["ABC-1 Add parser", "ABC-2 Parse lists", "Tidy up"]);
+  let head = repo.head();
+  let plan = json!({ "issue_groups": { "parser": ["ABC-1", "ABC-2"] } });
+
+  let (exit_code, preview) = group(&repo, &plan, &["--dry-run"]);
+  assert_eq!(exit_code, 0, "{preview}");
+  assert_eq!(
+    (&preview["rewritten"], preview.get("undo_token"), &preview["issue_groups"], &preview["groups"]),
+    (
+      &json!(0),
+      None,
+      &json!({ "parser": ["ABC-1", "ABC-2"] }),
+      &json!({ "parser": [short(&ids[0]), short(&ids[1])] })
+    )
+  );
+
+  let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&head)]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["rewritten"], &output["new_head"]), (&json!(0), &json!(short(&head))));
+  let token = output["undo_token"].as_str().unwrap().to_string();
+  assert!(token.starts_with("groups:"), "{token}");
+  assert_eq!(repo.head(), head);
+  let (_, status) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!(status["branches"][0]["name"], json!("parser"));
+
+  // a mixed plan: one rewrite and a change of the issue groups, undone together
+  let (exit_code, mixed) = group(&repo, &json!({ "branches": { "chores": [short(&ids[2])] }, "ungroup_issues": ["ABC-2"] }), &[]);
+  assert_eq!(exit_code, 0, "{mixed}");
+  let mixed_token = mixed["undo_token"].as_str().unwrap().to_string();
+  assert!(mixed_token.contains("+groups:"), "{mixed_token}");
+  assert_eq!(mixed["issue_groups"], json!({ "parser": ["ABC-1"] }));
+
+  // the first token is stale now: the issue groups moved
+  let (exit_code, refused) = run_in(&repo, &["undo", &token]);
+  assert_error(&refused, exit_code, 3, "groups_moved");
+  assert_eq!(refused["error"]["retryable"], json!(true));
+
+  let (exit_code, undone) = run_in(&repo, &["undo", &mixed_token]);
+  assert_eq!(exit_code, 0, "{undone}");
+  assert_eq!(repo.head(), head);
+  assert!(undone["undone_issue_groups"].is_string(), "{undone}");
+  let (exit_code, undone) = run_in(&repo, &["undo", &token]);
+  assert_eq!(exit_code, 0, "{undone}");
+  assert_eq!((&undone["head"], undone.get("undone")), (&json!(short(&head)), None));
+  assert_eq!(git(&repo, &["for-each-ref", "refs/branch-deck/issue-groups"]), "");
+
+  let (exit_code, invalid) = group(&repo, &json!({ "issue_groups": { "parser": ["ABC-1"], "lexer": ["ABC-1"] } }), &[]);
+  assert_error(&invalid, exit_code, 2, "invalid_plan");
+}

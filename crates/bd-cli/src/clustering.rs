@@ -2,9 +2,9 @@
 //! prefix, issue keys, conventional scope, files and dependencies, clustered into branches. No git runs here;
 //! `suggest.rs` reads the input, and checks the result through the oracle of `cluster_with_repair`.
 //!
-//! 1. Hard units (union-find): the dependency edges, fixup -> target, the same explicit prefix (an anchor, unless
-//!    `fresh`), and the same issue key of the subject among the commits without a prefix. An edge between two anchors
-//!    joins nothing: it is an `anchor_dependency` warning.
+//! 1. Hard units (union-find): the dependency edges, fixup -> target, the same explicit prefix or issue group (an
+//!    anchor, unless `fresh`), and the same issue key of the subject among the commits without a prefix. An edge
+//!    between two anchors joins nothing: it is an `anchor_dependency` warning.
 //! 2. A soft score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are
 //!    exact. R links by issue keys and scopes, P by shared paths (IDF-weighted Jaccard), K lowers both when the issue
 //!    projects or the scopes disagree, and adj adds a little for neighbours in the log.
@@ -85,12 +85,16 @@ pub struct CommitFeatures {
   /// The sanitized `(prefix)` of the subject: a path with stacked branches on
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub prefix: Option<String>,
-  /// The group now: the prefix (its leaf with stacked branches on), else the issue key; `None` when unassigned
+  /// The group now: the prefix (its leaf with stacked branches on), else the issue group of the key, else the issue
+  /// key; `None` when unassigned
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub group: Option<String>,
   /// The issue key of the subject
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub key: Option<String>,
+  /// The issue group of `key` now (`refs/branch-deck/issue-groups`): the anchor of a commit without a prefix
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub issue_group: Option<String>,
   /// The conventional scope of the subject, lowercase
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scope: Option<String>,
@@ -518,20 +522,25 @@ impl Sets {
   }
 }
 
+/// The anchor of a commit: its prefix, else the issue group of its key; none with `fresh`
+fn anchor_of(commit: &CommitFeatures, fresh: bool) -> Option<&str> {
+  if fresh { None } else { commit.prefix.as_deref().or(commit.issue_group.as_deref()) }
+}
+
 /// The hard units, ordered by their oldest commit, and the warnings for edges between anchors
 fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &[Vec<(u32, f64)>]) -> (Vec<Group>, Vec<Warning>) {
   let count = input.commits.len();
-  let anchor_of = |commit: &CommitFeatures| if options.fresh { None } else { commit.prefix.clone() };
+  let anchor_of = |commit| anchor_of(commit, options.fresh);
   let mut sets = Sets {
     parents: (0..count).collect(),
-    anchors: input.commits.iter().map(anchor_of).collect(),
+    anchors: input.commits.iter().map(|commit| anchor_of(commit).map(str::to_string)).collect(),
   };
-  // the same prefix, then the same issue key among the commits without one
+  // the same anchor, then the same issue key among the commits without one
   let mut first_with: HashMap<(bool, &str), usize> = HashMap::new();
   for (position, commit) in input.commits.iter().enumerate() {
-    let label = match (anchor_of(commit).is_some(), &commit.prefix, &commit.key) {
-      (true, Some(prefix), _) => Some((true, prefix.as_str())),
-      (false, _, Some(key)) => Some((false, key.as_str())),
+    let label = match (anchor_of(commit), &commit.key) {
+      (Some(anchor), _) => Some((true, anchor)),
+      (None, Some(key)) => Some((false, key.as_str())),
       _ => None,
     };
     if let Some(label) = label {
@@ -1000,12 +1009,10 @@ pub fn cluster_change<'a>(input: &'a ClusterInput, cluster: &Cluster, name: &str
   (change, groups)
 }
 
-/// Whether the cluster is two or more whole issue branches that build apart: units of one issue key each, of commits
-/// without a prefix, and no repair joined them. A plan would give them all a prefix
+/// Whether the cluster is the commits of two or more issue keys, all without a prefix: the issue groups make it one
+/// branch without a rewrite. A unit holds every commit without a prefix of its key, so the issue branches are whole
 pub fn is_issue_only(input: &ClusterInput, cluster: &Cluster) -> bool {
   cluster.keys.len() >= 2
-    && cluster.issue_units == cluster.units
-    && cluster.repair_rounds.is_empty()
     && cluster.commits.iter().all(|&commit| {
       let commit = &input.commits[commit];
       commit.prefix.is_none() && commit.key.is_some()
@@ -1018,7 +1025,8 @@ pub fn why(input: &ClusterInput, cluster: &Cluster) -> String {
   let commits: Vec<&CommitFeatures> = cluster.commits.iter().map(|&commit| &input.commits[commit]).collect();
   let mut parts: Vec<String> = Vec::new();
   if let Some(anchor) = &cluster.anchor {
-    parts.push(format!("prefix ({anchor})"));
+    let prefixed = commits.iter().any(|commit| commit.prefix.as_ref() == Some(anchor));
+    parts.push(if prefixed { format!("prefix ({anchor})") } else { format!("issue group {anchor}") });
   }
   let issue = if cluster.issue_units == cluster.units { "issue " } else { "" };
   parts.push(format!("{} {issue}unit{}", cluster.units, if cluster.units == 1 { "" } else { "s" }));
@@ -1076,6 +1084,7 @@ pub fn anonymize(input: &ClusterInput, keys: &impl BuildHasher) -> ClusterInput 
         prefix: commit.prefix.as_deref().map(names),
         group: commit.group.as_deref().map(names),
         key: commit.key.as_deref().map(|key| hashed_key(keys, key)),
+        issue_group: commit.issue_group.as_deref().map(names),
         scope: commit.scope.as_deref().map(name),
         mentions: {
           let mut mentions: Vec<String> = commit.mentions.iter().map(|key| hashed_key(keys, key)).collect();

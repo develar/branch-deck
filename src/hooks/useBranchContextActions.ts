@@ -13,13 +13,14 @@ import { canCancelRobot, canRestartRobot, formatPushMode, isStartBlocked, openRo
 import { runRobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getAutosquashPlan, getBranch, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /**
- * Context menu of an active branch row: copy actions, then rename (name an issue branch) and ungroup, then commit
+ * Context menu of an active branch row: copy actions, then rename (name an issue branch; an issue group is renamed
+ * without a rewrite) and ungroup, then commit
  * actions (issue reference, amend, unapply), then history (squash fixups, the pull request), then Patronus (Safe Push,
  * Dry Run, the robot of the branch).
  */
@@ -60,7 +61,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       onSelect: () => openInline("rename", branch.name),
     },
   ]
-  const ungroupLabel = getRemovePrefixLabel(branch.commits)
+  const ungroupLabel = getRemovePrefixLabel(branch.commits, getIssueGroups())
   if (branch.origin === "Prefix" && ungroupLabel !== null) {
     nameActions.push({
       label: ungroupLabel === "Remove Prefix" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,

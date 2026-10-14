@@ -141,30 +141,51 @@ all set the `(prefix)` of commits, so they are one reword. `regroup_commits_core
 writes anything:
 
 1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
-   stack setting and the commits ahead of the baseline (one `log`). An `expect_head` that isn't HEAD is `head_moved`.
+   stack setting, the issue groups (one `cat-file --batch`) and the commits ahead of the baseline (one `log`). An
+   `expect_head` that isn't HEAD is `head_moved`.
 2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
    duplicates and ids both in a branch and in `unassign` are refused.
 3. Move every fixup of a moved target along (`plan_autosquash`); a plan that separates a fixup from its target is
    refused.
    A commit without a prefix that goes to the branch of its own issue key keeps its message: it is grouped there
    already. A commit with a prefix keeps its message only when the plan path is exactly that prefix.
-4. Group every subject ahead of the baseline with the new prefixes in memory (`CommitGrouper::new_with_stacks`) and
-   compare the stack forest with the current one: a problem the plan introduces (a cycle, conflicting parents, a
-   self parent, a leaf collision) refuses the plan; a problem that already existed is reported.
+4. Group every subject ahead of the baseline with the new prefixes and the issue groups after the plan in memory
+   (`CommitGrouper::new_with`) and compare the stack forest with the current one: a problem the plan introduces (a
+   cycle, conflicting parents, a self parent, a leaf collision) refuses the plan; a problem that already existed is
+   reported.
 5. Reword the changed commits in one `fast-import` (`reword_commits_batch_at`): the history must still start at the
-   HEAD of step 1, and the ref transaction's CAS uses it too.
+   HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups joins that transaction
+   (below).
 
-A rename replaces the old level in every prefix path (children included) and gives an issue branch's commits a
-prefix; a restack sets `(parent/leaf)` or `(leaf)` on all commits of the branch. The undo token is
-`{previous_head, new_head}`: `restore_branch_head` moves the branch back with CAS, which is valid because a message
-rewrite keeps HEAD's tree.
+A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name
+and gives an issue branch's commits a prefix; a restack sets `(parent/leaf)` or `(leaf)` on all commits of the branch.
+The undo token is `H1..H2` for a rewrite: `restore_branch_head` moves the branch back with CAS, which is valid because
+a message rewrite keeps HEAD's tree.
+
+**Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`
+([Issue Groups](../../spec/branch/issue-groups.spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.
+- A write is one `fast-import` (`write_file_commit` in `commit_writer.rs`): a commit with the one file `issue-groups`
+  on the previous commit, on a temporary ref, plus one `git var` for the committer. `fast-import` objects are
+  readable only after the stream ends, which suits this write.
+- Its `update-ref` lines (`prepare_issue_groups_write`) are `update <ref> <new> <old>`, or `create` for the first
+  write, and the delete of the temporary ref. They go into the transaction that moves HEAD (`also` of
+  `reword_commits_batch_at`), so both refs move or neither does. A plan that changes only the map adds
+  `verify refs/heads/<branch> <head>` instead of a HEAD move.
+- On a failed transaction the temporary ref is deleted, and a read of HEAD and of the map ref names the one that moved:
+  `head_moved` or `groups_moved`.
+- The undo token is `groups:G1..G2` for a change of the map only and `H1..H2+groups:G1..G2` for both; a `G1` of zeros
+  is a map that did not exist, which the undo deletes. `undo_regroup_core` moves both refs back in one transaction
+  (`restore_branch_head_with`), with CAS on each.
+- Only a regroup writes the map; the sync, `bd status`, `bd check` and `bd suggest` read it. A write drops the keys
+  that group no commit and the lines it can't use. git keeps no reflog outside `refs/heads`, so the parent chain of
+  the map commits is its history.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
 the app and parallel `bd` processes. A dry run reads only and takes no lock. Sync doesn't take it yet.
 
 Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/move_commits.rs`,
-`crates/sync-core/src/repository_lock.rs`.
+`crates/sync-core/src/issue_groups.rs`, `crates/sync-core/src/repository_lock.rs`.
 
 #### Amend
 
@@ -266,7 +287,7 @@ the target's branch (grouper rules), the unassigned targets, or one fixup. The b
 `branch-deck: squash fixups`; Undo is the squash undo.
 
 Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
-`branch_name_of`).
+`GroupingInputs::branch_of`).
 
 #### Update project
 

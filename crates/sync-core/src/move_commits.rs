@@ -37,6 +37,22 @@ pub struct MoveCommitsResult {
   /// The commits whose message changed, in request order, then the fixups that moved with them; a commit already in
   /// the target branch is not listed
   pub moved: Vec<MovedCommit>,
+  /// The issue groups before and after, when the operation changed them (a rename of an issue group): an undo moves
+  /// them back with `undo_issue_groups`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub issue_groups: Option<IssueGroupsMove>,
+}
+
+/// A change of the issue groups (`refs/branch-deck/issue-groups`), for an undo
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct IssueGroupsMove {
+  /// The commit of the issue groups before; `None` when there were none
+  pub previous: Option<String>,
+  /// The commit the operation wrote
+  pub new: String,
 }
 
 /// Moves commits to another branch by setting the `(branch)` prefix of their subjects, replacing an existing one: a
@@ -53,11 +69,11 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   let plan = match target {
     Some(target) => RegroupPlan {
       branches: BTreeMap::from([(target.to_string(), params.commit_ids.clone())]),
-      unassign: Vec::new(),
+      ..RegroupPlan::default()
     },
     None => RegroupPlan {
-      branches: BTreeMap::new(),
       unassign: params.commit_ids.clone(),
+      ..RegroupPlan::default()
     },
   };
   let outcome = regroup_commits_core(git_executor, &params.repository_path, &plan, &RegroupOptions::default())?;
@@ -92,7 +108,7 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
     })
     .collect();
   info!(moved = moved.len(), "Moved commits");
-  Ok(MoveCommitsResult { moved })
+  Ok(MoveCommitsResult { moved, issue_groups: None })
 }
 
 /// The message with the explicit branch prefix of its subject set to `target` (or removed): `fixup! (a) X` becomes

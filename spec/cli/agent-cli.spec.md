@@ -36,6 +36,8 @@ targets:
   - ../../crates/sync-core/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
   - ../../crates/sync-core/src/regroup.rs
+  - ../../crates/sync-core/src/issue_groups.rs
+  - ../../crates/sync-core/src/commit_ids.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
@@ -114,6 +116,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits, and the branches otherwise.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
 - It must not run integration detection, an update check or a network command.
+- Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
+  the output must list `stale_issue_groups`, the keys of the issue groups that group no commit, and
+  `issue_group_problems`, the lines of the issue groups that are not used.
+  [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
 - With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active`, `integrated`,
   `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, and its stack `problems` with the
   commits that declare them, and the output must list the `forest` order, parents first; `bd commits` must group by
@@ -179,8 +185,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd group`, `rename`, `restack`, `unstack`
 
-- `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids]}` from stdin or `--plan`, and set the
-  prefixes of all its commits in one message-only rewrite; ids may be abbreviated.
+- `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
+  ungroup_issues: [keys]}` from stdin or `--plan`, set the prefixes of all its commits in one message-only rewrite,
+  and change the issue groups in the same ref transaction ([Issue Groups](../branch/issue-groups.spec.md)); ids may
+  be abbreviated. A plan of issue groups only rewrites no commit.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
@@ -206,19 +214,24 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add old → new ids.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
-- `bd rename` must replace the branch's level in every prefix path, children included, and give an issue branch's
-  commits a prefix; the new name must be a branch name without `/`.
+- `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups of
+  that name without a rewrite, and give an issue branch's commits a prefix; the new name must be a branch name without
+  `/`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_flat_and_issue_branches`)
-- `bd restack` and `bd unstack` must set or clear the parent on all commits of the branch, and need stacked branches.
+- `bd restack` and `bd unstack` must set or clear the parent on all commits of the branch, and need stacked branches;
+  an issue group is `invalid_plan`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
 
 ### `bd undo`
 
 - `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap, and refuse
-  with `head_moved` once the branch changed again.
+  with `head_moved` once the branch changed again. A token of the issue groups (`groups:G1..G2`, or
+  `H1..H2+groups:G1..G2` with a rewrite) must move them back in the same transaction, and refuse with `groups_moved`
+  (exit 3, retryable) once they changed again.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`)
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
 ### `bd check`
 
@@ -272,9 +285,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `-3`, unless the cluster's commits come from it. `kept` must mean one whole branch under its own name.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `a_cluster_takes_the_name_of_the_branch_it_holds_most_of`, `changes_against_the_groups_now`, `subject_words_drop_stopwords_and_endings`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`fresh_keeps_the_name_of_a_branch_that_stays_whole`, `stacked_branches_and_an_empty_range`)
-- A cluster of two or more whole issue branches must stay out of the plan with `"via": "issue_group"`, unless
-  `--rewrite-issues`.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`)
+- A cluster of two or more whole issue branches must go into `issue_groups` of the plan, marked `"via": "issue_group"`,
+  so that the plan rewrites no commit; `--rewrite-issues` gives the commits a prefix instead. An issue group must be
+  an anchor, as a prefix is.
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `whole_issue_branches_become_an_issue_group`)
 - `--dump-input` (hidden) must print the input of the clustering with every name hashed by a keyed hash (SipHash) with
   a random key that is not kept, and without subjects, bodies, ids and authors, so that the dump clusters as the
   repository does; only the module markers of file paths may become one marker.

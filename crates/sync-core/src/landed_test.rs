@@ -1,3 +1,4 @@
+use crate::commit_grouper::GroupingInputs;
 use crate::landed::{dismiss_landed, read_report, record_sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::check_baseline_update;
@@ -54,7 +55,7 @@ fn landing(repo: &TestRepo) -> Vec<String> {
 /// What the check inside a sync records: the undismissed report
 fn record(repo: &TestRepo) -> Vec<String> {
   let check = check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().check;
-  describe(&record_sync(repo.git_executor(), path(repo), &check, false).unwrap())
+  describe(&record_sync(repo.git_executor(), path(repo), &check, &GroupingInputs::default()).unwrap())
 }
 
 #[test]

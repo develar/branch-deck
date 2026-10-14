@@ -11,7 +11,7 @@ import type { Commit } from "@/lib/bindings"
 import { findIssueKey, getCommitHash, getSubjectLine, parseSubject } from "@/lib/commit"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
-import { getAutosquashPlan, getMoveTargets } from "@/stores/branch-sync"
+import { getAutosquashPlan, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 
 /** Branches listed in the "Move to" submenu */
@@ -56,20 +56,24 @@ function hasExplicitPrefix(commit: Commit): boolean {
 }
 
 /**
- * What removing the prefix does: the commits go back to their issue branch (`strippedSubject` starts with the key) or
- * to the unassigned commits. Null if no commit has an explicit prefix.
+ * What removing the prefix does: the commits go back to the issue group of their key (`issueGroups`, issue key ->
+ * branch name), to their issue branch (`strippedSubject` starts with the key) or to the unassigned commits. Null if no
+ * commit has an explicit prefix.
  */
-export function getRemovePrefixLabel(commits: readonly Commit[]): string | null {
+export function getRemovePrefixLabel(commits: readonly Commit[], issueGroups: Readonly<Record<string, string>> = {}): string | null {
   const prefixed = commits.filter(hasExplicitPrefix)
   if (prefixed.length === 0) {
     return null
   }
-  const keys = new Set(prefixed.map(commit => findIssueKey(commit.strippedSubject)))
-  if (keys.size > 1) {
+  const branches = new Set(prefixed.map((commit) => {
+    const key = findIssueKey(commit.strippedSubject)
+    return key === null ? null : (issueGroups[key] ?? key)
+  }))
+  if (branches.size > 1) {
     return "Remove Prefix"
   }
-  const [key] = keys
-  return key == null ? "Move to Unassigned" : `Move Back to ${key}`
+  const [branch] = branches
+  return branch == null ? "Move to Unassigned" : `Move Back to ${branch}`
 }
 
 /** "Squash into “Add login”" for a fixup commit with a target */
@@ -182,7 +186,7 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
         ],
       })
     }
-    const removeLabel = getRemovePrefixLabel(menuCommits)
+    const removeLabel = getRemovePrefixLabel(menuCommits, getIssueGroups())
     if (removeLabel !== null) {
       moveItems.push({ label: removeLabel, icon: UndoDotIcon, onSelect: () => removePrefixFrom(menuCommits) })
     }
@@ -221,7 +225,7 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
     isTargetOpen,
     openTarget,
     closeTarget,
-    removePrefixLabel: getRemovePrefixLabel(selectedItems),
+    removePrefixLabel: getRemovePrefixLabel(selectedItems, getIssueGroups()),
     removePrefix: () => removePrefixFrom(selectedItems),
     squashCommits,
     openSquash,

@@ -27,11 +27,19 @@ export interface PrefixChange {
 /**
  * What saving `after` instead of `before` does to the commit's place: same branch, another branch, another parent.
  * With `stacks`, it also warns about a parent that has no commits and about a parent that differs from the one the
- * other commits of the branch declare. `branchOf` looks a branch up in the branch table.
+ * other commits of the branch declare. `branchOf` looks a branch up in the branch table; `issueGroups` are the issue
+ * groups of the last grouping.
  */
-export function describePrefixChange(before: string, after: string, action: string, stacks: boolean, branchOf: (name: string) => StackBranchInfo | undefined): PrefixChange {
-  const from = groupFor(before, stacks)
-  const to = groupFor(after, stacks)
+export function describePrefixChange(
+  before: string,
+  after: string,
+  action: string,
+  stacks: boolean,
+  branchOf: (name: string) => StackBranchInfo | undefined,
+  issueGroups: Readonly<Record<string, string>> = {},
+): PrefixChange {
+  const from = groupFor(before, stacks, issueGroups)
+  const to = groupFor(after, stacks, issueGroups)
   if (to?.invalid === true) {
     return { text: `The prefix has an empty level: ${to.branch} will report an error`, warning: true }
   }

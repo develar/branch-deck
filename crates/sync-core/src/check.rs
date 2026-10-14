@@ -131,7 +131,8 @@ impl CheckSession {
     let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&RegroupPlan::default()))?;
     let baseline_branch = self.snapshot.baseline.clone();
     let messages: HashMap<&str, &str> = regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.message.as_str())).collect();
-    let mut grouper = CommitGrouper::new_with_stacks(regroup.stacks);
+    // the issue groups as the plan leaves them
+    let mut grouper = CommitGrouper::new_with(&regroup.grouping);
     for commit in &self.snapshot.commits {
       let mut commit = commit.clone();
       if let Some(message) = messages.get(commit.id.as_str()) {
@@ -216,7 +217,7 @@ impl CheckSession {
       head: regroup.previous_head.clone(),
       baseline_branch,
       base,
-      stacks: regroup.stacks,
+      stacks: regroup.grouping.stacks,
       regroup,
       branches: checks,
       unassigned: unassigned.len(),

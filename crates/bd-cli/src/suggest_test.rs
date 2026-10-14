@@ -65,7 +65,10 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   let before = state(&repo);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["plan"], json!({ "branches": { "vm": [short(&ids[0]), short(&ids[1])] }, "unassign": [] }));
+  assert_eq!(
+    output["plan"],
+    json!({ "branches": { "vm": [short(&ids[0]), short(&ids[1])] }, "unassign": [], "issue_groups": { "parser-parse": ["ABC-1", "ABC-2"] } })
+  );
   assert_eq!(
     clusters(&output),
     BTreeMap::from([
@@ -89,16 +92,20 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   assert_eq!(parser["why"], json!("2 issue units; ABC-1 named in 1 body; area parser"));
   assert_eq!(parser["issue_keys"], json!(["ABC-1", "ABC-2"]));
   assert_eq!(parser["from"], json!(["ABC-1", "ABC-2"]));
+  // the issue group rewrites no subject
   assert_eq!(
     (&output["rewritten"], &output["check"]["ok"], &output["check"]["repair_rounds"]),
     (&json!(2), &json!(true), &json!(0))
   );
+  let built: Vec<&Value> = output["check"]["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert!(built.contains(&&json!("parser-parse")), "{built:?}");
   assert_eq!(output.get("warnings"), None);
   assert_eq!(state(&repo), before, "a suggestion writes objects only");
 
-  // --rewrite-issues puts the issue branches into the plan
+  // --rewrite-issues gives the issue branches a prefix instead
   let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
   assert_eq!(rewriting["plan"]["branches"]["parser-parse"], json!([short(&ids[2]), short(&ids[3])]));
+  assert_eq!((rewriting["plan"].get("issue_groups"), &rewriting["rewritten"]), (None, &json!(4)));
 
   // applied, the suggestion suggests nothing more
   let plan = tempfile::NamedTempFile::new().unwrap();
@@ -110,6 +117,8 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   assert_eq!(again["plan"], json!({ "branches": {}, "unassign": [] }));
   assert_eq!(again["rewritten"], json!(0));
   assert_eq!(clusters(&again)["vm"], entry("kept", 2, None));
+  // the issue group is an anchor now, kept under its name
+  assert_eq!(clusters(&again)["parser-parse"], entry("kept", 2, Some("issue_group")));
 }
 
 #[test_log::test]
@@ -127,11 +136,17 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["check"]["repair_rounds"], json!(1));
   let cluster = &output["clusters"][0];
-  assert_eq!((&cluster["commit_count"], &cluster["change"], cluster.get("via")), (&json!(2), &json!("merged"), None));
+  // two issue branches joined by the repair: an issue group builds them together
+  assert_eq!(
+    (&cluster["commit_count"], &cluster["change"], cluster.get("via")),
+    (&json!(2), &json!("merged"), Some(&json!("issue_group")))
+  );
   assert_eq!(cluster["why"], json!("1 unit; joined by repair round 1 after a conflict; area a"));
   let name = cluster["name"].as_str().unwrap();
-  assert_eq!(output["plan"], json!({ "branches": { name: [short(&ids[0]), short(&ids[1])] }, "unassign": [] }));
-  assert_eq!(output["check"]["ok"], json!(true));
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [], "issue_groups": { name: ["XA-1", "YB-1"] } }));
+  assert_eq!((&output["check"]["ok"], &output["rewritten"]), (&json!(true), &json!(0)));
+  let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
+  assert_eq!(rewriting["plan"]["branches"][name], json!([short(&ids[0]), short(&ids[1])]));
 
   // with --fresh a prefix joins nothing: two prefixed commits with one key become its issue branch
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -145,9 +160,9 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
 }
 
 #[test_log::test]
-fn a_conflict_inside_an_issue_group_puts_it_into_the_plan() {
+fn whole_issue_branches_become_an_issue_group() {
   let repo = repo_with_baseline(&[("README.md", "readme\n"), ("Cargo.lock", "line 1\nline 2\nline 3\n")]);
-  // the mention makes one cluster of two issue branches, which would build apart
+  // the mention makes one cluster of two issue branches; apart, the second would conflict in the lock file
   let ids = commits(
     &repo,
     &[
@@ -158,13 +173,38 @@ fn a_conflict_inside_an_issue_group_puts_it_into_the_plan() {
       ),
     ],
   );
+  let before = git(&repo, &["log", "--format=%H %s"]);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!((&output["check"]["ok"], &output["check"]["repair_rounds"]), (&json!(true), &json!(1)));
+  // the issue group builds both in one branch, so nothing conflicts
+  assert_eq!(
+    (&output["check"]["ok"], &output["check"]["repair_rounds"], &output["rewritten"]),
+    (&json!(true), &json!(0), &json!(0))
+  );
   let cluster = &output["clusters"][0];
-  assert_eq!((&cluster["commit_count"], cluster.get("via")), (&json!(2), None));
+  assert_eq!((&cluster["commit_count"], cluster.get("via")), (&json!(2), Some(&json!("issue_group"))));
   let name = cluster["name"].as_str().unwrap();
-  assert_eq!(output["plan"], json!({ "branches": { name: [short(&ids[0]), short(&ids[1])] }, "unassign": [] }));
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [], "issue_groups": { name: ["XA-1", "XA-2"] } }));
+
+  // applied: no commit changes, the store maps both keys, and the suggestion suggests nothing more
+  let plan = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(plan.path(), output["plan"].to_string()).unwrap();
+  let (exit_code, grouped) = run_in(
+    &repo,
+    &["group", "--expect-head", output["head"].as_str().unwrap(), "--plan", plan.path().to_str().unwrap()],
+  );
+  assert_eq!(exit_code, 0, "{grouped}");
+  assert_eq!((&grouped["rewritten"], &grouped["issue_groups"]), (&json!(0), &json!({ name: ["XA-1", "XA-2"] })));
+  assert!(grouped["undo_token"].as_str().unwrap().starts_with("groups:"), "{grouped}");
+  assert_eq!(git(&repo, &["log", "--format=%H %s"]), before);
+  let (_, again) = run_in(&repo, &["suggest"]);
+  assert_eq!(again["plan"], json!({ "branches": {}, "unassign": [] }));
+  assert_eq!(clusters(&again)[name], entry("kept", 2, Some("issue_group")));
+  assert_eq!(ids.len(), 2);
+
+  // --fresh ignores the issue group as it ignores a prefix, and finds the same cluster: nothing changes
+  let (_, fresh) = run_in(&repo, &["suggest", "--fresh"]);
+  assert_eq!(fresh["plan"], json!({ "branches": {}, "unassign": [] }));
 }
 
 #[test_log::test]
@@ -264,7 +304,7 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
       // a prefixed commit that goes to its own issue branch loses its prefix
       commit(Some("old"), Some("ABC-1"), None),
       commit(None, Some("ABC-1"), None),
-      // whole issue branches stay out
+      // whole issue branches become an issue group
       commit(None, Some("XYZ-1"), None),
       commit(None, Some("XYZ-2"), None),
     ],
@@ -291,16 +331,28 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
     unit_anchors: Vec::new(),
   };
   let names = ["feat".to_string(), "ABC-1".to_string(), "xyz".to_string()];
-  let (branches, unassign) = plan_of(&input, &clustering, &names, false);
-  assert_eq!((branches, unassign), (BTreeMap::from([("feat".to_string(), vec![1])]), vec![3]));
-  let (branches, _) = plan_of(&input, &clustering, &names, true);
-  assert_eq!(branches["xyz"], [5, 6]);
+  let plan = plan_of(&input, &clustering, &names, false);
+  assert_eq!(
+    (plan.branches, plan.unassign, plan.issue_groups),
+    (
+      BTreeMap::from([("feat".to_string(), vec![1])]),
+      vec![3],
+      BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string(), "XYZ-2".to_string()])])
+    )
+  );
+  let plan = plan_of(&input, &clustering, &names, true);
+  assert_eq!((plan.branches["xyz"].as_slice(), plan.issue_groups.len()), ([5, 6].as_slice(), 0));
 
   // the printed plan is what `bd group` and `bd check` read
   let plan = SuggestPlan {
     branches: BTreeMap::from([("feat".to_string(), vec!["0123abcd".to_string()])]),
     unassign: vec!["4567".to_string()],
+    issue_groups: BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string()])]),
+    ungroup_issues: vec!["ABC-1".to_string()],
   };
   let parsed: RegroupPlan = serde_json::from_value(serde_json::to_value(&plan).unwrap()).unwrap();
-  assert_eq!((parsed.branches, parsed.unassign), (plan.branches, plan.unassign));
+  assert_eq!(
+    (parsed.branches, parsed.unassign, parsed.issue_groups, parsed.ungroup_issues),
+    (plan.branches, plan.unassign, plan.issue_groups, plan.ungroup_issues)
+  );
 }

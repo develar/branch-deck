@@ -49,6 +49,7 @@ fn status_shape() {
       "branches": [
         {
           "name": "auth",
+          "origin": "prefix",
           "ref": "refs/heads/test-user/virtual/auth",
           "latest_time": 1_700_000_400,
           "commit_count": 2,
@@ -60,6 +61,7 @@ fn status_shape() {
         },
         {
           "name": "ABC-12",
+          "origin": "issue",
           "ref": "refs/heads/test-user/virtual/ABC-12",
           "issue_key": "ABC-12",
           "latest_time": 1_700_000_200,
@@ -321,4 +323,45 @@ fn brief_status_keeps_the_stack_state() {
       { "name": "auth", "commit_count": 1, "newest": "Add auth" },
     ])
   );
+}
+
+#[test_log::test]
+fn issue_groups_in_status() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let ids = commit_subjects(&repo, &["ABC-1 Add parser", "ABC-2 Parse lists", "XYZ-3 Other"]);
+  // the store as another tool may leave it: a stale key and a line that can't be used
+  let (git_executor, path) = (repo.git_executor(), repo.path().to_str().unwrap());
+  let blob = git_executor
+    .execute_command_with_input(&["hash-object", "-w", "--stdin"], path, "ABC-1\tparser\nABC-2\tparser\nABC-9\tparser\nnot a line\n")
+    .unwrap();
+  let tree = git_executor
+    .execute_command_with_input(&["mktree"], path, &format!("100644 blob {}\tissue-groups\n", blob.trim()))
+    .unwrap();
+  let commit = git(&repo, &["commit-tree", tree.trim(), "-m", "planted"]);
+  git(&repo, &["update-ref", "refs/branch-deck/issue-groups", commit.trim()]);
+
+  let (exit_code, output) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let branches: Vec<(&Value, &Value, Option<&Value>)> = output["branches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|branch| (&branch["name"], &branch["origin"], branch.get("issue_keys")))
+    .collect();
+  assert_eq!(
+    branches,
+    [
+      (&json!("XYZ-3"), &json!("issue"), None),
+      (&json!("parser"), &json!("issue_group"), Some(&json!(["ABC-1", "ABC-2"]))),
+    ]
+  );
+  assert_eq!(output["stale_issue_groups"], json!(["ABC-9"]));
+  assert_eq!(output["issue_group_problems"][0]["line"], json!("not a line"));
+
+  let (_, brief) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!(
+    (&brief["branches"][1]["issue_keys"], &brief["stale_issue_groups"]),
+    (&json!(["ABC-1", "ABC-2"]), &json!(["ABC-9"]))
+  );
+  assert_eq!(ids.len(), 3);
 }
