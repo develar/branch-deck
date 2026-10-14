@@ -7,7 +7,7 @@
 ## Summary
 
 `bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
-together), regroup the commits and sync them. It reads with `status`, `commits` and `schema`, rewrites commit messages
+together), regroup the commits and sync them. It reads with `status`, `commits`, `schema` and `version`, rewrites commit messages
 with `group`, `rename`, `restack`, `unstack` and `undo`, rebuilds the virtual branches with `sync` and keeps their pull
 request text with `describe`, tries a plan without writing refs with `check` and pushes with `push`.
 
@@ -47,8 +47,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   optional fields don't change it.
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
   an unassigned commit.
-- `bd schema` prints the JSON Schema of each output (`status`, `commits`, `error`). The schemas are generated from the
-  Rust types with `schemars`, and `schema_test.rs` checks the real outputs against them.
+- `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
+  types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 
 An error looks like this:
 
@@ -71,7 +71,7 @@ commands are already reserved.
 
 ## Commands
 
-### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]]`
+### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`
 
 Prints HEAD, the baseline (`detect_baseline_branch`), the prefix, the branches and the unassigned commits. It groups
 the commits the same way a sync does (`sync_core::grouping`, the first phase of a sync without its events). It does no
@@ -123,8 +123,20 @@ access. It runs about ten short git processes, with one `log` for all the commit
   - It costs at most three more git processes for all branches together: the commit diffs the cache misses (the same
     `-U0` pass and cache as `bd commits`), one `diff-tree --stdin` with a `<tip> <base>` line per synced branch, and
     one `check-attr`.
+- `--brief` prints `StatusBrief` (`status_brief` in `bd schema`), small enough to read whole: about 2 KB for the 12
+  branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB. Per branch it lists `name`,
+  `commit_count`, `issue_key` and `newest`, the subject of the newest commit. With stacked branches on, it keeps
+  `parent`, `blocked_by`, `problems` and `forest`. `unassigned` lists the ids and subjects. It reads what `bd status`
+  reads, and works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
 
-### `bd commits [--files] [--patch] [--branch <b>] [--include-generated]`
+  ```json
+  {"schema":1,…,"head":{"id":"ff366ae0","branch":"master"},"baseline":"origin/master","branch_count":2,
+   "unassigned_count":1,"branches":[{"name":"auth","commit_count":2,"newest":"Add logout"},
+    {"name":"ABC-12","commit_count":1,"issue_key":"ABC-12","newest":"ABC-12 Fix crash"}],
+   "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
+  ```
+
+### `bd commits [<id>…] [--files] [--patch] [--branch <b> | --unassigned] [--include-generated] [--brief [--depth N]]`
 
 Prints every commit ahead of the baseline, oldest first, which is the order they are applied in.
 
@@ -144,12 +156,51 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 - `--files` lists the changed files of each commit. `status` is `A`, `M`, `D`, `R` (`old_path` is set) or `T`.
   `additions` and `deletions` match `--numstat`. A binary file has `"binary": true` and no counts.
 - `--patch` adds the patch of each listed commit, with three lines of context.
-- `--branch` keeps only the commits of that branch, and the edges and overlaps that involve it. The dependencies are
-  still computed over every commit.
+- `--branch` keeps only the commits of that branch, and the edges and overlaps that involve it. `--unassigned` keeps
+  the unassigned commits, and `<id>…` the commits with these ids: full, or abbreviated to at least 4 characters, as in
+  a plan. An id that matches no commit ahead of the baseline is `not_ahead_of_baseline`, one that matches several is
+  `invalid_arguments`. The three filters exclude each other. The dependencies are still computed over every commit;
+  the overlaps kept are those of the branches the listed commits are in.
 - `dependencies` are edges where `from` depends on `to`, an older commit, through `files`.
 - `cluster_overlap` lists, for each pair of current branches, the files both change.
 - Lock files and generated files don't count in `dependencies` and `cluster_overlap` (see below);
   `--include-generated` keeps them. `--files` still lists them, with `"generated": true`.
+- `--brief` prints `CommitsBrief` (`commits_brief` in `bd schema`): what an agent needs to cluster, small enough to
+  read whole. For the 74 commits of a large monorepo branch it is 19.5 KB, where `--files` is 278 KB. `--files` and
+  `--patch` don't go with it; the filters do.
+
+  ```json
+  {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
+   "commits":[{"id":"41c7d00e","subject":"Add login","group":"auth","areas":[{"dir":"src/auth","lines":12}]},
+    {"id":"5e2f9c3b","subject":"fixup! Add login","group":"auth","fixup":{"kind":"fixup","target":"41c7d00e"},
+     "areas":[{"dir":"src/auth","lines":2}]},
+    {"id":"9f3a2b1c","subject":"ABC-1 Add parser","group":"ABC-1","areas":[{"dir":"src/parser","lines":30}]}],
+   "dependencies":[{"from":"5e2f9c3b","to":"41c7d00e"}],
+   "units":[["41c7d00e","5e2f9c3b"]]}
+  ```
+
+  - Per commit it lists `id`, `subject`, `group`, `issue_key`, `fixup` and `areas`, without the body, the author and
+    the files. It leaves out what another field says: the subject has no `(prefix)` (`group` names the branch, as in
+    `bd status`), and `issue_key` is left out when it is the `group`.
+  - `dependencies` are `{from, to}`, without the files.
+  - `units` are the commits that must stay together: the connected components of the dependencies and of the fixups
+    with their targets, over every commit. Only components of two or more commits are listed, ordered by their oldest
+    commit, each oldest first. With a filter, the units that hold a listed commit are kept whole.
+
+#### Areas
+
+`areas` (`crates/bd-cli/src/areas.rs`) say where a commit belongs without its file list:
+
+- The area of a path is its first `--depth` directories (3 by default), or all of them for a shorter path, and `.`
+  for a file at the top level: `plugins/air/shared/src/Foo.kt` is in `plugins/air/shared`.
+- Per commit, at most three areas with the most added plus deleted lines. An area under 5 % of the commit's lines is
+  left out, unless it is the first. An area of renames or binary files only has 0 lines, so it shows only when the
+  commit has no other lines.
+- Lock files and generated files don't count without `--include-generated`. Hub files never count: changes in many
+  unrelated areas touch them, so they say nothing about where a commit belongs. `HUB_FILES` in
+  `crates/bd-cli/src/generated.rs` matches `.idea/modules.xml`, `MODULE.bazel`, `*-file-list.txt`, `README*` and
+  `CHANGELOG*` by file name.
+- `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw -p -U0`
 process, for the commits the object cache misses. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
@@ -351,8 +402,17 @@ as `title`, a blank line and the body, as `git branch --edit-description` writes
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"check":…,"commits":…,"describe":…,"error":…,"install":…,"push":…,"rewrite":…,"status":…,"sync":…,"undo":…}}`;
-`rewrite` is the output of `group`, `rename`, `restack` and `unstack`.
+Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"install":…,"push":…,"rewrite":…,"status":…,"status_brief":…,"sync":…,"undo":…,"version":…}}`;
+`rewrite` is the output of `group`, `rename`, `restack` and `unstack`, and `commits_brief` and `status_brief` the
+outputs of `--brief`.
+
+### `bd version`, `bd --version`
+
+Both print `{"schema":1,"version":"0.11.0","git":"2.56.0"}` and need no repository. `version` is the version of
+Branch Deck, the one the app shows: `build.rs` of `crates/bd-cli` reads it from `src-tauri/tauri.conf.json`, which
+release-please updates. The workspace version of the crates stays 0.1.0, so `CARGO_PKG_VERSION` is not it. `git` is
+the version of the git bd finds (see Invocation), also of one older than 2.54, and `null` without one: never an
+error. The first line of `bd help agent` names the version too.
 
 ### `bd help agent`
 
@@ -379,8 +439,9 @@ Finder has a minimal one. `--uninstall` removes the skills and the symlink if it
 
 ## Agent workflow
 
-1. Run `bd status`, then `bd commits --files`. For the clusters that are unclear, run
-   `bd commits --patch --branch <b>`.
+1. Run `bd status --brief`, then `bd commits --brief`: its `units` are the commits that must stay together. For more,
+   run `bd status`, `bd commits --files`, and `bd commits --patch <id>…` (or `--branch <b>`, `--unassigned`) for the
+   commits that are unclear.
 2. Cluster the commits by intent. Use `dependencies` and `cluster_overlap` to keep together, or stack, the commits that
    can't be separated.
 3. Write the plan and run `bd group --dry-run < plan.json` until it is accepted, then `bd check < plan.json` until

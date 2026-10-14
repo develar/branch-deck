@@ -1,6 +1,7 @@
 //! `bd status --stats`: what each branch changes, from at most three processes for all branches: the commit diffs the
 //! cache misses (one `log -p -U0`), one `diff-tree --stdin` and one `check-attr`
 
+use crate::areas::DirLines;
 use crate::context::RepoContext;
 use crate::diff_scan::read_commit_diffs_cached;
 use crate::error::CliError;
@@ -40,14 +41,6 @@ pub struct BranchStats {
   pub issue_keys: Vec<String>,
   /// The synced virtual branch against the base the sync builds on; `null` if the branch was never synced
   pub diffstat: Option<Diffstat>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct DirLines {
-  /// `.` for the top level
-  pub dir: String,
-  /// Added plus deleted lines
-  pub lines: u32,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

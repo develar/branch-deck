@@ -28,6 +28,9 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[build-dependencies]
+serde_json.workspace = true
+
 [dev-dependencies]
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true

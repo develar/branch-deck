@@ -68,6 +68,29 @@ pub fn compute_dependencies(commits: &[CommitDiff]) -> Vec<Dependency> {
     .collect()
 }
 
+/// The connected components of `edges` between positions `0..count` that have two or more members, each oldest first,
+/// ordered by their oldest member
+pub fn connected_components(count: usize, edges: impl IntoIterator<Item = (usize, usize)>) -> Vec<Vec<usize>> {
+  // union-find whose root is the oldest member of its set
+  fn root(parents: &mut [usize], mut index: usize) -> usize {
+    while parents[index] != index {
+      parents[index] = parents[parents[index]];
+      index = parents[index];
+    }
+    index
+  }
+  let mut parents: Vec<usize> = (0..count).collect();
+  for (a, b) in edges {
+    let (a, b) = (root(&mut parents, a), root(&mut parents, b));
+    parents[a.max(b)] = a.min(b);
+  }
+  let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+  for index in 0..count {
+    components.entry(root(&mut parents, index)).or_default().push(index);
+  }
+  components.into_values().filter(|component| component.len() >= 2).collect()
+}
+
 /// Update the state of a file for the change of the commit at `index`, collecting the commits it depends on
 fn apply_change(state: &mut FileState, change: &FileChange, index: usize, owners: &mut BTreeSet<usize>) {
   match change.status {

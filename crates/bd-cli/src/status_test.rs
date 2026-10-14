@@ -19,6 +19,21 @@ fn grouped_repo() -> (TestRepo, Vec<String>) {
   (repo, ids)
 }
 
+/// With stacked branches on: a parent and its child, a branch with conflicting parents and one with a missing parent
+fn stacked_repo() -> (TestRepo, Vec<String>) {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let mut ids = Vec::new();
+  for (index, subject) in ["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"]
+    .iter()
+    .enumerate()
+  {
+    write(&repo, &format!("f{index}.txt"), *subject);
+    ids.push(commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100));
+  }
+  (repo, ids)
+}
+
 fn short(id: &str) -> String {
   short_id(id).to_string()
 }
@@ -231,17 +246,7 @@ fn stats_per_branch() {
 
 #[test_log::test]
 fn stacks_in_status() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  let mut ids = Vec::new();
-  for (index, subject) in ["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"]
-    .iter()
-    .enumerate()
-  {
-    write(&repo, &format!("f{index}.txt"), *subject);
-    ids.push(commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100));
-  }
-
+  let (repo, ids) = stacked_repo();
   let (exit_code, output) = run_in(&repo, &["status"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["forest"], json!(["auth", "login", "c", "oauth"]));
@@ -282,4 +287,44 @@ fn a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one() {
   assert_eq!((&login["name"], &login["parent_state"]), (&json!("login"), &json!("integrated")));
   assert_eq!((login.get("effective_base"), login.get("blocked_by")), (None, None));
   assert_eq!(git(&repo, &["notes", "--ref", "branch-deck/detection", "list"]), "", "status writes no note");
+}
+
+#[test_log::test]
+fn brief_status() {
+  let (repo, _) = grouped_repo();
+  let (exit_code, output) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!(exit_code, 0, "{output}");
+  // the fields of `bd status`, with the branches cut down
+  let (_, full) = run_in(&repo, &["status"]);
+  let mut expected = full.clone();
+  expected["branches"] = json!([
+    { "name": "auth", "commit_count": 2, "newest": "Add logout" },
+    { "name": "ABC-12", "commit_count": 1, "issue_key": "ABC-12", "newest": "ABC-12 Fix crash" },
+  ]);
+  assert_eq!(output, expected);
+
+  let (exit_code, output) = run_in(&repo, &["status", "--brief", "--branch", "auth"]);
+  assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("invalid_arguments")));
+}
+
+#[test_log::test]
+fn brief_status_keeps_the_stack_state() {
+  let (repo, ids) = stacked_repo();
+  let (exit_code, output) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["forest"], json!(["auth", "login", "c", "oauth"]));
+  assert_eq!(
+    output["branches"],
+    json!([
+      { "name": "oauth", "commit_count": 1, "newest": "Add oauth", "parent": "ghost", "blocked_by": { "parent": "ghost", "reason": "missing" } },
+      {
+        "name": "c",
+        "commit_count": 2,
+        "newest": "Two",
+        "problems": [{ "message": "c has conflicting parents x, y", "commits": [short(&ids[2]), short(&ids[3])] }],
+      },
+      { "name": "login", "commit_count": 1, "newest": "Add login", "parent": "auth" },
+      { "name": "auth", "commit_count": 1, "newest": "Add auth" },
+    ])
+  );
 }

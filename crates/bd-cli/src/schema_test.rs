@@ -45,7 +45,21 @@ fn schema_lists_every_output() {
   let outputs = output["outputs"].as_object().unwrap();
   assert_eq!(
     outputs.keys().map(String::as_str).collect::<Vec<_>>(),
-    ["check", "commits", "describe", "error", "install", "push", "rewrite", "status", "sync", "undo"]
+    [
+      "check",
+      "commits",
+      "commits_brief",
+      "describe",
+      "error",
+      "install",
+      "push",
+      "rewrite",
+      "status",
+      "status_brief",
+      "sync",
+      "undo",
+      "version"
+    ]
   );
   for (name, schema) in outputs {
     assert_eq!(schema["properties"]["schema"]["const"], json!(1), "{name}");
@@ -80,6 +94,11 @@ fn outputs_match_schema() {
   let (_, commits) = run_in(&repo, &["commits", "--files", "--patch"]);
   assert_ne!(commits["dependencies"], json!([]));
   assert_covered(&schema["outputs"]["commits"], &schema["outputs"]["commits"], &commits, "commits");
+  let (_, brief) = run_in(&repo, &["commits", "--brief"]);
+  assert_ne!(brief["units"], json!([]));
+  assert_covered(&schema["outputs"]["commits_brief"], &schema["outputs"]["commits_brief"], &brief, "commits_brief");
+  let (_, version) = run_in(&repo, &["version"]);
+  assert_covered(&schema["outputs"]["version"], &schema["outputs"]["version"], &version, "version");
   // a dry run prints every optional part of a rewrite; then a real one and its undo
   repo.set_config("branchdeck.stacks", "true").unwrap();
   let (_, rewrite) = run_in(&repo, &["rename", "feature", "renamed", "--dry-run", "--map"]);
@@ -100,6 +119,8 @@ fn outputs_match_schema() {
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &sync, "sync");
   let (_, status) = run_in(&repo, &["status", "--stats"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with stacks");
+  let (_, brief) = run_in(&repo, &["status", "--brief"]);
+  assert_covered(&schema["outputs"]["status_brief"], &schema["outputs"]["status_brief"], &brief, "status_brief");
 
   let (_, error) = run_in(&repo, &["status", "--branch", "missing"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &error, "error");

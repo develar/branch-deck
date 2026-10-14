@@ -14,11 +14,14 @@ targets:
   - ../../crates/bd-cli/src/status.rs
   - ../../crates/bd-cli/src/branch_stats.rs
   - ../../crates/bd-cli/src/commits.rs
+  - ../../crates/bd-cli/src/areas.rs
   - ../../crates/bd-cli/src/diff_scan.rs
   - ../../crates/bd-cli/src/numstat.rs
   - ../../crates/bd-cli/src/dependencies.rs
   - ../../crates/bd-cli/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
+  - ../../crates/bd-cli/src/version.rs
+  - ../../crates/bd-cli/build.rs
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
@@ -84,8 +87,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
-- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo`, `check`, `sync`, `push`,
-  `describe` and `error` outputs, and the real outputs must use only the properties it declares.
+- `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
+  `undo`, `check`, `sync`, `push`, `describe`, `install`, `version` and `error` outputs, and the real outputs must use
+  only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -118,6 +122,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   directories, the authors, the author date range, the issue keys and a diffstat of the synced branch against the sync
   base (`null` if it was never synced), for all branches in at most three more git processes.
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
+- `--brief` must print per branch only the name, the commit count, the issue key and the newest subject, with
+  stacked branches on also the parent, `blocked_by`, the problems and the forest, then the unassigned commits; it
+  must not go with `--branch` or `--stats`.
+  [@test] ../../crates/bd-cli/src/status_test.rs (`brief_status`, `brief_status_keeps_the_stack_state`)
 
 ### `bd commits`
 
@@ -135,11 +143,25 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
 - `cluster_overlap` must list, for each pair of branches, the files both change.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
+- `bd commits <id>…` must keep the commits with these ids (full, or abbreviated to at least 4 characters) and
+  `--unassigned` the unassigned commits, with the edges that involve them; an unknown id must be
+  `not_ahead_of_baseline`, an ambiguous one `invalid_arguments`, and the filters and `--branch` must exclude each other.
+  [@test] ../../crates/bd-cli/src/commits_test.rs (`commit_ids_and_unassigned_filter_the_listing`, `an_ambiguous_id_is_invalid`)
+- `--brief` must print per commit only the id, the subject without the prefix, the group, the issue key when it is not
+  the group, the fixup kind and target, and the areas; the dependencies as `{from, to}`; and `units`, the connected
+  components of two or more commits of the dependencies and the fixups, over every commit, each oldest first. On the
+  74 commits of a large monorepo branch it must stay under 20 KB.
+  [@test] ../../crates/bd-cli/src/commits_test.rs (`brief_view_with_units_and_areas`)
+- An area must be the first `--depth` directories of a path (default 3; `.` at the top level); a commit must list at
+  most three areas by added plus deleted lines, without those under 5 % of its lines except the first, and without
+  hub files (`.idea/modules.xml`, `MODULE.bazel`, `*-file-list.txt`, `README*`, `CHANGELOG*`). `--depth` must need
+  `--brief`.
+  [@test] ../../crates/bd-cli/src/areas_test.rs (`an_area_keeps_at_most_depth_directories`, `hub_files_match_by_name`, `top_areas_by_lines_without_hub_files`)
 
 ### Generated files
 
 - Lock files and the paths HEAD's attributes mark `linguist-generated` or `-diff` must not count in `dependencies`,
-  `cluster_overlap` and the stats lines; `--files` must still list them with `"generated": true`, and
+  `cluster_overlap`, the areas and the stats lines; `--files` must still list them with `"generated": true`, and
   `--include-generated` must count them.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`generated_files_are_flagged_and_unlinked`)
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
@@ -261,9 +283,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
 
+### `bd version`
+
+- `bd version` and `bd --version` must print `{"schema":1,"version","git"}` without a repository: the version of the
+  app (`src-tauri/tauri.conf.json`), and the version of the git bd finds, `null` without one.
+  [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
+
 ### `bd help agent`
 
 - It must print the agent workflow as text and mark the commands that don't exist yet.
+- Its first line must name the version.
+  [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
 
 ### `bd install`
 

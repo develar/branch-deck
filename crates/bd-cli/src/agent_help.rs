@@ -1,6 +1,9 @@
-/// `bd help agent`: the workflow of an agent that groups commits into virtual branches (docs/guidelines/agent-cli.md)
-pub const AGENT_HELP: &str = "\
-bd: Branch Deck for agents. JSON on stdout (every object has \"schema\": 1), logs on stderr (-v for debug).
+/// `bd help agent`: the workflow of an agent that groups commits into virtual branches (docs/guidelines/agent-cli.md);
+/// the first line names the version (`version::VERSION`)
+pub const AGENT_HELP: &str = concat!(
+  "bd ",
+  env!("BD_VERSION"),
+  ": Branch Deck for agents. JSON on stdout (every object has \"schema\": 1), logs on stderr (-v for debug).
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the
 `(name)` prefix of their subjects, or by an issue key (`ABC-123 Fix ...`). A sync rebuilds each group as
@@ -11,12 +14,14 @@ Global options: -C <repo>, --prefix <p> (else the app setting, else `git config 
 
 Errors: {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"retryable\"}}.
 Exit codes: 0 ok, 1 conflict, 2 invalid input, 3 stale (read again and retry), 4 refused, 5 git or network error.
-`bd schema` prints the JSON Schema of every output.
+`bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 
 Workflow:
-1. `bd status` for the branches and the unassigned commits (with stacked branches on, also each
-   branch's `parent`, `parent_state`, `problems` and the `forest` order), then `bd commits --files`, and
-   `bd commits --patch --branch <b>` for the clusters that are unclear.
+1. `bd status --brief` for the branches and the unassigned commits, then `bd commits --brief`: per
+   commit its group, issue key, fixup target and top `areas`, and `units`, the commits that must stay
+   together. `bd status` adds each branch's commits (with stacked branches on, also `parent_state` and
+   `effective_base`), `bd commits --files` the files; `bd commits --patch <id>...` (or `--branch <b>`,
+   `--unassigned`) for the commits that are unclear.
 2. Cluster the commits by intent. `dependencies` ({from, to, files}: `from` touches lines `to` added) and
    `cluster_overlap` (files two branches both change) show which commits can't be separated: a commit
    goes with, or stacks on, the commits it depends on.
@@ -49,7 +54,8 @@ between branches. Errors with exit 2 (invalid_plan, not_ahead_of_baseline) mean 
 
 `bd install` puts `bd` into ~/.local/bin (macOS, Linux) and a skill for coding agents into
 ~/.claude/skills and ~/.agents/skills; `bd help skill` prints that skill.
-";
+"
+);
 
 /// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
 /// and others), naming bd by `command`, its full path. It only says when to use bd and where the workflow is, so it
@@ -77,7 +83,7 @@ version.
 
 - Run bd in the repository, or pass `-C <repo>`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
-  `bd schema` prints the JSON Schema of every output.
+  `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, and never push or create pull requests before the user approved them.
 "
   )

@@ -13,6 +13,7 @@ use sync_types::GroupedBranchInfo;
 use sync_types::stack::{BlockReason, BranchStack, ParentState};
 
 #[derive(Debug, Default, clap::Args)]
+#[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
 pub struct StatusArgs {
   /// Only this branch, its commits paged by --limit/--offset
   #[arg(long)]
@@ -31,6 +32,10 @@ pub struct StatusArgs {
   /// Count lock files and generated files in the --stats lines
   #[arg(long, requires = "stats")]
   pub include_generated: bool,
+  /// A compact view: per branch the name, commit count, issue key, newest subject and stack state, then the
+  /// unassigned commits
+  #[arg(long, conflicts_with_all = ["branch", "stats"])]
+  pub brief: bool,
 }
 
 /// `bd status`: the branches Branch Deck would sync and the unassigned commits
@@ -53,6 +58,45 @@ pub struct StatusOutput {
   /// Newest first; omitted with --branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unassigned: Option<Vec<CommitSummary>>,
+}
+
+/// `bd status --brief`: the branches of `bd status` without their commits, small enough to read whole
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StatusBrief {
+  pub schema: SchemaVersion,
+  pub repository: String,
+  pub prefix: String,
+  pub head: Head,
+  pub baseline: String,
+  pub branch_count: usize,
+  pub unassigned_count: usize,
+  /// With stacked branches on: the branches with commits, each after its parent
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub forest: Option<Vec<String>>,
+  /// Newest first; omitted with --unassigned
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branches: Option<Vec<BriefBranch>>,
+  /// Newest first
+  pub unassigned: Vec<CommitSummary>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct BriefBranch {
+  pub name: String,
+  pub commit_count: usize,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub issue_key: Option<String>,
+  /// The subject of its newest commit, without the `(prefix)`
+  pub newest: String,
+  /// The parent its commits declare, with stacked branches on
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent: Option<String>,
+  /// Why it is not built: its parent can't be built on
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub blocked_by: Option<StackBlockSummary>,
+  /// Why the branch can't be placed in the stack
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub problems: Vec<StackIssue>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -335,4 +379,35 @@ fn read_virtual_tips(context: &RepoContext) -> Result<HashMap<String, String>, C
       .filter_map(|line| line.rsplit_once(' ').map(|(reference, id)| (reference.to_string(), id.to_string())))
       .collect(),
   )
+}
+
+/// `bd status --brief`: `bd status` cut down to one line of facts per branch
+pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBrief, CliError> {
+  let full = status(context, args)?;
+  let branches = full.branches.map(|branches| {
+    branches
+      .into_iter()
+      .map(|branch| BriefBranch {
+        newest: branch.commits.into_iter().next().map_or_default(|commit| commit.subject),
+        name: branch.name,
+        commit_count: branch.commit_count,
+        issue_key: branch.issue_key,
+        parent: branch.parent,
+        blocked_by: branch.blocked_by,
+        problems: branch.problems,
+      })
+      .collect()
+  });
+  Ok(StatusBrief {
+    schema: SchemaVersion,
+    repository: full.repository,
+    prefix: full.prefix,
+    head: full.head,
+    baseline: full.baseline,
+    branch_count: full.branch_count,
+    unassigned_count: full.unassigned_count,
+    forest: full.forest,
+    branches,
+    unassigned: full.unassigned.unwrap_or_default(),
+  })
 }

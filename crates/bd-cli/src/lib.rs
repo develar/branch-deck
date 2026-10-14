@@ -2,6 +2,7 @@
 //! JSON on stdout, every object with `"schema": 1`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
+pub mod areas;
 pub mod branch_stats;
 pub mod check_command;
 pub mod commits;
@@ -19,10 +20,11 @@ pub mod rewrite;
 pub mod schema;
 pub mod status;
 pub mod sync_command;
+pub mod version;
 
 use crate::agent_help::{AGENT_HELP, skill_text};
 use crate::check_command::{CheckArgs, check};
-use crate::commits::{CommitsArgs, commits};
+use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
 use crate::error::{CliError, ErrorCode};
@@ -31,8 +33,9 @@ use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
-use crate::status::{StatusArgs, status};
+use crate::status::{StatusArgs, status, status_brief};
 use crate::sync_command::{SyncOutput, sync};
+use crate::version::{VERSION, version};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -41,7 +44,12 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "bd", about = "Branch Deck for agents: JSON on stdout. Start with `bd help agent`", disable_help_subcommand = true)]
+#[command(
+  name = "bd",
+  version = VERSION,
+  about = "Branch Deck for agents: JSON on stdout. Start with `bd help agent`",
+  disable_help_subcommand = true
+)]
 struct Cli {
   /// Run in this repository instead of the current directory
   #[arg(short = 'C', value_name = "REPO", global = true)]
@@ -89,6 +97,8 @@ enum Command {
   Describe(DescribeArgs),
   /// The JSON Schema of every output
   Schema,
+  /// The version of Branch Deck and of the git it runs, as JSON; also `bd --version`
+  Version,
   /// Let coding agents find bd: a `bd` symlink in ~/.local/bin (macOS, Linux) and the skill of `bd help skill` in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
@@ -100,28 +110,34 @@ enum Command {
 pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
   let stdout = std::io::stdout();
   let mut out = stdout.lock();
-  let cli = match parse(args, &mut out) {
+  let environment = Environment::from_process();
+  let cli = match parse(args, &environment, &mut out) {
     Ok(cli) => cli,
     Err(exit_code) => return exit_code,
   };
   init_logging(cli.verbose);
-  execute(&cli, &Environment::from_process(), &mut out)
+  execute(&cli, &environment, &mut out)
 }
 
 /// `run` with an injected environment and output, for tests
 pub fn run_with(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> i32 {
-  match parse(args, out) {
+  match parse(args, environment, out) {
     Ok(cli) => execute(&cli, environment, out),
     Err(exit_code) => exit_code,
   }
 }
 
-fn parse(args: impl IntoIterator<Item = OsString>, out: &mut dyn Write) -> Result<Cli, i32> {
+fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> Result<Cli, i32> {
   Cli::try_parse_from(std::iter::once(OsString::from("bd")).chain(args)).map_err(|e| match e.kind() {
-    ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+    ErrorKind::DisplayHelp => {
       let _ = write!(out, "{}", e.render());
       0
     }
+    // JSON as everything else on stdout, the same as `bd version`
+    ErrorKind::DisplayVersion => match print(out, &version(environment)) {
+      Ok(()) => 0,
+      Err(error) => print_error(out, &error),
+    },
     _ => print_error(out, &CliError::new(ErrorCode::InvalidArguments, e.render().to_string().trim())),
   })
 }
@@ -148,7 +164,9 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
   };
   let context = || RepoContext::resolve(environment, &options);
   let result = match &cli.command {
+    Command::Status(args) if args.brief => context().and_then(|context| status_brief(&context, args)).and_then(|output| print(out, &output)),
     Command::Status(args) => context().and_then(|context| status(&context, args)).and_then(|output| print(out, &output)),
+    Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),
     Command::Group(args) => context().and_then(|context| group(&context, args)).and_then(|output| print(out, &output)),
     Command::Rename(args) => context().and_then(|context| rename(&context, args)).and_then(|output| print(out, &output)),
@@ -161,6 +179,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
+    Command::Version => print(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
@@ -203,6 +222,8 @@ fn io_error(error: std::io::Error) -> CliError {
 }
 
 #[cfg(test)]
+mod areas_test;
+#[cfg(test)]
 mod check_test;
 #[cfg(test)]
 mod commits_test;
@@ -226,3 +247,5 @@ mod schema_test;
 mod status_test;
 #[cfg(test)]
 mod sync_test;
+#[cfg(test)]
+mod version_test;
