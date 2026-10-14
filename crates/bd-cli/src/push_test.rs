@@ -42,12 +42,16 @@ fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
     .unwrap_or_else(|| panic!("no {name} in {output}"))
 }
 
-/// `bd push auth` has nothing to push, and its lease is the recorded push
-fn assert_pushes_up_to_date_on_the_record(repo: &TestRepo) {
+/// `bd push auth` has nothing to push, and its lease is the remote head its sync saw: the pushed commit
+fn assert_pushes_up_to_date_on_the_seen_head(repo: &TestRepo) {
   let (exit_code, output) = run_in(repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   let auth = branch(&output, "auth");
-  assert_eq!((&auth["status"], &auth["lease_source"]), (&json!("up_to_date"), &json!("recorded")));
+  let tip = git(repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
+  assert_eq!(
+    (&auth["status"], &auth["lease"], &auth["lease_source"]),
+    (&json!("up_to_date"), &json!(short_id(&tip)), &json!("expected"))
+  );
 }
 
 fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
@@ -87,8 +91,8 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
   let (_, schema) = run_in(&repo, &["schema"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 
-  // nothing new: the lease is the recorded push
-  assert_pushes_up_to_date_on_the_record(&repo);
+  // nothing new: the lease is the remote head the sync saw
+  assert_pushes_up_to_date_on_the_seen_head(&repo);
 }
 
 #[test_log::test]
@@ -131,14 +135,13 @@ fn all_needs_yes_and_unsynced_branches_are_refused() {
   assert!(output["error"]["message"].as_str().unwrap().contains("c is not synced"), "{output}");
 }
 
-#[test_log::test]
-fn a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced() {
-  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
-  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let pushed = git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]);
+/// The file and the content of the commit `push_from_elsewhere` makes for `subject`
+fn their_change(subject: &str) -> (String, String) {
+  (format!("{}.txt", subject.to_lowercase().replace(' ', "-")), format!("{subject}\n"))
+}
 
-  // someone else adds a commit to the remote branch from another clone; the remote-tracking ref doesn't know
+/// Someone else commits `subject` (`their_change`) onto the remote branch `AUTH` from another clone; returns the commit
+fn push_from_elsewhere(remote: &TempDir, subject: &str) -> String {
   let elsewhere = tempfile::tempdir().unwrap();
   let run = |args: &[&str]| {
     let status = std::process::Command::new("git").args(args).current_dir(elsewhere.path()).output().unwrap();
@@ -146,19 +149,72 @@ fn a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced() {
   };
   run(&["clone", "-q", "--branch", AUTH, remote.path().to_str().unwrap(), "."]);
   disable_background_maintenance(elsewhere.path());
-  run(&[
-    "-c",
-    "user.name=Other",
-    "-c",
-    "user.email=other@example.com",
-    "commit",
-    "-q",
-    "--allow-empty",
-    "-m",
-    "Someone else",
-  ]);
+  let (file, content) = their_change(subject);
+  std::fs::write(elsewhere.path().join(&file), content).unwrap();
+  run(&["add", &file]);
+  run(&["-c", "user.name=Other", "-c", "user.email=other@example.com", "commit", "-q", "-m", subject]);
   run(&["push", "-q", "origin", AUTH]);
-  let other = remote_tip(&remote, AUTH);
+  remote_tip(remote, AUTH)
+}
+
+/// Someone else's fetched commit that the branch has by content (the user brought it in): the remote lacks nothing,
+/// and a plain push goes through on the first try, although Branch Deck's last push is older
+#[test_log::test]
+fn a_plain_push_replaces_a_remote_commit_the_branch_has_by_content() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let theirs = push_from_elsewhere(&remote, "Their fix");
+  git(&repo, &["fetch", "-q", "origin"]);
+  let (file, content) = their_change("Their fix");
+  write(&repo, &file, &content);
+  commit_all(&repo, "(auth) Their fix", 1_700_000_500);
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let auth = branch(&output, "auth");
+  assert_eq!((&auth["lease"], &auth["lease_source"]), (&json!(short_id(&theirs)), &json!("expected")));
+  assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// A remote the sync doesn't compare with: the lease is the record, else the remote-tracking ref, else absent
+#[test_log::test]
+fn another_remote_leases_on_the_record() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  git(&repo, &["remote", "add", "mirror", remote.path().to_str().unwrap()]);
+  // the baseline may be detected on either remote
+  git(&repo, &["update-ref", "refs/remotes/mirror/master", "refs/remotes/origin/master"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--remote", "mirror"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch(&output, "auth")["lease_source"], json!("absent"));
+
+  write(&repo, "more.txt", "more\n");
+  commit_all(&repo, "(auth) Add logout", 1_700_000_500);
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--remote", "mirror"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch(&output, "auth")["lease_source"], json!("recorded"));
+  assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// The subjects of the `dropped_commits` of a remote status in an output
+fn dropped_subjects(remote: &Value) -> Vec<&str> {
+  remote["dropped_commits"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|commit| commit["subject"].as_str().unwrap())
+    .collect()
+}
+
+#[test_log::test]
+fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed = git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]);
+
+  // someone else adds a commit to the remote branch; the remote-tracking ref doesn't know
+  let other = push_from_elsewhere(&remote, "Someone else");
   write(&repo, "more.txt", "more\n");
   commit_all(&repo, "(auth) Add logout", 1_700_000_500);
 
@@ -167,16 +223,60 @@ fn a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced() {
   assert_eq!(output["error"]["retryable"], json!(true));
   assert_eq!(remote_tip(&remote, AUTH), other, "the remote is unchanged");
   assert_eq!(git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]), pushed, "nothing is recorded");
+  // bd fetched the branch and says what the remote has now
+  assert_eq!(git(&repo, &["rev-parse", &format!("refs/remotes/origin/{AUTH}")]), other);
+  let rejected = &output["error"]["branches"][0];
+  assert_eq!(rejected["name"], json!("auth"));
+  assert_eq!((&rejected["remote"]["head"], &rejected["remote"]["behind"]), (&json!(short_id(&other)), &json!(1)));
+  assert_eq!(dropped_subjects(&rejected["remote"]), ["Someone else"]);
+  assert_eq!(rejected["remote"]["dropped_commits"][0]["author"], json!("Other"));
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &output, "error");
 
-  // fetched, the remote branch is ahead: a push needs --force, leased on what was fetched
-  git(&repo, &["fetch", "-q", "origin"]);
+  // the remote branch has a commit the branch lacks: a push needs --force, leased on what the sync saw
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_error(&output, exit_code, (4, "push_refused"));
+  assert_eq!(dropped_subjects(&output["error"]["branches"][0]["remote"]), ["Someone else"]);
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
   assert_eq!(exit_code, 0, "{output}");
+  let auth = branch(&output, "auth");
   assert_eq!(
-    (&branch(&output, "auth")["status"], &branch(&output, "auth")["lease_source"]),
-    (&json!("forced"), &json!("tracking"))
+    (&auth["status"], &auth["lease"], &auth["lease_source"]),
+    (&json!("forced"), &json!(short_id(&other)), &json!("expected"))
+  );
+  assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// --force replaces the remote head the sync compared with, not a commit pushed after the last fetch;
+/// --expect-remote pins the lease to the head the user saw
+#[test_log::test]
+fn force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  push_from_elsewhere(&remote, "Seen fix");
+  git(&repo, &["fetch", "-q", "origin"]);
+  let newer = push_from_elsewhere(&remote, "Unseen fix");
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
+  assert_error(&output, exit_code, (3, "lease_rejected"));
+  assert_eq!(remote_tip(&remote, AUTH), newer, "the unseen commit is not dropped");
+  let rejected = &output["error"]["branches"][0]["remote"];
+  assert_eq!(dropped_subjects(rejected), ["Unseen fix", "Seen fix"]);
+  let head = rejected["head"].as_str().unwrap().to_string();
+  assert_eq!(head, short_id(&newer));
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--force", "--expect-remote", "f00d"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "other", "--expect-remote", &head]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+
+  // the user saw the two dropped commits and approved
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--force", "--expect-remote", &head]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&branch(&output, "auth")["lease"], &branch(&output, "auth")["lease_source"]),
+    (&json!(head), &json!("expected"))
   );
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
@@ -208,11 +308,11 @@ fn the_app_and_bd_share_the_lease() {
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
 
-  // the app pushes, then bd: the app's push is the recorded lease
+  // the app pushes, then bd: the app's push moved the remote head bd's sync sees
   app_push(&repo, "auth");
   let tip = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_eq!(git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]), tip);
-  assert_pushes_up_to_date_on_the_record(&repo);
+  assert_pushes_up_to_date_on_the_seen_head(&repo);
   write(&repo, "more.txt", "more\n");
   commit_all(&repo, "(auth) Add logout", 1_700_000_500);
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
@@ -227,7 +327,7 @@ fn the_app_and_bd_share_the_lease() {
   let tip = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_eq!(remote_tip(&remote, AUTH), tip);
   assert_eq!(git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]), tip);
-  // bd again: the app's push moved the lease, so this is not a stale lease
+  // bd again: the app's push moved the remote head, so this is not a stale lease
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(branch(&output, "auth")["status"], json!("up_to_date"));

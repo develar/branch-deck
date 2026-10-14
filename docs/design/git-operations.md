@@ -465,10 +465,17 @@ Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
 2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… <tip>:refs/heads/<b>…`
    through `execute_remote_command_accepting` (exit 1, a rejected ref, still prints the porcelain report). Atomic: a
    stack is pushed whole or not at all, and a rejection is `lease_rejected`.
-3. The lease comes from `push_lease`, which the app's push button uses as well (below). With `--force` it is the
-   remote-tracking ref: the user replaces what they fetched and saw.
+3. The lease comes from `push_lease`, which the app's push button uses as well (below): the remote head the sync of
+   the same run compared with (`remote.head`), a view as fresh as the app's row, or with `--expect-remote <commit>`
+   that commit. Step 1 decides whether the push may drop commits; the lease only makes sure it drops nothing the sync
+   didn't see. With `--remote` other than `origin`, which the remote status doesn't compare with, the lease is the
+   recorded push, else that remote's remote-tracking ref.
+4. A rejection fetches the rejected branches (`fetch_remote_branches`) and lists them in `lease_rejected` with their
+   new remote status (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The
+   agent shows what a push drops and, once the user approves, pushes with `--force --expect-remote <head>`.
 
-Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/remote_command.rs`.
+Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push_lease.rs`,
+`crates/sync-core/src/remote_command.rs`.
 
 #### Push lease
 
@@ -480,9 +487,11 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   the row showed no remote branch), and `prepare_push_expecting` leases on it. A Force Push drops what the row
   listed and nothing else, also when Branch Deck's last push is older than someone else's fetched commit; a plain
   push after the user brought that commit into the branch goes through as well.
-- `prepare_push` (`bd push`) reads, with one `for-each-ref` over explicit refs,
-  each branch's local tip, its recorded push `refs/branch-deck/pushed/<branch>` and its remote-tracking ref. The
-  lease is the record, else the remote-tracking ref (a branch pushed before records existed), else "must not exist".
+- The sync `bd push` runs first gives it the same view, so `bd push` leases on the sync's `remote_tip` too.
+- `prepare_push` (`bd push --remote` other than `origin`: no fresh status) reads, with one `for-each-ref` over
+  explicit refs, each branch's local tip, its recorded push `refs/branch-deck/pushed/<branch>` and its
+  remote-tracking ref. The lease is the record, else the remote-tracking ref (a branch pushed before records
+  existed), else "must not exist".
   A background fetch moves `refs/remotes/…`, never a record, so it can't defeat the lease the way a bare
   `--force-with-lease=<ref>` (leased on the remote-tracking ref) can.
 - The push names the tip it read (`<tip>:refs/heads/<branch>`), so the record is exactly what was pushed even if the
@@ -572,9 +581,9 @@ recovery hint (`git reset -q`).
    - it deletes the temporary ref in the same step.
 
 7. **Decision**: push with `--force-with-lease=refs/heads/<branch>:<expected>`, where `<expected>` is the remote head
-   of the status the user saw (the app's push button), else the commit recorded in
-   `refs/branch-deck/pushed/<branch>` by the last push of the app or `bd` ("Push lease"). A rejected push fetches the
-   branch and reports what the remote has now.
+   of the status the user saw (the app's row, the sync `bd push` runs first, `--expect-remote`), else, without a
+   fresh status, the commit recorded in `refs/branch-deck/pushed/<branch>` by the last push of the app or `bd` ("Push
+   lease"). A rejected push fetches the branch and reports what the remote has now.
    **Rationale**: a virtual branch is rebuilt on every sync, so the push must force. The lease refuses to overwrite a
    remote branch that changed since the user looked, also after a background fetch, which a lease on the
    remote-tracking ref would accept. Leasing only on the record made a branch stuck: once someone else's commit was

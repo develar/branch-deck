@@ -215,6 +215,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     code,
     message,
     commits: error.commits().to_vec(),
+    branches: Vec::new(),
   }
 }
 

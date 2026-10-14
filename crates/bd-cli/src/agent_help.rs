@@ -38,8 +38,11 @@ Workflow:
    kept in `branch.<name>.description`. `bd describe <branch>` prints it; --clear removes it.
 6. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes): it
    syncs, pushes parents first with a lease per ref, and prints a ready `gh pr create` per branch (pipe
-   its `body` into it). `push_refused` (exit 4): a branch didn't sync, is behind its remote branch
-   (--force replaces it), or its parent isn't on the remote. `lease_rejected` (exit 3): fetch and retry.
+   its `body` into it). `push_refused` (exit 4): a branch didn't sync, is behind its remote branch, or its
+   parent isn't on the remote. `lease_rejected` (exit 3): the remote changed since, nothing was pushed, and
+   bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits` lists what a
+   push drops: show it, and only after the user approves, `bd push <branch> --force --expect-remote
+   <remote.head>`.
 
 Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits
 between branches. Errors with exit 2 (invalid_plan, not_ahead_of_baseline) mean the plan must change.

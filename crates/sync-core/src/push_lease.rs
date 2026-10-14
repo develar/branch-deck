@@ -1,21 +1,20 @@
 //! The lease of a virtual branch push, shared by the app's push and `bd push`.
 //!
 //! A virtual branch is rebuilt on every sync, so a push must force; the lease keeps it from overwriting a remote
-//! branch someone else updated. The lease is the commit Branch Deck last pushed for the ref, recorded in
-//! `refs/branch-deck/pushed/<branch>` at push time:
+//! branch that changed since the user looked. The lease is the remote head of the status the user saw
+//! (`prepare_push_expecting`): the app's row, the sync `bd push` runs first, or `bd push --expect-remote`. The push
+//! replaces exactly that remote state, also after someone else's commit was fetched and shown as dropped, or brought
+//! into the branch. A rejected push fetches the branches (`fetch_remote_branches`), so the caller can show what the
+//! remote has now.
+//!
+//! Without a fresh status (`bd push --remote` other than `origin`, which the status doesn't compare with) the lease is
+//! the commit Branch Deck last pushed for the ref, recorded in `refs/branch-deck/pushed/<branch>` at push time
+//! (`prepare_push`), else the remote-tracking ref, else the branch must not exist on the remote:
 //! - one `for-each-ref` reads the records with the local tips and the remote-tracking refs, and one `update-ref --stdin`
-//!   records a push of any number of branches;
+//!   records a push of any number of branches; every push records, whatever its lease;
 //! - the record keeps the pushed commit reachable, and no default refspec fetches or pushes `refs/branch-deck/`;
 //! - a background fetch moves the remote-tracking ref, never the record, so it can't defeat the lease the way a bare
 //!   `--force-with-lease=<ref>` (leased on the remote-tracking ref) can.
-//!
-//! Without a record (a branch pushed before records existed, or by another tool) the lease is the remote-tracking ref,
-//! and without that the branch must not exist on the remote.
-//!
-//! A caller that showed the user the remote status leases on the remote head of that status instead
-//! (`prepare_push_expecting`): the app's push button. The push then replaces exactly the remote state the user saw,
-//! also after someone else's commit was fetched and shown as dropped. A rejected push fetches the branches
-//! (`fetch_remote_branches`), so the caller can show what the remote has now.
 
 use crate::remote_command::{execute_remote_command, execute_remote_command_accepting};
 use anyhow::{Result, anyhow};

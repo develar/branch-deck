@@ -83,13 +83,63 @@ pub struct ConflictSummary {
   pub missing_commits: Vec<String>,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct RemoteSummary {
   pub exists: bool,
   /// Commits of the virtual branch the remote doesn't have: all of them while there is no remote branch
   pub unpushed: usize,
-  /// Commits the remote has that the virtual branch doesn't
+  /// Commits the remote has that the virtual branch doesn't: a push with --force drops them
   pub behind: u32,
+  /// The remote-tracking commit the counts compare with; `null` without a remote branch. `bd push --force` leases on
+  /// it, as `--expect-remote` does
+  pub head: Option<String>,
+  /// The newest of the `behind` commits, newest first, at most ten
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dropped_commits: Vec<DroppedCommitSummary>,
+  /// `head` in full, for the lease
+  #[serde(skip)]
+  pub head_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DroppedCommitSummary {
+  pub commit: String,
+  pub subject: String,
+  pub author: String,
+  /// Unix seconds
+  pub author_time: u32,
+}
+
+impl RemoteSummary {
+  /// `commit_count`: the commits of the branch, all of them unpushed without a remote branch
+  pub fn new(remote: &RemoteStatusUpdate, commit_count: usize, short: &ShortIds) -> Self {
+    Self {
+      exists: remote.remote_exists,
+      unpushed: if remote.remote_exists { remote.unpushed_commits.len() } else { commit_count },
+      behind: remote.commits_behind,
+      head: remote.remote_tip.as_deref().map(|head| short.get(head).to_string()),
+      dropped_commits: remote
+        .dropped_commits
+        .iter()
+        .map(|commit| DroppedCommitSummary {
+          commit: short.get(&commit.id).to_string(),
+          subject: commit.subject.clone(),
+          author: commit.author.clone(),
+          author_time: commit.author_time,
+        })
+        .collect(),
+      head_id: remote.remote_tip.clone(),
+    }
+  }
+
+  /// The ids `new` shortens, for `RepoContext::short_ids`
+  pub fn ids(remote: &RemoteStatusUpdate) -> impl Iterator<Item = &str> {
+    remote
+      .remote_tip
+      .as_deref()
+      .into_iter()
+      .chain(remote.dropped_commits.iter().map(|commit| commit.id.as_str()))
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -238,6 +288,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
     })
     .collect();
   ids.extend(conflicts);
+  ids.extend(remotes.values().flat_map(RemoteSummary::ids));
   let short = context.short_ids(ids);
 
   let branches = grouped
@@ -268,12 +319,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
         error,
         conflict,
         blocked: blocked.remove(&name).unwrap_or_default().iter().map(|id| short.get(id).to_string()).collect(),
-        remote: remotes.remove(&name).map(|remote| RemoteSummary {
-          exists: remote.remote_exists,
-          // without a remote branch every commit is unpushed
-          unpushed: if remote.remote_exists { remote.unpushed_commits.len() } else { commit_count },
-          behind: remote.commits_behind,
-        }),
+        remote: remotes.remove(&name).map(|remote| RemoteSummary::new(&remote, commit_count, &short)),
         name,
       }
     })

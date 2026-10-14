@@ -1,4 +1,5 @@
 use crate::output::SchemaVersion;
+use crate::sync_command::RemoteSummary;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
@@ -25,7 +26,7 @@ pub enum ErrorCode {
   Conflict,
   /// HEAD moved since the caller read it; read again and retry
   HeadMoved,
-  /// The remote ref moved since the last push; fetch, check and retry
+  /// The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now
   LeaseRejected,
   /// Another git process holds a lock; retry
   Locked,
@@ -72,6 +73,8 @@ pub struct CliError {
   pub message: String,
   /// The commits the error is about, if any
   pub commits: Vec<String>,
+  /// The branches the error is about, with their remote status, if any
+  pub branches: Vec<ErrorBranch>,
 }
 
 impl CliError {
@@ -80,6 +83,7 @@ impl CliError {
       code,
       message: message.into(),
       commits: Vec::new(),
+      branches: Vec::new(),
     }
   }
 
@@ -90,6 +94,7 @@ impl CliError {
         code: self.code,
         message: self.message.clone(),
         commits: self.commits.clone(),
+        branches: self.branches.clone(),
         retryable: self.code.retryable(),
       },
     }
@@ -122,6 +127,19 @@ pub struct ErrorBody {
   pub message: String,
   /// The commits the error is about; empty when it is about none
   pub commits: Vec<String>,
+  /// The branches whose remote branch has commits they lack, with their remote status: the rejected ones of
+  /// `lease_rejected` as bd fetched them, the ones behind of `push_refused`
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub branches: Vec<ErrorBranch>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
+}
+
+/// A branch an error is about
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ErrorBranch {
+  pub name: String,
+  /// Its remote status after the fetch; `null` when the push went to a remote other than `origin`, which the status
+  /// doesn't compare with
+  pub remote: Option<RemoteSummary>,
 }

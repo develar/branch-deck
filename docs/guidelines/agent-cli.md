@@ -279,7 +279,7 @@ detection of archived branches and the update check of the checked out branch. I
 ```json
 {"schema":1,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","status":"created","commit_count":2,
-   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0}},
+   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null}},
   {"name":"login","ref":"…","status":"merge_conflict","commit_count":1,"tip":null,
    "conflict":{"commit":"9d0e1f2a","subject":"(login) Use the session","files":["src/session.rs"],
      "missing_commits":["5f6a7b8c"]}}],
@@ -291,10 +291,14 @@ detection of archived branches and the update check of the checked out branch. I
   reason in `error`), `error` (with `error`) or `merge_conflict` (with `conflict`: the
   commit whose cherry-pick conflicts, the files, and the commits of other branches the change likely needs).
   `blocked` lists the commits not synced after an earlier failure.
+- `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
+  commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with
+  (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:
+  `{"commit","subject","author","author_time"}`.
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
 - The exit code is 1 when any branch has a conflict; the summary is printed either way.
 
-### `bd push <branch>… | --all --yes [--force] [--remote R] [--dry-run]`
+### `bd push <branch>… | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run]`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
 repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)).
@@ -309,11 +313,20 @@ repository lock (see "Agent push" in [Git Operations](../design/git-operations.m
 
 - Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has
   commits it lacks (`behind`) without `--force`, and a stacked branch whose parent isn't on the remote or pushed with
-  it. `--all` needs `--yes`.
-- `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the commit Branch Deck last pushed, from the
-  app or bd (`lease_source: recorded`, kept in `refs/branch-deck/pushed/`), else the fetched remote branch
-  (`tracking`, also with `--force`), else none (`absent`: the branch must not exist). A remote that moved since is `lease_rejected`
-  (exit 3): fetch, check and retry.
+  it. `--all` needs `--yes`. A branch refused as behind is in `error.branches` with its remote status, as below.
+- `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
+  compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
+  exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,
+  `--force` drops the `behind` commits of that sync, and nothing pushed since is lost. `--expect-remote COMMIT` leases
+  one branch on the given remote commit, a `remote.head` bd printed: the remote state the user saw.
+- With `--remote` other than `origin`, which the status doesn't compare with, the lease is the commit Branch Deck last
+  pushed, from the app or bd (`recorded`, kept in `refs/branch-deck/pushed/`), else that remote's remote-tracking
+  branch (`tracking`, also with `--force`), else none (`absent`).
+- A remote branch that is not where the lease expects it is `lease_rejected` (exit 3), nothing pushed or recorded. bd
+  fetches the rejected branches and lists them in `error.branches` with their remote status as fetched:
+  `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`
+  (`remote` is `null` for another remote than `origin`). Show the `dropped_commits` to the user; only after the user
+  approves, `bd push auth --force --expect-remote 7c8d9e0f`.
 - `pull_request.base` is the parent's remote branch, or the baseline without the remote (`master`). With a
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
   `--fill`.

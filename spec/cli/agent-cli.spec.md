@@ -223,13 +223,23 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
   without `--force`, and a stacked branch whose parent is neither on the remote nor pushed with it.
   [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
-- The lease must be the commit Branch Deck last pushed, recorded in `refs/branch-deck/pushed/` at push time by both
-  `bd push` and the app's push, so a background fetch can't defeat it and either one's push leaves the other's next
-  push valid (the app leases on the remote head its row showed, [Outgoing Commits](../repository/outgoing.spec.md)); a
-  remote that moved since must be `lease_rejected` (exit 3) with nothing pushed or recorded, and `--force` must lease
-  on the fetched remote branch.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced`, `the_app_and_bd_share_the_lease`)
+- The lease must be the remote head the sync of the same run compared with (`remote.head`), as the app leases on the
+  remote head its row showed ([Outgoing Commits](../repository/outgoing.spec.md)): a remote commit the branch has by
+  content must go through on the first try, `--force` must drop what the sync counted as `behind` and nothing pushed
+  since, and either one's push must leave the other's next push valid. `--expect-remote <commit>` must lease one
+  branch on that commit.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`a_plain_push_replaces_a_remote_commit_the_branch_has_by_content`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `the_app_and_bd_share_the_lease`)
+- With `--remote` other than `origin`, which the remote status doesn't compare with, the lease must be the commit
+  Branch Deck last pushed, recorded in `refs/branch-deck/pushed/` by every push of bd and the app, so a background
+  fetch can't defeat it; else the remote-tracking ref (also with `--force`), else the branch must not exist.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`another_remote_leases_on_the_record`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`the_lease_is_the_record_else_the_tracking_ref_else_absent`)
+- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 3) with nothing pushed or
+  recorded; bd must fetch the rejected branches and list them in `error.branches` with their remote status as fetched
+  (`head`, `behind`, `dropped_commits`). A branch refused as behind is listed the same way, and `bd sync` prints the
+  same remote status per branch.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`)
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
   the head, the `bd describe` title and body, and a ready `gh pr create` command.
   [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_needs_its_parent_on_the_remote`)

@@ -1,23 +1,26 @@
 //! `bd push`: sync, then push the virtual branches in one atomic `git push --porcelain` with an explicit lease per ref,
 //! parents first, and print a ready `gh pr create` per branch.
 //!
-//! The lease is the one the app's push uses too (`sync_core::push_lease`): the commit Branch Deck last pushed for the
-//! ref, kept in `refs/branch-deck/pushed/<branch>`, else the remote-tracking ref. A config key
-//! (`branch.<name>.branchDeckPushed`) would cost one process per branch, and a notes ref would be fetched and pushed
-//! along with the user's notes.
+//! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
+//! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
+//! state; the refusal of a branch behind its remote without `--force` decides whether it may drop commits. A rejected
+//! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync's
+//! remote status doesn't compare with, the lease is the commit Branch Deck last pushed
+//! (`refs/branch-deck/pushed/<branch>`), else the remote-tracking ref.
 
 use crate::context::RepoContext;
 use crate::describe::read_descriptions;
-use crate::error::{CliError, ErrorCode};
+use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
-use crate::sync_command::{SyncState, SyncedBranch, lock, sync_locked};
+use crate::sync_command::{RemoteSummary, SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::grouping::branch_tips;
-use sync_core::push_lease::{PushRef, parse_push_porcelain, prepare_push, record_push};
+use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push, prepare_push_expecting, record_push};
 use sync_core::remote_command::execute_remote_command_accepting;
+use sync_core::remote_status::compute_remote_status_for_branch;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -30,9 +33,14 @@ pub struct PushArgs {
   /// Confirm --all
   #[arg(long, requires = "all")]
   pub yes: bool,
-  /// Push branches the remote has commits for that they don't (behind > 0), leased on the fetched remote branch
+  /// Push branches the remote has commits for that they don't (behind > 0): the push drops the commits the sync
+  /// counted, nothing pushed since
   #[arg(long)]
   pub force: bool,
+  /// Lease on this remote commit: the push replaces the remote branch only if it is still there. Pass the
+  /// `remote.head` of the status the user saw, e.g. of a `lease_rejected` error. Needs exactly one branch
+  #[arg(long, value_name = "COMMIT", conflicts_with = "all")]
+  pub expect_remote: Option<String>,
   /// The remote; default: the remote of the baseline (`origin` for `origin/master`)
   #[arg(long)]
   pub remote: Option<String>,
@@ -97,6 +105,12 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   if args.all && !args.yes {
     return Err(CliError::new(ErrorCode::InvalidArguments, "--all pushes every branch: confirm with --all --yes"));
   }
+  if args.expect_remote.is_some() && args.branches.len() != 1 {
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      "--expect-remote is the remote head of one branch: name exactly one",
+    ));
+  }
 
   let _lock = lock(context)?;
   let synced = sync_locked(context)?;
@@ -138,6 +152,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   let tips = branch_tips(&context.git, &context.repository, &context.prefix)?;
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
+  let mut behind = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
       continue;
@@ -161,6 +176,10 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
         "{name}: the remote branch has {} commits the branch doesn't; pass --force to replace them",
         remote_state.behind
       ));
+      behind.push(ErrorBranch {
+        name: (*name).to_string(),
+        remote: Some(remote_state.clone()),
+      });
     }
     let parent = parent_of(name);
     if let Some(parent) = &parent {
@@ -184,12 +203,27 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     });
   }
   if !refusals.is_empty() {
-    return Err(CliError::new(ErrorCode::PushRefused, format!("Nothing was pushed: {}", refusals.join("; "))));
+    let mut error = CliError::new(ErrorCode::PushRefused, format!("Nothing was pushed: {}", refusals.join("; ")));
+    error.branches = behind;
+    return Err(error);
   }
 
-  // --force replaces what was fetched, not what Branch Deck pushed last
   let full_names: Vec<String> = candidates.iter().map(|candidate| candidate.full_name.clone()).collect();
-  let refs = prepare_push(&context.git, &context.repository, &remote, &full_names, args.force)?;
+  let refs = if let Some(expected) = &args.expect_remote {
+    let expected = resolve_commit(context, expected)?;
+    prepare_push_expecting(&context.git, &context.repository, &[(full_names[0].clone(), Some(expected))])?
+  } else if remote == "origin" {
+    // the remote head the sync just compared with, not what Branch Deck pushed last: a remote commit the branch has by
+    // content goes, and --force drops what the sync counted, but nothing pushed since
+    let expected: Vec<(String, Option<String>)> = candidates
+      .iter()
+      .map(|candidate| (candidate.full_name.clone(), candidate.synced.remote.as_ref().and_then(|remote| remote.head_id.clone())))
+      .collect();
+    prepare_push_expecting(&context.git, &context.repository, &expected)?
+  } else {
+    // the remote status compares with origin: with another remote, the record, else what was fetched from it
+    prepare_push(&context.git, &context.repository, &remote, &full_names, args.force)?
+  };
   let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
   let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
   let mut push_args = vec!["push", "--porcelain", "--atomic"];
@@ -203,19 +237,12 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   let output = execute_remote_command_accepting(&context.git, &push_args, &context.repository, &[1]).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
   let statuses = parse_push_porcelain(&output);
 
-  let rejected: Vec<&str> = candidates
+  let rejected: Vec<&Candidate> = candidates
     .iter()
     .filter(|candidate| statuses.get(&format!("refs/heads/{}", candidate.full_name)).is_none_or(|status| !status.accepted()))
-    .map(|candidate| candidate.synced.name.as_str())
     .collect();
   if !rejected.is_empty() {
-    return Err(CliError::new(
-      ErrorCode::LeaseRejected,
-      format!(
-        "The remote rejected {}: it changed since the last push. Nothing was pushed; fetch, run `bd status` and retry",
-        rejected.join(", ")
-      ),
-    ));
+    return Err(lease_rejected(context, &remote, &synced.baseline, &rejected, args.dry_run));
   }
 
   if !args.dry_run {
@@ -276,6 +303,81 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     dry_run: args.dry_run,
     branches,
   })
+}
+
+/// The full id of the commit `rev` names
+fn resolve_commit(context: &RepoContext, rev: &str) -> Result<String, CliError> {
+  let (id, exit_code) = context
+    .git
+    .execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], &context.repository)?;
+  if exit_code == 0 {
+    Ok(id)
+  } else {
+    Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      format!("--expect-remote {rev} is not a commit: pass the `remote.head` bd printed"),
+    ))
+  }
+}
+
+/// `lease_rejected` for the `rejected` branches: nothing was pushed. The branches are fetched (not on a dry run), and
+/// the error lists what each has now, so the user can see what a push with `--force --expect-remote` would drop
+fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected: &[&Candidate], dry_run: bool) -> CliError {
+  let names = rejected.iter().map(|candidate| candidate.synced.name.as_str()).collect::<Vec<_>>().join(", ");
+  let full_names: Vec<String> = rejected.iter().map(|candidate| candidate.full_name.clone()).collect();
+  if dry_run {
+    return CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {names}: it is not where the lease expects it"));
+  }
+  if let Err(e) = fetch_remote_branches(&context.git, &context.repository, remote, &full_names) {
+    return CliError::new(
+      ErrorCode::NetworkError,
+      format!("The remote rejected {names}: it is not where the lease expects it. Nothing was pushed, and fetching it failed: {e:#}"),
+    );
+  }
+
+  // the remote status compares with origin only
+  let remote_statuses = if remote == "origin" {
+    let computed: anyhow::Result<Vec<_>> = rejected
+      .iter()
+      .map(|candidate| {
+        let parent_ref = candidate.parent.as_deref().map(|parent| to_final_branch_name(&context.prefix, parent)).transpose()?;
+        compute_remote_status_for_branch(
+          &context.git,
+          &context.repository,
+          &candidate.full_name,
+          &candidate.synced.name,
+          None,
+          baseline,
+          parent_ref.as_deref(),
+        )
+        .map(Some)
+      })
+      .collect();
+    match computed {
+      Ok(computed) => computed,
+      Err(e) => return CliError::from(e),
+    }
+  } else {
+    vec![None; rejected.len()]
+  };
+  let short = context.short_ids(remote_statuses.iter().flatten().flat_map(RemoteSummary::ids));
+  let mut error = CliError::new(
+    ErrorCode::LeaseRejected,
+    format!(
+      "The remote rejected {names}: it is not where the lease expects it. Nothing was pushed; bd fetched it, and \
+       `branches` says what the remote has now (`dropped_commits`: the commits a push drops). Show them to the user; to \
+       replace them, push again with --force --expect-remote <remote.head>"
+    ),
+  );
+  error.branches = rejected
+    .iter()
+    .zip(&remote_statuses)
+    .map(|(candidate, status)| ErrorBranch {
+      name: candidate.synced.name.clone(),
+      remote: status.as_ref().map(|status| RemoteSummary::new(status, candidate.synced.commit_count, &short)),
+    })
+    .collect();
+  error
 }
 
 /// A word for a POSIX shell: single-quoted unless it is plain
