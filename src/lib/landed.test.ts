@@ -5,6 +5,9 @@ import {
   appliedUpdateToast,
   describeLanding,
   formatStayLocal,
+  fullyLandedNames,
+  isFullyLanded,
+  landedBranchDescription,
   landedChipLabel,
   landedCountLabel,
   mergeLandedReport,
@@ -57,6 +60,15 @@ describe("landedCountLabel", () => {
     expect(landedChipLabel(branch("wsm", 40, 12), false)).toBe("40 landed · 12 local")
     expect(landedChipLabel(branch("wsm", 5), true)).toBe("Landed")
     expect(landedChipLabel(branch("wsm", 3, 0, true), false)).toBe("3 landed")
+  })
+
+  it("has nothing to push for a branch the fetched baseline has all of, before the update", () => {
+    expect(isFullyLanded(branch("wsm", 5), true)).toBe(true)
+    expect(isFullyLanded(branch("wsm", 40, 12), true)).toBe(false)
+    // after the update a branch still in the table has new commits
+    expect(isFullyLanded(branch("wsm", 5), false)).toBe(false)
+    expect([...fullyLandedNames([branch("wsm", 5), branch("IJPL-257337", 3, 9), branch(null, 2)])]).toEqual(["wsm"])
+    expect(landedBranchDescription("origin/master")).toBe("Already in origin/master. Update to archive the branch.")
   })
 
   it("names the committer once when every branch has the same one", () => {

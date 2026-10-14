@@ -35,11 +35,29 @@ export function landedCountLabel(branch: LandedBranch, compact = false): string 
 }
 
 /**
+ * The fetched baseline has every commit of the branch and the update is still to come (`incoming`): the update archives
+ * the branch, there is nothing to push. After the update a branch still in the table has new commits.
+ */
+export function isFullyLanded(branch: LandedBranch, incoming: boolean): boolean {
+  return incoming && branch.remaining === 0
+}
+
+/** The names of the branches of the landing (`BaselineStatus.landing`) that the fetched baseline has all of */
+export function fullyLandedNames(landing: readonly LandedBranch[]): ReadonlySet<string> {
+  return new Set(landing.flatMap(branch => branch.name !== null && isFullyLanded(branch, true) ? [branch.name] : []))
+}
+
+/** The description of the status and of the push button of a fully landed branch */
+export function landedBranchDescription(upstream: string): string {
+  return `Already in ${upstream}. Update to archive the branch.`
+}
+
+/**
  * The chip of an active branch: "Landed" when the fetched baseline has all of it, else "40 landed · 12 local". After
  * the update a fully landed branch moves to the archive; one still in the table has new commits, so it is "3 landed".
  */
 export function landedChipLabel(branch: LandedBranch, incoming: boolean): string {
-  return incoming && branch.remaining === 0 ? "Landed" : landedCountLabel(branch, true)
+  return isFullyLanded(branch, incoming) ? "Landed" : landedCountLabel(branch, true)
 }
 
 /** Every commit of the branch landed in another form: the baseline has its change, but no commit with its subject */

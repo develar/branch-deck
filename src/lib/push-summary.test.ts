@@ -100,6 +100,17 @@ describe("summarizePushState", () => {
     expect(formatPushSummaryTitle(summary)).toBe("1 commit to push in 1 branch")
   })
 
+  it("skips a branch the fetched baseline has all of: the update archives it", () => {
+    const branches = [
+      branch("feature-auth", { remote: { exists: false, commitsAhead: 1, myCommitsAhead: 1 } }),
+      branch("search", { remote: { exists: false, commitsAhead: 2, myCommitsAhead: 2 } }),
+    ]
+    const summary = summarizePushState(branches, name => name === "feature-auth")
+    expect(summary.branches.map(it => it.name)).toEqual(["search"])
+    expect(formatPushSummaryTitle(summary)).toBe("2 commits to push in 1 branch")
+    expect(summarizePushState(branches).branches).toHaveLength(2)
+  })
+
   it("is empty when everything is pushed", () => {
     const summary = summarizePushState([branch("a"), branch("b", { remote: null, hasError: true })])
     expect(summary.branches).toEqual([])

@@ -6,6 +6,7 @@ import { notifyError } from "@/lib/errors"
 import { showStackedPushToast } from "@/lib/git/stacked-push-toast"
 import { formatPushMode, isPushIntoRobotRisky } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
+import { dropsRemoteCommits } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { stackPushOrder } from "@/lib/stack"
 import { recordPush } from "@/stores/activity"
@@ -13,6 +14,8 @@ import type { RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchRobot, restartPatronusRobot } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
+import type { PushConfirmTarget } from "@/stores/push-confirm"
+import { requestPushConfirm } from "@/stores/push-confirm"
 import type { PushGuardAnswer } from "@/stores/push-guard"
 import { askPushGuard } from "@/stores/push-guard"
 import { vcsRequestFactory } from "@/stores/repository"
@@ -144,9 +147,23 @@ async function guardRunningRobot(branchName: string, startsRobot: boolean): Prom
 }
 
 /**
+ * Pushes a branch at once, unless the push drops remote commits the branch lacks (someone else's work): then the push
+ * button of `target` opens its description with the dropped commits, and the Force Push button there pushes with
+ * `options`. The keyboard (P in the preview) and the remote-moved toast push through here, as a click on the button does.
+ */
+export function pushOrConfirm(branchName: string, target: PushConfirmTarget, options: PushOptions = {}): void {
+  const remoteStatus = getBranch(branchName)?.remoteStatus ?? null
+  if (remoteStatus !== null && dropsRemoteCommits(remoteStatus)) {
+    requestPushConfirm(branchName, target, options)
+    return
+  }
+  void pushBranch(branchName, options)
+}
+
+/**
  * The remote branch moved since its status was shown, so nothing was pushed: the toast says what the remote has now,
- * and its action pushes over exactly that, through the Safe Push question as any push. A Safe Push the push canceled
- * to restart is restarted by that push.
+ * and its action pushes over exactly that, through the Safe Push question as any push; a push that drops the commits
+ * the remote has now confirms in the row first. A Safe Push the push canceled to restart is restarted by that push.
  */
 function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): void {
   const texts = buildRemoteMovedTexts(branchName, remoteStatus)
@@ -166,7 +183,7 @@ function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, re
         children: texts.action,
         onClick: () => {
           toast.close(id)
-          void pushBranch(branchName, { expectedRemote: remoteStatus.remoteTip, restartRobot })
+          pushOrConfirm(branchName, "row", { expectedRemote: remoteStatus.remoteTip, restartRobot })
         },
       },
     }),

@@ -14,7 +14,10 @@ targets:
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/useOutgoingAttention.ts
+  - ../../src/hooks/useLandedIn.ts
   - ../../src/lib/push-summary.ts
+  - ../../src/lib/ui-types.ts
+  - ../../src/stores/push-confirm.ts
   - ../../src/lib/remote-status.ts
   - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
@@ -73,6 +76,10 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
   must not count either, but the overview says how many there are.
   [@test] ../../src/lib/push-summary.test.ts (`skips the branches whose row offers no push and counts the ones not loaded`)
+- A branch the fetched baseline has all of ("landed", [Landed Commits](landed-commits.spec.md#before-the-update)) must
+  not count: the update archives it, nothing of the user's is left to push. Its push button stays, quiet.
+  [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The state of a branch must follow the label of its push button:
   - "create" for a branch not on the remote (`Create Remote (3)`);
   - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, or the branch was rebased
@@ -191,8 +198,9 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
   warning toast stays until the user acts: "login changed on the remote", "3 commits you don't have (by Ann and Bob).
   Nothing was pushed.", with the push the row now offers ("Force Push", "Push", "Create Remote") as its action,
-  leased on the fetched head; it asks before a push into a running Safe Push as any push does
-  ([Patronus](../branch/patronus.spec.md)). A stack push stops at that branch.
+  leased on the fetched head; a push that drops the commits the remote has now confirms first, as below, and it asks
+  before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A stack push stops
+  at that branch.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`)
   [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to create a branch deleted on the remote`, `names the distinct authors in the order of the commits`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)
@@ -200,6 +208,18 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   short id and age, then "and N more" past the ten listed.
   [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
+- A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens
+  its description with the dropped commits and a `Force Push (1)` button below them, which pushes. Leaving the button
+  keeps the question open; Escape, a click elsewhere or on the push button again dismisses it, and nothing is pushed.
+  A safe push (Push, Create Remote, the Force Push of a rebased branch) pushes on the click. The action of the
+  remote-moved toast and P in the [branch preview](../branch/branch-preview.spec.md) ask the same way: the toast opens
+  the question of the row's push button (scrolled into view), P that of the preview's footer.
+  [@test] ../../src/hooks/usePushButton.test.ts (`asks first only for a push that drops remote commits`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show what the remote has when it moved since the status, and force push over it from the toast`, `should push a rebased branch at once: its force push drops nothing`)
+  [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should ask before P force pushes over a commit the branch lacks`)
+- The description must open on hover also while the button is disabled: "Everything is pushed.", why a blocked
+  stacked branch can't push, the progress of a running push.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should describe a disabled push on hover`)
 - A push the remote refuses while the lease holds (a hook, a protected branch) must be an error.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
@@ -238,6 +258,15 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
   one truncated line with its issue links and its dimmed conventional-commit prefix, as in the commit rows, the
   author, the `font-mono` short id and the age a muted line below it.
+- A coloured push button keeps its colour and its tint while its description is open
+  (`aria-expanded:text-primary aria-expanded:bg-primary/10`, per hue, in `ghostButtonColorClass`): the ghost variant
+  would turn an open trigger to the foreground.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should keep the colour of the push while its description is open`)
+- A disabled push button is `focusableWhenDisabled` (`aria-disabled`, no `disabled` attribute, which would stop the
+  pointer events of the hover) and dimmed by `aria-disabled:opacity-50`; a running push keeps its colour beside the
+  spinner, as Update and Sync do.
+- The question of a push that drops remote commits is a `destructive` `xs` button with the upload icon and the label
+  of the push (`Force Push (1)`), at the start of the line below the dropped commits.
 
 ## Testing / Local Run
 

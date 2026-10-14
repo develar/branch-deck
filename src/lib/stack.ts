@@ -100,3 +100,8 @@ export function stackPushOrder(name: string, branchOf: (name: string) => Branch 
   }
   return chain.reverse()
 }
+
+/** "Push Stack (3 branches)": the branch menu and the description of the push button name the action alike */
+export function formatPushStackLabel(branchCount: number): string {
+  return `Push Stack (${branchCount} branches)`
+}

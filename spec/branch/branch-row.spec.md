@@ -16,6 +16,7 @@ targets:
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/shared/TableHeader.tsx
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/usePushButton.ts
@@ -110,14 +111,16 @@ parent's commits runs into the rule of its children.
 ### Status cell
 
 - The Status cell must be a grid of three columns: the status text (7rem at least), the pull request chip, then the
-  Patronus chip and the Landed chip, in this order. A missing chip leaves its column empty, and the next chip keeps its
-  own column.
+  Patronus chip and the Landed chip, in this order, and the muted "on login" of a stacked branch whose parent has work
+  for the remote ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A missing chip leaves its column empty,
+  and the next chip keeps its own column.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The status text must follow the first that applies: the sync progress ("syncing 3/10…"), an error or a conflict
-  ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), the remote status ("not
-  pushed", "up to date", "3 (5)↑ · 2↓"), then the result of the sync ("created", "updated", "unchanged").
+  ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
+  baseline has all of ("landed", [Landed Commits](../repository/landed-commits.spec.md#before-the-update)), the remote
+  status ("not pushed", "up to date", "3 (5)↑ · 2↓"), then the result of the sync ("created", "updated", "unchanged").
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)).
@@ -150,8 +153,9 @@ parent's commits runs into the rule of its children.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md): its label ("Push (2)", "Create
   Remote (3)", "Force Push (1)"), its colour (the push colour of the branch as the text of a ghost button, neutral when
-  up to date) and its description on hover, with the remote commits a force push drops and the progress of a running
-  push. A branch with an error or without commits has no push button.
+  up to date or landed) and its description on hover, also while it is disabled, with the remote commits a force push
+  drops, the question before a push that drops them, and the progress of a running push. A branch with an error or
+  without commits has no push button.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
 
@@ -213,7 +217,7 @@ parent's commits runs into the rule of its children.
 ### Status
 
 - The grid is `grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2`; the third column is a
-  `flex gap-2` of the Patronus and the Landed chip.
+  `flex items-center gap-2` of the Patronus and the Landed chip, then the `text-xs text-muted-foreground` "on login".
 - The status text is `text-sm text-muted-foreground`, at most `max-w-40` and truncated, after a `size-1.5` dot. The
   badge is the subtle badge of its colour.
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and

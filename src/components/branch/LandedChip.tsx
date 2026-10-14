@@ -4,10 +4,10 @@ import { StatusChip } from "@/components/branch/StatusChip"
 import { CommitSubjectLine } from "@/components/commit/CommitSubject"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { useUpstreamName } from "@/hooks/useLandedIn"
 import type { LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatStayLocal, landedChipLabel } from "@/lib/landed"
-import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useIncomingLandedCommit } from "@/stores/landed"
 
 /** "abc1234 · Patronus · 2 hours ago" (the hash in the monospace font, the time aging while shown), or "squashed upstream" */
@@ -23,11 +23,6 @@ function UpstreamDescription({ commit }: { commit: LandedCommit }) {
       <RelativeTime time={upstream.time * 1000} />
     </>
   )
-}
-
-function useUpstreamName(): string {
-  const status = useBaselineStatus()
-  return status?.update?.upstream ?? status?.baselineBranch ?? "the baseline"
 }
 
 /**

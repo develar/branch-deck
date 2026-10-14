@@ -128,6 +128,10 @@ commits, are neutral. The push button, the
 status text and the header bars use it; the bars add lightness for authorship (solid mine, light others'). See
 [Outgoing Commits](../../spec/repository/outgoing.spec.md).
 
+The `warning` hue is also the one push that asks first (`dropsRemoteCommits`): it drops someone else's work, so its
+click opens the description with the dropped commits and a destructive Force Push that pushes. A safe push, the force
+push of a rebased branch too, pushes on the click: asking there would teach the user to confirm without reading.
+
 ### Handling Rebased Branches
 When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped).
 

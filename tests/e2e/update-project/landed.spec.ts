@@ -1,7 +1,7 @@
 // @spec spec/repository/landed-commits.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, getPushButton } from "../helpers/branch-helpers"
 import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 
 // The `landed_upstream` template: a robot pushed `feature-auth` (one commit) and the first of the two `search` commits to
@@ -37,6 +37,18 @@ test.describe("Landed commits", () => {
     await expect(findBranchRow(page, "feature-auth").getByTestId("landed-chip")).toHaveText("Landed")
     await expect(findBranchRow(page, "search").getByTestId("landed-chip")).toHaveText("1 landed · 1 local")
     await expect(findBranchRow(page, "ui").getByTestId("landed-chip")).toHaveCount(0)
+
+    // the update archives feature-auth: it is landed, its push is quiet and the indicator leaves it out
+    const featureAuth = findBranchRow(page, "feature-auth")
+    await expect(featureAuth.getByTestId("branch-status")).toHaveText("landed")
+    await expect(findBranchRow(page, "search").getByTestId("branch-status")).toHaveText("not pushed")
+    const push = getPushButton(featureAuth)
+    await expect(push).toHaveText("Create Remote (1)")
+    await expect(push).toHaveClass(/\btext-muted-foreground\b/)
+    await push.hover()
+    await expect(page.getByTestId("push-description")).toHaveText("Already in origin/master. Update to archive the branch.")
+    await page.mouse.move(0, 0)
+    await expect(page.getByTestId("outgoing-indicator")).toHaveAccessibleName("3 commits to push in 2 branches")
 
     // the details have the anatomy of the pull request and Patronus details: the state line, what the update does,
     // then `dl` rows with the commits (their issue links) and what stays

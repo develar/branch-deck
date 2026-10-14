@@ -11,6 +11,7 @@ import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { LandedChip } from "@/components/branch/LandedChip"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
+import { UnpushedParentLabel } from "@/components/branch/StackBaseLabel"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
@@ -118,16 +119,18 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
         <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
           {/*
             three columns, so each chip kind keeps its column across rows: the status text (7rem at least), the pull
-            request chip, then the Patronus and Landed chips; `justify-start` keeps the auto columns at their content width
+            request chip, then the Patronus and Landed chips and the parent a push leaves out; `justify-start` keeps the
+            auto columns at their content width
           */}
           <div className="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
             <BranchStatusBadge branch={branch} />
             <div className="col-start-2 flex">
               <PullRequestChip branchName={name} />
             </div>
-            <div className="col-start-3 flex gap-2">
+            <div className="col-start-3 flex items-center gap-2">
               <PatronusChip branchName={name} />
               <LandedChip branchName={name} />
+              <UnpushedParentLabel branch={branch} />
             </div>
           </div>
         </td>

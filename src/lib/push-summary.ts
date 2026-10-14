@@ -1,5 +1,5 @@
 import type { UIColor } from "@/lib/ui-types"
-import type { Branch } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
 /** What a push of a branch does: a plain push, the first push that creates the remote branch, a force push. */
 export type OutgoingState = "push" | "create" | "force"
@@ -40,6 +40,14 @@ export type PushHue = Extract<UIColor, "primary" | "warning">
  */
 export function getPushHue(commitsBehind: number): PushHue {
   return commitsBehind > 0 ? "warning" : "primary"
+}
+
+/**
+ * A push that drops remote commits the branch lacks (the `warning` hue), someone else's work: a click opens its
+ * description with the dropped commits first, and the Force Push button there pushes
+ */
+export function dropsRemoteCommits(remoteStatus: Pick<RemoteStatus, "commitsBehind">): boolean {
+  return getPushHue(remoteStatus.commitsBehind) === "warning"
 }
 
 /**
@@ -89,9 +97,9 @@ type SummaryInput = Pick<Branch, "name" | "remoteStatus" | "hasError" | "commitC
 
 /**
  * What is waiting to be pushed: only the branches whose row offers a push (synced without an error, with commits, not
- * blocked by their stack parent).
+ * blocked by their stack parent), and not the ones the fetched baseline has all of (`isLanded`): the update archives them.
  */
-export function summarizePushState(branches: readonly SummaryInput[]): PushSummary {
+export function summarizePushState(branches: readonly SummaryInput[], isLanded: (name: string) => boolean = () => false): PushSummary {
   const summary: PushSummary = {
     total: 0,
     mine: 0,
@@ -101,7 +109,7 @@ export function summarizePushState(branches: readonly SummaryInput[]): PushSumma
     notLoaded: 0,
   }
   for (const branch of branches) {
-    if (branch.hasError || branch.commitCount === 0 || branch.status === "Blocked") {
+    if (branch.hasError || branch.commitCount === 0 || branch.status === "Blocked" || isLanded(branch.name)) {
       continue
     }
     const action = getPushAction(branch)

@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
-import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
+import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -24,18 +24,18 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
-import { getPushButtonState, useUnpushedParent } from "@/hooks/usePushButton"
+import { useLandedIn } from "@/hooks/useLandedIn"
+import { getPushButtonState } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
-import { pushBranch } from "@/lib/git/push"
+import { pushOrConfirm } from "@/lib/git/push"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { isStartBlocked } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
-import { transferLabel } from "@/lib/transfer-progress"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { useBranch, useBranchPushProgress, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
+import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
 import { openInline, useIsRowProcessing } from "@/stores/inline-row-action"
 import { getBranchRobot, useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
@@ -54,7 +54,8 @@ export interface BranchPreviewDialogProps {
 /**
  * Centered preview of one branch, as the commit preview shows a commit: the name and the meta line, then the commits
  * newest first with their whole messages, so it reads like the description of a pull request.
- * ↑/↓ show the previous or next branch of the table, P pushes, O opens the pull request, Space and Escape close it.
+ * ↑/↓ show the previous or next branch of the table, P pushes (a push that drops remote commits asks first, in the
+ * description of the footer's push button), O opens the pull request, Space and Escape close it.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -71,11 +72,9 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
   const isSyncing = useBranchSync(state => state.isSyncing)
   const isPushing = useIsBranchPushing(currentName ?? "")
-  const pushProgress = useBranchPushProgress(currentName ?? "")
   const processing = useIsRowProcessing(currentName ?? "")
   // as the push button of the row: only a branch that synced without an error has something to push
-  const unpushedParent = useUnpushedParent(branch)
-  const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, isSyncing, isPushing, unpushedParent)
+  const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, { isSyncing, isPushing })
   const canPush = push !== null && !push.disabled && !processing
   const pullRequest = usePullRequest(currentName ?? "")
   // the start form is a form of the row: the preview closes for it
@@ -90,7 +89,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     // the physical key, in any keyboard layout
     if (event.code === "KeyP" && canPush) {
       event.preventDefault()
-      void pushBranch(branch!.name)
+      pushOrConfirm(branch!.name, "preview")
     }
     else if (event.code === "KeyO" && pullRequest !== undefined) {
       event.preventDefault()
@@ -156,12 +155,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                 Safe Push…
               </Button>
             )}
-            {push !== null && (
-              <Button variant="ghost" size="xs" className="tabular-nums" disabled={!canPush} aria-busy={isPushing || undefined} onClick={() => void pushBranch(branch.name)}>
-                {isPushing ? <Spinner data-icon="inline-start" /> : <Kbd>P</Kbd>}
-                {isPushing ? transferLabel("Pushing", pushProgress) : push.text}
-              </Button>
-            )}
+            {push !== null && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
           </PreviewDialogFooter>
         </>
       )}
@@ -176,7 +170,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
   const robot = useBranchRobot(branch.name)
-  const status = getStatusBadge(branch)
+  const landedIn = useLandedIn(branch.name)
+  const status = getStatusBadge(branch, landedIn)
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = [<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>]
   if (branch.latestCommitTime > 0) {

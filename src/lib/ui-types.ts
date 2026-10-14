@@ -25,19 +25,22 @@ export function subtleBadgeVariant(color: UIColor): SubtleBadgeVariant {
   }
 }
 
-/** Text colour of a ghost button, for an action that repeats on every row and must stay quiet. */
+/**
+ * Text colour of a ghost button, for an action that repeats on every row and must stay quiet. The colour stays while
+ * the button's popover is open (`aria-expanded`), which the ghost variant would turn to the foreground.
+ */
 export function ghostButtonColorClass(color: UIColor): string {
   switch (color) {
     case "primary":
-      return "text-primary hover:bg-primary/10 hover:text-primary"
+      return "text-primary hover:bg-primary/10 hover:text-primary aria-expanded:bg-primary/10 aria-expanded:text-primary"
     case "success":
-      return "text-success hover:bg-success/10 hover:text-success"
+      return "text-success hover:bg-success/10 hover:text-success aria-expanded:bg-success/10 aria-expanded:text-success"
     case "info":
-      return "text-info hover:bg-info/10 hover:text-info"
+      return "text-info hover:bg-info/10 hover:text-info aria-expanded:bg-info/10 aria-expanded:text-info"
     case "warning":
-      return "text-warning hover:bg-warning/10 hover:text-warning"
+      return "text-warning hover:bg-warning/10 hover:text-warning aria-expanded:bg-warning/10 aria-expanded:text-warning"
     case "error":
-      return "text-destructive hover:bg-destructive/10 hover:text-destructive"
+      return "text-destructive hover:bg-destructive/10 hover:text-destructive aria-expanded:bg-destructive/10 aria-expanded:text-destructive"
     case "secondary":
     case "neutral":
       return "text-muted-foreground"
