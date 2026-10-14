@@ -23,6 +23,7 @@ targets:
   - ../../crates/bd-cli/src/version.rs
   - ../../crates/bd-cli/build.rs
   - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-cli/src/group_plan.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
@@ -36,6 +37,8 @@ targets:
   - ../../crates/sync-core/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
   - ../../crates/sync-core/src/regroup.rs
+  - ../../crates/sync-core/src/issue_groups.rs
+  - ../../crates/sync-core/src/commit_ids.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
@@ -94,7 +97,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `version` and `error` outputs, and the real outputs must use
   only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
+- `status`, `commits`, `suggest`, `check`, `schema` and `version` must write no ref, config, index or working tree:
+  at most git objects and the object cache (none with `--no-cache`), and HEAD must stay; `bd --help` and
+  `bd help agent` must say so in one sentence.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
+  A rewrite whose step after the rewrite failed must print its output with that `error` in it, so that the undo
+  token stays.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error.
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
@@ -114,6 +123,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits, and the branches otherwise.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
 - It must not run integration detection, an update check or a network command.
+- Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
+  the output must list `stale_issue_groups`, the keys of the issue groups that group no commit, and
+  `issue_group_problems`, the lines of the issue groups that are not used.
+  [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
 - With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active`, `integrated`,
   `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, and its stack `problems` with the
   commits that declare them, and the output must list the `forest` order, parents first; `bd commits` must group by
@@ -179,8 +192,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd group`, `rename`, `restack`, `unstack`
 
-- `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids]}` from stdin or `--plan`, and set the
-  prefixes of all its commits in one message-only rewrite; ids may be abbreviated.
+- `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
+  ungroup_issues: [keys]}` from stdin or `--plan`, set the prefixes of all its commits in one message-only rewrite,
+  and change the issue groups in the same ref transaction ([Issue Groups](../branch/issue-groups.spec.md)); ids may
+  be abbreviated. A plan of issue groups only rewrites no commit.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
@@ -195,6 +210,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_errors_and_exit_codes`)
 - Fixups not in the plan must follow their targets.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`fixups_follow_their_targets`)
+- `descriptions` of the plan (`{branch: {title, body}}`, the leaf for a stacked branch) must be validated with it,
+  before anything is written: a title of one line that is not empty, and a branch that has commits after the plan,
+  else `invalid_plan`. bd must write the ones that differ after the ref transaction, under the same lock, as
+  `bd describe` does, list the written ones in `described` and the texts they replaced in `replaced_descriptions`;
+  a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
+- `--sync` must run the sync of `bd sync` after the writes, without releasing the repository lock in between, and add
+  its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
+  sync; it and a failed sync must keep the rewrite output, with the `error` in it and its exit code. `--sync` must not
+  go with `--dry-run`.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`a_held_lock_is_not_taken_again`)
 - `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
   move the branch only from the HEAD the plan was computed for.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`expect_head_is_a_compare_and_swap`)
@@ -206,25 +233,30 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add old → new ids.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
-- `bd rename` must replace the branch's level in every prefix path, children included, and give an issue branch's
-  commits a prefix; the new name must be a branch name without `/`.
+- `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups of
+  that name without a rewrite, and give an issue branch's commits a prefix; the new name must be a branch name without
+  `/`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_flat_and_issue_branches`)
-- `bd restack` and `bd unstack` must set or clear the parent on all commits of the branch, and need stacked branches.
+- `bd restack` and `bd unstack` must set or clear the parent on all commits of the branch, and need stacked branches;
+  an issue group is `invalid_plan`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
 
 ### `bd undo`
 
 - `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap, and refuse
-  with `head_moved` once the branch changed again.
+  with `head_moved` once the branch changed again. A token of the issue groups (`groups:G1..G2`, or
+  `H1..H2+groups:G1..G2` with a rewrite) must move them back in the same transaction, and refuse with `groups_moved`
+  (exit 3, retryable) once they changed again.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`)
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
 ### `bd check`
 
 - `bd check` must apply a plan (stdin or `--plan`; the current grouping without one) in memory, validate it like a
-  regroup (exit 2 when invalid), place the branches as a stacked sync does and build each one, parents first, writing
-  objects only: refs, notes and HEAD must not change.
+  regroup (exit 2 when invalid, `descriptions` included), place the branches as a stacked sync does and build each
+  one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
 - Per branch it must print `ok`, a light conflict (commit, subject, files and the older commits outside the branch
@@ -272,9 +304,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `-3`, unless the cluster's commits come from it. `kept` must mean one whole branch under its own name.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `a_cluster_takes_the_name_of_the_branch_it_holds_most_of`, `changes_against_the_groups_now`, `subject_words_drop_stopwords_and_endings`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`fresh_keeps_the_name_of_a_branch_that_stays_whole`, `stacked_branches_and_an_empty_range`)
-- A cluster of two or more whole issue branches must stay out of the plan with `"via": "issue_group"`, unless
-  `--rewrite-issues`.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`)
+- A cluster of two or more whole issue branches must go into `issue_groups` of the plan, marked `"via": "issue_group"`,
+  so that the plan rewrites no commit; `--rewrite-issues` gives the commits a prefix instead. An issue group must be
+  an anchor, as a prefix is.
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `whole_issue_branches_become_an_issue_group`)
 - `--dump-input` (hidden) must print the input of the clustering with every name hashed by a keyed hash (SipHash) with
   a random key that is not kept, and without subjects, bodies, ids and authors, so that the dump clusters as the
   repository does; only the module markers of file paths may become one marker.
@@ -326,7 +359,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd describe`
 
-- `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`.
+- `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The
+  `descriptions` of a `bd group` plan set several at once.
 - `--title`, `--body` and `--body-file` must set it as `title`, a blank line and the body, keeping the part not
   given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
@@ -339,7 +373,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd help agent`
 
-- It must print the agent workflow as text and mark the commands that don't exist yet.
+- It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
+  --sync` with descriptions for the branches that have none, and `bd push` after the user approves. It must name
+  every command and, per command, every long option except a listed few, and name no command, and no option for a
+  command, that doesn't exist.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
 

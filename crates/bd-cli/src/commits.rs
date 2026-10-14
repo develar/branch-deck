@@ -13,7 +13,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_core::autosquash::{FixupKind, plan_autosquash};
-use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, parse_subject};
+use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
+use sync_core::commit_ids::{IdMatch, match_commit_id};
 use sync_core::grouping::BranchGrouping;
 use sync_core::move_commits::with_branch_prefix;
 use sync_utils::issue_pattern::find_issue_number;
@@ -287,13 +288,12 @@ pub(crate) fn resolve_ids(ids: &[String], commit_ids: &[String]) -> Result<HashS
   let mut resolved = HashSet::new();
   let (mut unknown, mut ambiguous) = (Vec::new(), Vec::new());
   for id in ids {
-    let mut matches = commit_ids.iter().filter(|candidate| id.len() >= 4 && candidate.starts_with(id.as_str()));
-    match (matches.next(), matches.next()) {
-      (Some(full), None) => {
-        resolved.insert(full.clone());
+    match match_commit_id(id, commit_ids.iter().map(String::as_str)) {
+      IdMatch::One(full) => {
+        resolved.insert(full.to_string());
       }
-      (None, _) => unknown.push(id.clone()),
-      (Some(_), Some(_)) => ambiguous.push(id.clone()),
+      IdMatch::None => unknown.push(id.clone()),
+      IdMatch::Ambiguous => ambiguous.push(id.clone()),
     }
   }
   let (code, message, commits) = if !ambiguous.is_empty() {
@@ -325,7 +325,7 @@ impl Reading {
     let scope = Scope::of(args, &grouping.commit_ids)?;
     // the dependencies need every commit, whatever the scope
     let diffs = read_linked_diffs(context, &grouping.commit_ids, args.include_generated, args.files)?;
-    let fixups = fixup_targets(&head, &ordered_commits(&grouping), grouping.stacks);
+    let fixups = fixup_targets(&head, &ordered_commits(&grouping), &grouping.grouping);
     Ok(Self {
       head,
       grouping,
@@ -528,9 +528,9 @@ fn brief_subject(subject: &str, group: Option<&str>) -> String {
 }
 
 /// Fixup commit id -> its kind and the target `plan_autosquash` resolves, `None` for an orphan
-pub(crate) fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)], stacks: bool) -> HashMap<String, (FixupKind, Option<String>)> {
+pub(crate) fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)], grouping: &GroupingInputs) -> HashMap<String, (FixupKind, Option<String>)> {
   let commits: Vec<Commit> = ordered.iter().map(|(commit, _)| (*commit).clone()).collect();
-  let plan = plan_autosquash(head.to_string(), &commits, stacks);
+  let plan = plan_autosquash(head.to_string(), &commits, grouping);
   let mut targets: HashMap<String, (FixupKind, Option<String>)> = plan
     .groups
     .into_iter()

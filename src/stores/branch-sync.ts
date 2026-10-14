@@ -113,6 +113,8 @@ export interface BranchSyncState {
   baselineStatus: BaselineStatus | null
   /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
   stacksEnabled: boolean
+  /** Issue key -> branch name: the issue groups the last grouping read (`refs/branch-deck/issue-groups`) */
+  issueGroups: Readonly<Record<string, string>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -128,6 +130,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   autosquashPlan: null,
   baselineStatus: null,
   stacksEnabled: false,
+  issueGroups: {},
 }))
 
 // ---- hooks ----
@@ -305,6 +308,20 @@ export function useStacksEnabled(): boolean {
 
 export function isStacksEnabled(): boolean {
   return branchSyncStore.getState().stacksEnabled
+}
+
+/** The issue groups of the last grouping: issue key -> branch name */
+export function useIssueGroups(): Readonly<Record<string, string>> {
+  return useStore(branchSyncStore, state => state.issueGroups)
+}
+
+export function getIssueGroups(): Readonly<Record<string, string>> {
+  return branchSyncStore.getState().issueGroups
+}
+
+/** Whether issue groups put commits into the branch `name` */
+export function hasIssueGroup(name: string): boolean {
+  return Object.values(getIssueGroups()).includes(name)
 }
 
 /** The branch table rows: newest first, the branches of an issue nested under it. */
@@ -667,7 +684,7 @@ function handleBranchesGrouped(data: Extract<SyncEvent, { type: "branchesGrouped
     branches[info.name] = createBranchFromGroup(info, previous[info.name]?.remoteStatus ?? null)
     branchOrder.push(info.name)
   }
-  branchSyncStore.setState({ baselineBranch: data.baselineBranch, branches, branchOrder, stacksEnabled: data.stacks ?? false })
+  branchSyncStore.setState({ baselineBranch: data.baselineBranch, branches, branchOrder, stacksEnabled: data.stacks ?? false, issueGroups: data.issueGroups ?? {} })
 }
 
 function handleCommitSynced(data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {

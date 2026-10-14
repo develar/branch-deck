@@ -16,17 +16,17 @@ import { runRobotAction } from "@/lib/patronus-actions"
 import { createBranchMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getAutosquashPlan, getBranch, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /**
  * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
- * rename (name an issue branch) and ungroup, then commit actions (issue reference, amend, unapply), then history
- * (squash fixups, open or create the pull request), then Patronus (Safe Push, Dry Run, Create Merge Request, the robot
- * of the branch). An item that opens a form ends with "…". The right-click on the row and the "⋯" of its Actions cell
- * show it.
+ * rename (name an issue branch; an issue group is renamed without a rewrite) and ungroup, then commit actions (issue
+ * reference, amend, unapply), then history (squash fixups, open or create the pull request), then Patronus (Safe Push,
+ * Dry Run, Create Merge Request, the robot of the branch). An item that opens a form ends with "…". The right-click on
+ * the row and the "⋯" of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
@@ -70,7 +70,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       onSelect: () => openInline("rename", branch.name),
     },
   ]
-  const ungroupLabel = getRemovePrefixLabel(branch.commits)
+  const ungroupLabel = getRemovePrefixLabel(branch.commits, getIssueGroups())
   if (branch.origin === "Prefix" && ungroupLabel !== null) {
     nameActions.push({
       label: ungroupLabel === "Remove Prefix" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,

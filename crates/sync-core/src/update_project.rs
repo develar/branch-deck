@@ -3,9 +3,10 @@
 //! last fetched state, without the network, so the header can show whether an update would apply cleanly.
 
 use crate::baseline::detect_baseline_branch;
+use crate::commit_grouper::GroupingInputs;
+use crate::issue_groups::read_grouping_inputs;
 use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs};
 use crate::remote_command::execute_remote_command_with_progress;
-use crate::stack::stacks_enabled;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -135,12 +136,16 @@ pub struct BaselineCheck {
 
 /// Check the checked out branch against the last fetched state of its baseline, without the network.
 /// `None` for a local baseline: there is nothing to update from.
-#[instrument(skip(git_executor))]
 pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
+  check_baseline_update_with(git_executor, repo_path, baseline_branch, &read_grouping_inputs(git_executor, repo_path)?)
+}
+
+/// `check_baseline_update` with the stack setting and the issue groups already read
+#[instrument(skip(git_executor, grouping))]
+pub fn check_baseline_update_with(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, grouping: &GroupingInputs) -> Result<Option<BaselineCheck>> {
   let Some(upstream) = resolve_baseline_upstream(git_executor, repo_path, baseline_branch)? else {
     return Ok(None);
   };
-  let stacks = stacks_enabled(git_executor, repo_path)?;
   let mut plan = check_update(
     git_executor,
     repo_path,
@@ -150,11 +155,11 @@ pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str,
       previous: None,
     },
     CheckPurpose::Preview,
-    &|scope| landed_candidates(git_executor, repo_path, scope, stacks),
+    &|scope| landed_candidates(git_executor, repo_path, scope, grouping),
   )?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
   // the landing is a detail of the check: it must not fail it
-  let landing = find_landing(git_executor, repo_path, &plan.check, plan.excluded(), plan.replayed_head(), stacks).unwrap_or_else(|e| {
+  let landing = find_landing(git_executor, repo_path, &plan.check, plan.excluded(), plan.replayed_head(), grouping).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't find the landed commits");
     Vec::new()
   });
@@ -229,7 +234,7 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
   let fetched_at = unix_now();
 
   on_progress(UpdatePhase::Checking.into());
-  let stacks = stacks_enabled(git_executor, repo_path)?;
+  let grouping = read_grouping_inputs(git_executor, repo_path)?;
   let mut plan = check_update(
     git_executor,
     repo_path,
@@ -239,7 +244,7 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
       previous: previous.as_deref(),
     },
     CheckPurpose::Apply,
-    &|scope| landed_candidates(git_executor, repo_path, scope, stacks),
+    &|scope| landed_candidates(git_executor, repo_path, scope, &grouping),
   )?;
   plan.check.fetched_at = Some(fetched_at);
 
@@ -248,7 +253,7 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
     UpdateState::Clean { .. } => {
       on_progress(UpdatePhase::Updating.into());
       let applied = apply_update(git_executor, repo_path, &plan)?;
-      landed = record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, stacks);
+      landed = record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping);
       Some(applied)
     }
     UpdateState::UpToDate => None,
@@ -265,7 +270,14 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
 }
 
 /// What an applied update landed, added to the report. The update is done: a failure here is logged, not returned.
-fn record_landed_update(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, excluded: &[String], new_head: &str, stacks: bool) -> Vec<LandedBranch> {
+fn record_landed_update(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  check: &UpdateCheck,
+  excluded: &[String],
+  new_head: &str,
+  grouping: &GroupingInputs,
+) -> Vec<LandedBranch> {
   let result = (|| {
     let local = local_revs(check, excluded);
     let remaining = remaining_revs(new_head, &check.upstream_head);
@@ -278,7 +290,7 @@ fn record_landed_update(git_executor: &GitCommandExecutor, repo_path: &str, chec
         base: &check.base,
         upstream_head: &check.upstream_head,
         gone_is_landed: true,
-        stacks,
+        grouping,
       },
     )?;
     record_update(git_executor, repo_path, check, new_head, landed.clone())?;

@@ -75,8 +75,8 @@ export function getCommitFileCount(commit: CommitUnion): number | undefined {
 export interface CommitGroup {
   /** The branch; with stacked branches the leaf of `(parent/leaf)` */
   branch: string
-  /** An explicit `(branch)` subject prefix, or else the issue key of the subject */
-  origin: "prefix" | "issue"
+  /** An explicit `(branch)` subject prefix, else the issue group of the subject's issue key, else that key */
+  origin: "prefix" | "issueGroup" | "issue"
   /** With stacked branches: the parent the prefix declares, null for none; absent without stacked branches */
   parent?: string | null
   /** With stacked branches: the prefix has an empty level (`(a//b)`) */
@@ -152,9 +152,10 @@ function stackLevels(prefix: string): { levels: string[], invalid: boolean } {
 
 /**
  * The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. With `stacks`,
- * `(auth/login)` groups into `login` with the parent `auth`.
+ * `(auth/login)` groups into `login` with the parent `auth`. `issueGroups` (issue key -> branch name, from the
+ * `branchesGrouped` event) puts a subject without a prefix into the issue group of its key.
  */
-export function groupFor(message: string, stacks = false): CommitGroup | null {
+export function groupFor(message: string, stacks = false, issueGroups: Readonly<Record<string, string>> = {}): CommitGroup | null {
   const { prefix, rest } = parseSubject(getSubjectLine(message))
   if (prefix !== null && stacks) {
     const { levels, invalid } = stackLevels(prefix)
@@ -170,5 +171,7 @@ export function groupFor(message: string, stacks = false): CommitGroup | null {
   if (issueKey === null) {
     return null
   }
-  return stacks ? { branch: issueKey, origin: "issue", parent: null } : { branch: issueKey, origin: "issue" }
+  const issueGroup = issueGroups[issueKey]
+  const group: CommitGroup = issueGroup === undefined ? { branch: issueKey, origin: "issue" } : { branch: issueGroup, origin: "issueGroup" }
+  return stacks ? { ...group, parent: null } : group
 }

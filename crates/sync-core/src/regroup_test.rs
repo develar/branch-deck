@@ -1,4 +1,4 @@
-use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, regroup_commits_core, rename_branch_core, restack_branch_core, undo_rewrite_core};
+use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -8,7 +8,7 @@ use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 /// A repository whose initial commit is the baseline; `stacks` turns on stacked branches
-fn repo(stacks: bool) -> TestRepo {
+pub(crate) fn repo(stacks: bool) -> TestRepo {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
   if stacks {
@@ -18,7 +18,7 @@ fn repo(stacks: bool) -> TestRepo {
 }
 
 /// Commits with these subjects, each changing its own file; returns their ids
-fn commits(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
+pub(crate) fn commits(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
   subjects
     .iter()
     .enumerate()
@@ -26,7 +26,7 @@ fn commits(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
     .collect()
 }
 
-fn path(repo: &TestRepo) -> &str {
+pub(crate) fn path(repo: &TestRepo) -> &str {
   repo.path().to_str().unwrap()
 }
 
@@ -38,10 +38,11 @@ pub(crate) fn plan(branches: &[(&str, &[&String])], unassign: &[&String]) -> Reg
       .map(|(name, ids)| ((*name).to_string(), ids.iter().map(|id| (*id).clone()).collect()))
       .collect::<BTreeMap<_, _>>(),
     unassign: unassign.iter().map(|id| (*id).clone()).collect(),
+    ..RegroupPlan::default()
   }
 }
 
-fn regroup(repo: &TestRepo, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
+pub(crate) fn regroup(repo: &TestRepo, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
   regroup_commits_core(repo.git_executor(), path(repo), plan, &RegroupOptions::default())
 }
 
@@ -52,7 +53,7 @@ fn subjects(repo: &TestRepo, count: usize) -> Vec<String> {
   messages
 }
 
-fn groups(outcome: &RegroupOutcome) -> Vec<Option<&str>> {
+pub(crate) fn groups(outcome: &RegroupOutcome) -> Vec<Option<&str>> {
   outcome.commits.iter().map(|commit| commit.group.as_deref()).collect()
 }
 
@@ -351,17 +352,41 @@ fn waits_for_the_repository_lock() {
 }
 
 #[test]
+fn a_held_lock_is_not_taken_again() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["One"]);
+  let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let one = plan(&[("a", &[&ids[0]])], &[]);
+  let without = RegroupOptions {
+    lock_timeout: Duration::ZERO,
+    ..RegroupOptions::default()
+  };
+  let error = regroup_commits_core(repo.git_executor(), path(&repo), &one, &without).unwrap_err();
+  assert!(matches!(error, RegroupError::Locked(_)), "{error}");
+
+  // the caller writes more under the same lock after the regroup (`bd group --sync`)
+  let with = RegroupOptions {
+    held_lock: Some(&held),
+    ..without
+  };
+  regroup_commits_core(repo.git_executor(), path(&repo), &one, &with).unwrap();
+  assert_eq!(subjects(&repo, 1), ["(a) One"]);
+}
+
+#[test]
 fn undo_restores_the_previous_head() {
   let repo = repo(false);
   let ids = commits(&repo, &["One", "Two"]);
   let outcome = regroup(&repo, &plan(&[("a", &[&ids[0], &ids[1]])], &[])).unwrap();
 
-  undo_rewrite_core(repo.git_executor(), path(&repo), &outcome.previous_head, &outcome.new_head, DEFAULT_LOCK_TIMEOUT).unwrap();
+  let token = UndoToken::of(&outcome).unwrap();
+  assert_eq!(token.to_string(), format!("{}..{}", outcome.previous_head, outcome.new_head));
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
   assert_eq!(repo.head(), outcome.previous_head);
   assert_eq!(subjects(&repo, 2), ["One", "Two"]);
 
   // HEAD is no longer the rewritten one
-  let error = undo_rewrite_core(repo.git_executor(), path(&repo), &outcome.previous_head, &outcome.new_head, DEFAULT_LOCK_TIMEOUT).unwrap_err();
+  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap_err();
   assert!(matches!(error, RegroupError::HeadMoved(_)), "{error}");
 }
 

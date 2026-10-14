@@ -132,6 +132,25 @@ fn outputs_match_schema() {
   let (_, brief) = run_in(&repo, &["status", "--brief"]);
   assert_covered(&schema["outputs"]["status_brief"], &schema["outputs"]["status_brief"], &brief, "status_brief");
 
+  // the issue groups: a rewrite of them only, the status with the group, and the undo
+  write(&repo, "c.txt", "c\n");
+  commit_all(&repo, "PROJ-2 Add c", 1_700_000_400);
+  let plan = tempfile::NamedTempFile::new().unwrap();
+  let descriptions = json!({ "proj": { "title": "Proj", "body": "Body" } });
+  std::fs::write(
+    plan.path(),
+    json!({ "issue_groups": { "proj": ["PROJ-1", "PROJ-2"] }, "descriptions": descriptions }).to_string(),
+  )
+  .unwrap();
+  let (_, rewrite) = run_in(&repo, &["group", "--sync", "--plan", plan.path().to_str().unwrap()]);
+  assert_eq!(rewrite.get("error"), None, "{rewrite}");
+  assert!(rewrite["sync"].is_object() && rewrite["described"].is_array(), "{rewrite}");
+  assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &rewrite, "rewrite of issue groups");
+  let (_, status) = run_in(&repo, &["status"]);
+  assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with issue groups");
+  let (_, undo) = run_in(&repo, &["undo", rewrite["undo_token"].as_str().unwrap()]);
+  assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of issue groups");
+
   let (_, error) = run_in(&repo, &["status", "--branch", "missing"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &error, "error");
 }

@@ -218,13 +218,13 @@ fn repair_joins_a_conflicting_commit_to_what_it_needs() {
   assert_eq!(repaired.clustering.clusters[0].repair_rounds, [1]);
   assert_eq!(why(&pair, &repaired.clustering.clusters[0]), "1 unit; joined by repair round 1 after a conflict; area one");
 
-  // a conflict inside one cluster of two issue units that build apart (an issue group) joins them too
+  // a conflict inside one cluster of two issue units joins them into one unit, which is still an issue group
   let group = input(vec![keyed("ABC-1", "one/a.txt"), mentioning(keyed("ABC-2", "two/b.txt"), &["ABC-1"])]);
   let first = cluster(&group, &ClusterOptions::default());
   assert_eq!((groups(&first), is_issue_only(&group, &first.clusters[0])), (vec![vec![0, 1]], true));
   let repaired = repair_until_joined(&group);
   assert_eq!((repaired.rounds, repaired.clustering.clusters[0].units), (1, 1));
-  assert!(!is_issue_only(&group, &repaired.clustering.clusters[0]), "the plan must build them together");
+  assert!(is_issue_only(&group, &repaired.clustering.clusters[0]), "an issue group builds them together");
 
   // two anchors are never joined: the conflict stays
   let anchors = input(vec![prefixed("a", "one/a.txt"), prefixed("b", "two/b.txt")]);

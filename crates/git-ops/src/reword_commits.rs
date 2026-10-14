@@ -29,18 +29,20 @@ pub struct RewordCommitParams {
 /// the current branch ahead of `baseline_branch`, if the range has a merge commit, and if the branch moved while the
 /// new commits were created.
 pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
-  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None)
+  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, &RefTransaction::new())
 }
 
 /// `reword_commits_batch` for a rewrite computed from the history at `expected_head`: fails with `HeadMoved` (as the
-/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves
-#[instrument(skip(git_executor, rewrites), fields(count = rewrites.len()))]
+/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves. The
+/// changes of `also` go into the transaction that moves the branch, so those refs move with it or not at all
+#[instrument(skip(git_executor, rewrites, also), fields(count = rewrites.len()))]
 pub fn reword_commits_batch_at(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   baseline_branch: &str,
   rewrites: Vec<RewordCommitParams>,
   expected_head: Option<&str>,
+  also: &RefTransaction,
 ) -> Result<HashMap<String, String>> {
   if rewrites.is_empty() {
     return Ok(HashMap::new());
@@ -128,7 +130,10 @@ pub fn reword_commits_batch_at(
   let new_tip = written.ids.last().ok_or_else(|| anyhow!("no commits were written"))?;
 
   let mut transaction = RefTransaction::new();
-  transaction.update(&target.full_ref(), new_tip, Some(&target.head)).delete(&written.temp_ref, None);
+  transaction
+    .update(&target.full_ref(), new_tip, Some(&target.head))
+    .delete(&written.temp_ref, None)
+    .extend(also);
   // a commit made meanwhile (e.g. in a terminal) is not dropped: the update fails instead
   if let Err(e) = transaction.commit(git_executor, repo_path, &format!("reword {} commits", rewrite_map.len())) {
     written.discard(git_executor, repo_path);

@@ -63,10 +63,15 @@ export const commands = {
 	 *  rewrite; the working tree is not touched.
 	 */
 	moveCommitsToBranch: (params: MoveCommitsParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params })),
-	/**  Renames a branch, and its name in the prefixes of the branches stacked on it, in one history rewrite. */
+	/**
+	 *  Renames a branch, and its name in the prefixes of the branches stacked on it and in the issue groups, in one history
+	 *  rewrite.
+	 */
 	renameBranch: (params: RenameBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("rename_branch", { params })),
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
 	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
+	/**  Moves the issue groups back to where they were before a rename, with compare-and-swap. */
+	undoIssueGroups: (params: UndoIssueGroupsParams) => typedError<null, CommandError>(__TAURI_INVOKE("undo_issue_groups", { params })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
@@ -224,7 +229,12 @@ export type BranchOrigin =
 /**  An explicit `(name)` subject prefix */
 "Prefix" | 
 /**  The issue key of the subjects (`ABC-123: ...`), no explicit prefix */
-"Issue";
+"Issue" | 
+/**
+ *  The issue groups (`refs/branch-deck/issue-groups`) put the commits of other issue keys into the branch; no
+ *  explicit prefix
+ */
+"IssueGroup";
 
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
 export type BranchStack = {
@@ -500,6 +510,14 @@ export type GroupedBranchInfo = {
 /**  Confidence level for integration detection */
 export type IntegrationConfidence = "Exact" | "High";
 
+/**  A change of the issue groups (`refs/branch-deck/issue-groups`), for an undo */
+export type IssueGroupsMove = {
+	/**  The commit of the issue groups before; `None` when there were none */
+	previous: string | null,
+	/**  The commit the operation wrote */
+	new: string,
+};
+
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
 };
@@ -604,6 +622,11 @@ export type MoveCommitsResult = {
 	 *  the target branch is not listed
 	 */
 	moved: MovedCommit[],
+	/**
+	 *  The issue groups before and after, when the operation changed them (a rename of an issue group): an undo moves
+	 *  them back with `undo_issue_groups`
+	 */
+	issueGroups?: IssueGroupsMove | null,
 };
 
 export type MovedCommit = {
@@ -1075,6 +1098,8 @@ export type SyncEvent =
 	baselineBranch: string,
 	/**  Stacked branches are on (`branchdeck.stacks`): prefixes are read as `(parent/leaf)` */
 	stacks?: boolean,
+	/**  Issue key -> branch name: the issue groups (`refs/branch-deck/issue-groups`) the commits were grouped with */
+	issueGroups?: { [key in string]: string },
 } } | 
 /**  Sent for commits that don't match any prefix pattern */
 { type: "unassignedCommits"; data: {
@@ -1165,6 +1190,12 @@ export type UncommittedFileChange = {
 	status: string,
 	staged: boolean,
 	unstaged: boolean,
+};
+
+export type UndoIssueGroupsParams = {
+	repositoryPath: string,
+	/**  What the operation reported in `MoveCommitsResult.issue_groups` */
+	issueGroups: IssueGroupsMove,
 };
 
 /**  The result of checking the branch against its upstream */

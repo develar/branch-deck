@@ -13,7 +13,7 @@
 //! IDE, `git pull --rebase`) is reported too.
 
 use crate::autosquash::plan_autosquash;
-use crate::commit_grouper::{branch_name_of, parse_subject, stack_branch_name_of, stripped_subject};
+use crate::commit_grouper::{GroupingInputs, parse_subject, stripped_subject};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
@@ -43,8 +43,8 @@ pub struct LandedQuery<'a> {
   /// after a replay onto `upstream_head`, which drops a commit only if the upstream has its change; elsewhere a commit
   /// can be gone because the user squashed, reworded or dropped it.
   pub gone_is_landed: bool,
-  /// Stacked branches are on: a commit belongs to the leaf of its stack prefix
-  pub stacks: bool,
+  /// The stack setting and the issue groups: a commit belongs to the leaf of its stack prefix or to its issue group
+  pub grouping: &'a GroupingInputs,
 }
 
 /// A commit identified across a rebase: the author email, the author time and the subject without the `(prefix)`
@@ -164,8 +164,8 @@ fn by_key(upstream: &[KeyedCommit]) -> HashMap<&Key, &UpstreamCommit> {
 }
 
 /// Fixup id -> the id of its target, with git's autosquash rules
-fn fixup_targets(local: &[Commit], stacks: bool) -> HashMap<String, String> {
-  plan_autosquash(String::new(), local, stacks)
+fn fixup_targets(local: &[Commit], grouping: &GroupingInputs) -> HashMap<String, String> {
+  plan_autosquash(String::new(), local, grouping)
     .groups
     .into_iter()
     .flat_map(|group| {
@@ -179,7 +179,7 @@ fn fixup_targets(local: &[Commit], stacks: bool) -> HashMap<String, String> {
 /// fixups of those, then the ones with a counterpart alone, each oldest first. A robot that autosquashes pushed the
 /// target with its fixups folded in, so the target alone adds other content than the upstream has; a fixup made after
 /// the push makes the first set lose its change, and the second set is tried.
-pub fn landed_candidates(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, stacks: bool) -> Result<Vec<Vec<String>>> {
+pub fn landed_candidates(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, grouping: &GroupingInputs) -> Result<Vec<Vec<String>>> {
   let mut revs = vec![scope.head.to_string(), format!("^{}", scope.upstream_head)];
   revs.extend(scope.excluded.iter().map(|rev| format!("^{rev}")));
   let local = read_local(git_executor, repo_path, &revs)?;
@@ -196,7 +196,7 @@ pub fn landed_candidates(git_executor: &GitCommandExecutor, repo_path: &str, sco
   if matched.is_empty() {
     return Ok(Vec::new());
   }
-  let target_of = fixup_targets(&local, stacks);
+  let target_of = fixup_targets(&local, grouping);
   let with_fixups: Vec<String> = local
     .iter()
     .filter(|commit| matched.contains(commit.id.as_str()) || target_of.get(&commit.id).is_some_and(|target| matched.contains(target.as_str())))
@@ -242,7 +242,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   }
   if !unmatched.is_empty() {
     // a fixup folded upstream (Safe Push autosquashes) landed with its target
-    let target_of = fixup_targets(&local, query.stacks);
+    let target_of = fixup_targets(&local, query.grouping);
     for commit in unmatched {
       let target_upstream = target_of.get(commit.id.as_str()).and_then(|target| landed.get(target.as_str())).cloned().flatten();
       if target_upstream.is_some() || query.gone_is_landed {
@@ -254,7 +254,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
     return Ok(Vec::new());
   }
 
-  let branch_of = |subject: &str| if query.stacks { stack_branch_name_of(subject) } else { branch_name_of(subject) };
+  let branch_of = |subject: &str| query.grouping.branch_of(subject);
   let now = unix_now();
   let mut branches: IndexMap<Option<String>, LandedBranch> = IndexMap::new();
   for commit in &local {
@@ -306,7 +306,7 @@ struct LandingKey {
   head: String,
   upstream_head: String,
   replayed_head: Option<String>,
-  stacks: bool,
+  grouping: GroupingInputs,
 }
 
 /// Per repository, the landing of the last preview
@@ -326,7 +326,7 @@ pub fn find_landing(
   check: &UpdateCheck,
   excluded: &[String],
   replayed_head: Option<&str>,
-  stacks: bool,
+  grouping: &GroupingInputs,
 ) -> Result<Vec<LandedBranch>> {
   if check.head == check.base {
     // up to date or a fast-forward: no local commits
@@ -336,7 +336,7 @@ pub fn find_landing(
     head: check.head.clone(),
     upstream_head: check.upstream_head.clone(),
     replayed_head: replayed_head.map(str::to_string),
-    stacks,
+    grouping: grouping.clone(),
   };
   {
     let cache = landing_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -357,7 +357,7 @@ pub fn find_landing(
       base: &check.base,
       upstream_head: &check.upstream_head,
       gone_is_landed: remaining.is_some(),
-      stacks,
+      grouping,
     },
   )?;
   let mut cache = landing_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -427,7 +427,7 @@ fn expire(report: &mut Vec<LandedBranch>, now: u32) {
 /// For the sync: if the local commits moved onto a newer upstream since the previous sync (an update here or elsewhere),
 /// add the commits that landed to the report; remember where the branch is. Returns the undismissed report.
 #[instrument(skip(git_executor, check), fields(branch = %check.branch))]
-pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, stacks: bool) -> Result<Vec<LandedBranch>> {
+pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, grouping: &GroupingInputs) -> Result<Vec<LandedBranch>> {
   let path = state_path(git_executor, repo_path)?;
   let previous = load_state(&path);
   let mut state = previous.clone().unwrap_or_default();
@@ -442,7 +442,7 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &U
       base: &state.base,
       upstream_head: &check.upstream_head,
       gone_is_landed: false,
-      stacks,
+      grouping,
     };
     match find_landed(git_executor, repo_path, query) {
       Ok(found) => {

@@ -1,5 +1,5 @@
 import { toast } from "@/components/ui/toast"
-import type { MoveCommitsResult } from "@/lib/bindings"
+import type { IssueGroupsMove, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
@@ -10,7 +10,10 @@ import { syncBranches } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject } from "@/stores/repository"
 
-/** Runs a prefix rewrite of a stack operation, then offers an undo, syncs and reveals `revealBranch` */
+/**
+ * Runs a prefix rewrite of a stack operation, then offers an undo (of the messages and of a change of the issue groups),
+ * syncs and reveals `revealBranch`
+ */
 async function runStackOperation(
   operation: () => Promise<CommandResult<MoveCommitsResult>>,
   failureTitle: string,
@@ -22,15 +25,34 @@ async function runStackOperation(
     notifyError(failureTitle, result.error)
     return false
   }
-  const { moved } = result.data
-  if (moved.length === 0) {
+  const { moved, issueGroups } = result.data
+  if (moved.length === 0 && issueGroups == null) {
     toast.add({ type: "info", title: "Nothing to change" })
     return true
   }
   requestReveal({ branchName: revealBranch, commitIds: [] })
-  showUndoToast(successTitle(formatCommitCount(moved.length)), () => undoMove(moved))
+  showUndoToast(successTitle(moved.length === 0 ? "issue groups" : formatCommitCount(moved.length)), async () => {
+    if (issueGroups != null) {
+      await undoIssueGroups(issueGroups)
+    }
+    // the undo of the messages syncs
+    if (moved.length > 0) {
+      await undoMove(moved)
+    }
+    else {
+      await syncBranches({ autoScroll: false, autoExpand: false })
+    }
+  })
   void syncBranches({ autoScroll: false, autoExpand: false })
   return true
+}
+
+/** Moves the issue groups back to `issueGroups.previous` */
+async function undoIssueGroups(issueGroups: IssueGroupsMove): Promise<void> {
+  const result = await invokeCommand(() => commands.undoIssueGroups({ repositoryPath: getSelectedProject()?.path ?? "", issueGroups }))
+  if (result.status !== "ok") {
+    notifyError("Failed to Undo the Rename", result.error)
+  }
 }
 
 /** Stacks `branchName` on `parent`, or makes it a root (`null`), by rewriting the prefixes of its commits */

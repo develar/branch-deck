@@ -3,6 +3,7 @@
 //! `fast-import` objects are readable only after the stream ends, so this suits batches whose commits are all known
 //! up front (reword, notes), not chains that must read each new commit back (the sync cherry-picks).
 
+use crate::reword_commits::complete_line;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -195,6 +196,32 @@ pub fn write_commits_with_notes(git_executor: &GitCommandExecutor, repo_path: &s
     return Err(anyhow!("fast-import wrote {} of {} commits", ids.len(), commits.len()));
   }
   Ok(WrittenCommits { ids, temp_ref })
+}
+
+/// Write a commit whose tree holds the one file `path` with `content`, by the current user, with one `git fast-import`
+/// run: the history of a small store, such as the issue groups. `parent` continues that history; `None` writes a root
+/// commit. The commit is reachable from `temp_ref` until the caller deletes it, normally in the transaction that moves
+/// the store's ref
+#[instrument(skip(git_executor, content))]
+pub fn write_file_commit(git_executor: &GitCommandExecutor, repo_path: &str, path: &str, content: &[u8], parent: Option<&str>, message: &str) -> Result<WrittenCommits> {
+  let temp_ref = unique_temp_ref();
+  let committer = current_committer(git_executor, repo_path)?;
+  let mut stream = Vec::with_capacity(content.len() + 256);
+  stream.extend_from_slice(format!("commit {temp_ref}\nmark :1\ncommitter {committer}\n").as_bytes());
+  push_data(&mut stream, &complete_line(message));
+  if let Some(parent) = parent {
+    stream.extend_from_slice(format!("from {parent}\n").as_bytes());
+  }
+  stream.extend_from_slice(format!("deleteall\nM 100644 inline {path}\n").as_bytes());
+  push_data(&mut stream, content);
+  stream.extend_from_slice(b"\nget-mark :1\ndone\n");
+
+  let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw"], repo_path, &stream)?;
+  let id = String::from_utf8(output)?.trim().to_string();
+  if id.is_empty() {
+    return Err(anyhow!("fast-import wrote no commit for {path}"));
+  }
+  Ok(WrittenCommits { ids: vec![id], temp_ref })
 }
 
 /// Identity of the current user with the current time (`Name <email> <seconds> <tz>`), for new commits and notes

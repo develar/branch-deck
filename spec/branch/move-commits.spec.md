@@ -81,7 +81,8 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 - Only one list must hold a selection: selecting in another list must clear it.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
 - A selection must show "N selected" and a "Move to…" button, above the branch commits or in the unassigned card header.
-- A selection with an explicit prefix must also offer "Move Back to ABC-123", or "Move to Unassigned".
+- A selection with an explicit prefix must also offer "Move Back to ABC-123" (the issue group of the key when it has
+  one, see [Issue Groups](issue-groups.spec.md)), or "Move to Unassigned".
 - "Move to…", Enter or M must open the form. One name input decides: an existing branch name moves the commits there,
   a new name creates the branch. The help text and the submit button ("Move" or "Create") must say which.
 - The form must offer the existing branches as chips, the branches of the same issue first, then the AI suggestions.
@@ -100,7 +101,8 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`, `should move a split commit back to its issue and a prefix commit to the unassigned commits`)
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
 - The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch. Both move all
-  commits of the branch to the new name; an existing name merges the branches.
+  commits of the branch to the new name; an existing name merges the branches. "Rename…" of an issue group renames it
+  in the issue groups, without a rewrite (`rename_branch`).
 - The branch menu of a prefix branch must offer "Ungroup", which removes the prefix of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
 - While a rename or an ungroup runs, its form must show the progress row ("Renaming docs to documentation…"); it closes

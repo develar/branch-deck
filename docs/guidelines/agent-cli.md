@@ -10,7 +10,8 @@
 together), regroup the commits and sync them. It reads with `status`, `commits`, `schema` and `version`, suggests a
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
-writing refs with `check` and pushes with `push`.
+writing refs with `check` and pushes with `push`. `group --sync` applies a plan, its pull request texts and a sync in
+one call.
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -52,6 +53,10 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   subject when it is exactly the `group`.
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
+- Read only: `status`, `commits`, `suggest`, `check`, `schema` and `version` write no ref, config, index or working
+  tree. They write at most git objects (the trial sync of `check` and `suggest`) and the object cache (none with
+  `--no-cache`). `bd --help` and `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and
+  `agent_help_test.rs` checks the refs, the config, the index and the working tree around each of them.
 
 An error looks like this:
 
@@ -64,13 +69,15 @@ An error looks like this:
 | 0 | ok | |
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline` |
-| 3 | stale, read again and retry | `head_moved`, `lease_rejected`, `locked` |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked` |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `push_refused`, `no_remote`, `install_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
-`retryable` is true for `head_moved`, `lease_rejected`, `locked` and `network_error`. The codes for the future write
-commands are already reserved.
+`retryable` is true for `head_moved`, `groups_moved`, `lease_rejected`, `locked` and `network_error`.
+
+One output carries an `error` next to its other fields: a rewrite (`bd group` and the others) whose step after the
+rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd group`).
 
 ## Commands
 
@@ -93,6 +100,11 @@ access. It runs about ten short git processes, with one `log` for all the commit
 - Branches are listed newest first, the same order as the UI. The commits of a branch are newest first too, and
   their subjects have the `(prefix)` stripped.
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
+- `origin` says what groups the commits: `prefix` (a commit has the `(prefix)`), `issue_group` (the issue groups put
+  commits of other keys into it) or `issue`. `issue_keys` lists the keys whose issue group the branch is.
+- `stale_issue_groups` lists the keys of the issue groups that group no commit ahead of the baseline, and
+  `issue_group_problems` (`{line, message}`) the lines of the store that are not used; both are left out when empty.
+  `ungroup_issues` of `bd group` removes a stale key, and so does any write of the issue groups.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
@@ -105,7 +117,6 @@ access. It runs about ten short git processes, with one `log` for all the commit
   The output has `forest`: the branches with commits, each after its parent.
 - `description` is `{title}` of the branch's `bd describe` text, read for all branches with one
   `git config --get-regexp`.
-- `pull_request` (from `sync_core::pull_requests`) is reserved, and left out until pull request status is wired.
 - `--stats` adds `stats` to each listed branch:
 
   ```json
@@ -129,7 +140,8 @@ access. It runs about ten short git processes, with one `log` for all the commit
 - `--brief` prints `StatusBrief` (`status_brief` in `bd schema`), small enough to read whole: about 2 KB for the 12
   branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
-    of the newest commit. With stacked branches on, it keeps `parent`, `blocked_by`, `problems` and `forest`.
+    of the newest commit, and `issue_keys` of an issue group. With stacked branches on, it keeps `parent`,
+    `blocked_by`, `problems` and `forest`. It keeps `stale_issue_groups` and `issue_group_problems`.
   - `unassigned` lists the ids and subjects.
   - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
   - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
@@ -259,13 +271,17 @@ commit id (`crates/object-cache`, LMDB through heed):
 - `bd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
   commit trees in `commit_tree`. Sync doesn't use them yet.
 
-### `bd group [--dry-run] [--expect-head <id>] [--map] [--plan <file>] < plan.json`
+### `bd group [--dry-run | --sync] [--expect-head <id>] [--map] [--plan <file>] < plan.json`
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
-(`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)).
+(`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
+the issue groups in the same ref transaction. Then it sets the pull request texts of the plan and, with `--sync`,
+rebuilds the virtual branches, under the same repository lock.
 
 ```json
-{"branches": {"auth": ["41c7d00e", "5e2f9c3b"], "auth/login": ["9f3a2b1c"]}, "unassign": ["77e01aa4"]}
+{"branches": {"auth": ["41c7d00e", "5e2f9c3b"], "auth/login": ["9f3a2b1c"]}, "unassign": ["77e01aa4"],
+ "issue_groups": {"parser": ["ABC-1", "ABC-2"]}, "ungroup_issues": ["XYZ-7"],
+ "descriptions": {"auth": {"title": "Add login", "body": "The login form."}}}
 ```
 
 - A path is a branch name, or `parent/leaf` with stacked branches on (`git config branchdeck.stacks true`). Ids may
@@ -274,11 +290,27 @@ Moves commits between branches by their subject prefixes, in one message-only hi
   branch already. So a plan that names the current branch of each commit (its stack path with stacked branches on, not
   the leaf) rewrites no commit that has no prefix or a canonical one. A prefix the grouper sanitizes, such as
   `(Foo Bar)` in `Foo-Bar`, is rewritten to the name.
-- Before anything is written, the plan is applied in memory to every subject ahead of the baseline and validated:
+- `issue_groups` maps an issue group name (a branch name without `/`) to issue keys: the commits without a prefix that
+  carry one of the keys go into that branch, and no subject changes. `ungroup_issues` removes the issue group of a
+  key, so its commits go back to the issue branch of the key. The map lives in `refs/branch-deck/issue-groups`; see
+  [Issue Groups](../../spec/branch/issue-groups.spec.md). A plan of issue groups only rewrites nothing
+  (`rewritten` 0) and moves only that ref, still with `--expect-head` and a check that HEAD did not move.
+- Before anything is written, the plan is applied in memory to every subject ahead of the baseline and validated,
+  with the issue groups as they are after the plan:
   - unknown ids and ids not ahead of the baseline are `not_ahead_of_baseline`;
   - duplicate ids, ids both in a branch and in `unassign`, invalid names, a fixup sent away from its target and a
     stack problem the plan introduces (a cycle, conflicting parents, a self parent, a case collision) are
-    `invalid_plan`; problems that already existed are listed in `problems`.
+    `invalid_plan`; problems that already existed are listed in `problems`;
+  - a key in two issue groups, or in an issue group and in `ungroup_issues`, a key to ungroup that is in none, an
+    invalid key or name, a key that no commit without a prefix carries, and a fixup the issue groups would separate
+    from its target (`fixup! <id>` has no issue key) are `invalid_plan` too.
+- `descriptions` maps a branch (the group name, as for `bd describe`: the leaf of a stacked branch) to its pull
+  request text `{title, body}`. bd
+  validates it with the plan: a title of one line that is not empty, and a branch that has commits after the plan (a
+  prefix branch, an issue branch or an issue group); else `invalid_plan`, and nothing is written. After the ref
+  transaction bd writes the texts that differ from the current ones, as `bd describe` does: one `git config` process
+  per branch, because git has no batch writer for config. A plan of descriptions only rewrites nothing, and
+  `--expect-head` stays optional, as for any plan.
 - Fixups not in the plan follow their targets.
 - `--expect-head` refuses with `head_moved` (exit 3) unless HEAD is still that commit; the rewrite itself only moves
   the branch from the HEAD it read (compare-and-swap).
@@ -293,29 +325,51 @@ Moves commits between branches by their subject prefixes, in one message-only hi
 ```
 
 - `groups` and `unassigned` list every commit ahead of the baseline afterwards, with the new ids, oldest first.
+- `issue_groups` (only when they change) lists every issue group afterwards with its keys. A write of the issue groups
+  drops the keys that group no commit.
+- `undo_token` holds full ids: `<previous head>..<new head>` for a rewrite, `groups:<previous>..<new>` (commits of
+  the issue groups) for a change of the issue groups only, and both joined by `+`. The previous issue groups commit is
+  zeros when there were no issue groups before. Pass the token to `bd undo` as printed.
 - `--dry-run` writes nothing and adds `changes` (`{id, from, to}` subjects) and, with stacked branches on, `forest`
   (`{name, parent, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
+- `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
+  `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
+  can, with the replaced text.
+- `--sync` runs `bd sync` after the writes, without a gap in the lock, so no other rewrite comes between them, and
+  adds its output as `sync`. The exit code is 1 when a branch conflicts, as for `bd sync`. `--sync` doesn't go with
+  `--dry-run` (`invalid_arguments`): a dry run writes nothing, and `bd check` is the trial sync of a plan.
+- `error` (`{code, message, commits, retryable}`, as in an error output) is set when a step after the rewrite fails:
+  a description write, which also skips the sync and leaves the later descriptions unwritten, or the sync. The
+  rewrite stands, `undo_token` reverts it, and the exit code is that error's.
+- `bd undo` moves back only HEAD and the issue groups: the descriptions stay, and the virtual branches stay as the
+  sync built them until the next `bd sync`.
 
 ### `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`
 
-Plans that `bd` computes, validated and written like `bd group`, with the same options and output:
+Plans that `bd` computes, validated and written like `bd group`, with the same options (`--sync` too) and output:
 
-- `rename` replaces the level `old` in every prefix path, so a parent's children follow; an issue branch's commits
-  get the prefix `(new)`. The new name must not contain `/`. A name that exists merges the branches.
+- `rename` replaces the level `old` in every prefix path, so a parent's children follow, and renames the issue groups
+  named `old` without a rewrite; an issue branch's commits get the prefix `(new)`. The new name must not contain `/`.
+  A name that exists merges the branches.
 - `restack` sets the prefix of every commit of the branch to `(parent/branch)`, `unstack` to `(branch)`. Both need
-  stacked branches on.
+  stacked branches on. An issue group can be a parent, but restacking it is `invalid_plan`: give its commits a prefix
+  with `bd group` first.
 
 ### `bd undo <undo_token>`
 
-Moves the branch back from the token's new HEAD to its previous HEAD, with CAS and the lock: `head_moved` once
-anything else changed the branch. Prints `{"schema":1,…,"head":"<restored>","undone":"<undone>"}`.
+Moves the branch back from the token's new HEAD to its previous HEAD, and the issue groups back from the token's new
+commit to its previous one (or away), in one transaction with CAS on each, under the lock: `head_moved` once anything
+else changed the branch, `groups_moved` (exit 3) once anything else changed the issue groups. Prints
+`{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>"}`; `undone` is left out for
+a `groups:` token, `undone_issue_groups` for a token without one.
 
 ### `bd check [--plan FILE | < plan.json]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
-and validated as `bd group --dry-run` does (an invalid plan is exit 2), the branches are placed as a stacked sync
-places them, and each one is built with the sync's `build_branch`, parents first. It writes commit objects only: no
-ref, note, HEAD or working tree changes, no remote status and no repository lock.
+and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
+placed as a stacked sync places them, and each one is built with the sync's `build_branch`, parents first. It writes
+commit objects and the object cache only: no ref, note, config, HEAD or working tree changes, no remote status and no
+repository lock.
 
 ```json
 {"schema":1,…,"head":"77e01aa4","baseline":"origin/master","base_commit":"3c0ffee1","rewritten":1,"ok":false,
@@ -349,8 +403,9 @@ branch tips), their changes from the object cache without lock files, generated 
 (`crates/bd-cli/src/clustering.rs`) runs no git:
 
 1. Hard units, joined with union-find: the dependency edges, a fixup and its target, the commits with the same
-   `(prefix)` (an anchor), and the commits without a prefix that have the same issue key. `--fresh` ignores the
-   prefixes. A dependency between two anchors joins nothing: it is an `anchor_dependency` warning.
+   `(prefix)` or of the same issue group (an anchor), and the commits without a prefix that have the same issue key.
+   `--fresh` ignores the anchors. A dependency between two anchors joins nothing: it is an `anchor_dependency`
+   warning.
 2. A score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are exact:
    - R, the links: a body names an issue key of the other side (0.9); both sides name a third key (0.7), unless more
      than max(10, units / 3) units name it; the same conventional scope (0.8 without issue keys, 0.5 with them). A
@@ -382,7 +437,7 @@ stays.
 
 ```json
 {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
- "plan":{"branches":{"vm":["41c7d00e","5e2f9c3b"]},"unassign":[]},
+ "plan":{"branches":{"vm":["41c7d00e","5e2f9c3b"]},"unassign":[],"issue_groups":{"parser-parse":["ABC-1","ABC-2"]}},
  "clusters":[{"name":"vm","commit_count":2,"change":"new","from":[],"why":"2 units; scope vm in 2 subjects; area vm",
    "weak":false,"issue_keys":[],"areas":[{"dir":"vm","lines":2}]},
   {"name":"parser-parse","commit_count":2,"change":"merged","from":["ABC-1","ABC-2"],
@@ -399,8 +454,9 @@ stays.
   part of one branch; `new`: anything else), `why` (one line to
   quote to the user, with the repair rounds), `weak` (a merge by paths near the threshold, or one that adjacency
   decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`).
-- A cluster of two or more whole issue branches stays out of the plan with `"via":"issue_group"`, because the plan
-  would give each of its commits a prefix. `--rewrite-issues` puts it into the plan.
+- A cluster of two or more whole issue branches goes into `issue_groups` of the plan, marked `"via":"issue_group"`:
+  its subjects keep their keys, and `rewritten` stays 0 for it. `--rewrite-issues` gives its commits a prefix instead.
+  An issue group is an anchor, as a prefix is: it stays one branch unless `--fresh`.
 - `rewritten` counts the subjects the plan changes. `check` has the `bd check` result of each branch and the
   `repair_rounds`. `warnings` lists `anchor_dependency` and `unresolved_conflict`, with the branches.
 - The exit code is 1 when a branch of the plan still conflicts, as for `bd check`.
@@ -479,11 +535,12 @@ repository lock (see "Agent push" in [Git Operations](../design/git-operations.m
 Prints or sets the pull request text of a branch in git's own `branch.<prefix>/virtual/<branch>.description`, stored
 as `title`, a blank line and the body, as `git branch --edit-description` writes it. Without options it prints
 `{…,"branch","ref","description":{"title","body"}|null,"changed":false}`. `--title` or `--body` replace only that part;
-`--body-file -` reads stdin; `--clear` removes it. The branch must be a current group.
+`--body-file -` reads stdin; `--clear` removes it. The branch must be a current group. The `descriptions` of a
+`bd group` plan set the texts of several branches in the same call as the rewrite.
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"install":…,"push":…,"rewrite":…,"status":…,"status_brief":…,"sync":…,"undo":…,"version":…}}`;
+Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"install":…,"push":…,"rewrite":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"version":…}}`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, and `commits_brief` and `status_brief` the
 outputs of `--brief`.
 
@@ -497,7 +554,9 @@ error. The first line of `bd help agent` names the version too.
 
 ### `bd help agent`
 
-Prints the workflow below as plain text.
+Prints the workflow below as plain text, about 5 KB. `agent_help_test.rs` keeps it true. The help must name every
+command and, for each command, every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as
+`status --limit`). An option counts for the command named last before it, and it must exist for that command.
 
 ### `bd install [--uninstall]`, `bd help skill`
 
@@ -520,21 +579,25 @@ Finder has a minimal one. `--uninstall` removes the skills and the symlink if it
 
 ## Agent workflow
 
-1. Run `bd suggest` for a checked plan to start from (`--fresh` ignores the prefixes). Run `bd status --brief`, then
-   `bd commits --brief`: its `units` are the commits that must stay together. For more,
-   run `bd status`, `bd commits --files`, and `bd commits --patch <id>…` (or `--branch <b>`, `--unassigned`) for the
-   commits that are unclear.
-2. Cluster the commits by intent. Use `dependencies` and `cluster_overlap` to keep together, or stack, the commits that
-   can't be separated.
-3. Write the plan and run `bd group --dry-run < plan.json` until it is accepted, then `bd check < plan.json` until
-   every branch is `ok`: move the `missing_commits` of a conflict into the branch, or stack the branch on the one
-   that has them.
-4. Run `bd group --expect-head <head> < plan.json` with the HEAD `bd status` printed. On `head_moved` or `locked`,
-   read again and retry. Then run `bd sync`; on a conflict (exit 1) regroup the commits the change needs into the same
-   branch or its parent, and sync again.
-5. Run `bd describe <branch> --title … --body …` for each branch.
-6. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
+1. Run `bd suggest`. It is read only, and its plan is checked already. Read the clusters: `change` and `from` against
+   the branches now, `why` to quote to the user, `weak` to review first, and the `issue_groups` of the plan. For a
+   closer look, run `bd status --brief` and `bd commits --brief`: per commit the group, issue key, fixup target and
+   `areas`, the `units` that must stay together and the `dependencies` `{from, to}`. Run `bd commits <id>… --patch`
+   or `bd commits --unassigned` for the commits that are unclear, and `bd status --stats` for the size of each branch.
+2. Edit the plan where the clusters are wrong. `bd suggest` exits with 1 when its own check fails, so edit it then
+   too. After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
+   `bd check --plan plan.json` until every branch is `ok`: move the `missing_commits` of a conflict into the branch,
+   or stack the branch on the one that has them.
+3. Add `descriptions` (the pull request title and body) for the branches that have none (`description` in
+   `bd status`); replace one only when the user asks. A stacked branch is named by its leaf. Run
+   `bd group --expect-head <head> --sync --plan plan.json` with the `head` of `bd suggest`. On `head_moved`,
+   `groups_moved` or `locked` (exit 3), read again and retry. On a sync conflict (exit 1), regroup the commits the
+   change needs into the same branch or its parent, and run `bd sync` again. On another exit with `error` and an
+   `undo_token`, the rewrite stands: run `bd sync` again, or undo it. `bd undo` with the printed token reverts the
+   rewrite and the issue groups, not the descriptions; run `bd sync` after it.
+4. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
    lines it prints, piping each `body` into its command.
 
-The agent never reorders, squashes or drops commits: a plan only moves commits between branches. These are the same
-rules as `src/lib/agent-prompt.ts`. `bd undo` with the printed token reverts a rewrite.
+The agent never reorders, squashes or drops commits: a plan only moves commits between branches. The Update Project
+hand-off prompt (`src/lib/agent-prompt.ts`) states the same rule for an agent that rebases; it also forbids a push,
+which here the agent runs only after the user approves.

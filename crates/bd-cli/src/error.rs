@@ -26,6 +26,8 @@ pub enum ErrorCode {
   Conflict,
   /// HEAD moved since the caller read it; read again and retry
   HeadMoved,
+  /// The issue groups (`refs/branch-deck/issue-groups`) changed since the caller read them; read again and retry
+  GroupsMoved,
   /// The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now
   LeaseRejected,
   /// Another git process holds a lock; retry
@@ -56,7 +58,7 @@ impl ErrorCode {
     match self {
       Self::Conflict => 1,
       Self::InvalidArguments | Self::NotARepository | Self::NoBranchPrefix | Self::UnknownBranch | Self::InvalidPlan | Self::NotAheadOfBaseline => 2,
-      Self::HeadMoved | Self::LeaseRejected | Self::Locked => 3,
+      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked => 3,
       Self::NoBaseline | Self::OperationInProgress | Self::DetachedHead | Self::StagedOverlap | Self::PushRefused | Self::NoRemote | Self::InstallRefused => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError => 5,
     }
@@ -64,7 +66,7 @@ impl ErrorCode {
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
   pub fn retryable(self) -> bool {
-    matches!(self, Self::HeadMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError)
+    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError)
   }
 }
 

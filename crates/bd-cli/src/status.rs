@@ -9,8 +9,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
 use sync_core::regroup::{describe_problem, problem_commits};
-use sync_types::GroupedBranchInfo;
 use sync_types::stack::{BlockReason, BranchStack, ParentState};
+use sync_types::{BranchOrigin, GroupedBranchInfo};
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
@@ -58,6 +58,19 @@ pub struct StatusOutput {
   /// Newest first; omitted with --branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unassigned: Option<Vec<CommitSummary>>,
+  /// The keys of the issue groups (`refs/branch-deck/issue-groups`) that group no commit ahead of the baseline;
+  /// `ungroup_issues` of `bd group` removes them, and so does any write of the issue groups
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stale_issue_groups: Vec<String>,
+  /// The lines of the issue groups that are not used: not `KEY<TAB>name`, an invalid key or name, a key listed twice
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub issue_group_problems: Vec<IssueGroupLine>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IssueGroupLine {
+  pub line: String,
+  pub message: String,
 }
 
 /// `bd status --brief`: the branches of `bd status` without their commits, small enough to read whole
@@ -78,6 +91,10 @@ pub struct StatusBrief {
   pub branches: Option<Vec<BriefBranch>>,
   /// Newest first
   pub unassigned: Vec<CommitSummary>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stale_issue_groups: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub issue_group_problems: Vec<IssueGroupLine>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -87,6 +104,9 @@ pub struct BriefBranch {
   /// The issue key of its subjects; omitted when it is `name`, an issue branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub issue_key: Option<String>,
+  /// The issue keys whose issue group it is
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub issue_keys: Vec<String>,
   /// The subject of its newest commit, without the `(prefix)`
   pub newest: String,
   /// The parent its commits declare, with stacked branches on
@@ -109,8 +129,14 @@ pub struct Head {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct BranchStatus {
-  /// The group name: the `(prefix)` of the subjects or their issue key
+  /// The group name: the `(prefix)` of the subjects, their issue group or their issue key
   pub name: String,
+  /// What groups its commits: `prefix` when a commit has the `(prefix)`, else `issue_group` when the issue groups put
+  /// commits of other keys into it, else `issue`
+  pub origin: OriginName,
+  /// The issue keys whose issue group it is (`refs/branch-deck/issue-groups`)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub issue_keys: Vec<String>,
   /// The virtual branch, `refs/heads/{prefix}/virtual/{name}`
   #[serde(rename = "ref")]
   pub reference: String,
@@ -139,14 +165,29 @@ pub struct BranchStatus {
   pub commit_count: usize,
   /// The tip of the virtual branch as last synced; `null` if it was never synced
   pub tip: Option<String>,
-  /// The pull request of the branch (not available yet: it will be the read-only status of `sync_core::pull_requests`)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub pull_request: Option<serde_json::Value>,
   /// With --stats
   #[serde(skip_serializing_if = "Option::is_none")]
   pub stats: Option<BranchStats>,
   /// Newest first; subjects without the `(prefix)`
   pub commits: Vec<CommitSummary>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OriginName {
+  Prefix,
+  Issue,
+  IssueGroup,
+}
+
+impl From<BranchOrigin> for OriginName {
+  fn from(origin: BranchOrigin) -> Self {
+    match origin {
+      BranchOrigin::Prefix => Self::Prefix,
+      BranchOrigin::Issue => Self::Issue,
+      BranchOrigin::IssueGroup => Self::IssueGroup,
+    }
+  }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
@@ -301,6 +342,15 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
   let whole = (0, None);
   let (branch_page, commit_page) = if args.branch.is_some() { (whole, paged) } else { (paged, whole) };
   let reference_of = |name: &str| to_final_branch_name(&context.prefix, name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
+  let issue_groups = &grouping.grouping.issue_groups;
+  let issue_keys_of = |name: &str| -> Vec<String> {
+    issue_groups
+      .entries
+      .iter()
+      .filter(|(key, group)| *group == name && !grouping.stale_issue_groups.contains(key))
+      .map(|(key, _)| key.clone())
+      .collect()
+  };
   let listed: Vec<&GroupedBranchInfo> = if args.unassigned {
     Vec::new()
   } else {
@@ -328,6 +378,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
         BranchStatus {
           tip: tips.get(&reference).map(|tip| short.get(tip).to_string()),
           name: branch.name.clone(),
+          origin: branch.origin.into(),
+          issue_keys: issue_keys_of(&branch.name),
           reference,
           parent: placement(&branch.name).and_then(|stack| stack.declared_parent.clone()),
           parent_state: placement(&branch.name).and_then(|stack| stack.parent_state).map(ParentStateName::from),
@@ -339,7 +391,6 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           description: descriptions
             .get(&reference_of(&branch.name))
             .map(|description| DescriptionTitle { title: description.title.clone() }),
-          pull_request: None,
           issue_key: branch.issue_key.clone(),
           latest_time: branch.latest_commit_time,
           commit_count: branch.commits.len(),
@@ -366,6 +417,15 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     forest: forest.map(|forest| forest.order.clone()),
     branches,
     unassigned,
+    stale_issue_groups: grouping.stale_issue_groups.clone(),
+    issue_group_problems: issue_groups
+      .problems
+      .iter()
+      .map(|problem| IssueGroupLine {
+        line: problem.line.clone(),
+        message: problem.message.clone(),
+      })
+      .collect(),
   })
 }
 
@@ -392,6 +452,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
       .map(|branch| BriefBranch {
         newest: branch.commits.into_iter().next().map_or_default(|commit| commit.subject),
         issue_key: branch.issue_key.filter(|key| *key != branch.name),
+        issue_keys: branch.issue_keys,
         name: branch.name,
         commit_count: branch.commit_count,
         parent: branch.parent,
@@ -411,5 +472,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
     forest: full.forest,
     branches,
     unassigned: full.unassigned.unwrap_or_default(),
+    stale_issue_groups: full.stale_issue_groups,
+    issue_group_problems: full.issue_group_problems,
   })
 }

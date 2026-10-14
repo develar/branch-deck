@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use git_ops::commit_utils::{find_commit, get_commits_info};
+use git_ops::ref_transaction::RefTransaction;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -65,17 +66,19 @@ pub(crate) fn reword_read_commits<'a>(
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<HashMap<String, String>> {
-  reword_read_commits_at(git_executor, repository_path, commits, rewrites, None).map(|(requested, _)| requested)
+  reword_read_commits_at(git_executor, repository_path, commits, rewrites, None, &RefTransaction::new()).map(|(requested, _)| requested)
 }
 
-/// `reword_read_commits` for messages computed from the history at `expected_head` (`reword_commits_batch_at`).
-/// Also returns old -> new full id of every recreated commit, the ones after the oldest reworded one included
+/// `reword_read_commits` for messages computed from the history at `expected_head` (`reword_commits_batch_at`), with
+/// the changes of `also` in the transaction that moves the branch. Also returns old -> new full id of every recreated
+/// commit, the ones after the oldest reworded one included
 pub(crate) fn reword_read_commits_at<'a>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
   expected_head: Option<&str>,
+  also: &RefTransaction,
 ) -> Result<(HashMap<String, String>, HashMap<String, String>)> {
   let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
   if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
@@ -102,10 +105,12 @@ pub(crate) fn reword_read_commits_at<'a>(
   // also maps the commits recreated on top of a reworded one, unchanged messages included;
   // `reword_commits_batch` refuses a commit that is no longer on the current branch
   let mapping = if params.is_empty() {
+    // no message changes once cleaned up: the related refs still move
+    also.commit(git_executor, repository_path, "reword")?;
     HashMap::new()
   } else {
     let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
-    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head)?
+    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head, also)?
   };
   info!(reworded_count, "Reworded commits");
   let requested = resolved

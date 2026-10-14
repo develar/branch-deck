@@ -3,6 +3,7 @@ use git_ops::commit_list::Commit;
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_ops::update_branch::UpdateCheck;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 pub mod branch_integration;
 pub mod issue_navigation;
@@ -66,6 +67,9 @@ pub enum SyncEvent {
     /// Stacked branches are on (`branchdeck.stacks`): prefixes are read as `(parent/leaf)`
     #[cfg_attr(feature = "specta", specta(optional))]
     stacks: bool,
+    /// Issue key -> branch name: the issue groups (`refs/branch-deck/issue-groups`) the commits were grouped with
+    #[cfg_attr(feature = "specta", specta(optional))]
+    issue_groups: BTreeMap<String, String>,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },
@@ -146,6 +150,9 @@ pub enum BranchOrigin {
   Prefix,
   /// The issue key of the subjects (`ABC-123: ...`), no explicit prefix
   Issue,
+  /// The issue groups (`refs/branch-deck/issue-groups`) put the commits of other issue keys into the branch; no
+  /// explicit prefix
+  IssueGroup,
 }
 
 /// Progress reporter trait that abstracts away Tauri-specific channel

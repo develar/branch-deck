@@ -1,8 +1,10 @@
-//! `bd check`: would the branches build with this plan? A trial sync (`sync_core::check`) that writes objects only
+//! `bd check`: would the branches build with this plan? A trial sync (`sync_core::check`) that writes git objects and
+//! the cache only
 
 use crate::context::RepoContext;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::error::{CliError, ErrorCode};
+use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
@@ -12,13 +14,12 @@ use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, check_plan};
-use sync_core::regroup::RegroupPlan;
 use sync_types::stack::BranchStack;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct CheckArgs {
-  /// The plan `{"branches": {"path": [ids]}, "unassign": [ids]}`, `-` for stdin; default: stdin if it is not a
-  /// terminal, and without a plan the current grouping
+  /// The plan of `bd group`, `-` for stdin; default: stdin if it is not a terminal, and without a plan the current
+  /// grouping
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
 }
@@ -77,7 +78,10 @@ pub struct CheckConflict {
 pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, CliError> {
   let plan = read_plan(args.plan.as_ref())?;
   let cache = context.cache();
-  let report = check_plan(&context.git, &context.repository, &context.prefix, plan.as_ref(), &cache).map_err(regroup_error)?;
+  let report = check_plan(&context.git, &context.repository, &context.prefix, plan.as_ref().map(|plan| &plan.regroup), &cache).map_err(regroup_error)?;
+  if let Some(plan) = &plan {
+    check_descriptions(&plan.descriptions, &report.regroup.commits).map_err(regroup_error)?;
+  }
 
   // the files of each commit, for the commits a conflict likely needs
   let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
@@ -182,7 +186,7 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
 }
 
 /// The plan from `--plan` (`-` for stdin), else from stdin unless it is a terminal; `None` for no plan
-fn read_plan(path: Option<&PathBuf>) -> Result<Option<RegroupPlan>, CliError> {
+fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
   let text = match path {
     Some(path) if path.as_os_str() != "-" => {
       std::fs::read_to_string(path).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read {}: {e}", path.display())))?
@@ -193,9 +197,7 @@ fn read_plan(path: Option<&PathBuf>) -> Result<Option<RegroupPlan>, CliError> {
   if text.trim().is_empty() {
     return Ok(None);
   }
-  serde_json::from_str(&text)
-    .map(Some)
-    .map_err(|e| CliError::new(ErrorCode::InvalidPlan, format!("The plan is not valid JSON of the expected shape: {e}")))
+  parse_group_plan(&text).map(Some)
 }
 
 fn read_stdin() -> Result<String, CliError> {

@@ -82,23 +82,46 @@ flowchart TD
 
 ### Grouping Rules
 
-`CommitGrouper` reads the subject line only (`parse_subject` in `crates/sync-core/src/commit_grouper.rs`):
+`CommitGrouper` reads the subject line (`parse_subject` in `crates/sync-core/src/commit_grouper.rs`) and the issue
+groups:
 
 1. A leading autosquash marker (`fixup!`, `squash!`, `amend!`) is skipped, so a fixup stays in the branch of its target.
 2. An explicit `(name)` prefix at the very start wins. The name is sanitized into a Git ref name (`mockito 5.19` →
    `mockito-5.19`); the virtual branch commit drops the prefix.
-3. Otherwise an issue key at the start (after an optional `[category]` and `type(scope):`) names the branch, e.g.
-   `ABC-123: Fix` → `ABC-123`. The commit message is kept as is.
+3. Otherwise the issue key at the start (after an optional `[category]` and `type(scope):`) decides. Its issue group
+   (below) names the branch; without one the key itself does, e.g. `ABC-123: Fix` → `ABC-123`. The commit message is
+   kept as is.
 4. Anything else is unassigned.
 
 So `(lexer) ABC-123: Add lexer` belongs to `lexer`, and its pushed message is `ABC-123: Add lexer`. A prefix branch
 whose commits all carry one issue key belongs to that issue (`issue_key` of `GroupedBranchInfo`): the branch table
 nests it under the issue. `groupFor` in `src/lib/commit.ts` mirrors the rule for the editor's warning.
 
-The explicit prefix is the only grouping state, so every regrouping is a message rewrite:
-`move_commits_to_branch` (`crates/sync-core/src/move_commits.rs`) sets or removes the prefix of many commits in one
-rewrite. The UI uses it to move commits, split an issue, rename a branch and ungroup one; an undo restores the
-previous messages with `reword_commits`. See [Move Commits](../../spec/branch/move-commits.spec.md).
+A regrouping by prefix is a message rewrite: `move_commits_to_branch` (`crates/sync-core/src/move_commits.rs`) sets
+or removes the prefix of many commits in one rewrite. The UI uses it to move commits, split an issue, rename a branch
+and ungroup one; an undo restores the previous messages with `reword_commits`. See
+[Move Commits](../../spec/branch/move-commits.spec.md). The issue groups are the one grouping state outside the
+messages.
+
+### Issue Groups
+
+An issue group puts the commits of several issue keys into one branch without a rewrite, so that the subjects keep
+the rule "issue id plus one sentence". The store is the ref `refs/branch-deck/issue-groups`: a commit whose tree holds
+one file of sorted `KEY<TAB>name` lines (`crates/sync-core/src/issue_groups.rs`). Each key has one name, and a name is
+a branch name without `/`. A line that is not valid is a reported problem and is never used.
+
+`GroupingInputs` (`commit_grouper.rs`) carries the stack setting and the map to every place that groups: the sync,
+`group_commits_ahead_of_baseline`, the regroup and the check, the fixup plan, the landed commits and the update check.
+`read_grouping_inputs` reads both in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
+that the map fills, without a prefix commit, has the origin `IssueGroup`; a single-key group nests under its issue in
+the branch table. The `branchesGrouped` event carries the map, so `groupFor` in `src/lib/commit.ts` and "Move Back to …"
+see it too.
+
+Only a regroup writes the map: a plan's `issue_groups` and `ungroup_issues`, and a rename, which renames the entries
+of the old name. It writes under the repository lock and in the ref transaction that moves HEAD, with
+compare-and-swap on both refs (see [Git Operations](git-operations.md)). A sync never writes it. A key that groups no
+commit is reported by `bd status` as stale and dropped by the next write. An issue group can be a stack parent, but it
+can't be restacked. See [Issue Groups](../../spec/branch/issue-groups.spec.md).
 
 ### Stacked Branches
 

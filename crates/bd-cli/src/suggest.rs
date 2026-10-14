@@ -21,7 +21,7 @@ use git_ops::commit_list::Commit;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::RandomState;
 use sync_core::check::{CheckOutcome, CheckReport, CheckSession};
 use sync_core::commit_grouper::parse_subject;
@@ -31,13 +31,13 @@ use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic
 
 #[derive(Debug, clap::Args)]
 pub struct SuggestArgs {
-  /// Ignore the `(prefix)` of the subjects: cluster every commit as if it had none
+  /// Ignore the `(prefix)` of the subjects and the issue groups: cluster every commit as if it had neither
   #[arg(long)]
   pub fresh: bool,
   /// No merge of two clusters by score makes a branch of more commits
   #[arg(long, value_name = "N", default_value_t = DEFAULT_MAX_COMMITS, value_parser = RangedU64ValueParser::<usize>::new().range(1..))]
   pub max_commits: usize,
-  /// Put a cluster of whole issue branches into the plan too, which gives its commits a prefix
+  /// Give the commits of a cluster of whole issue branches a prefix, instead of an issue group
   #[arg(long)]
   pub rewrite_issues: bool,
   /// Print the input of the clustering, anonymized, instead of a suggestion: test data
@@ -68,6 +68,12 @@ pub struct SuggestOutput {
 pub struct SuggestPlan {
   pub branches: BTreeMap<String, Vec<String>>,
   pub unassign: Vec<String>,
+  /// Issue group name -> the issue keys it gets: whole issue branches, grouped without a rewrite
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  pub issue_groups: BTreeMap<String, Vec<String>>,
+  /// The keys whose issue group goes: their commits go back to the issue branch of the key
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub ungroup_issues: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -86,8 +92,8 @@ pub struct SuggestedCluster {
   pub issue_keys: Vec<String>,
   /// The directories with the most lines, as in `bd commits --brief`
   pub areas: Vec<DirLines>,
-  /// `issue_group`: whole issue branches, left out of the plan so that their subjects stay (`--rewrite-issues` puts
-  /// them in)
+  /// `issue_group`: whole issue branches that an issue group puts together, so that their subjects stay
+  /// (`--rewrite-issues` gives them a prefix instead)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub via: Option<String>,
 }
@@ -139,8 +145,7 @@ impl Reading {
 /// The names, the plan (positions) and the check of the clustering the repair loop checked last
 struct Checked {
   names: Vec<String>,
-  branches: BTreeMap<String, Vec<usize>>,
-  unassign: Vec<usize>,
+  positions: PlanPositions,
   report: CheckReport,
 }
 
@@ -176,30 +181,23 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   let mut last: Option<Checked> = None;
   let repaired = cluster_with_repair(&input, &options, |clustering| {
     let names = name_clusters(&input, clustering, &taken);
-    let (branches, unassign) = plan_of(&input, clustering, &names, args.rewrite_issues);
+    let positions = plan_of(&input, clustering, &names, args.rewrite_issues);
     let plan = RegroupPlan {
-      branches: branches
+      branches: positions
+        .branches
         .iter()
         .map(|(name, commits)| (name.clone(), commits.iter().map(|&commit| commit_ids[commit].to_string()).collect()))
         .collect(),
-      unassign: unassign.iter().map(|&commit| commit_ids[commit].to_string()).collect(),
+      unassign: positions.unassign.iter().map(|&commit| commit_ids[commit].to_string()).collect(),
+      issue_groups: positions.issue_groups.clone(),
+      ungroup_issues: positions.ungroup_issues.clone(),
     };
     let report = session.check(Some(&plan)).map_err(regroup_error)?;
     let conflicts = conflicts_of(&report, &files_of, &position_of);
-    last = Some(Checked {
-      names,
-      branches,
-      unassign,
-      report,
-    });
+    last = Some(Checked { names, positions, report });
     Ok::<_, CliError>(conflicts)
   })?;
-  let Checked {
-    names,
-    branches,
-    unassign,
-    report,
-  } = last.expect("the check ran");
+  let Checked { names, positions, report } = last.expect("the check ran");
 
   let short = context.short_ids(commit_ids.iter().copied().chain([snapshot.head.as_str()]));
   let short_of = |commit: usize| short.get(commit_ids[commit]).to_string();
@@ -256,8 +254,14 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       baseline: snapshot.baseline.clone(),
     },
     plan: SuggestPlan {
-      branches: branches.into_iter().map(|(name, commits)| (name, commits.into_iter().map(short_of).collect())).collect(),
-      unassign: unassign.into_iter().map(short_of).collect(),
+      branches: positions
+        .branches
+        .into_iter()
+        .map(|(name, commits)| (name, commits.into_iter().map(short_of).collect()))
+        .collect(),
+      unassign: positions.unassign.into_iter().map(short_of).collect(),
+      issue_groups: positions.issue_groups,
+      ungroup_issues: positions.ungroup_issues,
     },
     clusters,
     rewritten: report.regroup.changed_count(),
@@ -278,7 +282,8 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
     .iter()
     .map(|commit| (commit, snapshot.groups.get(&commit.id).and_then(Option::as_deref)))
     .collect();
-  let fixups = fixup_targets(&snapshot.head, &ordered, snapshot.stacks);
+  let fixups = fixup_targets(&snapshot.head, &ordered, &snapshot.grouping);
+  let issue_groups = &snapshot.grouping.issue_groups.entries;
   let linked = diffs.linked();
   let commits = ordered
     .iter()
@@ -286,7 +291,7 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
     .map(|(position, &(commit, group))| {
       let parsed = parse_subject(&commit.subject);
       let prefix = parsed.prefix.and_then(|prefix| {
-        let path = if snapshot.stacks {
+        let path = if snapshot.grouping.stacks {
           stack_path(prefix).ok().map(|levels| levels.join("/"))
         } else {
           Some(sanitize_branch_name(prefix.trim()))
@@ -300,6 +305,7 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
       mentions.sort();
       mentions.dedup();
       CommitFeatures {
+        issue_group: key.as_ref().and_then(|key| issue_groups.get(key)).cloned(),
         prefix,
         group: group.map(str::to_string),
         key,
@@ -334,27 +340,63 @@ fn name_words(text: &str) -> Vec<String> {
   subject_words(&without_keys)
 }
 
-/// The plan of a clustering: per branch name the commits that move there, and the commits that lose their prefix to
-/// fall back to their own issue branch. A commit already grouped by that name stays out, and so does a fixup that
-/// follows its target; a cluster of whole issue branches stays out unless `rewrite_issues`
-pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, names: &[String], rewrite_issues: bool) -> (BTreeMap<String, Vec<usize>>, Vec<usize>) {
-  let mut branches: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-  let mut unassign: Vec<usize> = Vec::new();
+/// What a plan of a clustering changes, by position
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct PlanPositions {
+  /// Branch name -> the commits that move there
+  pub branches: BTreeMap<String, Vec<usize>>,
+  /// The commits that lose their prefix to fall back to their own issue branch
+  pub unassign: Vec<usize>,
+  /// Issue group name -> the issue keys it gets
+  pub issue_groups: BTreeMap<String, Vec<String>>,
+  /// The keys whose issue group goes
+  pub ungroup_issues: Vec<String>,
+}
+
+/// The plan of a clustering: per branch name the commits that move there, the commits that lose their prefix to fall
+/// back to their own issue branch, and the changes of the issue groups. A commit already grouped by that name stays
+/// out, and so does a fixup that follows its target. A cluster of whole issue branches becomes an issue group unless
+/// `rewrite_issues`; a commit of an issue group that goes to the branch of its own key loses the group
+pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, names: &[String], rewrite_issues: bool) -> PlanPositions {
+  let mut plan = PlanPositions::default();
+  let mut ungroup: BTreeSet<&str> = BTreeSet::new();
   // commit -> where the plan puts it: `Some(name)` or `None` for unassign
   let mut destination: HashMap<usize, Option<&str>> = HashMap::new();
   for (cluster, name) in clustering.clusters.iter().zip(names) {
     if !rewrite_issues && is_issue_only(input, cluster) {
+      for key in &cluster.keys {
+        let now = cluster
+          .commits
+          .iter()
+          .map(|&position| &input.commits[position])
+          .find(|commit| commit.key.as_ref() == Some(key))
+          .and_then(|commit| commit.issue_group.as_deref());
+        // a key that names the cluster needs no issue group
+        if now.unwrap_or(key) != name {
+          plan.issue_groups.entry(name.clone()).or_default().push(key.clone());
+        }
+      }
       continue;
     }
     for &position in &cluster.commits {
       let commit = &input.commits[position];
-      if commit.prefix.as_deref().or(commit.key.as_deref()) == Some(name.as_str()) {
-        continue;
-      }
-      if commit.prefix.is_some() && commit.key.as_deref() == Some(name.as_str()) {
-        destination.insert(position, None);
-      } else {
-        destination.insert(position, Some(name.as_str()));
+      let own_key = commit.key.as_deref() == Some(name.as_str());
+      match &commit.prefix {
+        // without a prefix, the commit is in its issue group, else in the branch of its key
+        Some(prefix) if prefix == name => {}
+        None if commit.issue_group.as_deref().or(commit.key.as_deref()) == Some(name.as_str()) => {}
+        // the branch of its own key: the commit loses its issue group
+        None if own_key => ungroup.extend(commit.key.as_deref()),
+        Some(_) if own_key => {
+          destination.insert(position, None);
+          // `unassign` puts it into the issue group of its key, if it has one
+          if commit.issue_group.is_some() {
+            ungroup.extend(commit.key.as_deref());
+          }
+        }
+        _ => {
+          destination.insert(position, Some(name.as_str()));
+        }
       }
     }
   }
@@ -366,11 +408,12 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, names: &[St
       continue;
     }
     match target {
-      Some(name) => branches.entry(name.to_string()).or_default().push(position),
-      None => unassign.push(position),
+      Some(name) => plan.branches.entry(name.to_string()).or_default().push(position),
+      None => plan.unassign.push(position),
     }
   }
-  (branches, unassign)
+  plan.ungroup_issues = ungroup.into_iter().map(str::to_string).collect();
+  plan
 }
 
 /// The conflicts of a report, as positions: each conflicting commit with the commits it likely needs, else the newest

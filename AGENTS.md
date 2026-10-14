@@ -81,6 +81,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
   guard before a push into a branch whose Safe Push runs (`spec/branch/patronus.spec.md`).
+- **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
+  into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children (`spec/branch/stacked-branches.spec.md`).
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
@@ -117,6 +119,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction.
+- **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
+  lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
 - **Repository lock**: rewrites that regroup commits (`regroup.rs`) hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
 - **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
@@ -125,7 +129,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
   user. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
-  `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`.
+  `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`. The one named exception: a
+  branch description costs one `git config` per changed branch (`bd describe`, `descriptions` of a `bd group` plan),
+  because git has no batch config writer; read them with one `--get-regexp`.
 - Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts.
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
