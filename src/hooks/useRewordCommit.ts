@@ -23,7 +23,7 @@ export async function rewordCommit(commit: CommitUnion, message: string, onRewor
     result = { status: "error", error: { message: getErrorDetails(error) } }
   }
   if (result.status !== "ok") {
-    notifyError("Failed to Edit the Commit Message", result.error)
+    notifyError("Cannot edit the commit message", result.error)
     return false
   }
 

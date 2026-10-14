@@ -4,7 +4,7 @@ import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import type { DownloadProgress, ModelStatus } from "@/lib/bindings"
-import { getErrorDetails, logError } from "@/lib/errors"
+import { getErrorDetails, logError, notifyError } from "@/lib/errors"
 import { setAiMode } from "@/stores/settings/aiSettings"
 
 /** Model information for the download UI, reported by the backend when suggestions need the model */
@@ -79,7 +79,7 @@ export async function downloadModel(): Promise<void> {
   toast.close(MODEL_DOWNLOAD_TOAST_ID)
   toast.add({
     id: MODEL_DOWNLOAD_TOAST_ID,
-    title: "Downloading AI Model",
+    title: "Downloading the AI model",
     // keep open until the download ends
     timeout: 0,
     data: { kind: MODEL_DOWNLOAD_TOAST_KIND },
@@ -119,8 +119,8 @@ export async function downloadModel(): Promise<void> {
         toast.close(MODEL_DOWNLOAD_TOAST_ID)
         toast.add({
           type: "success",
-          title: "Model Downloaded",
-          description: "AI model downloaded successfully. Branch name suggestions are now available.",
+          title: "Downloaded the AI model",
+          description: "Branch name suggestions are available now.",
         })
         modelStore.setState({ isDownloading: false, lastProgressEvent: event })
         // keep the completion visible for a moment
@@ -136,8 +136,9 @@ export async function downloadModel(): Promise<void> {
         endedViaEvent = true
         toast.close(MODEL_DOWNLOAD_TOAST_ID)
         toast.add({
-          title: "Download Paused",
-          description: "Download paused. Enable AI to resume.",
+          type: "info",
+          title: "Download paused",
+          description: "Enable AI to resume it.",
         })
         modelStore.setState({ isDownloading: false, lastProgressEvent: null })
         // the model isn't available
@@ -157,15 +158,13 @@ export async function downloadModel(): Promise<void> {
     const result = await commands.downloadModel(channel)
     if (result.status === "error" && !endedViaEvent) {
       endedViaEvent = true
-      logError("Model download failed", result.error)
-      failDownload(result.error.message)
+      failDownload(result.error)
     }
   }
   catch (error) {
     if (!endedViaEvent) {
       endedViaEvent = true
-      logError("Model download failed", error)
-      failDownload(error instanceof Error ? error.message : "An unexpected error occurred")
+      failDownload(error)
     }
   }
   finally {
@@ -177,13 +176,10 @@ export async function downloadModel(): Promise<void> {
   }
 }
 
-function failDownload(message: string): void {
+/** The download ended with an error: sticky and logged, as every error */
+function failDownload(error: unknown): void {
   toast.close(MODEL_DOWNLOAD_TOAST_ID)
-  toast.add({
-    type: "error",
-    title: "Download Failed",
-    description: message,
-  })
+  notifyError("Cannot download the AI model", error)
   modelStore.setState({ isDownloading: false, lastProgressEvent: null })
 }
 

@@ -4,7 +4,7 @@ import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availablePullRequests, getOpenedUrls, GITHUB_REPOSITORY, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -138,7 +138,7 @@ test.describe("Pull request chip", () => {
     await page.keyboard.press("Escape")
 
     await getPushButton(row).click()
-    const toast = page.locator("[data-slot=toast]", { hasText: "Branch feature-auth pushed successfully" })
+    const toast = pushedToast(page, "feature-auth")
     await toast.getByRole("button", { name: "Create Pull Request" }).click()
     expect(await getOpenedUrls(page)).toEqual([compareUrl])
 
@@ -150,7 +150,7 @@ test.describe("Pull request chip", () => {
   test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {
     await routePush(page, {})
     await getPushButton(findBranchRow(page, "JIRA-456")).click()
-    const toast = page.locator("[data-slot=toast]", { hasText: "Branch JIRA-456 pushed successfully" })
+    const toast = pushedToast(page, "JIRA-456")
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
 
@@ -221,7 +221,7 @@ baseTest.describe("Pull requests without GitHub", () => {
     await syncAndWaitForBranches()
     await routePush(page, {})
     await getPushButton(findBranchRow(page, "test-branch")).click()
-    await expect(page.getByText("Branch test-branch pushed successfully")).toBeVisible()
+    await expectPushedToast(page, "test-branch")
 
     const indicator = page.getByTestId("outgoing-indicator")
     await expect(indicator).toHaveAccessibleName("Nothing to push, 1 pull request open, 1 needs attention")

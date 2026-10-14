@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
-import { confirmForcePush, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToast, routePush } from "../helpers/push-helpers"
 import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
@@ -125,7 +125,7 @@ test.describe("Branch preview", () => {
     await expect(pushButton).toBeEnabled()
 
     await page.keyboard.press("p")
-    await expect(page.getByText(`Branch ${BRANCH} pushed successfully`)).toBeVisible()
+    await expectPushedToast(page, BRANCH)
     expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
     await expect(preview.getByTestId("branch-preview-status")).toHaveText("up to date")
     await expect(preview.getByTestId("branch-preview-last-push")).toHaveText(/^Pushed /)

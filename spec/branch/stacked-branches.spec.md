@@ -151,10 +151,12 @@ renames branches.
   with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
   [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`)
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
-- After a push, the toast must name the base and offer to copy `gh pr create --base … --head …`. An open pull request
-  whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or the branch was
-  restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the copy
-  group of the branch menu.
+- After a push, the toast must say what the push did, as any push toast ("Pushed oauth" / "1 commit · created the
+  remote branch · pull request base: login"), name the base and offer to copy `gh pr create --base … --head …`. An open
+  pull request whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or the branch
+  was restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the
+  copy group of the branch menu.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose parent has work for the remote must stay as it is (`Create Remote (1)`, enabled):

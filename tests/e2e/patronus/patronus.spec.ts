@@ -149,6 +149,9 @@ test.describe("Patronus merge", () => {
     await expect(toast).toContainText("Safe Push")
     await expect(getChip(page, "JIRA-456")).toHaveText("Merged")
 
+    // the second action opens the robot, the toast stays for Fetch
+    await toast.getByRole("button", { name: "Open in Patronus" }).click()
+    expect(await getOpenedUrls(page)).toEqual(["https://patronus.labs.jb.gg/robot/running-robot"])
     await toast.getByRole("button", { name: "Fetch" }).click()
     await expect.poll(() => fetches.length).toBe(1)
     await expect(toast).toHaveCount(0)

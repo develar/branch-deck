@@ -389,6 +389,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
   bd, its full path, and `bd help agent` as the workflow; `bd help skill` must print the same text.
 - It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
-  symlink.
+  symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, with "Copy Path"
+  (the full path of `bd`); a failure is the error toast "Cannot install the Agent CLI".
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

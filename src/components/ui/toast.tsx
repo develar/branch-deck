@@ -1,4 +1,6 @@
-// local customisation: typed `data.kind` and a custom `model-download` body rendering `ModelDownloadProgress`
+// local customisation: typed `data.kind` with a custom `model-download` body rendering `ModelDownloadProgress` and a
+// `robot` body with two actions below the text (the primary one, then "Open in Patronus"); the viewport `z-[60]` above
+// the dialog overlays (`z-50`); the toast text `select-text`
 "use client"
 
 import * as React from "react"
@@ -24,7 +26,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-4 z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full",
+        "pointer-events-none fixed inset-x-4 bottom-4 z-[60] mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full",
         className,
       )}
       {...props}
@@ -37,7 +39,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-2xl! border bg-popover text-popover-foreground shadow-lg will-change-transform outline-none select-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "group/toast pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-2xl! border bg-popover text-popover-foreground shadow-lg will-change-transform outline-none select-text focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
         "[--gap:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)*-1+calc(var(--toast-index)*var(--gap)*-1)+var(--toast-swipe-movement-y))] [--peek:0.75rem] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))]",
         "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)-(var(--toast-index)*var(--peek))-(var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_500ms,height_150ms]",
         "after:absolute after:top-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
@@ -183,28 +185,42 @@ function ToastIcon({ type }: { type: string | undefined }) {
 
 /** Custom toast data; `kind` selects a custom body */
 interface ToastData {
-  kind?: "model-download"
+  /** `robot`: a Patronus robot, the primary action (`actionProps`, e.g. Fetch), then "Open in Patronus" */
+  kind?: "model-download" | "robot"
+  /** `robot`: opens the robot page */
+  openRobot?: () => void
 }
 
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager<ToastData>()
 
-  return toasts.map(toastItem => (
-    <Toast key={toastItem.id} toast={toastItem}>
-      <ToastContent>
-        <ToastIcon type={toastItem.type} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <ToastTitle />
-          {toastItem.data?.kind === "model-download"
-            // live body subscribed to the model store (the toast itself isn't updated per progress event)
-            ? <ToastDescription render={<div />}><ModelDownloadProgress variant="toast" /></ToastDescription>
-            : <ToastDescription />}
-        </div>
-        <ToastAction />
-        <ToastClose />
-      </ToastContent>
-    </Toast>
-  ))
+  return toasts.map((toastItem) => {
+    const data = toastItem.data
+    const openRobot = data?.kind === "robot" ? data.openRobot : undefined
+    return (
+      <Toast key={toastItem.id} toast={toastItem}>
+        <ToastContent>
+          <ToastIcon type={toastItem.type} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <ToastTitle />
+            {data?.kind === "model-download"
+              // live body subscribed to the model store (the toast itself isn't updated per progress event)
+              ? <ToastDescription render={<div />}><ModelDownloadProgress variant="toast" /></ToastDescription>
+              : <ToastDescription />}
+            {openRobot !== undefined && (
+              // two actions next to the text would squeeze it: both go below it, the primary one first
+              <div className="flex gap-2 pt-1">
+                <ToastAction />
+                <Button variant="ghost" size="sm" onClick={openRobot}>Open in Patronus</Button>
+              </div>
+            )}
+          </div>
+          {openRobot === undefined && <ToastAction />}
+          <ToastClose />
+        </ToastContent>
+      </Toast>
+    )
+  })
 }
 
 function Toaster({

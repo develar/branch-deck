@@ -1,7 +1,9 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
-import { toast } from "@/components/ui/toast"
 import type { MergeConflictInfo } from "@/lib/bindings"
+import { notifyError } from "@/lib/errors"
+import type { ToastMessage } from "@/lib/toast-message"
+import { showToast } from "@/lib/toast-message"
 
 export type InlineActionType = "issue-reference" | "rename" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply" | "squash-fixups" | "ungroup" | "safe-push" | "dry-run"
 
@@ -14,16 +16,13 @@ export interface ActiveInline {
   processingMessage?: string
 }
 
-export interface ToastMessage {
-  title: string
-  description?: string
-  /** Toast timeout in ms */
-  duration?: number
-}
-
 export interface RowProcessingOptions<T> {
   success: (value: T) => ToastMessage
-  error: (error: unknown) => ToastMessage
+  /**
+   * The title of the error toast ("Cannot unapply feature-auth"); `notifyError` makes the error its description. Null
+   * for an error shown otherwise (the amend conflict opens its viewer below the row)
+   */
+  errorTitle: (error: unknown) => string | null
   processingMessage?: string
   /** An error shows the form again with its input, instead of closing it */
   keepFormOnError?: boolean
@@ -170,8 +169,9 @@ function setRowProcessing(key: string, processing: boolean, processingMessage?: 
 }
 
 /**
- * Runs `fn` while the row's inline form shows its progress state, reports the outcome with a toast and closes the form
- * (after an error too, unless `keepFormOnError`). Resolves to the value of `fn`, or `undefined` if it failed.
+ * Runs `fn` while the row's inline form shows its progress state, reports the outcome with a toast (an error through
+ * `notifyError`: sticky, logged, in Activity) and closes the form (after an error too, unless `keepFormOnError`).
+ * Resolves to the value of `fn`, or `undefined` if it failed.
  */
 export async function withRowProcessing<T>(key: string, fn: () => Promise<T>, options: RowProcessingOptions<T>): Promise<T | undefined> {
   setRowProcessing(key, true, options.processingMessage)
@@ -188,12 +188,15 @@ export async function withRowProcessing<T>(key: string, fn: () => Promise<T>, op
       // the error handler may open another inline (e.g. the amend conflict viewer), so close first
       closeInlineOf(key)
     }
-    showToast("error", options.error(error))
+    const errorTitle = options.errorTitle(error)
+    if (errorTitle !== null) {
+      notifyError(errorTitle, error)
+    }
     return undefined
   }
 
   closeInlineOf(key)
-  showToast("success", options.success(value))
+  showToast(options.success(value))
   return value
 }
 
@@ -217,13 +220,4 @@ export async function withRowProgress(key: string, fn: () => Promise<boolean>, o
     }
   }
   return done
-}
-
-function showToast(type: "success" | "error", message: ToastMessage): void {
-  toast.add({
-    type,
-    title: message.title,
-    description: message.description,
-    ...(message.duration === undefined ? {} : { timeout: message.duration }),
-  })
 }

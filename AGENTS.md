@@ -162,7 +162,11 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Icons**: lucide-react components (`<GitBranchIcon />`). Inside `Button`, add `data-icon="inline-start"` (or `inline-end`)
   and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).
 - **Components**: `Tooltip` for simple text tooltips, `Popover` for rich content, `Kbd` for keyboard shortcuts,
-  `toast.add({ type, title, description })` from `@/components/ui/toast` for notifications.
+  `showToast({ title, description, action })` from `@/lib/toast-message` for notifications, `notifyError` for errors.
+- **Wording** ([UX Writing](docs/guidelines/ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
+  never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
+  ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",
+  "canceled", no exclamation marks.
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
 - **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt
@@ -206,7 +210,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 
 ## Error Handling Patterns
-- **Frontend**: Use toast notifications for user-facing errors (`notifyError` in `src/lib/errors.ts`). Log detailed errors to the Tauri log plugin.
+- **Frontend**: Every user-facing error goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity), titled "Cannot <verb> <object>" ([UX Writing](docs/guidelines/ux-writing.md)).
 - **Backend (Rust)**: Use the `tracing` crate for structured logging. Use `#[instrument]` to automatically trace function entry/exit and arguments. Return proper `Result` types, not strings.
 
 ## Architecture
@@ -221,6 +225,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - [UI Theme](docs/design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
+- [UX Writing](docs/guidelines/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation
 - [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
 - [Specs](spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, [@test] links); start with spec/commit/commit-row.spec.md
 

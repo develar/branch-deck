@@ -2,11 +2,9 @@ import { z } from "zod"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import type { LandedBranch, PatronusRobot, UpdateProjectResult } from "@/lib/bindings"
-import { formatCommitCount } from "@/lib/commit"
 import { setErrorRecorder } from "@/lib/errors"
 import { appliedUpdateToast, landedNews } from "@/lib/landed"
-import { formatPushMode } from "@/lib/patronus"
-import { getPushAction } from "@/lib/push-summary"
+import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { describeUpdateState } from "@/lib/update-state"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -177,8 +175,9 @@ export function undoActivity(entry: ActivityEntry): void {
 }
 
 /**
- * A push: "Pushed feature-auth" / "3 commits"; a force push that dropped remote commits keeps them. `before` is the
- * remote status the push was made against, `moved` the fetched status when the remote moved and nothing was pushed.
+ * A push in the words of its toast (`describePush`): "Pushed feature-auth" / "3 commits"; a force push that dropped
+ * remote commits keeps them. `before` is the remote status the push was made against, `moved` the fetched status when
+ * the remote moved and nothing was pushed.
  */
 export function recordPush(repositoryPath: string, branchName: string, before: RemoteStatus | null, moved: RemoteStatus | null): void {
   if (moved !== null) {
@@ -186,34 +185,12 @@ export function recordPush(repositoryPath: string, branchName: string, before: R
     recordActivity({ repositoryPath, kind: "push", title: texts.title, description: texts.description, warning: true })
     return
   }
-  recordActivity({ repositoryPath, kind: "push", ...describePush(branchName, before) })
-}
-
-/** What a push did, from the remote status it was made against */
-export function describePush(branchName: string, before: RemoteStatus | null): Pick<ActivityEntry, "title" | "description" | "warning" | "details"> {
-  const action = before === null ? null : getPushAction({ remoteStatus: before })
-  if (before === null || action === null || action === "upToDate") {
-    return { title: `Pushed ${branchName}` }
-  }
-  // a force push may only drop remote commits
-  const parts = before.commitsAhead === 0 ? [] : [formatCommitCount(before.commitsAhead)]
-  if (action === "create") {
-    return { title: `Pushed ${branchName}`, description: [...parts, "new on the remote"].join(" · ") }
-  }
-  if (action === "push") {
-    return { title: `Pushed ${branchName}`, description: parts[0] }
-  }
-  const behind = before.commitsBehind
-  if (behind === 0) {
-    return { title: `Force pushed ${branchName}`, description: [...parts, "replaced the rebased copies"].join(" · ") }
-  }
-  const dropped = before.droppedCommits
-  return {
-    title: `Force pushed ${branchName}`,
-    description: [...parts, `dropped ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}`].join(" · "),
-    warning: true,
-    details: dropped.length === 0 ? undefined : { type: "dropped", commits: [...dropped], more: Math.max(0, behind - dropped.length) },
-  }
+  const news = describePush(branchName, before)
+  const dropped = before?.droppedCommits ?? []
+  const details: ActivityDetails | undefined = news.warning !== true || before === null || dropped.length === 0
+    ? undefined
+    : { type: "dropped", commits: [...dropped], more: Math.max(0, before.commitsBehind - dropped.length) }
+  recordActivity({ repositoryPath, kind: "push", ...news, details })
 }
 
 /** An Update Project: applied (with what landed), or refused for a conflict or uncommitted changes; up to date is no news */
@@ -270,17 +247,12 @@ export function recordLanded(repositoryPath: string, report: readonly LandedBran
 }
 
 /**
- * A robot started, restarted, canceled or merged: "Safe Push started" / "feature-auth → master", with the robot page.
- * The merge says the branch and the target in its title, its description is the push mode.
+ * A robot started, restarted, canceled or merged, in the words of its toast: "Safe Push started" / "feature-auth →
+ * master · profile Large Scale Change" (`describeRobot`), "feature-auth merged into master" / "Safe Push"; with the
+ * robot page.
  */
-export function recordRobot(title: string, robot: PatronusRobot, merged = false, repositoryPath?: string): void {
-  recordActivity({
-    repositoryPath,
-    kind: "patronus",
-    title,
-    description: merged ? formatPushMode(robot.pushMode) : `${robot.branchName ?? robot.name} → ${robot.targetBranch}`,
-    details: { type: "robot", url: robot.url },
-  })
+export function recordRobot(title: string, description: string, robot: PatronusRobot, repositoryPath?: string): void {
+  recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "robot", url: robot.url } })
 }
 
 // every error the user was told about (`notifyError`); errors.ts can't import the store, which imports errors.ts

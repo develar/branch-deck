@@ -27,7 +27,7 @@ export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarke
       url: "/conflicting-files",
       title: branchName ? `Conflicting files · ${branchName}` : "Conflicting files",
       data,
-    }).catch((error: unknown) => notifyError("Failed to open window", error))
+    }).catch((error: unknown) => notifyError("Cannot open the conflicting files", error))
   }
 
   return (

@@ -1,17 +1,16 @@
 import { useRef, useState } from "react"
-import { ChevronRightIcon, CopyIcon, TriangleAlertIcon } from "lucide-react"
+import { ChevronRightIcon, CopyCheckIcon, CopyIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
-import { toast } from "@/components/ui/toast"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
-import { copyText } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
 import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/update-conflict"
@@ -137,18 +136,15 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
   }
   const project = useSelectedProject()
   const bodyRef = useRef<HTMLDivElement>(null)
+  // the button says "Copied" in place, no toast (docs/guidelines/ux-writing.md)
+  const { isCopied, copyToClipboard } = useCopyToClipboard()
   if (shown === null) {
     return null
   }
 
   const { state, upstream } = shown
   const fetchTime = lastFetchTime(shown, project?.lastFetchTime)
-  const copyPrompt = async () => {
-    const prompt = buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime })
-    if (await copyText(prompt)) {
-      toast.add({ type: "success", title: "Prompt copied", description: "Paste it into your coding agent" })
-    }
-  }
+  const copyPrompt = () => copyToClipboard(buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime }))
 
   return (
     <PreviewDialogFrame
@@ -204,8 +200,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
       <PreviewDialogFooter start={<span>{`${shown.branch} ← ${upstream}`}</span>}>
         <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
         <Button size="xs" data-testid="copy-agent-prompt" onClick={() => void copyPrompt()}>
-          <CopyIcon data-icon="inline-start" />
-          Copy Prompt for Agent
+          {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
+          {isCopied ? "Copied" : "Copy Prompt for Agent"}
         </Button>
       </PreviewDialogFooter>
     </PreviewDialogFrame>

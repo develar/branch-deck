@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import { toast } from "@/components/ui/toast"
 import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
+import { showToast } from "@/lib/toast-message"
 import { getBranch } from "@/stores/branch-sync"
 import { createPatronusMergeRequest } from "@/stores/patronus"
 
@@ -31,16 +32,14 @@ export async function createBranchMergeRequest(branchName: string): Promise<void
     const mergeRequest = await createPatronusMergeRequest(branchName)
     toast.close(progressId)
     openMergeRequest(mergeRequest.url)
-    toast.add({
-      type: "success",
-      title: `Created merge request ${mergeRequest.reviewKey}`,
-      description: `${branchName}: the code owners approve it there, then a Safe Push counts their approvals.`,
-      timeout: 10_000,
-      actionProps: { children: "Open merge request", onClick: () => openMergeRequest(mergeRequest.url) },
+    showToast({
+      title: `Created merge request ${mergeRequest.reviewKey} for ${branchName}`,
+      description: "The code owners approve it there, then a Safe Push counts their approvals.",
+      action: { children: "Open Merge Request", onClick: () => openMergeRequest(mergeRequest.url) },
     })
   }
   catch (error) {
     toast.close(progressId)
-    notifyError("Cannot create the merge request", error)
+    notifyError("Cannot create the Space merge request", error)
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -236,5 +236,11 @@ describe("findMergedRobots", () => {
   it("names the branch, else the subject of a robot of a temporary ref", () => {
     expect(formatMergedRobotTitle(robot({}))).toBe("IJPL-1 merged into master")
     expect(formatMergedRobotTitle(robot({ branchName: null }))).toBe("IJPL-1 fix the cache merged into master")
+  })
+
+  it("describes a robot by its branch and target, with the profile it was started with", () => {
+    expect(describeRobot(robot({}))).toBe("IJPL-1 → master")
+    expect(describeRobot(robot({}), "Large Scale Change")).toBe("IJPL-1 → master · profile Large Scale Change")
+    expect(describeRobot(robot({ branchName: null }))).toBe("IJPL-1 fix the cache → master")
   })
 })

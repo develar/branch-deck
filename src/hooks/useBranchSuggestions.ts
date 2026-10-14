@@ -202,7 +202,7 @@ function createSuggestionSession() {
 
         case "Error": {
           store.setState({ isGenerating: false })
-          notifyError("Branch Name Generation Failed", progress.data.message)
+          notifyError("Cannot suggest branch names", progress.data.message)
           break
         }
 
@@ -227,7 +227,7 @@ function createSuggestionSession() {
       }
       store.setState({ isGenerating: false })
       setAIError(error instanceof Error ? error : new Error("Failed to generate suggestions"))
-      notifyError("Branch Name Generation Failed", error)
+      notifyError("Cannot suggest branch names", error)
     }
   }
 

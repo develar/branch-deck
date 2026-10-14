@@ -189,10 +189,10 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
 - The history group of the branch menu (the right-click and "⋯") has "Create Pull Request" when the branch is on the
   remote, has no pull request and the GitHub repository is known; a branch that isn't pushed or has one doesn't.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
-- The toast of a push of a branch that isn't stacked has the action "Open Pull Request" when the branch has a pull
-  request, else "Create Pull Request" under the same conditions as the menu, and stays 10 s; off GitHub it has no
-  action. The toast of a stacked branch keeps naming the base with "Copy gh pr create" ([Stacked
-  Branches](stacked-branches.spec.md#pull-requests)).
+- The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of a branch that
+  isn't stacked has the action "Open Pull Request" when the branch has a pull request, else "Create Pull Request" under
+  the same conditions as the menu, and stays 10 s; off GitHub it has no action. The toast of a stacked branch keeps
+  naming the base with "Copy gh pr create" ([Stacked Branches](stacked-branches.spec.md#pull-requests)).
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
 

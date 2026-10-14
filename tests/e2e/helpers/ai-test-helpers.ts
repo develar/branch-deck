@@ -81,7 +81,7 @@ export async function pauseDownload(page: Page) {
  * Waits for the download paused message to appear
  */
 export async function waitForDownloadPaused(page: Page) {
-  const pausedMessage = page.getByText("Download Paused", { exact: true })
+  const pausedMessage = page.getByText("Download paused", { exact: true })
   await expect(pausedMessage).toBeVisible()
 }
 

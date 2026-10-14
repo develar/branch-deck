@@ -1,6 +1,8 @@
 import { toast } from "@/components/ui/toast"
 import { copyText } from "@/lib/clipboard"
+import type { PushNews } from "@/lib/push-summary"
 import { pullRequestBaseOf } from "@/lib/stack"
+import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { getPullRequest } from "@/stores/pull-requests"
@@ -25,10 +27,11 @@ export function getRetargetCommand(branch: Branch): string | null {
 }
 
 /**
- * A stacked branch's pull request targets its parent: the toast names the base and copies the `gh` command that opens
- * the pull request, or that retargets an open one with another base
+ * A stacked branch's pull request targets its parent: the toast says what the push did (`news`, as Activity says it),
+ * names the base and copies the `gh` command that opens the pull request, or that retargets an open one with another
+ * base
  */
-export function showStackedPushToast(branch: Branch): void {
+export function showStackedPushToast(branch: Branch, news: PushNews): void {
   const base = getPullRequestBase(branch)
   const head = getFullBranchName(branch.name)
   const pullRequest = getPullRequest(branch.name)
@@ -37,23 +40,19 @@ export function showStackedPushToast(branch: Branch): void {
   const command = retargetCommand ?? `gh pr create --base ${base} --head ${head}`
   // the short name fits the toast; the copied command has the full branch name
   const baseName = <span className="font-medium">{branch.stack?.effectiveBase ?? base}</span>
+  const lead = retarget ? "the pull request targets another base: retarget it to " : "pull request base: "
+  // after what the push did ("1 commit · pull request base: login"), or as the sentence
+  const text = news.description === undefined ? lead.charAt(0).toUpperCase() + lead.slice(1) : `${news.description} · ${lead}`
   toast.add({
     type: "success",
-    title: `Pushed ${branch.name}`,
-    description: retarget
-      ? (
-          <>
-            {"The pull request targets another base: retarget it to "}
-            {baseName}
-          </>
-        )
-      : (
-          <>
-            {"Pull request base: "}
-            {baseName}
-          </>
-        ),
-    timeout: 10_000,
+    title: news.title,
+    description: (
+      <>
+        {text}
+        {baseName}
+      </>
+    ),
+    timeout: ACTION_TOAST_TIMEOUT_MS,
     ...((pullRequest === undefined || retarget) && {
       actionProps: { children: retarget ? "Copy gh pr edit" : "Copy gh pr create", onClick: () => void copyText(command) },
     }),

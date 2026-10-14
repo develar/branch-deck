@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import { describePush, formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
+
+describe("describePush", () => {
+  it("says what the push did from the status it was made against", () => {
+    expect(describePush("auth", null)).toEqual({ title: "Pushed auth" })
+    expect(describePush("auth", testRemoteStatus({ exists: false, commitsAhead: 3 }))).toEqual({ title: "Pushed auth", description: "3 commits · created the remote branch" })
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1 }))).toEqual({ title: "Pushed auth", description: "1 commit" })
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 2, fastForward: false }))).toEqual({ title: "Force pushed auth", description: "2 commits · replaced the rebased copies" })
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false }))).toEqual({
+      title: "Force pushed auth",
+      description: "1 commit · dropped 3 remote commits",
+      warning: true,
+    })
+  })
+})
 
 interface BranchOptions {
   remote?: Partial<RemoteStatus> | null

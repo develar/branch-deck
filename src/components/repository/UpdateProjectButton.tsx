@@ -32,7 +32,7 @@ import { runUpdateProject, useFetchProgress, useUpdatePhase } from "@/stores/upd
  */
 function describeStatus(status: BaselineStatus, fetchTime: number | null): UpdateStateDescription {
   if (status.update === null) {
-    return { tone: "muted", summary: `Can't check the update: ${status.checkError ?? "unknown error"}`, short: "not checked" }
+    return { tone: "muted", summary: `Cannot check the update: ${status.checkError ?? "unknown error"}`, short: "not checked" }
   }
   return describeAsFetched(describeUpdateState(status.update.state, status.update.upstream), status.update.upstream, fetchTime)
 }

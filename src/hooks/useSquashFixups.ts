@@ -17,7 +17,7 @@ export async function squashFixups(scope: AutosquashScope, expectedHead: string)
   const repositoryPath = getSelectedProject()?.path ?? ""
   const result = await invokeCommand(() => commands.squashFixupCommits({ repositoryPath, expectedHead, scope }))
   if (result.status !== "ok") {
-    notifyError("Failed to Squash Fixups", result.error)
+    notifyError("Cannot squash the fixups", result.error)
     return false
   }
 

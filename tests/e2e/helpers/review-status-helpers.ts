@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton } from "./branch-helpers"
 import type { PushResult } from "./push-helpers"
-import { routePush } from "./push-helpers"
+import { expectPushedToast, routePush } from "./push-helpers"
 
 /** The commit the review took (a robot's source, a pull request's head) that the local branch no longer is at */
 export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -14,7 +14,7 @@ export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 export async function pushBranchFromRow(page: Page, branchName: string, result: PushResult = {}): Promise<void> {
   await routePush(page, { [branchName]: result })
   await getPushButton(findBranchRow(page, branchName)).click()
-  await expect(page.getByText(`Branch ${branchName} pushed successfully`)).toBeVisible()
+  await expectPushedToast(page, branchName)
   // the click opened the description of the push button, which stays open (the progress, then the result) until Escape
   // or a click elsewhere; left open, it competes with the next hover of a review chip
   await page.keyboard.press("Escape")

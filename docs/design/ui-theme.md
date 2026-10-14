@@ -131,9 +131,10 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   - the content is at most `max-w-3xl`, an input `max-w-md`; Cancel and the submit are `xs` buttons, the submit of a
     delete `destructive`;
   - a confirmation without an input passes `focusSubmit`, so Enter confirms;
-  - the action runs through `withRowProcessing` (it toasts the outcome) or `withRowProgress` (the action toasts, e.g.
-    with Undo) in `src/stores/inline-row-action.ts`: the progress row while it runs, the form again with its input after
-    a failure of a form with an input (`keepFormOnError`, `keepFormOnFailure`);
+  - the action runs through `withRowProcessing` (it toasts the outcome, an error through `notifyError` with its
+    `errorTitle`) or `withRowProgress` (the action toasts, e.g. with Undo) in `src/stores/inline-row-action.ts`: the
+    progress row while it runs, the form again with its input after a failure of a form with an input
+    (`keepFormOnError`, `keepFormOnFailure`);
   - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
 - **Type sizes** come from the scale: `text-sm` for text, `text-xs` for meta lines, and `text-message`
   (`--text-message` in `src/index.css`, 13px on a 20px line) for commit messages. No arbitrary sizes (`text-[13px]`,
@@ -157,8 +158,10 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
     is an `Alert`;
   - loading: an inline `Spinner` (`size-4`) and "Loading …" in a muted `text-sm` line, never a centred spinner in a
     tall box;
-  - copy: through `copyText` (`src/lib/clipboard.ts`); a copy button says "Copied" in place (`CopyButton`), a menu
-    item copies without a toast.
+  - copy: through `copyText` (`src/lib/clipboard.ts`); a copy button says "Copied" in place (`CopyButton`, a labelled
+    button in its label: "Copy Prompt for Agent"), a menu item copies without a toast.
+- **Toasts** show above an open dialog (the viewport is `z-[60]`, the dialog overlay `z-50`) and their text is
+  selectable; what they say is in [UX Writing](../guidelines/ux-writing.md).
 - **Anything that opens on hover or click is a button**: a help icon, a hash or a time with a popover, the AI toggle.
   Base UI triggers render a `button` by default; never a `span` trigger with `nativeButton={false}`, which the keyboard
   cannot reach.

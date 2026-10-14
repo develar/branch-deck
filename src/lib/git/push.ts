@@ -7,9 +7,10 @@ import { getPullRequestToastAction } from "@/lib/git/new-pull-request"
 import { showStackedPushToast } from "@/lib/git/stacked-push-toast"
 import { formatPushMode, isPushIntoRobotRisky } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
-import { dropsRemoteCommits } from "@/lib/push-summary"
+import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { stackPushOrder } from "@/lib/stack"
+import { showToast } from "@/lib/toast-message"
 import { recordPush } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
@@ -48,7 +49,7 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
 
   const branch = getBranch(branchName)
   if (branch === undefined) {
-    notifyError("Push Failed", `Branch ${branchName} not found`)
+    notifyError(`Cannot push ${branchName}`, "The branch is not in the table: sync and try again.")
     return false
   }
 
@@ -94,18 +95,15 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
         showRemoteMovedToast(branchName, remoteStatus, restartRobot)
         return false
       }
+      // in the words of its Activity entry
+      const news = describePush(branchName, branch.remoteStatus)
       if (branch.stack === null) {
         // the branch with its new remote status: a branch the push created can have a pull request now
         const action = getPullRequestToastAction(getBranch(branchName) ?? branch)
-        toast.add({
-          type: "success",
-          title: "Success",
-          description: `Branch ${branchName} pushed successfully`,
-          ...(action !== null && { timeout: 10_000, actionProps: action }),
-        })
+        showToast({ title: news.title, description: news.description, action: action ?? undefined })
       }
       else {
-        showStackedPushToast(branch)
+        showStackedPushToast(branch, news)
       }
       void refreshPullRequestsAfterPush(branchName, branch.commits[0]?.hash)
       if (restartRobot !== undefined) {
@@ -114,10 +112,10 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
       }
       return true
     }
-    notifyError("Push Failed", result.error)
+    notifyError(`Cannot push ${branchName}`, result.error)
   }
   catch (error) {
-    notifyError("Push Failed", error)
+    notifyError(`Cannot push ${branchName}`, error)
   }
   finally {
     setBranchPushing(branchName, false)

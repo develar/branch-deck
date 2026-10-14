@@ -7,12 +7,12 @@ import {
   activityStore,
   canUndoActivity,
   clearActivity,
-  describePush,
   groupActivityByDay,
   MAX_ACTIVITY_AGE_MS,
   MAX_ACTIVITY_ENTRIES,
   recordActivity,
   recordLanded,
+  recordPush,
   recordRewrite,
   recordRobot,
   recordUpdate,
@@ -221,29 +221,28 @@ describe("activity", () => {
   })
 
   it("records a robot with its page", () => {
-    recordRobot("Safe Push started", ROBOT)
+    recordRobot("Safe Push started", "auth → master", ROBOT)
     expect(entries()[0]).toMatchObject({ kind: "patronus", title: "Safe Push started", description: "auth → master", details: { type: "robot", url: ROBOT.url } })
-    recordRobot("auth merged into master", ROBOT, true, "/b")
+    recordRobot("auth merged into master", "Safe Push", ROBOT, "/b")
     expect(entries("/b")[0]).toMatchObject({ title: "auth merged into master", description: "Safe Push" })
   })
 })
 
-describe("describePush", () => {
-  it("says what the push did from the status it was made against", () => {
-    expect(describePush("auth", null)).toEqual({ title: "Pushed auth" })
-    expect(describePush("auth", testRemoteStatus({ exists: false, commitsAhead: 3 }))).toEqual({ title: "Pushed auth", description: "3 commits · new on the remote" })
-    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1 }))).toEqual({ title: "Pushed auth", description: "1 commit" })
-    expect(describePush("auth", testRemoteStatus({ commitsAhead: 2, fastForward: false }))).toEqual({ title: "Force pushed auth", description: "2 commits · replaced the rebased copies" })
-  })
-
+describe("recordPush", () => {
   it("keeps the remote commits a force push dropped", () => {
     const dropped = [{ id: "c0ffee", subject: "Fix login", author: "Ann", authorTime: 1 }]
-    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false, droppedCommits: dropped }))).toEqual({
+    recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false, droppedCommits: dropped }), null)
+    expect(entries()[0]).toMatchObject({
+      kind: "push",
       title: "Force pushed auth",
       description: "1 commit · dropped 3 remote commits",
       warning: true,
       details: { type: "dropped", commits: dropped, more: 2 },
     })
+    // a rebased branch replaces nothing of others
+    recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 2, fastForward: false }), null)
+    expect(entries()[0]).toMatchObject({ title: "Force pushed auth", description: "2 commits · replaced the rebased copies" })
+    expect(entries()[0]?.details).toBeUndefined()
   })
 })
 
