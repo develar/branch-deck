@@ -3,7 +3,7 @@ import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
-import { formatOutgoingCount, formatPushSummaryTitle, outgoingStateBarClass, outgoingStateLabel } from "@/lib/push-summary"
+import { formatOutgoingCount, formatPushSummaryTitle, getOutgoingLegend, outgoingBarFill } from "@/lib/push-summary"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
@@ -24,11 +24,9 @@ const stateWord: Readonly<Record<OutgoingState, string>> = {
   force: "force",
 }
 
-const states: readonly OutgoingState[] = ["push", "create", "force"]
-
 /**
- * The overview of what is waiting to be pushed: a row per branch with a bar proportional to the largest push, the
- * mine/total count, the state and the push button of the branch row. Pushing stays per branch.
+ * The overview of what is waiting to be pushed: a row per branch with a bar proportional to the largest push (solid for
+ * the user's commits), the mine/total count, the state and the push button of the branch row. Pushing stays per branch.
  */
 export function OutgoingPopover({ summary, onClose, renderPullRequest, footer }: OutgoingPopoverProps) {
   const max = Math.max(1, ...summary.branches.map(branch => branch.count))
@@ -97,12 +95,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
       >
         {branch.name}
       </button>
-      <span aria-hidden className="h-1.5 rounded-sm bg-muted">
-        <span
-          className={cn("block h-full min-w-0.5 rounded-sm", outgoingStateBarClass[branch.state])}
-          style={{ width: `${(branch.count / max) * 100}%` }}
-        />
-      </span>
+      <OutgoingRowBar branch={branch} max={max} />
       <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">{formatOutgoingCount(branch)}</span>
       <span className="text-xs text-muted-foreground">{stateWord[branch.state]}</span>
       {renderPullRequest !== undefined && <span className="flex items-center">{renderPullRequest(branch.name)}</span>}
@@ -113,22 +106,53 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
   )
 }
 
-/** The push button of the branch row, following the branch record (pushing, syncing); the bar carries the state colour. */
+/** On a `bg-muted` track, the commits of the push: the user's solid, the others' light; solid for a push of no commit. */
+function OutgoingRowBar({ branch, max }: { branch: OutgoingBranch, max: number }) {
+  const fill = outgoingBarFill(branch.state)
+  return (
+    <span aria-hidden className="h-1.5 rounded-sm bg-muted">
+      <span
+        className={cn("flex h-full min-w-0.5 overflow-hidden rounded-sm", branch.count === 0 ? fill.mine : fill.others)}
+        style={{ width: `${(branch.count / max) * 100}%` }}
+      >
+        {branch.count > 0 && <span className={cn("h-full", fill.mine)} style={{ width: `${(branch.mine / branch.count) * 100}%` }} />}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * The push button of the branch row, following the branch record (pushing, syncing). Uncoloured: the bar of the row
+ * carries the colour, and a column of coloured buttons would only repeat it.
+ */
 function OutgoingPushButton({ name }: { name: string }) {
   const branch = useBranch(name)
   return branch === undefined ? <span /> : <BranchPushButton branch={branch} colored={false} />
 }
 
-/** What the colours mean, for the states present. */
+/** What the colours mean: a hue per push of the states present, then solid and light when some commits are others'. */
 function OutgoingLegend({ summary }: { summary: PushSummary }) {
+  const entries = getOutgoingLegend(summary)
+  const fill = outgoingBarFill(entries[0]?.state ?? "push")
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground" data-testid="outgoing-legend">
-      {states.filter(state => summary.byState[state] > 0).map(state => (
-        <span key={state} className="flex items-center gap-1.5">
-          <span aria-hidden className={cn("size-2 rounded-sm", outgoingStateBarClass[state])} />
-          {outgoingStateLabel[state]}
-        </span>
-      ))}
+      {entries.map(entry => <LegendItem key={entry.label} swatch={outgoingBarFill(entry.state).mine} label={entry.label} />)}
+      {summary.mine < summary.total && (
+        <>
+          <span aria-hidden className="h-3 w-px bg-border" />
+          <LegendItem swatch={fill.mine} label="yours" />
+          <LegendItem swatch={fill.others} label="others'" />
+        </>
+      )}
     </div>
+  )
+}
+
+function LegendItem({ swatch, label }: { swatch: string, label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span aria-hidden className={cn("size-2 rounded-sm", swatch)} />
+      {label}
+    </span>
   )
 }

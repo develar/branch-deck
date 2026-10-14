@@ -7,11 +7,11 @@ import type { Branch } from "@/stores/branch-sync"
 
 /**
  * Sync/remote status of an active branch; the full description is shown on hover.
- * Only an error or a warning is a badge; a routine state ("not pushed", "up to date") is muted text with a colour dot.
+ * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a colour dot.
  */
 export function BranchStatusBadge({ branch }: { branch: Branch }) {
   const status = useStatusBadge(branch)
-  const exceptional = status.color === "error" || status.color === "warning"
+  const exceptional = status.badge === true
   return (
     <div>
       <Popover>

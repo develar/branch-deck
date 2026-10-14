@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { formatOutgoingCount, formatPushSummaryTitle, getOutgoingBarSegments, getPushAction, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import { formatOutgoingCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { BranchStatus, RemoteStatus } from "@/stores/branch-sync"
 
 interface BranchOptions {
@@ -27,6 +27,25 @@ describe("getPushAction", () => {
     expect(getPushAction(branch("a", { remote: { commitsAhead: 2 } }))).toBe("push")
     expect(getPushAction(branch("a", { remote: { commitsAhead: 2 }, status: "Updated" }))).toBe("force")
     expect(getPushAction(branch("a", { remote: { commitsBehind: 1 } }))).toBe("force")
+  })
+})
+
+describe("getPushColor", () => {
+  it("takes the hue from the push action: primary for a safe push, warning for a force push", () => {
+    expect(getPushColor(branch("a", { remote: null }))).toBeNull()
+    expect(getPushColor(branch("a"))).toBe("neutral")
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, myCommitsAhead: 1 } }))).toBe("primary")
+    expect(getPushColor(branch("a", { remote: { exists: false, commitsAhead: 2 } }))).toBe("primary")
+    expect(getPushColor(branch("a", { remote: { commitsBehind: 1 } }))).toBe("warning")
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 1, commitsBehind: 1 } }))).toBe("warning")
+    // the status text says "1 (2)↑", but the rewritten branch needs a force push
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, myCommitsAhead: 1 }, status: "Updated" }))).toBe("warning")
+  })
+
+  it("is neutral for a plain push of no commit of the user", () => {
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 2 } }))).toBe("neutral")
+    // a force push still overwrites remote commits
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 2 }, status: "Updated" }))).toBe("warning")
   })
 })
 
@@ -88,21 +107,36 @@ describe("formatOutgoingCount", () => {
 describe("getOutgoingBarSegments", () => {
   it("has a segment per branch, a force push without commits still visible", () => {
     const summary = summarizePushState([
-      branch("a", { remote: { commitsAhead: 4 } }),
+      branch("a", { remote: { commitsAhead: 4, myCommitsAhead: 1 } }),
       branch("b", { remote: { commitsBehind: 1 } }),
     ])
     expect(getOutgoingBarSegments(summary)).toEqual([
-      { key: "a", state: "push", weight: 4 },
-      { key: "b", state: "force", weight: 1 },
+      { key: "a", state: "push", weight: 4, mine: 1 },
+      // solid: there are no commits of others to show light
+      { key: "b", state: "force", weight: 1, mine: 1 },
     ])
   })
 
   it("has a segment per state for many branches", () => {
-    const branches = Array.from({ length: MAX_BAR_SEGMENTS }, (_, index) => branch(`push${index}`, { remote: { commitsAhead: 2 } }))
-    branches.push(branch("new", { remote: { exists: false, commitsAhead: 3 } }))
+    const branches = Array.from({ length: MAX_BAR_SEGMENTS }, (_, index) => branch(`push${index}`, { remote: { commitsAhead: 2, myCommitsAhead: 1 } }))
+    branches.push(branch("new", { remote: { exists: false, commitsAhead: 3, myCommitsAhead: 3 } }))
     expect(getOutgoingBarSegments(summarizePushState(branches))).toEqual([
-      { key: "push", state: "push", weight: MAX_BAR_SEGMENTS * 2 },
-      { key: "create", state: "create", weight: 3 },
+      { key: "push", state: "push", weight: MAX_BAR_SEGMENTS * 2, mine: MAX_BAR_SEGMENTS },
+      { key: "create", state: "create", weight: 3, mine: 3 },
     ])
+  })
+})
+
+describe("getOutgoingLegend", () => {
+  it("has a swatch per colour present", () => {
+    const create = branch("new", { remote: { exists: false, commitsAhead: 3 } })
+    const push = branch("ahead", { remote: { commitsAhead: 1 } })
+    const force = branch("diverged", { remote: { commitsBehind: 1 } })
+    expect(getOutgoingLegend(summarizePushState([create]))).toEqual([{ state: "create", label: "push" }])
+    expect(getOutgoingLegend(summarizePushState([create, push, force]))).toEqual([
+      { state: "push", label: "push" },
+      { state: "force", label: "force push" },
+    ])
+    expect(getOutgoingLegend(summarizePushState([force]))).toEqual([{ state: "force", label: "force push" }])
   })
 })

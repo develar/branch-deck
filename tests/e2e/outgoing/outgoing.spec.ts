@@ -70,7 +70,7 @@ test.describe("Outgoing indicator", () => {
     await expect(row).toContainText("3 (3)↑")
     await expect(row).toContainText("new")
     await expect(row.getByRole("button", { name: "Create Remote" })).toBeEnabled()
-    await expect(popover.getByTestId("outgoing-legend")).toHaveText("new remote")
+    await expect(popover.getByTestId("outgoing-legend")).toHaveText("push")
   })
 
   test("should show and expand the row of a branch clicked in the overview", async ({ page }) => {
@@ -103,7 +103,7 @@ test.describe("Outgoing indicator", () => {
     await expect(row).toContainText("1 (1)↑ · 1↓")
     await expect(row).toContainText("force")
     await expect(row.getByRole("button", { name: "Force Push (1)" })).toBeEnabled()
-    await expect(popover.getByTestId("outgoing-legend")).toHaveText("new remoteforce push")
+    await expect(popover.getByTestId("outgoing-legend")).toHaveText("pushforce push")
 
     const indicator = getIndicator(page)
     await expect(indicator.getByTestId("outgoing-total")).toHaveText(String(TOTAL - 3 - 4 + 1))

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { usePushSummary } from "@/hooks/usePushSummary"
 import type { PushSummary } from "@/lib/push-summary"
-import { formatPushSummaryTitle, getOutgoingBarSegments, outgoingStateBarClass } from "@/lib/push-summary"
+import { formatPushSummaryTitle, getOutgoingBarSegments, outgoingBarFill } from "@/lib/push-summary"
 
 const loadOutgoingPopover = () => import("@/components/repository/OutgoingPopover")
 const OutgoingPopover = lazy(() => loadOutgoingPopover().then(it => ({ default: it.OutgoingPopover })))
@@ -19,8 +19,8 @@ export interface OutgoingIndicatorProps {
 }
 
 /**
- * Header button with the commits waiting to be pushed and a bar of one segment per branch, coloured by what its push
- * does. Hover or click opens the overview. Hidden when nothing is outgoing.
+ * Header button with the commits waiting to be pushed and a bar of one segment per branch: the hue says what its push
+ * does, the solid part is the user's commits. Hover or click opens the overview. Hidden when nothing is outgoing.
  */
 export function OutgoingIndicator({ renderPullRequest, footer }: OutgoingIndicatorProps) {
   const summary = usePushSummary()
@@ -65,18 +65,26 @@ export function OutgoingIndicator({ renderPullRequest, footer }: OutgoingIndicat
   )
 }
 
-/** A segment per branch (or per state for many branches), its width proportional to the commits. */
+/**
+ * A segment per branch (or per state for many branches), its width proportional to the commits; the user's commits are
+ * solid, the others' light. The segments of the branches are apart, the two parts of a segment touch.
+ */
 function OutgoingBar({ summary }: { summary: PushSummary }) {
   return (
     <span aria-hidden className="ml-1 flex h-1.5 w-16 gap-0.5 overflow-hidden" data-testid="outgoing-bar">
-      {getOutgoingBarSegments(summary).map(segment => (
-        <span
-          key={segment.key}
-          data-state={segment.state}
-          className={cn("h-full min-w-0.5 basis-0 rounded-sm", outgoingStateBarClass[segment.state])}
-          style={{ flexGrow: segment.weight }}
-        />
-      ))}
+      {getOutgoingBarSegments(summary).map((segment) => {
+        const fill = outgoingBarFill(segment.state)
+        return (
+          <span
+            key={segment.key}
+            data-state={segment.state}
+            className={cn("flex h-full min-w-0.5 basis-0 overflow-hidden rounded-sm", fill.others)}
+            style={{ flexGrow: segment.weight }}
+          >
+            <span className={cn("h-full", fill.mine)} style={{ width: `${(segment.mine / segment.weight) * 100}%` }} />
+          </span>
+        )
+      })}
     </span>
   )
 }

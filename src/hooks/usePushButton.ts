@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { getPushAction } from "@/lib/push-summary"
+import { getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -43,7 +43,7 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
 
   return {
     text,
-    color: texts != null ? texts.color : "primary",
+    color: getPushColor(branch) ?? "primary",
     tooltip,
     disabled: isPushing || isSyncing || branch.status === "Syncing" || action === "upToDate",
   }

@@ -1,3 +1,4 @@
+import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
 /** What a push of a branch does: a plain push, the first push that creates the remote branch, a force push. */
@@ -25,6 +26,31 @@ export function getPushAction(branch: Pick<Branch, "remoteStatus" | "status">): 
     return "force"
   }
   return "push"
+}
+
+/**
+ * Colour of a push, by its risk: `primary` for the safe pushes (push, create remote), `warning` for a force push, which
+ * overwrites remote commits. The push buttons, the status texts and the outgoing bars take their hue from here.
+ */
+export const pushStateColor: Readonly<Record<OutgoingState, Extract<UIColor, "primary" | "warning">>> = {
+  push: "primary",
+  create: "primary",
+  force: "warning",
+}
+
+/**
+ * Colour of the push button and the status text of a branch; null while its remote status is not loaded.
+ * Neutral when up to date, and for a plain push of no commit of the user: there is nothing of theirs to push.
+ */
+export function getPushColor(branch: Pick<Branch, "remoteStatus" | "status">): UIColor | null {
+  const action = getPushAction(branch)
+  if (action === null) {
+    return null
+  }
+  if (action === "upToDate" || (action === "push" && branch.remoteStatus!.myCommitsAhead === 0)) {
+    return "neutral"
+  }
+  return pushStateColor[action]
 }
 
 /** A branch with something to push. */
@@ -95,18 +121,36 @@ export function formatPushSummaryTitle(summary: PushSummary): string {
   return `${plural(summary.total, "commit", "commits")} to push in ${plural(summary.branches.length, "branch", "branches")}`
 }
 
-/** Colour of a state in the outgoing bars: the push button tokens, `primary` push, `info` new remote, `warning` force push. */
-export const outgoingStateBarClass: Readonly<Record<OutgoingState, string>> = {
-  push: "bg-primary",
-  create: "bg-info",
-  force: "bg-warning",
+/** Fills of an outgoing bar: the hue of the state, solid for the user's commits, light for the others'. */
+export interface OutgoingBarFill {
+  mine: string
+  others: string
 }
 
-/** Legend label of a state */
-export const outgoingStateLabel: Readonly<Record<OutgoingState, string>> = {
-  push: "push",
-  create: "new remote",
-  force: "force push",
+const barFill: Readonly<Record<Extract<UIColor, "primary" | "warning">, OutgoingBarFill>> = {
+  primary: { mine: "bg-primary", others: "bg-primary/40" },
+  warning: { mine: "bg-warning", others: "bg-warning/40" },
+}
+
+export function outgoingBarFill(state: OutgoingState): OutgoingBarFill {
+  return barFill[pushStateColor[state]]
+}
+
+export interface OutgoingLegendEntry {
+  state: OutgoingState
+  label: string
+}
+
+/** A swatch per colour of the states present: a first push is a push, its row says "new". */
+export function getOutgoingLegend(summary: PushSummary): OutgoingLegendEntry[] {
+  const entries: OutgoingLegendEntry[] = []
+  if (summary.byState.push > 0 || summary.byState.create > 0) {
+    entries.push({ state: summary.byState.push > 0 ? "push" : "create", label: "push" })
+  }
+  if (summary.byState.force > 0) {
+    entries.push({ state: "force", label: "force push" })
+  }
+  return entries
 }
 
 /** One segment of the header bar */
@@ -115,6 +159,8 @@ export interface OutgoingBarSegment {
   state: OutgoingState
   /** Relative width: the commits, at least 1 so a force push that only drops remote commits stays visible */
   weight: number
+  /** Of the weight, the solid part of the user's commits; all of it for a force push that sends no commit */
+  mine: number
 }
 
 /** More branches than this make segments too thin to tell apart: the bar then has one segment per state. */
@@ -125,13 +171,23 @@ const stateOrder: readonly OutgoingState[] = ["push", "create", "force"]
 /** The segments of the header bar: one per branch, in the order of the rows, or one per state for many branches. */
 export function getOutgoingBarSegments(summary: PushSummary): OutgoingBarSegment[] {
   if (summary.branches.length <= MAX_BAR_SEGMENTS) {
-    return summary.branches.map(branch => ({ key: branch.name, state: branch.state, weight: Math.max(branch.count, 1) }))
+    return summary.branches.map(branch => ({ key: branch.name, state: branch.state, ...barWeight(branch) }))
   }
   return stateOrder
     .filter(state => summary.byState[state] > 0)
-    .map(state => ({
-      key: state,
-      state,
-      weight: summary.branches.reduce((sum, branch) => branch.state === state ? sum + Math.max(branch.count, 1) : sum, 0),
-    }))
+    .map((state) => {
+      const segment: OutgoingBarSegment = { key: state, state, weight: 0, mine: 0 }
+      for (const branch of summary.branches) {
+        if (branch.state === state) {
+          const { weight, mine } = barWeight(branch)
+          segment.weight += weight
+          segment.mine += mine
+        }
+      }
+      return segment
+    })
+}
+
+function barWeight(branch: OutgoingBranch): { weight: number, mine: number } {
+  return branch.count === 0 ? { weight: 1, mine: 1 } : { weight: branch.count, mine: branch.mine }
 }

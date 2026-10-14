@@ -10,6 +10,7 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/hooks/usePushSummary.ts
   - ../../src/hooks/usePushButton.ts
+  - ../../src/hooks/useStatusBadge.ts
   - ../../src/lib/push-summary.ts
   - ../../src/stores/commit-move.ts
 ---
@@ -66,6 +67,9 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 - Its accessible name must be the title of the overview, e.g. "12 commits to push in 7 branches".
 - The bar must have a segment per outgoing branch, in the order of the rows, its width proportional to the commits of
   the branch; a force push without commits keeps a segment of one commit.
+- A segment must be stacked: the user's commits solid, the others' commits light, as `mine (total)↑` reads. The one
+  commit of a force push without commits is solid.
+  [@test] ../../src/lib/push-summary.test.ts (`has a segment per branch, a force push without commits still visible`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the commits to push with a bar segment per branch`)
 - With more than 8 outgoing branches, the bar must have a segment per state instead, so the segments stay readable.
   [@test] ../../src/lib/push-summary.test.ts (`has a segment per state for many branches`)
@@ -84,11 +88,28 @@ The overview answers "what is my work waiting on" without scanning the branch ta
   branch row (with `· N↓` for the remote commits a force push drops), the state word ("new" for a first push, "force"
   for a force push, none for a plain push) and the push button of the branch row.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should list the outgoing branches in the overview on hover`)
-- A legend must name the colours of the states present.
+- A row bar must be stacked as the segments of the indicator.
+- A legend must name the colours of the states present ("push" for a push and a first push, "force push"), and, when
+  some commits are not the user's, the solid "yours" and the light "others'".
+  [@test] ../../src/lib/push-summary.test.ts (`has a swatch per colour present`)
 - A click on a branch name must close the overview, expand the branch row and scroll it into view.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
 - The push button must push as the button of the row does, with the same label, description and disabled states, but
-  in the text colour: the bar of the row carries the state.
+  in the text colour: the bar of the row carries the colour, and a column of coloured buttons would only repeat it.
+
+### Push colours
+
+One rule colours a push wherever it shows: the push button and the status text of a branch row, the segments of the
+indicator and the row bars of the overview. The hue says how risky the push is, the lightness whose commits it sends.
+
+- The hue must follow the push action: `primary` for a push and a first push (both safe), `warning` for a force push,
+  which overwrites remote commits. A branch only behind the remote or diverged from it is a force push.
+  [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the push action: primary for a safe push, warning for a force push`)
+- Up to date is neutral. A plain push of no commit of the user is neutral too (muted button, grey status dot): there is
+  nothing of theirs to push. A first push and a force push keep their hue whoever authored the commits.
+  [@test] ../../src/lib/push-summary.test.ts (`is neutral for a plain push of no commit of the user`)
+- The status text of a push state is muted text with a dot of the push colour, never a badge: a force push after a sync
+  is routine. Only an error or a conflict is a badge.
 - The overview must stay open across a push and follow its result: a pushed branch leaves the list, a branch whose
   remote diverged turns into a force push.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
@@ -96,8 +117,9 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 ## User Experience
 
 - The indicator button is `ghost` `sm`, the count in tabular figures, the bar `w-16 h-1.5`.
-- The colours are the semantic tokens: `primary` push, `info` new remote, `warning` force push. The segments are
-  separated by a 2px gap of the surface and rounded by `rounded-sm`, derived from `--radius`.
+- The colours are the semantic tokens `bg-primary` and `bg-warning` for the user's commits, `bg-primary/40` and
+  `bg-warning/40` for the others'. `info` is not a push colour. The segments of the branches are separated by a 2px gap
+  of the surface, the two parts of a segment touch; both are rounded by `rounded-sm`, derived from `--radius`.
 - Text never takes a state colour: the counts, the state words and the legend use `text-muted-foreground`; the colour
   is carried by the bars and the legend swatches.
 - The overview is a `Popover` as wide as its content up to `max-w-lg`, aligned to the end of the button. The rows form a
@@ -119,10 +141,11 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 - Step 8 (pull requests) passes `renderPullRequest(branchName)` for the chip of a row, between the state word and the
   push button, and adds a dot to the indicator when a pull request has changes requested or failing checks. The
   indicator must then also show when a pull request is open and nothing is outgoing.
-- The push button of a branch row keeps its own colours (`primary` to push, `info` when the remote diverged, muted
-  without the user's commits), which differ from the state colours of the bars; the overview shows it uncoloured so the
-  two do not clash.
-- The `primary` green has a 2.2:1 contrast on the light card; the counts and the state words carry the values in text.
+- The `primary` green has a 2.2:1 contrast on the light card, the light tints 1.4–2.7:1; the counts and the state words
+  carry the values in text.
+- Solid green and solid amber are 6.4 ΔE apart for deuteranopia (validator floor band): the 2px gaps, the state words
+  and the button labels carry the state too. The two light tints are only 4–5 ΔE apart under CVD (13 normal vision);
+  they touch only across a gap, when a branch with others' commits is followed by one with none of the user's.
 - No test covers a branch whose remote status is not loaded yet, or the bar of more than 8 branches in the page.
 
 ## References

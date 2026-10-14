@@ -93,6 +93,13 @@ Key components:
 - Use consistent terminology: "no local authored changes" instead of confusing phrases
 - Avoid misleading messages about "commits you removed" when they're just rebased
 
+### Colours
+One rule colours a push: the hue comes from the push action (`pushStateColor` and `getPushColor` in
+`src/lib/push-summary.ts`), `primary` for a push or a first push, `warning` for a force push (behind or diverged, or
+rewritten by the sync). Up to date, and a plain push of none of the user's commits, are neutral. The push button, the
+status text and the header bars use it; the bars add lightness for authorship (solid mine, light others'). See
+[Outgoing Commits](../../spec/repository/outgoing.spec.md).
+
 ### Handling Rebased Branches
 When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent, showing 0 commits behind instead of confusing users with diverged history counts.
 

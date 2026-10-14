@@ -11,7 +11,7 @@ import { useIsRowProcessing } from "@/stores/inline-row-action"
 
 export interface BranchPushButtonProps {
   branch: Branch
-  /** The text takes the colour of the remote status; off where something else carries the state (the outgoing overview) */
+  /** The text takes the push colour of the branch (`getPushColor`); off where a bar carries it (the outgoing overview) */
   colored?: boolean
 }
 

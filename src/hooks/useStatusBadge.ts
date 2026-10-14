@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { StatusTexts } from "@/lib/remote-status"
 import type { Branch } from "@/stores/branch-sync"
@@ -15,15 +16,15 @@ export function getStatusBadge(branch: Branch): StatusTexts {
 
   // errors and conflicts always have the highest priority
   if (branch.status === "Error" || branch.status === "MergeConflict") {
-    return { text: branch.statusText, tooltip: branch.statusText || "Error", color: "error" }
+    return { text: branch.statusText, tooltip: branch.statusText || "Error", color: "error", badge: true }
   }
   if (branch.status === "AnalyzingConflict") {
-    return { text: branch.statusText, tooltip: branch.statusText || "Analyzing conflict…", color: "warning" }
+    return { text: branch.statusText, tooltip: branch.statusText || "Analyzing conflict…", color: "warning", badge: true }
   }
 
-  // remote status is the most actionable
+  // remote status is the most actionable; it has the colour of the push button
   if (branch.remoteStatus != null) {
-    return buildRemoteStatusTexts(branch.remoteStatus)
+    return { ...buildRemoteStatusTexts(branch.remoteStatus), color: getPushColor(branch) ?? "neutral" }
   }
 
   switch (branch.status) {
