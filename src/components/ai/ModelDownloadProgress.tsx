@@ -16,7 +16,7 @@ export function ModelDownloadProgress({ variant }: ModelDownloadProgressProps) {
   const isPopover = variant === "popover"
   return (
     <div
-      className={cn("flex flex-col gap-2 text-xs", isPopover ? "w-80 p-3" : "w-full")}
+      className={cn("flex flex-col gap-2 text-xs tabular-nums", isPopover ? "w-80 p-3" : "w-full")}
       data-testid={isPopover ? "model-download-progress-popover" : "model-download-progress-toast"}
     >
       {downloadProgress
@@ -47,7 +47,7 @@ function DownloadProgressContent({ event, showCancelButton }: { event: DownloadP
                   ...
                 </p>
               )
-            : <p className="font-semibold">{event.data.fileName}</p>}
+            : <p className="font-medium">{event.data.fileName}</p>}
 
           <div className="flex flex-col gap-1">
             {event.type === "FileStarted" && event.data.fileSize
@@ -116,14 +116,14 @@ function DownloadProgressContent({ event, showCancelButton }: { event: DownloadP
       )
 
     case "Completed":
-      return <p className="font-semibold text-success">All files downloaded successfully!</p>
+      return <p className="font-medium text-success">All files downloaded successfully!</p>
 
     case "Error":
       return (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <CircleXIcon className="size-4 text-destructive" />
-            <p className="font-semibold text-destructive">Download Failed</p>
+            <p className="font-medium text-destructive">Download Failed</p>
           </div>
           <p className="text-muted-foreground">{event.data.message}</p>
         </div>

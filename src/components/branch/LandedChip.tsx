@@ -1,15 +1,25 @@
+import type { ReactNode } from "react"
 import { PackageCheckIcon } from "lucide-react"
 import { StatusChip } from "@/components/branch/StatusChip"
+import { InlineCode } from "@/components/shared/InlineCode"
 import type { LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useIncomingLandedCommit } from "@/stores/landed"
 
-/** "abc1234 · Patronus · 2 hours ago", or "squashed upstream" */
-function describeUpstream(commit: LandedCommit): string {
+/** "abc1234 · Patronus · 2 hours ago" (the hash in the monospace font), or "squashed upstream" */
+function describeUpstream(commit: LandedCommit): ReactNode {
   const upstream = commit.upstream
-  return upstream === null ? "squashed upstream" : `${formatShortHash(upstream.id)} · ${upstream.committer} · ${formatRelativeTime(upstream.time * 1000)}`
+  if (upstream === null) {
+    return "squashed upstream"
+  }
+  return (
+    <>
+      <InlineCode plain>{formatShortHash(upstream.id)}</InlineCode>
+      {` · ${upstream.committer} · ${formatRelativeTime(upstream.time * 1000)}`}
+    </>
+  )
 }
 
 function useUpstreamName(): string {

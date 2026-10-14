@@ -19,8 +19,8 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
           delay={300}
           // E2E locates the status text by the `lowercase` class
           render={exceptional
-            ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate lowercase" />
-            : <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" />}
+            ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate lowercase tabular-nums" />
+            : <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" />}
         >
           {!exceptional && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
           {exceptional ? status.text : <span className="truncate lowercase">{status.text}</span>}

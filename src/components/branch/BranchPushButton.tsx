@@ -1,4 +1,5 @@
 import { UploadIcon } from "lucide-react"
+import { cn } from "cn"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -39,7 +40,7 @@ export function BranchPushButton({ branch, colored = true }: BranchPushButtonPro
           <Button
             size="xs"
             variant="ghost"
-            className={colored ? ghostButtonColorClass(push.color) : undefined}
+            className={cn("tabular-nums", colored && ghostButtonColorClass(push.color))}
             disabled={push.disabled || processing}
             aria-busy={isPushing || undefined}
             onClick={(event) => {
@@ -72,7 +73,7 @@ function PushProgressDescription({ branchName, progress }: { branchName: string,
   return (
     <div className="flex flex-col gap-0.5" data-testid="push-progress">
       <span className="break-words">{progress?.line ?? `Pushing ${branchName}…`}</span>
-      {amount !== null && <span className="text-muted-foreground">{amount}</span>}
+      {amount !== null && <span className="text-muted-foreground tabular-nums">{amount}</span>}
     </div>
   )
 }

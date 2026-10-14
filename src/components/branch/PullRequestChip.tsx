@@ -3,6 +3,7 @@ import { CircleCheckIcon, CircleDotIcon, CircleXIcon, ExternalLinkIcon, GitMerge
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
+import { InlineCode } from "@/components/shared/InlineCode"
 import type { ChecksState, PullRequest } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { PullRequestIconKind } from "@/lib/pull-request"
@@ -125,7 +126,11 @@ export function PullRequestDetails({ pullRequest, localTip }: PullRequestDetails
       {chip.outdated && (
         <p className="flex items-start gap-1.5 text-xs text-warning" data-testid="pull-request-outdated">
           <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
-          {`Not updated: the pull request shows ${formatShortHash(pullRequest.headRefOid)}. Push to update it.`}
+          <span>
+            {"Not updated: the pull request shows "}
+            <InlineCode plain>{formatShortHash(pullRequest.headRefOid)}</InlineCode>
+            . Push to update it.
+          </span>
         </p>
       )}
 

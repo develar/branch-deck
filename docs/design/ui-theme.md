@@ -114,6 +114,11 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   `text-base` title, a body that alone scrolls, a footer of key hints and `xs` buttons. `width` is `sm` for a picker,
   `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Back`, `Esc Close`), not a
   button.
+- **Type sizes** come from the scale: `text-sm` for text, `text-xs` for meta lines, and `text-message`
+  (`--text-message` in `src/index.css`, 13px on a 20px line) for commit messages. No arbitrary sizes (`text-[13px]`,
+  `text-[10px]`).
+- **Live counters are `tabular-nums`** ("Pushing 45%", the fetch percent, "syncing 3/10", download bytes, "3 / 12"), so
+  the text does not jitter while it counts. A hash inside a sentence is in the monospace font (`InlineCode plain`).
 - **Icons, one per concept** (lucide):
   - `CopyIcon` copies, `Settings2Icon` opens settings, `ExternalLinkIcon` opens the browser, `AppWindowIcon` opens a
     Branch Deck window;

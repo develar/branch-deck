@@ -4,6 +4,7 @@ import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCh
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
+import { InlineCode } from "@/components/shared/InlineCode"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { PatronusChipKind } from "@/lib/patronus"
@@ -143,7 +144,13 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
       {chip.outdated && robot.sourceRevision !== null && localTip !== undefined && (
         <p className="flex items-start gap-1.5 text-xs text-warning" data-testid="patronus-outdated">
           <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
-          {`Tests ${formatShortHash(robot.sourceRevision)}; the branch is at ${formatShortHash(localTip)} now.`}
+          <span>
+            {"Tests "}
+            <InlineCode plain>{formatShortHash(robot.sourceRevision)}</InlineCode>
+            {"; the branch is at "}
+            <InlineCode plain>{formatShortHash(localTip)}</InlineCode>
+            {" now."}
+          </span>
         </p>
       )}
 

@@ -95,7 +95,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
           <Button
             variant="ghost"
             size="sm"
-            className={cn(description.tone === "muted" && phase === null && "text-muted-foreground")}
+            className={cn("tabular-nums", description.tone === "muted" && phase === null && "text-muted-foreground")}
             disabled={phase !== null}
             // the tooltip with the progress line stays reachable while the update runs
             focusableWhenDisabled
@@ -150,7 +150,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
         {transfer === null && description.tone === "success" && <CheckIcon className="size-3 shrink-0 text-success" />}
         {transfer === null && description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
-        <span className="truncate">
+        <span className="truncate tabular-nums">
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
           {transfer === null
@@ -158,7 +158,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
             : `: ${transfer}`}
         </span>
       </span>
-      <Button variant="ghost" size="xs" disabled={phase !== null} data-testid="update-state-line-button" onClick={() => void runUpdateProject()}>
+      <Button variant="ghost" size="xs" className="tabular-nums" disabled={phase !== null} data-testid="update-state-line-button" onClick={() => void runUpdateProject()}>
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
         {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
       </Button>
