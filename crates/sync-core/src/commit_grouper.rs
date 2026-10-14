@@ -1,3 +1,4 @@
+use crate::commit_grouper::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
 use git_ops::commit_list::Commit;
 use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
@@ -10,13 +11,16 @@ use tracing::info;
 struct BranchData {
   commits: Vec<Commit>,
   author_frequencies: HashMap<String, u32>,
+  /// Position of the oldest commit among all grouped commits
+  first_position: usize,
 }
 
 impl BranchData {
-  fn new() -> Self {
+  fn new(first_position: usize) -> Self {
     Self {
       commits: Vec::new(),
       author_frequencies: HashMap::new(),
+      first_position,
     }
   }
 
@@ -104,6 +108,15 @@ pub fn stripped_subject(subject: &str) -> &str {
   if parsed.prefix.is_some() { parsed.rest } else { subject }
 }
 
+/// `branch_name_of` with stacked branches on: the leaf of a stack prefix, so `(auth/login) X` is in `login`
+pub fn stack_branch_name_of(subject: &str) -> Option<String> {
+  let parsed = parse_subject(subject);
+  match parsed.prefix {
+    Some(prefix) => leaf_of(prefix),
+    None => branch_of(&parsed),
+  }
+}
+
 fn branch_of(parsed: &ParsedSubject<'_>) -> Option<String> {
   match parsed.prefix {
     Some(prefix) => Some(sanitize_branch_name(prefix.trim())),
@@ -116,6 +129,8 @@ pub struct CommitGrouper {
   /// Unified structure combining commits and author frequencies per branch
   branch_data: IndexMap<String, BranchData>,
   unassigned_commits: Vec<Commit>,
+  /// With stacked branches on, what the prefixes declare
+  stacks: Option<StackDeclarations>,
   /// First parent of the oldest commit seen (the commit the virtual branches are rebuilt on)
   pub first_parent_id: Option<String>,
   pub commit_count: usize,
@@ -129,9 +144,16 @@ impl Default for CommitGrouper {
 
 impl CommitGrouper {
   pub fn new() -> Self {
+    Self::new_with_stacks(false)
+  }
+
+  /// A grouper that reads `(parent/child)` prefixes as stacked branches if `stacks` is on (`stack::stacks_enabled`);
+  /// otherwise a `/` is part of a flat branch name
+  pub fn new_with_stacks(stacks: bool) -> Self {
     Self {
       branch_data: IndexMap::new(),
       unassigned_commits: Vec::new(),
+      stacks: stacks.then(StackDeclarations::default),
       first_parent_id: None,
       commit_count: 0,
     }
@@ -142,21 +164,46 @@ impl CommitGrouper {
     if self.commit_count == 0 {
       self.first_parent_id.clone_from(&commit.parent_id);
     }
+    let position = self.commit_count;
     self.commit_count += 1;
 
     let parsed = parse_subject(&commit.subject);
-    let Some(branch_name) = branch_of(&parsed) else {
+    let branch_name = match (&mut self.stacks, parsed.prefix) {
+      (Some(declarations), Some(prefix)) => match stack_path(prefix) {
+        Ok(path) => {
+          declarations.declare(&path, &commit.id);
+          path.last().cloned()
+        }
+        // grouped into its last level, which reports the problem; `(/)` names no branch
+        Err(error) => error.leaf.inspect(|leaf| declarations.syntax_error(leaf, &commit.id)),
+      },
+      _ => branch_of(&parsed),
+    };
+    let Some(branch_name) = branch_name else {
       self.unassigned_commits.push(commit);
       return;
     };
+    if let Some(declarations) = &mut self.stacks {
+      declarations.note_branch(&branch_name);
+    }
     // an explicit prefix is stripped (`stripped_subject`); an issue-based subject stays as is
     if parsed.prefix.is_some() {
       commit.stripped_subject = parsed.rest.to_string();
     }
-    self.branch_data.entry(branch_name).or_insert_with(BranchData::new).add_commit(commit);
+    self.branch_data.entry(branch_name).or_insert_with(|| BranchData::new(position)).add_commit(commit);
   }
 
   pub fn finish(self) -> GroupedCommits {
+    self.finish_with_stacks().0
+  }
+
+  /// The grouped commits and, with stacked branches on, how the branches stack
+  pub fn finish_with_stacks(self) -> (GroupedCommits, Option<StackForest>) {
+    let stacks = self.stacks.map(|declarations| {
+      let first_positions: HashMap<&str, usize> = self.branch_data.iter().map(|(name, data)| (name.as_str(), data.first_position)).collect();
+      declarations.into_forest(&first_positions)
+    });
+
     // Extract commits and author emails from unified structure
     let mut grouped_commits = IndexMap::new();
     let mut branch_emails = HashMap::new();
@@ -176,13 +223,17 @@ impl CommitGrouper {
       "Commit grouping completed"
     );
 
-    GroupedCommits {
+    let grouped = GroupedCommits {
       branches: grouped_commits,
       unassigned: self.unassigned_commits,
       branch_emails,
-    }
+    };
+    (grouped, stacks)
   }
 }
+
+#[path = "stack.rs"]
+pub mod stack;
 
 #[cfg(test)]
 #[path = "commit_grouper_test.rs"]

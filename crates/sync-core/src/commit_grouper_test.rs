@@ -1,4 +1,5 @@
-use crate::commit_grouper::{CommitGrouper, GroupedCommits};
+use crate::commit_grouper::stack::{DeclaredParent, ParentState, STACKS_CONFIG_KEY, StackForest, StackProblem, leaf_of, stack_of, stack_path, stacks_enabled};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, branch_name_of, stack_branch_name_of};
 use git_ops::commit_list::Commit;
 use indexmap::IndexMap;
 use test_log::test;
@@ -496,4 +497,199 @@ fn test_autosquash_commits_preserve_original_subject() {
 
   // The stripped_subject should only contain the message without prefix
   assert_eq!(commits[0].stripped_subject, "Add login");
+}
+
+// Stacked branches
+
+fn names(list: &[&str]) -> Vec<String> {
+  list.iter().map(|name| (*name).to_string()).collect()
+}
+
+/// Groups subjects with the ids `c0`, `c1`, … (oldest first), stacked branches on
+fn group_stacked(subjects: &[&str]) -> (GroupedCommits, StackForest) {
+  let mut grouper = CommitGrouper::new_with_stacks(true);
+  for (index, subject) in subjects.iter().enumerate() {
+    grouper.add_commit(create_test_commit(&format!("c{index}"), subject));
+  }
+  let (grouped, forest) = grouper.finish_with_stacks();
+  (grouped, forest.expect("stacks are on"))
+}
+
+fn ids(grouped: &GroupedCommits, branch: &str) -> Vec<String> {
+  grouped.branches[branch].iter().map(|commit| commit.id.clone()).collect()
+}
+
+#[test]
+fn stack_prefixes_split_into_sanitized_levels() {
+  assert_eq!(stack_of("auth/login"), Ok(("login".to_string(), Some("auth".to_string()))));
+  assert_eq!(stack_of("login"), Ok(("login".to_string(), None)));
+  assert_eq!(stack_path("auth/login/oauth"), Ok(names(&["auth", "login", "oauth"])));
+  assert_eq!(stack_path(" my auth / log in "), Ok(names(&["my-auth", "log-in"])));
+  // empty levels at the ends are dropped
+  assert_eq!(stack_of("auth/"), Ok(("auth".to_string(), None)));
+  assert_eq!(stack_of("/login"), Ok(("login".to_string(), None)));
+  assert_eq!(leaf_of("auth/login"), Some("login".to_string()));
+}
+
+#[test]
+fn an_empty_stack_level_is_a_syntax_error() {
+  let error = stack_of("a//b").unwrap_err();
+  assert_eq!(error.leaf.as_deref(), Some("b"));
+  assert_eq!(error.to_string(), "(a//b) has an empty stack level");
+  // a level that sanitizes to nothing is empty too
+  assert_eq!(stack_path("a/~/b").unwrap_err().leaf.as_deref(), Some("b"));
+  assert_eq!(stack_path("/").unwrap_err().leaf, None);
+  assert_eq!(leaf_of("a//b"), None);
+}
+
+#[test]
+fn without_stacks_a_slash_is_part_of_a_flat_name() {
+  let mut grouper = CommitGrouper::new();
+  grouper.add_commit(create_test_commit("c0", "(auth/login) Add form"));
+  grouper.add_commit(create_test_commit("c1", "(a//b) Odd"));
+  let (grouped, forest) = grouper.finish_with_stacks();
+  assert!(forest.is_none());
+  assert_eq!(grouped.branches.keys().collect::<Vec<_>>(), ["auth/login", "a//b"]);
+  assert_eq!(grouped.branches["auth/login"][0].stripped_subject, "Add form");
+}
+
+#[test]
+fn groups_by_leaf_and_records_the_declared_parents() {
+  let (grouped, forest) = group_stacked(&[
+    "(auth) Add auth",
+    "(auth/login) Add form",
+    "(docs) Document",
+    // a bare prefix joins the branch wherever it is declared
+    "(login) Validate form",
+    "(auth/login/oauth) Add OAuth",
+  ]);
+
+  assert_eq!(grouped.branches.keys().collect::<Vec<_>>(), ["auth", "login", "docs", "oauth"]);
+  assert_eq!(ids(&grouped, "login"), ["c1", "c3"]);
+  assert_eq!(grouped.branches["oauth"][0].stripped_subject, "Add OAuth");
+  assert_eq!(forest.declared_parent("auth"), None);
+  assert_eq!(forest.declared_parent("login"), Some("auth"));
+  assert_eq!(forest.declared_parent("oauth"), Some("login"));
+  assert_eq!(forest.parent_state("login"), Some(ParentState::Active));
+  assert_eq!(forest.parent_state("auth"), None);
+  assert_eq!(forest.order, ["auth", "login", "docs", "oauth"]);
+  assert!(forest.nodes.values().all(|node| node.problems.is_empty() && !node.child_precedes_parent));
+}
+
+#[test]
+fn a_parent_without_commits_is_missing() {
+  let (grouped, forest) = group_stacked(&["(auth/login/oauth) Add OAuth", "(login) Add form"]);
+
+  assert_eq!(grouped.branches.keys().collect::<Vec<_>>(), ["oauth", "login"]);
+  // the deeper level declares the parent of `login`
+  assert_eq!(forest.declared_parent("login"), Some("auth"));
+  assert_eq!(forest.parent_state("login"), Some(ParentState::Missing));
+  assert_eq!(forest.parent_state("oauth"), Some(ParentState::Active));
+  assert!(!forest.nodes["auth"].has_commits);
+  assert_eq!(forest.nodes.keys().collect::<Vec<_>>(), ["auth", "login", "oauth"]);
+  assert_eq!(forest.order, ["login", "oauth"]);
+}
+
+#[test]
+fn orders_parents_first_and_flags_a_child_that_comes_first() {
+  let (_, forest) = group_stacked(&["(x) X", "(a/b) B", "(x/y) Y", "(a) A"]);
+
+  assert_eq!(forest.order, ["x", "a", "b", "y"]);
+  assert!(forest.nodes["b"].child_precedes_parent);
+  assert!(!forest.nodes["y"].child_precedes_parent);
+}
+
+#[test]
+fn conflicting_parents_name_their_commits() {
+  let (grouped, forest) = group_stacked(&["(auth/login) Add form", "(api/login) Call API", "(auth/login) Validate", "(docs) Document"]);
+
+  assert_eq!(ids(&grouped, "login"), ["c0", "c1", "c2"]);
+  assert_eq!(forest.declared_parent("login"), None);
+  assert_eq!(
+    forest.problems("login"),
+    [StackProblem::ConflictingParents(vec![
+      DeclaredParent {
+        parent: "auth".to_string(),
+        commits: names(&["c0", "c2"]),
+      },
+      DeclaredParent {
+        parent: "api".to_string(),
+        commits: names(&["c1"]),
+      },
+    ])]
+  );
+  // the other branches are not affected
+  assert_eq!(forest.problems("docs"), []);
+  assert!(forest.order.contains(&"login".to_string()) && forest.order.contains(&"docs".to_string()));
+}
+
+#[test]
+fn a_branch_can_not_be_its_own_parent() {
+  let (grouped, forest) = group_stacked(&["(a/a) Loop"]);
+
+  assert_eq!(ids(&grouped, "a"), ["c0"]);
+  assert_eq!(forest.declared_parent("a"), None);
+  assert_eq!(forest.problems("a"), [StackProblem::SelfParent(names(&["c0"]))]);
+  assert_eq!(forest.order, ["a"]);
+}
+
+#[test]
+fn a_cycle_marks_each_of_its_branches() {
+  let (_, forest) = group_stacked(&["(a/b) B", "(b/c) C", "(c/a) A", "(c/d) D", "(e) E"]);
+
+  assert_eq!(forest.problems("a"), [StackProblem::Cycle(names(&["a", "c", "b"]))]);
+  assert_eq!(forest.problems("b"), [StackProblem::Cycle(names(&["b", "a", "c"]))]);
+  assert_eq!(forest.problems("c"), [StackProblem::Cycle(names(&["c", "b", "a"]))]);
+  // a child of the cycle is not part of it
+  assert_eq!(forest.problems("d"), []);
+  assert_eq!(forest.problems("e"), []);
+  assert_eq!(forest.order, ["a", "b", "c", "d", "e"]);
+}
+
+#[test]
+fn leaves_that_differ_only_in_case_collide() {
+  let (grouped, forest) = group_stacked(&["(Login) Add form", "(auth/login) Validate", "(docs) Document"]);
+
+  assert_eq!(grouped.branches.keys().collect::<Vec<_>>(), ["Login", "login", "docs"]);
+  assert_eq!(forest.problems("Login"), [StackProblem::LeafCollision("login".to_string())]);
+  assert_eq!(forest.problems("login"), [StackProblem::LeafCollision("Login".to_string())]);
+  assert_eq!(forest.problems("docs"), []);
+}
+
+#[test]
+fn a_syntax_error_is_reported_on_the_last_level() {
+  let (grouped, forest) = group_stacked(&["(a//b) Odd", "(b) Even", "(/) Nothing", "ABC-1 Fix bug"]);
+
+  assert_eq!(ids(&grouped, "b"), ["c0", "c1"]);
+  assert_eq!(forest.problems("b"), [StackProblem::Syntax(names(&["c0"]))]);
+  // `(/)` names no branch
+  assert_eq!(grouped.unassigned.iter().map(|commit| commit.id.as_str()).collect::<Vec<_>>(), ["c2"]);
+  // an issue branch is a root
+  assert_eq!(ids(&grouped, "ABC-1"), ["c3"]);
+  assert_eq!(forest.declared_parent("ABC-1"), None);
+  assert_eq!(forest.order, ["b", "ABC-1"]);
+}
+
+#[test]
+fn stack_branch_names_are_leaves() {
+  assert_eq!(stack_branch_name_of("(auth/login) Add form").as_deref(), Some("login"));
+  assert_eq!(stack_branch_name_of("fixup! (auth/login) Add form").as_deref(), Some("login"));
+  assert_eq!(stack_branch_name_of("ABC-1 Fix bug").as_deref(), Some("ABC-1"));
+  assert_eq!(stack_branch_name_of("Plain"), None);
+  assert_eq!(branch_name_of("(auth/login) Add form").as_deref(), Some("auth/login"));
+}
+
+#[test]
+fn stacks_are_off_unless_configured() {
+  let test_repo = test_utils::git_test_utils::TestRepo::new();
+  let git_executor = test_repo.git_executor();
+  let repo_path = test_repo.path().to_str().unwrap();
+
+  assert!(!stacks_enabled(git_executor, repo_path).unwrap());
+  for (value, enabled) in [("true", true), ("yes", true), ("false", false), ("off", false)] {
+    test_repo.set_config(STACKS_CONFIG_KEY, value).unwrap();
+    assert_eq!(stacks_enabled(git_executor, repo_path).unwrap(), enabled, "{value}");
+  }
+  test_repo.set_config(STACKS_CONFIG_KEY, "maybe").unwrap();
+  assert!(stacks_enabled(git_executor, repo_path).is_err());
 }
