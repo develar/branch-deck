@@ -30,6 +30,7 @@ pnpm lint                 # Run all linting and formatting
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
 pnpm lint:frontend        # ESLint + tsc type-check of the React/TypeScript code
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
+cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
 
 Fix a clone reported by `lint:cpd` with a helper, constant or fixture. Wrap code in `// jscpd:ignore-start` /

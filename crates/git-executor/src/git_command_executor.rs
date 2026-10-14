@@ -39,6 +39,14 @@ impl GitCommandExecutor {
     Self::default()
   }
 
+  /// An executor that runs an already discovered git instead of discovering it on first use
+  #[must_use]
+  pub fn with_info(info: GitInfo) -> Self {
+    Self {
+      info: Arc::new(OnceLock::from(info)),
+    }
+  }
+
   /// Git executable path and version, discovered on first use. A failed discovery is not cached.
   #[instrument(skip(self))]
   pub fn get_info(&self) -> Result<&GitInfo> {

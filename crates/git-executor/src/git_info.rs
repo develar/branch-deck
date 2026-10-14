@@ -27,6 +27,27 @@ impl GitInfo {
     Ok(info)
   }
 
+  /// Discover git for the command line, without the login-shell fallback of `discover`: `explicit_path` (the `BD_GIT`
+  /// variable) if given, else `git` from `PATH`, else the Homebrew paths on macOS. The version is checked as in `discover`
+  pub fn discover_for_cli(explicit_path: Option<&str>) -> Result<Self, String> {
+    if let Some(path) = explicit_path {
+      let info = Self::from_path(path)?;
+      info.validate_minimum_version().map_err(|e| format!("{e}\n{UPGRADE_HINT}"))?;
+      return Ok(info);
+    }
+
+    let mut first_error = None;
+    for path in std::iter::once("git").chain(HOMEBREW_PATHS) {
+      match Self::from_path(path).and_then(|info| info.validate_minimum_version().map(|()| info)) {
+        Ok(info) => return Ok(info),
+        Err(e) => {
+          first_error.get_or_insert(e);
+        }
+      }
+    }
+    Err(format!("{}\n{UPGRADE_HINT}", first_error.unwrap_or_default()))
+  }
+
   // creates GitInfo from a specific git path
   pub fn from_path(git_path: &str) -> Result<Self, String> {
     // get git version using the provided path
@@ -76,14 +97,17 @@ pub(crate) fn execute_command(command: &mut Command, error_msg: &str) -> Result<
 }
 
 #[cfg(target_os = "macos")]
+const HOMEBREW_PATHS: [&str; 2] = [
+  "/opt/homebrew/bin/git", // Apple Silicon
+  "/usr/local/bin/git",    // Intel Macs
+];
+#[cfg(not(target_os = "macos"))]
+const HOMEBREW_PATHS: [&str; 0] = [];
+
+#[cfg(target_os = "macos")]
 fn get_git_path() -> Result<String, String> {
   // Try Homebrew paths first
-  let homebrew_paths = [
-    "/opt/homebrew/bin/git", // Apple Silicon
-    "/usr/local/bin/git",    // Intel Macs
-  ];
-
-  for path in &homebrew_paths {
+  for path in &HOMEBREW_PATHS {
     if std::path::Path::new(path).exists() {
       // Check if this git meets version requirements
       if let Ok(info) = GitInfo::from_path(path)

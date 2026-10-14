@@ -1,0 +1,111 @@
+use crate::error::{CliError, ErrorCode};
+use crate::output::ShortIds;
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::git_info::GitInfo;
+use std::path::{Path, PathBuf};
+use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
+use tracing::debug;
+
+/// The tauri-plugin-store file of the app (`LazyStore("settings.json")` in `src/stores/settings/app-store.ts`), in the
+/// app data directory of the bundle identifier (`tauri.conf.json`)
+const APP_IDENTIFIER: &str = "org.develar.branch-deck";
+const SETTINGS_FILE_NAME: &str = "settings.json";
+
+/// What the CLI takes from its process, injectable for tests
+pub struct Environment {
+  /// The directory `-C` defaults to
+  pub cwd: PathBuf,
+  /// The app settings file; `None` skips the app setting
+  pub settings_file: Option<PathBuf>,
+  /// The git executable from `BD_GIT`
+  pub git: Option<String>,
+}
+
+impl Environment {
+  pub fn from_process() -> Self {
+    Self {
+      cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+      settings_file: dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER).join(SETTINGS_FILE_NAME)),
+      git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
+    }
+  }
+}
+
+/// The repository a command runs on
+pub struct RepoContext {
+  pub git: GitCommandExecutor,
+  /// The top level of the working tree
+  pub repository: String,
+  pub prefix: String,
+  pub short_ids: bool,
+}
+
+impl RepoContext {
+  /// Resolve git, the repository top level and the branch prefix: `--prefix`, else the app setting
+  /// `globalUserBranchPrefix`, else `branchdeck.branchPrefix`. An empty prefix is an error
+  pub fn resolve(environment: &Environment, repo: Option<&Path>, prefix: Option<&str>, full_ids: bool) -> Result<Self, CliError> {
+    let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
+    let git = GitCommandExecutor::with_info(info);
+
+    let directory = match repo {
+      Some(repo) if repo.is_relative() => environment.cwd.join(repo),
+      Some(repo) => repo.to_path_buf(),
+      None => environment.cwd.clone(),
+    };
+    if !directory.is_dir() {
+      return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
+    }
+    let directory = directory.to_string_lossy();
+    let (output, exit_code) = git.execute_command_with_status(&["rev-parse", "--show-toplevel"], &directory)?;
+    if exit_code != 0 || output.trim().is_empty() {
+      return Err(CliError::new(ErrorCode::NotARepository, format!("Not inside a git working tree: {directory}")));
+    }
+    let repository = output.trim().to_string();
+
+    let prefix = match prefix {
+      Some(prefix) => prefix.trim().to_string(),
+      None => match environment.settings_file.as_deref().and_then(read_app_branch_prefix) {
+        Some(prefix) => prefix,
+        None => get_branch_prefix_from_git_config_sync(&git, &repository)?,
+      },
+    };
+    if prefix.is_empty() {
+      return Err(CliError::new(
+        ErrorCode::NoBranchPrefix,
+        "No branch prefix: pass --prefix, set it in the app, or run `git config --global branchdeck.branchPrefix <name>`",
+      ));
+    }
+
+    Ok(Self {
+      git,
+      repository,
+      prefix,
+      short_ids: !full_ids,
+    })
+  }
+
+  /// `ids` are all the commit ids the output names
+  pub fn short_ids<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Result<ShortIds, CliError> {
+    if !self.short_ids {
+      return Ok(ShortIds::full());
+    }
+    let (output, exit_code) = self.git.execute_command_with_status(&["rev-parse", "--short", "HEAD"], &self.repository)?;
+    let min_len = if exit_code == 0 { output.trim().len() } else { 7 };
+    Ok(ShortIds::new(min_len, ids))
+  }
+}
+
+/// `appSettings.globalUserBranchPrefix` of the app settings file; `None` if the file, the key or a non-blank value is
+/// missing
+fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
+  let text = std::fs::read_to_string(settings_file).ok()?;
+  let settings: serde_json::Value = match serde_json::from_str(&text) {
+    Ok(settings) => settings,
+    Err(e) => {
+      debug!(error = %e, file = %settings_file.display(), "ignoring unreadable app settings");
+      return None;
+    }
+  };
+  let prefix = settings.get("appSettings")?.get("globalUserBranchPrefix")?.as_str()?.trim();
+  (!prefix.is_empty()).then(|| prefix.to_string())
+}
