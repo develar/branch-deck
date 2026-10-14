@@ -45,7 +45,7 @@ fn summary(plan: &AutosquashPlan) -> (Vec<String>, Vec<&str>) {
 }
 
 fn plan(messages: &[&str]) -> (Vec<String>, Vec<String>) {
-  let plan = plan_autosquash("c-head".to_string(), &commits(messages));
+  let plan = plan_autosquash("c-head".to_string(), &commits(messages), false);
   let (groups, orphans) = summary(&plan);
   (groups, orphans.into_iter().map(str::to_string).collect())
 }
@@ -65,6 +65,7 @@ fn matches_the_exact_subject_and_keeps_the_details() {
       "squash! (docs) Document\n\nMore",
       "amend! (auth) Add login\n\n(auth) Log in",
     ]),
+    false,
   );
   assert_eq!(
     plan,
@@ -125,7 +126,7 @@ fn matches_a_unique_hash_prefix() {
     // too short
     commit("ffff3333", "fixup! abc"),
   ];
-  let plan = plan_autosquash("head".to_string(), &commits);
+  let plan = plan_autosquash("head".to_string(), &commits, false);
   assert_eq!(summary(&plan), (groups(&["abcd1234 <- ffff1111", "abcd5678 <- ffff0000"]), vec!["ffff2222", "ffff3333"]));
 }
 
@@ -140,7 +141,7 @@ fn falls_back_to_a_subject_starting_with_the_text() {
 
 #[test]
 fn strips_every_marker_and_takes_the_kind_from_the_first() {
-  let plan = plan_autosquash("head".to_string(), &commits(&["Add a", "fixup! fixup! Add a", "squash!  amend! Add a"]));
+  let plan = plan_autosquash("head".to_string(), &commits(&["Add a", "fixup! fixup! Add a", "squash!  amend! Add a"]), false);
   let kinds: Vec<FixupKind> = plan.groups[0].folded.iter().map(|fixup| fixup.kind).collect();
   assert_eq!(summary(&plan), (groups(&["c0 <- c1, c2"]), vec![]));
   assert_eq!(kinds, [FixupKind::Fixup, FixupKind::Squash]);
@@ -150,13 +151,13 @@ fn strips_every_marker_and_takes_the_kind_from_the_first() {
 fn resolves_a_fixup_of_a_fixup_to_the_final_target() {
   let commits = vec![commit("aaaa0000", "Add a"), commit("bbbb0000", "fixup! Add a"), commit("cccc0000", "fixup! bbbb0000")];
   assert_eq!(
-    summary(&plan_autosquash("head".to_string(), &commits)),
+    summary(&plan_autosquash("head".to_string(), &commits, false)),
     (groups(&["aaaa0000 <- bbbb0000, cccc0000"]), vec![])
   );
 
   // a fixup of an orphan has no target either
   let commits = vec![commit("aaaa0000", "fixup! Gone"), commit("bbbb0000", "fixup! aaaa0000")];
-  assert_eq!(summary(&plan_autosquash("head".to_string(), &commits)), (vec![], vec!["aaaa0000", "bbbb0000"]));
+  assert_eq!(summary(&plan_autosquash("head".to_string(), &commits, false)), (vec![], vec!["aaaa0000", "bbbb0000"]));
 }
 
 #[test]
@@ -169,7 +170,7 @@ fn orphans_a_fixup_without_an_older_target() {
   // the target is newer than the fixup
   assert_eq!(plan(&["fixup! Add a", "Add a"]), (vec![], groups(&["c0"])));
   // the target is not in the range
-  let outside = plan_autosquash("head".to_string(), &commits(&["Add b", "fixup! (auth) Add a"]));
+  let outside = plan_autosquash("head".to_string(), &commits(&["Add b", "fixup! (auth) Add a"]), false);
   assert_eq!(
     outside.orphans,
     [OrphanFixup {
@@ -331,4 +332,59 @@ fn refuses_to_combine_messages_in_another_encoding() {
   let error = squash_fixups(&test_repo, &head, AutosquashScope::All).expect_err("a Latin-1 message");
   assert!(format!("{error:#}").contains("encoding ISO-8859-1"), "{error:#}");
   assert_eq!(test_repo.head(), head);
+}
+
+fn stacked_plan(messages: &[&str]) -> AutosquashPlan {
+  plan_autosquash("head".to_string(), &commits(messages), true)
+}
+
+#[test]
+fn with_stacks_a_fixup_names_the_leaf_of_its_target() {
+  let plan = stacked_plan(&["(auth/login) Add form", "(docs) Add form", "fixup! (login) Add form", "fixup! (login) Add f"]);
+  assert_eq!(summary(&plan), (groups(&["c0 <- c2, c3"]), vec![]));
+  assert_eq!(plan.groups[0].branch.as_deref(), Some("login"));
+
+  // the full stack prefix and a deeper declaration of the same leaf agree too
+  assert_eq!(
+    summary(&stacked_plan(&["(login) Add form", "fixup! (auth/login) Add form"])),
+    (groups(&["c0 <- c1"]), vec![])
+  );
+  assert_eq!(
+    summary(&stacked_plan(&["(auth/login/oauth) Add OAuth", "fixup! (oauth) Add OAuth"])),
+    (groups(&["c0 <- c1"]), vec![])
+  );
+}
+
+#[test]
+fn with_stacks_another_leaf_does_not_agree() {
+  let plan = stacked_plan(&["(auth/login) Add form", "fixup! (auth) Add form"]);
+  assert_eq!(summary(&plan), (vec![], vec!["c1"]));
+  assert_eq!(plan.orphans[0].branch.as_deref(), Some("auth"));
+}
+
+#[test]
+fn without_stacks_prefixes_are_compared_as_text() {
+  let plan = plan_autosquash("head".to_string(), &commits(&["(auth/login) Add form", "fixup! (login) Add form"]), false);
+  assert_eq!(summary(&plan), (vec![], vec!["c1"]));
+  assert_eq!(plan.orphans[0].branch.as_deref(), Some("login"));
+  let plan = plan_autosquash("head".to_string(), &commits(&["(auth/login) Add form", "fixup! (auth/login) Add form"]), false);
+  assert_eq!(plan.groups[0].branch.as_deref(), Some("auth/login"));
+}
+
+#[test]
+fn the_plan_reads_the_stacks_setting_of_the_repository() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial", "README.md", "# Test");
+  test_repo.create_commit("(auth/login) Add form", "form.txt", "form");
+  test_repo.create_commit("fixup! (login) Add form", "form.txt", "fixed form");
+
+  let plan = get_autosquash_plan_core(test_repo.git_executor(), &repo_path(&test_repo)).unwrap();
+  assert_eq!(plan.groups, []);
+  assert_eq!(plan.orphans.len(), 1);
+
+  test_repo.set_config("branchdeck.stacks", "true").unwrap();
+  let plan = get_autosquash_plan_core(test_repo.git_executor(), &repo_path(&test_repo)).unwrap();
+  assert_eq!(plan.groups.len(), 1);
+  assert_eq!(plan.groups[0].branch.as_deref(), Some("login"));
+  assert_eq!(plan.orphans, []);
 }

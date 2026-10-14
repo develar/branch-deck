@@ -3,7 +3,8 @@
 //! `prepare_squash` with a group per target.
 
 use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::{AUTOSQUASH_MARKERS, branch_name_of, parse_subject};
+use crate::commit_grouper::stack::{leaf_of, stacks_enabled};
+use crate::commit_grouper::{AUTOSQUASH_MARKERS, branch_name_of, parse_subject, stack_branch_name_of};
 use anyhow::{Result, anyhow, bail, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
@@ -94,16 +95,19 @@ enum Resolution {
 ///   3. the same subject without the `(prefix)`, if the prefixes agree when the fixup names one;
 ///   4. a subject (or, prefixes agreeing, a subject without the `(prefix)`) starting with it.
 ///
-/// A fixup of a fixup (by hash) goes to the final target. A fixup without a target is an orphan.
+/// A fixup of a fixup (by hash) goes to the final target. A fixup without a target is an orphan. With `stacks`
+/// (`stack::stacks_enabled`), prefixes agree when they name the same branch, so `fixup! (login) X` finds
+/// `(auth/login) X`, and the branches are the leaves.
 #[must_use]
-pub fn plan_autosquash(head: String, commits: &[Commit]) -> AutosquashPlan {
+pub fn plan_autosquash(head: String, commits: &[Commit], stacks: bool) -> AutosquashPlan {
+  let branch_of = |subject: &str| if stacks { stack_branch_name_of(subject) } else { branch_name_of(subject) };
   let mut resolutions: Vec<Resolution> = Vec::with_capacity(commits.len());
   // full subject -> oldest position
   let mut by_subject: HashMap<&str, usize> = HashMap::new();
   for (index, commit) in commits.iter().enumerate() {
     let resolution = match FixupKind::of(&commit.subject) {
       None => Resolution::Commit,
-      Some(_) => match find_target(commits, &by_subject, index) {
+      Some(_) => match find_target(commits, &by_subject, index, stacks) {
         None => Resolution::Orphan,
         Some(target) => match resolutions[target] {
           Resolution::Commit => Resolution::Fixup(target),
@@ -125,13 +129,13 @@ pub fn plan_autosquash(head: String, commits: &[Commit]) -> AutosquashPlan {
       Resolution::Orphan => orphans.push(OrphanFixup {
         commit_id: commit.id.clone(),
         subject: commit.subject.clone(),
-        branch: branch_name_of(&commit.subject),
+        branch: branch_of(&commit.subject),
       }),
       Resolution::Fixup(target) => {
         let group = groups.entry(target).or_insert_with(|| PlannedGroup {
           target: commits[target].id.clone(),
           target_subject: commits[target].subject.clone(),
-          branch: branch_name_of(&commits[target].subject),
+          branch: branch_of(&commits[target].subject),
           folded: Vec::new(),
         });
         group.folded.push(PlannedFixup {
@@ -150,7 +154,7 @@ pub fn plan_autosquash(head: String, commits: &[Commit]) -> AutosquashPlan {
 }
 
 /// The position of the target of the fixup at `index`, among the older commits
-fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usize) -> Option<usize> {
+fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usize, stacks: bool) -> Option<usize> {
   let parsed = parse_subject(&commits[index].subject);
   let wanted = &commits[index].subject[parsed.autosquash.len()..];
   if wanted.is_empty() {
@@ -177,7 +181,12 @@ fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usi
       .map(|(position, commit)| (position, parse_subject(&commit.subject)))
       .filter(|(_, candidate)| candidate.autosquash.is_empty())
   };
-  let prefixes_agree = |candidate: Option<&str>| parsed.prefix.is_none_or(|prefix| Some(prefix) == candidate);
+  let prefixes_agree = |candidate: Option<&str>| {
+    parsed.prefix.is_none_or(|prefix| match candidate {
+      Some(candidate) if stacks => leaf_of(prefix).is_some_and(|leaf| leaf_of(candidate).as_ref() == Some(&leaf)),
+      candidate => Some(prefix) == candidate,
+    })
+  };
   if let Some((target, _)) = candidates().find(|(_, candidate)| candidate.rest == parsed.rest && prefixes_agree(candidate.prefix)) {
     return Some(target);
   }
@@ -280,19 +289,19 @@ pub struct SquashFixupsResult {
   pub previous_head: String,
 }
 
-/// The commits ahead of the baseline (oldest first) and HEAD, as the sync reads them
-fn read_range(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<(String, Vec<Commit>)> {
+/// The commits ahead of the baseline (oldest first), HEAD and whether stacked branches are on, as the sync reads them
+fn read_range(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<(String, Vec<Commit>, bool)> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
   let head = git_executor.execute_command(&["rev-parse", "HEAD"], repository_path)?.trim().to_string();
   let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
-  Ok((head, commits))
+  Ok((head, commits, stacks_enabled(git_executor, repository_path)?))
 }
 
 /// The fixups of the commits ahead of the baseline and where they go
 #[instrument(skip(git_executor))]
 pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<AutosquashPlan> {
-  let (head, commits) = read_range(git_executor, repository_path)?;
-  Ok(plan_autosquash(head, &commits))
+  let (head, commits, stacks) = read_range(git_executor, repository_path)?;
+  Ok(plan_autosquash(head, &commits, stacks))
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
@@ -300,9 +309,9 @@ pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_pa
 #[instrument(skip(git_executor))]
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
-  let (head, commits) = read_range(git_executor, repo_path)?;
+  let (head, commits, stacks) = read_range(git_executor, repo_path)?;
   ensure!(head == params.expected_head, "The branch changed since the fixups were listed, sync and try again");
-  let plan = plan_autosquash(head, &commits);
+  let plan = plan_autosquash(head, &commits, stacks);
   let (groups, orphans) = select_scope(plan, &params.scope)?;
 
   let by_id: HashMap<&str, &Commit> = commits.iter().map(|commit| (commit.id.as_str(), commit)).collect();

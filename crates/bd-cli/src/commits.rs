@@ -241,7 +241,8 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
 /// Fixup commit id -> its kind and the target `plan_autosquash` resolves, `None` for an orphan
 fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)]) -> HashMap<String, (FixupKind, Option<String>)> {
   let commits: Vec<Commit> = ordered.iter().map(|(commit, _)| (*commit).clone()).collect();
-  let plan = plan_autosquash(head.to_string(), &commits);
+  // the CLI groups without stacked branches so far
+  let plan = plan_autosquash(head.to_string(), &commits, false);
   let mut targets: HashMap<String, (FixupKind, Option<String>)> = plan
     .groups
     .into_iter()
