@@ -397,3 +397,32 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
 
   Ok(())
 }
+
+/// An archive name never clashes with a ref of the same day below or above it (git's directory/file rule)
+#[test]
+fn test_batch_archive_avoids_ref_directory_file_conflicts() {
+  use branch_integration::archive::batch_archive_inactive_branches;
+  use branch_integration::common::get_all_branch_data;
+
+  let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
+  let repo_path = local_repo.path().to_str().unwrap();
+  let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+  let commit = local_repo.create_commit("(auth) Add auth", "auth.js", "// auth");
+  local_repo.create_branch_at("user/virtual/auth", &commit).unwrap();
+  // a flat name with a slash, as without stacked branches
+  local_repo.create_branch_at("user/virtual/docs/api", &commit).unwrap();
+  // archived earlier today: `auth` is a directory there, `docs` a file
+  local_repo.create_branch_at(&format!("user/archived/{today}/auth/old"), &commit).unwrap();
+  local_repo.create_branch_at(&format!("user/archived/{today}/docs"), &commit).unwrap();
+
+  let branch_data = get_all_branch_data(&git_executor, repo_path, "user").unwrap();
+  let inactive = vec!["user/virtual/auth".to_string(), "user/virtual/docs/api".to_string()];
+  let archived = batch_archive_inactive_branches(&git_executor, repo_path, "user", &inactive, &branch_data.virtual_commits, &branch_data.archived_today_names).unwrap();
+
+  let mut names: Vec<&str> = archived.keys().map(String::as_str).collect();
+  names.sort_unstable();
+  assert_eq!(names, [format!("user/archived/{today}/auth-1"), format!("user/archived/{today}/docs-1/api")]);
+  assert!(!local_repo.branch_exists("user/virtual/auth"));
+  assert!(!local_repo.branch_exists("user/virtual/docs/api"));
+}

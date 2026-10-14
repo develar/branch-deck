@@ -14,26 +14,59 @@ pub const ARCHIVE_RETENTION_DAYS: u64 = 7;
 /// so that picking a free name and creating the ref happen atomically.
 pub static REF_RENAME_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-/// First free branch name of `to_base`, `to_base-1`, `to_base-2`, ... read with one `for-each-ref`.
+/// Branch names checked against git's directory/file rule: refs `a` and `a/b` can't both exist
+#[derive(Debug, Default)]
+pub struct RefNames {
+  names: HashSet<String>,
+  /// Every `/`-prefix of a name
+  directories: HashSet<String>,
+}
+
+impl RefNames {
+  pub fn insert(&mut self, name: &str) {
+    for (index, _) in name.match_indices('/') {
+      self.directories.insert(name[..index].to_string());
+    }
+    self.names.insert(name.to_string());
+  }
+
+  /// Whether a ref `name` can be created: no ref has that name, lies below it or is a directory level above it
+  pub fn is_free(&self, name: &str) -> bool {
+    !self.names.contains(name) && !self.directories.contains(name) && !name.match_indices('/').any(|(index, _)| self.names.contains(&name[..index]))
+  }
+
+  /// `name` if it is free, else the first free name with a `-1`, `-2`, … suffix; `None` after `max_suffix` tries.
+  /// Below a taken name (`a` for `a/b`) the suffix goes on that level (`a-1/b`), where it resolves the conflict.
+  pub fn unique(&self, name: &str, max_suffix: u32) -> Option<String> {
+    if self.is_free(name) {
+      return Some(name.to_string());
+    }
+    let level_end = name
+      .match_indices('/')
+      .map(|(index, _)| index)
+      .find(|&index| self.names.contains(&name[..index]))
+      .unwrap_or(name.len());
+    let (level, rest) = name.split_at(level_end);
+    (1..=max_suffix).map(|suffix| format!("{level}-{suffix}{rest}")).find(|candidate| self.is_free(candidate))
+  }
+}
+
+/// First free branch name of `to_base`, `to_base-1`, `to_base-2`, ... read with one `for-each-ref`; a name is also
+/// taken by a ref below it (`to_base/x`) or above it (`to_base` is `a/b` and `a` exists), see `RefNames::unique`.
 /// Hold `REF_RENAME_MUTEX` until the ref is created, so that another rename can't pick the same name.
 pub fn unique_branch_name(git: &GitCommandExecutor, repo: &str, to_base: &str) -> Result<String> {
-  let exact = format!("refs/heads/{to_base}");
-  let suffixed = format!("refs/heads/{to_base}-*");
-  let taken: HashSet<String> = git
-    .execute_command_lines(&["for-each-ref", "--format=%(refname:lstrip=2)", &exact, &suffixed], repo)?
-    .into_iter()
-    .collect();
-
-  let mut target = to_base.to_string();
-  let mut suffix: u32 = 1;
-  while taken.contains(&target) {
-    if suffix > 1000 {
-      return Err(anyhow::anyhow!("Too many existing branches named like {to_base}"));
-    }
-    target = format!("{to_base}-{suffix}");
-    suffix += 1;
+  // every ref a candidate can conflict with is below the first level of `to_base` or of its suffixed variant
+  let top = to_base.split('/').next().unwrap_or(to_base);
+  let below_top = format!("refs/heads/{top}");
+  let suffixed_top = format!("refs/heads/{top}-*");
+  let below_suffixed_top = format!("refs/heads/{top}-*/**");
+  let mut taken = RefNames::default();
+  for name in git.execute_command_lines(&["for-each-ref", "--format=%(refname:lstrip=2)", &below_top, &suffixed_top, &below_suffixed_top], repo)? {
+    taken.insert(&name);
   }
-  Ok(target)
+  taken
+    .unique(to_base, 1000)
+    .ok_or_else(|| anyhow::anyhow!("Too many existing branches named like {to_base}"))
 }
 
 /// Archive inactive branches using pre-fetched data
@@ -57,27 +90,22 @@ pub fn batch_archive_inactive_branches(
   // Lock to prevent race conditions
   let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
 
-  // Build mappings with conflict resolution
-  let mut used_names = existing_today_names.clone();
+  // Build mappings with conflict resolution against existing archives and the current batch
+  let mut used_names = RefNames::default();
+  for name in existing_today_names {
+    used_names.insert(name);
+  }
   let mut archive_mappings = Vec::with_capacity(inactive_branches.len());
 
   for branch_name in inactive_branches {
     let simple_name = strip_branch_namespace(branch_name, branch_prefix, BranchKind::Virtual).unwrap_or(branch_name);
 
-    let mut target_name = simple_name.to_string();
-    let mut suffix = 1u32;
+    let target_name = used_names.unique(simple_name, 100).unwrap_or_else(|| {
+      warn!("Excessive naming conflicts for {}", simple_name);
+      simple_name.to_string()
+    });
 
-    // Check for conflicts with existing archives and current batch
-    while used_names.contains(&target_name) {
-      target_name = format!("{simple_name}-{suffix}");
-      suffix += 1;
-      if suffix > 100 {
-        warn!("Excessive naming conflicts for {}", simple_name);
-        break;
-      }
-    }
-
-    used_names.insert(target_name.clone());
+    used_names.insert(&target_name);
     let archived_name = format!("{archive_prefix}/{target_name}");
     archive_mappings.push((branch_name.clone(), archived_name));
   }
@@ -179,3 +207,7 @@ pub fn batch_delete_archived_branches(git_executor: &GitCommandExecutor, repo_pa
   git_executor.execute_command_with_input(&["update-ref", "--stdin"], repo_path, &commands)?;
   Ok(branches.len())
 }
+
+#[cfg(test)]
+#[path = "archive_test.rs"]
+mod archive_test;

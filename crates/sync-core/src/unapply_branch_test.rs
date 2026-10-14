@@ -157,6 +157,41 @@ fn test_unapply_branch_naming_collision() -> Result<()> {
 }
 
 #[test]
+fn test_unapply_avoids_a_ref_below_the_name() -> Result<()> {
+  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
+  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+  // `test-user/unapplied/feature` is a directory, so no ref can have that name
+  let head_commit = test_repo.head();
+  test_repo
+    .create_branch_at("test-user/unapplied/feature/old", &head_commit)
+    .map_err(|e| anyhow::anyhow!(e))?;
+
+  let result = unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()])?;
+
+  assert_eq!(result.unapplied_branch_name, "test-user/unapplied/feature-1");
+  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
+  Ok(())
+}
+
+#[test]
+fn test_unapply_avoids_a_ref_above_the_name() -> Result<()> {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "initial.txt", "initial content");
+  let commit = test_repo.create_commit("(feature/x) Add file1", "file1.txt", "content 1");
+  // a flat name with a slash, as without stacked branches
+  let virtual_branch_name = to_final_branch_name("test-user", "feature/x")?;
+  test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
+  // `test-user/unapplied/feature` is a file, so `test-user/unapplied/feature/x` can't be created
+  test_repo.create_branch_at("test-user/unapplied/feature", &commit).map_err(|e| anyhow::anyhow!(e))?;
+
+  let result = unapply(&test_repo, &virtual_branch_name, vec![commit])?;
+
+  assert_eq!(result.unapplied_branch_name, "test-user/unapplied/feature-1/x");
+  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
+  Ok(())
+}
+
+#[test]
 fn test_unapply_invalid_commit_ids() -> Result<()> {
   let (test_repo, _) = create_test_repo_with_virtual_branch()?;
   let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
