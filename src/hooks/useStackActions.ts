@@ -32,8 +32,9 @@ async function runStackOperation(
   }
   requestReveal({ branchName: revealBranch, commitIds: [] })
   showUndoToast(successTitle(moved.length === 0 ? "issue groups" : formatCommitCount(moved.length)), async () => {
-    if (issueGroups != null) {
-      await undoIssueGroups(issueGroups)
+    // the messages stay as they are when the issue groups can't move back: their names would no longer match
+    if (issueGroups != null && !await undoIssueGroups(issueGroups)) {
+      return
     }
     // the undo of the messages syncs
     if (moved.length > 0) {
@@ -47,12 +48,14 @@ async function runStackOperation(
   return true
 }
 
-/** Moves the issue groups back to `issueGroups.previous` */
-async function undoIssueGroups(issueGroups: IssueGroupsMove): Promise<void> {
+/** Moves the issue groups back to `issueGroups.previous`; false when that failed */
+async function undoIssueGroups(issueGroups: IssueGroupsMove): Promise<boolean> {
   const result = await invokeCommand(() => commands.undoIssueGroups({ repositoryPath: getSelectedProject()?.path ?? "", issueGroups }))
   if (result.status !== "ok") {
     notifyError("Failed to Undo the Rename", result.error)
+    return false
   }
+  return true
 }
 
 /** Stacks `branchName` on `parent`, or makes it a root (`null`), by rewriting the prefixes of its commits */

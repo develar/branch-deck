@@ -6,6 +6,8 @@ pub mod progress;
 pub mod repository_state;
 
 #[cfg(test)]
+mod bindings_test;
+#[cfg(test)]
 mod repository_state_test;
 
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
@@ -46,11 +48,11 @@ use tauri::Manager;
 #[cfg(feature = "devtools")]
 use tauri_plugin_log as _;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+/// The commands of the app, for the invoke handler and the TypeScript bindings
+fn specta_builder() -> Builder<tauri::Wry> {
   // Unified serde mode: our IPC types are one-directional, so separate `_Serialize`/`_Deserialize`
   // aliases only add noise (and type `Channel<T>` arguments with the wrong phase)
-  let ts_builder = Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
+  Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
     get_pull_requests,
     get_patronus_robots,
@@ -98,13 +100,21 @@ pub fn run() {
     model_tauri::commands::check_model_status,
     model_tauri::commands::cancel_model_download,
     clear_model_cache,
-  ]);
+  ])
+}
+
+/// Write the TypeScript bindings of `builder` (`src/lib/bindings.ts`)
+fn export_bindings(builder: &Builder<tauri::Wry>, path: &std::path::Path) -> Result<(), specta_typescript::Error> {
+  builder.export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+  let ts_builder = specta_builder();
 
   // only export on non-release builds
   #[cfg(debug_assertions)]
-  ts_builder
-    .export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), "../src/lib/bindings.ts")
-    .expect("Failed to export TypeScript bindings");
+  export_bindings(&ts_builder, std::path::Path::new("../src/lib/bindings.ts")).expect("Failed to export TypeScript bindings");
 
   #[cfg(feature = "devtools")]
   let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());

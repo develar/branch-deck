@@ -124,7 +124,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
 - It must not run integration detection, an update check or a network command.
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
-  the output must list `stale_issue_groups`, the keys of the issue groups that group no commit, and
+  the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and
   `issue_group_problems`, the lines of the issue groups that are not used.
   [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
 - With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active`, `integrated`,

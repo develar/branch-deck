@@ -12,6 +12,8 @@ pub struct RepoTemplate {
   /// Other git config, e.g. `branchdeck.stacks`
   config: Vec<(String, String)>,
   commits: Vec<CommitSpec>,
+  /// `KEY<TAB>name` lines of the issue groups (`refs/branch-deck/issue-groups`), written after the commits
+  issue_groups: Vec<String>,
 }
 
 struct CommitSpec {
@@ -27,7 +29,15 @@ impl RepoTemplate {
       branch_prefix: None,
       config: Vec::new(),
       commits: Vec::new(),
+      issue_groups: Vec::new(),
     }
+  }
+
+  /// Put the commits of issue `key` into the branch `name`, as `bd group` does with `issue_groups`
+  #[must_use]
+  pub fn issue_group(mut self, key: &str, name: &str) -> Self {
+    self.issue_groups.push(format!("{key}\t{name}"));
+    self
   }
 
   #[must_use]
@@ -113,6 +123,12 @@ impl RepoTemplate {
       cmd.args(["commit", "-m", &commit.message]).current_dir(output_path).output()?;
     }
 
+    if !self.issue_groups.is_empty() {
+      let mut lines = self.issue_groups.clone();
+      lines.sort();
+      write_issue_groups(output_path, &(lines.join("\n") + "\n"))?;
+    }
+
     // Add a fake origin remote pointing to self for testing
     Command::new("git").args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
 
@@ -134,6 +150,25 @@ impl RepoTemplate {
 
     Ok(())
   }
+}
+
+/// Point `refs/branch-deck/issue-groups` at a root commit whose file `issue-groups` has `content`
+fn write_issue_groups(output_path: &Path, content: &str) -> Result<()> {
+  let run = |args: &[&str], input: &str| -> Result<String> {
+    let mut child = Command::new("git")
+      .args(args)
+      .current_dir(output_path)
+      .stdin(std::process::Stdio::piped())
+      .stdout(std::process::Stdio::piped())
+      .spawn()?;
+    std::io::Write::write_all(&mut child.stdin.take().expect("piped stdin"), input.as_bytes())?;
+    Ok(String::from_utf8(child.wait_with_output()?.stdout)?.trim().to_string())
+  };
+  let blob = run(&["hash-object", "-w", "--stdin"], content)?;
+  let tree = run(&["mktree"], &format!("100644 blob {blob}\tissue-groups\n"))?;
+  let commit = run(&["commit-tree", &tree, "-m", "Issue groups of Branch Deck"], "")?;
+  run(&["update-ref", "refs/branch-deck/issue-groups", &commit], "")?;
+  Ok(())
 }
 
 /// Pre-defined test repository templates
@@ -334,6 +369,20 @@ pub mod templates {
       .commit_with_timestamp("ABC-123: Add tokens", &[("tokens.js", "export const tokens = []")], Some(1704123000))
       .commit_with_timestamp("(docs) Update documentation", &[("docs.md", "# Documentation")], Some(1704124800))
       .commit_with_timestamp("Refactor build script", &[("build.js", "export function build() {}")], Some(1704126600))
+  }
+
+  /// Two issue keys in the issue group `parser`, a prefix branch and an unassigned commit
+  pub fn issue_groups() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("issue_groups")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Parser\n")], Some(1704117600))
+      .commit_with_timestamp("ABC-1: Add parser", &[("parser.js", "export function parse() {}")], Some(1704119400))
+      .commit_with_timestamp("ABC-2: Add lexer", &[("lexer.js", "export function lex() {}")], Some(1704121200))
+      .commit_with_timestamp("(docs) Update documentation", &[("docs.md", "# Documentation")], Some(1704123000))
+      .commit_with_timestamp("Refactor build script", &[("build.js", "export function build() {}")], Some(1704124800))
+      .issue_group("ABC-1", "parser")
+      .issue_group("ABC-2", "parser")
   }
 
   /// Fixup commits: of a branch commit (`auth`), a `squash!` without a prefix of another branch's commit (`docs`), one

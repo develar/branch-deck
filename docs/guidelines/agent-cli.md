@@ -102,9 +102,10 @@ access. It runs about ten short git processes, with one `log` for all the commit
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `origin` says what groups the commits: `prefix` (a commit has the `(prefix)`), `issue_group` (the issue groups put
   commits of other keys into it) or `issue`. `issue_keys` lists the keys whose issue group the branch is.
-- `stale_issue_groups` lists the keys of the issue groups that group no commit ahead of the baseline, and
+- `idle_issue_groups` lists the keys of the issue groups that group no commit ahead of the baseline on this branch, and
   `issue_group_problems` (`{line, message}`) the lines of the store that are not used; both are left out when empty.
-  `ungroup_issues` of `bd group` removes a stale key, and so does any write of the issue groups.
+  The map is shared by every branch and worktree, so an idle key may group the commits of another one: leave it,
+  unless you know that no branch needs it (then `ungroup_issues`).
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
@@ -141,7 +142,7 @@ access. It runs about ten short git processes, with one `log` for all the commit
   branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
     of the newest commit, and `issue_keys` of an issue group. With stacked branches on, it keeps `parent`,
-    `blocked_by`, `problems` and `forest`. It keeps `stale_issue_groups` and `issue_group_problems`.
+    `blocked_by`, `problems` and `forest`. It keeps `idle_issue_groups` and `issue_group_problems`.
   - `unassigned` lists the ids and subjects.
   - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
   - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
@@ -301,9 +302,10 @@ rebuilds the virtual branches, under the same repository lock.
   - duplicate ids, ids both in a branch and in `unassign`, invalid names, a fixup sent away from its target and a
     stack problem the plan introduces (a cycle, conflicting parents, a self parent, a case collision) are
     `invalid_plan`; problems that already existed are listed in `problems`;
-  - a key in two issue groups, or in an issue group and in `ungroup_issues`, a key to ungroup that is in none, an
-    invalid key or name, a key that no commit without a prefix carries, and a fixup the issue groups would separate
-    from its target (`fixup! <id>` has no issue key) are `invalid_plan` too.
+  - a key in two issue groups, or in an issue group and in `ungroup_issues`, a key to ungroup that is in none (and in
+    no line of the store), an invalid key or name, a key that no commit without a prefix carries, a fixup the issue
+    groups would separate from its target (`fixup! <id>` has no issue key), and with stacked branches on a path with a
+    parent level whose leaf is an issue group are `invalid_plan` too.
 - `descriptions` maps a branch (the group name, as for `bd describe`: the leaf of a stacked branch) to its pull
   request text `{title, body}`. bd
   validates it with the plan: a title of one line that is not empty, and a branch that has commits after the plan (a
@@ -325,8 +327,8 @@ rebuilds the virtual branches, under the same repository lock.
 ```
 
 - `groups` and `unassigned` list every commit ahead of the baseline afterwards, with the new ids, oldest first.
-- `issue_groups` (only when they change) lists every issue group afterwards with its keys. A write of the issue groups
-  drops the keys that group no commit.
+- `issue_groups` (only when they change) lists every issue group afterwards with its keys. A write changes only the
+  keys the plan names; the keys of other branches and the lines bd can't read stay.
 - `undo_token` holds full ids: `<previous head>..<new head>` for a rewrite, `groups:<previous>..<new>` (commits of
   the issue groups) for a change of the issue groups only, and both joined by `+`. The previous issue groups commit is
   zeros when there were no issue groups before. Pass the token to `bd undo` as printed.
@@ -359,7 +361,9 @@ Plans that `bd` computes, validated and written like `bd group`, with the same o
 
 Moves the branch back from the token's new HEAD to its previous HEAD, and the issue groups back from the token's new
 commit to its previous one (or away), in one transaction with CAS on each, under the lock: `head_moved` once anything
-else changed the branch, `groups_moved` (exit 3) once anything else changed the issue groups. Prints
+else changed the branch, `groups_moved` (exit 3) once anything else changed the issue groups. Give the token as it
+was printed: a token with abbreviated ids, or whose map commit is not a write on its previous one, is
+`invalid_arguments`. Prints
 `{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>"}`; `undone` is left out for
 a `groups:` token, `undone_issue_groups` for a token without one.
 

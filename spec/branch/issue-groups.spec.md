@@ -68,10 +68,16 @@ regroup writes the map, under the repository lock, in the ref transaction that m
   `KEY<TAB>name` line per key, sorted by key. Each write must be a new commit on the previous one. A missing ref is an
   empty map.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction`)
-- One `cat-file --batch` must read the map, in the same phase as the stack setting.
+- One `cat-file --batch` must read the map, in the same phase as the stack setting: two git processes for both.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`the_stack_setting_and_the_map_cost_two_git_processes`)
 - A line whose key is not an issue key (`[A-Z]+-\d+`), whose name is not a branch name without `/`, or whose key is
-  listed twice must be a problem: it is reported and never used.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`bad_lines_are_problems_and_never_used`)
+  listed twice must be a problem: it is reported and never used. A write must keep it as it is, so that a line of a
+  newer format survives, unless the write sets or ungroups its key.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`bad_lines_are_problems_and_never_used`, `unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines`)
+- The ref is shared by every branch and worktree. So a write must change only the keys that it names; a key that groups
+  no commit on this HEAD must stay, because it may group the commits of another branch. Only `ungroup_issues` removes
+  a key.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_write_on_one_worktree_keeps_the_groups_of_another`)
 
 ### Grouping
 
@@ -81,8 +87,9 @@ regroup writes the map, under the repository lock, in the ref transaction that m
   [@test] ../../src/lib/commit.test.ts (`groupFor with issue groups`)
 - The sync, `bd status`, `bd commits`, `bd check`, `bd suggest`, the regroup, the fixup plan and the landed commits
   must group with the same map. A branch that an issue group fills, without a prefix commit, must have the origin
-  `IssueGroup`.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`)
+  `IssueGroup`. The key of a commit is read as the grouper reads it, so an issue branch with a `fixup! KEY` commit stays
+  `Issue`.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`, `an_issue_branch_with_a_fixup_is_an_issue_branch`)
 - An issue group can be the parent of a stacked branch.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_issue_group_is_not_restacked_but_can_be_a_parent`)
 
@@ -96,15 +103,16 @@ regroup writes the map, under the repository lock, in the ref transaction that m
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 - The plan must be validated with the map as it is after the plan. These are `invalid_plan`:
   - a key in two groups of the plan, or in a group and in `ungroup_issues`;
-  - a key to ungroup that is in no group;
+  - a key to ungroup that is in no group and in no line of the store;
   - an invalid key or name;
   - a key that no commit without a prefix carries afterwards;
-  - a fixup that the map would separate from its target, as `fixup! <id>`, which has no issue key.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`invalid_issue_group_plans_are_refused`)
-- `unassign` of a prefixed commit must put it into the issue group of its key. A write of the map must drop the keys
-  that group no commit and the lines it can't use.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`unassign_and_ungroup_fall_back_and_a_write_drops_stale_keys`)
+  - a fixup that the map would separate from its target, as `fixup! <id>`, which has no issue key;
+  - with stacked branches on, a path with a parent level whose leaf is an issue group, which would stack it.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`invalid_issue_group_plans_are_refused`, `a_plan_may_not_stack_an_issue_group_through_a_prefix`)
+- `unassign` of a prefixed commit must put it into the issue group of its key.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines`)
 - A sync must never write the map.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_sync_reads_the_map_and_never_writes_it`)
 
 ### Rename and restack
 
@@ -117,15 +125,20 @@ regroup writes the map, under the repository lock, in the ref transaction that m
 ### Undo
 
 - The undo token must be `H1..H2` for a rewrite only, `groups:G1..G2` for a change of the map only, and
-  `H1..H2+groups:G1..G2` for both; a `G1` of zeros means that the map did not exist.
-- `bd undo` must move both refs back in one transaction. It must refuse with `head_moved` when HEAD moved, and with
-  `groups_moved` (exit 3, retryable) when the map moved.
-  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`, `a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
+  `H1..H2+groups:G1..G2` for both; a `G1` of zeros means that the map did not exist. The ids must be full (40 or 64
+  hex digits), and anything else is `invalid_arguments`.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
+- `bd undo` must move both refs back in one transaction. `G2` must be a write of the map on `G1`: its parent, or no
+  parent when `G1` is zeros; else the token is `invalid_arguments`. It must refuse with `head_moved` when HEAD moved,
+  and with `groups_moved` (exit 3, retryable) when the map moved, also when a ref moves between its checks and its
+  transaction.
+  [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`, `a_mixed_plan_moves_head_and_the_store_in_one_transaction`, `an_undo_of_the_map_needs_the_written_commit_on_its_previous_one`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`issue_groups_plan_and_undo`)
 
 ### `bd status` and `bd suggest`
 
-- `bd status` must print the `origin` of each branch, the `issue_keys` of an issue group, `stale_issue_groups` (the
-  keys that group no commit) and `issue_group_problems`.
+- `bd status` must print the `origin` of each branch, the `issue_keys` of an issue group, `idle_issue_groups` (the
+  keys that group no commit on this HEAD; they may group the commits of another branch) and `issue_group_problems`.
   [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
 - `bd suggest` must put a cluster of whole issue branches into `issue_groups` of its plan, so that it rewrites no
   commit; `--rewrite-issues` gives the commits a prefix instead. An issue group is an anchor, as a prefix is.
@@ -134,7 +147,9 @@ regroup writes the map, under the repository lock, in the ref transaction that m
 ### App
 
 - The app must show an issue group as a branch, nest a single-key issue group under its issue, and rename it through
-  the rename core; the undo of a rename must move the map back too.
+  the rename core; the undo of a rename must move the map back too. Unlike `bd undo`, that undo is two steps, the map
+  first: when the map can't move back, the messages stay as they are.
+  [@test] ../../tests/e2e/issue-groups/issue-groups.spec.ts (`should rename an issue group without a rewrite and undo the rename`)
 - The commit editor and "Move Back to …" must name the issue group of a key.
   [@test] ../../src/hooks/useCommitMoveList.test.ts (`names the issue group the commits fall back to`)
 
@@ -143,6 +158,7 @@ regroup writes the map, under the repository lock, in the ref transaction that m
 - `pnpm test:backend`: `crates/sync-core/src/issue_groups_test.rs`, `crates/bd-cli/src/status_test.rs`,
   `crates/bd-cli/src/suggest_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/hooks/useCommitMoveList.test.ts`.
+- `pnpm e2e`: `tests/e2e/issue-groups/issue-groups.spec.ts`, on the `issue_groups` template.
 
 ## Open Questions / Risks
 

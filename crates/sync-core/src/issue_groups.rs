@@ -1,16 +1,16 @@
 //! Issue groups: the issue key -> branch name map that puts the commits of several issues into one branch without a
 //! history rewrite (spec/branch/issue-groups.spec.md). The store is the ref `refs/branch-deck/issue-groups`: a commit
 //! whose tree holds the one file `issue-groups`, sorted `KEY<TAB>name` lines. Every write is a new commit on the
-//! previous one, so its history shows each change (git keeps no reflog outside `refs/heads`). Only a regroup writes it, under the repository lock,
-//! in the transaction that moves HEAD (`regroup.rs`); a sync only reads it.
+//! previous one, so its history shows each change (git keeps no reflog outside `refs/heads`). Only a regroup writes it,
+//! under the repository lock, in the transaction that moves HEAD (`regroup.rs`); a sync only reads it. The ref is shared
+//! by every branch and worktree, so no write drops a key on its own: only `ungroup_issues` removes one.
 
 use crate::commit_grouper::GroupingInputs;
 use crate::move_commits::validate_branch_name;
 use crate::stack::stacks_enabled;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_writer::{WrittenCommits, write_file_commit};
-use git_ops::ref_transaction::RefTransaction;
+use git_ops::commit_writer::{FileCommit, StoreUpdate};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use sync_utils::issue_pattern::find_issue_number;
@@ -31,10 +31,13 @@ pub struct IssueGroups {
   pub problems: Vec<IssueGroupProblem>,
 }
 
-/// A line of the store that the grouping does not use
+/// A line of the store that the grouping does not use. A write keeps it as it is, so a line of a newer format survives,
+/// unless the write sets or ungroups its key
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueGroupProblem {
   pub line: String,
+  /// The text before the tab, if the line has one
+  pub key: Option<String>,
   pub message: String,
 }
 
@@ -110,7 +113,11 @@ pub fn parse_issue_groups(text: &str) -> (BTreeMap<String, String>, Vec<IssueGro
   let mut parsed: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
   let mut problems = Vec::new();
   for line in text.lines().filter(|line| !line.trim().is_empty()) {
-    let problem = |message: String| IssueGroupProblem { line: line.to_string(), message };
+    let problem = |message: String| IssueGroupProblem {
+      line: line.to_string(),
+      key: line.split_once('\t').map(|(key, _)| key.to_string()),
+      message,
+    };
     let Some((key, name)) = line.split_once('\t') else {
       problems.push(problem("Not a `KEY<TAB>name` line".to_string()));
       continue;
@@ -128,6 +135,7 @@ pub fn parse_issue_groups(text: &str) -> (BTreeMap<String, String>, Vec<IssueGro
     } else {
       problems.extend(lines.into_iter().map(|(line, _)| IssueGroupProblem {
         line,
+        key: Some(key.clone()),
         message: format!("{key} is listed more than once"),
       }));
     }
@@ -135,11 +143,13 @@ pub fn parse_issue_groups(text: &str) -> (BTreeMap<String, String>, Vec<IssueGro
   (entries, problems)
 }
 
-/// The file for `entries`: one `KEY<TAB>name` line each, sorted by key
-pub fn format_issue_groups(entries: &BTreeMap<String, String>) -> String {
+/// The file for `entries`, one `KEY<TAB>name` line each, and the `kept` lines as they are, all sorted
+pub fn format_issue_groups(entries: &BTreeMap<String, String>, kept: &[String]) -> String {
+  let mut lines: Vec<String> = entries.iter().map(|(key, name)| format!("{key}\t{name}")).chain(kept.iter().cloned()).collect();
+  lines.sort();
   let mut text = String::new();
-  for (key, name) in entries {
-    let _ = writeln!(text, "{key}\t{name}");
+  for line in lines {
+    let _ = writeln!(text, "{line}");
   }
   text
 }
@@ -162,37 +172,27 @@ pub fn validate_issue_group_name(name: &str) -> Result<(), String> {
   Ok(())
 }
 
-/// A new commit of the store with `entries`, on `previous` (the commit read), written with one `fast-import`, and the
-/// transaction that moves the ref to it with compare-and-swap on `previous` and deletes the temporary ref. The caller
-/// commits the transaction, or adds it to the one that moves HEAD; on failure it discards `written`
-pub fn prepare_issue_groups_write(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  previous: Option<&str>,
-  entries: &BTreeMap<String, String>,
-) -> Result<(WrittenCommits, RefTransaction)> {
-  let written = write_file_commit(
-    git_executor,
-    repository_path,
-    ISSUE_GROUPS_FILE,
-    format_issue_groups(entries).as_bytes(),
-    previous,
-    "Issue groups of Branch Deck",
-  )?;
-  let new_commit = written.ids.first().ok_or_else(|| anyhow!("no issue groups commit was written"))?;
-  let mut transaction = RefTransaction::new();
-  match previous {
-    Some(previous) => transaction.update(ISSUE_GROUPS_REF, new_commit, Some(previous)),
-    None => transaction.create(ISSUE_GROUPS_REF, new_commit),
-  };
-  transaction.delete(&written.temp_ref, None);
-  Ok((written, transaction))
+/// The new commit of the store with the file `content` on `previous` (the commit read), for `write_store_commit` or the
+/// `fast-import` run of a reword: its ref moves with compare-and-swap on `previous`
+pub fn issue_groups_store_update<'a>(previous: Option<&'a str>, content: &'a str) -> StoreUpdate<'a> {
+  StoreUpdate {
+    store_ref: ISSUE_GROUPS_REF,
+    commit: FileCommit {
+      path: ISSUE_GROUPS_FILE,
+      content: content.as_bytes(),
+      parent: previous,
+      message: "Issue groups of Branch Deck",
+    },
+  }
 }
 
-/// The commit `ISSUE_GROUPS_REF` points at now; `None` when it does not exist
-pub fn read_issue_groups_commit(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<String>> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", ISSUE_GROUPS_REF], repository_path)?;
-  Ok((exit_code == 0).then(|| output.trim().to_string()).filter(|id| !id.is_empty()))
+/// The commit `ISSUE_GROUPS_REF` points at now and its parents, with one `for-each-ref`; `None` when it does not exist
+pub fn read_issue_groups_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<(String, Vec<String>)>> {
+  let output = git_executor.execute_command(&["for-each-ref", "--format=%(objectname) %(parent)", ISSUE_GROUPS_REF], repository_path)?;
+  Ok(output.lines().next().and_then(|line| {
+    let mut ids = line.split_whitespace().map(str::to_string);
+    ids.next().map(|commit| (commit, ids.collect()))
+  }))
 }
 
 #[cfg(test)]

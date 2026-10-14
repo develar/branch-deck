@@ -39,7 +39,6 @@ pub struct MoveCommitsResult {
   pub moved: Vec<MovedCommit>,
   /// The issue groups before and after, when the operation changed them (a rename of an issue group): an undo moves
   /// them back with `undo_issue_groups`
-  #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub issue_groups: Option<IssueGroupsMove>,
 }

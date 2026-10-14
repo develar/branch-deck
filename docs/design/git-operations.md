@@ -167,21 +167,27 @@ a message rewrite keeps HEAD's tree.
 
 **Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`
 ([Issue Groups](../../spec/branch/issue-groups.spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.
-- A write is one `fast-import` (`write_file_commit` in `commit_writer.rs`): a commit with the one file `issue-groups`
-  on the previous commit, on a temporary ref, plus one `git var` for the committer. `fast-import` objects are
-  readable only after the stream ends, which suits this write.
-- Its `update-ref` lines (`prepare_issue_groups_write`) are `update <ref> <new> <old>`, or `create` for the first
-  write, and the delete of the temporary ref. They go into the transaction that moves HEAD (`also` of
-  `reword_commits_batch_at`), so both refs move or neither does. A plan that changes only the map adds
-  `verify refs/heads/<branch> <head>` instead of a HEAD move.
+- A write makes a commit with the one file `issue-groups` on the previous map commit (`FileCommit` and `StoreUpdate`
+  in `commit_writer.rs`). With a rewrite, it is one more commit of the reword's `fast-import` stream
+  (`reword_commits_batch_at`), so a mixed plan costs one `git var` and one `fast-import`. Without a rewrite,
+  `write_store_commit` writes it alone. `fast-import` objects are readable only after the stream ends, which suits
+  this write.
+- Its `update-ref` line is `update <ref> <new> <old>`, or `create` for the first write. It goes into the transaction
+  that moves HEAD and deletes the temporary ref, so both refs move or neither does. A plan that changes only the map,
+  and a reword whose messages are equal once cleaned up, add `verify refs/heads/<branch> <head>` instead of a HEAD
+  move.
 - On a failed transaction the temporary ref is deleted, and a read of HEAD and of the map ref names the one that moved:
   `head_moved` or `groups_moved`.
-- The undo token is `groups:G1..G2` for a change of the map only and `H1..H2+groups:G1..G2` for both; a `G1` of zeros
-  is a map that did not exist, which the undo deletes. `undo_regroup_core` moves both refs back in one transaction
-  (`restore_branch_head_with`), with CAS on each.
-- Only a regroup writes the map; the sync, `bd status`, `bd check` and `bd suggest` read it. A write drops the keys
-  that group no commit and the lines it can't use. git keeps no reflog outside `refs/heads`, so the parent chain of
-  the map commits is its history.
+- The undo token is `groups:G1..G2` for a change of the map only and `H1..H2+groups:G1..G2` for both. The ids are
+  full; a `G1` of zeros is a map that did not exist, which the undo deletes. One `for-each-ref` reads the map ref and
+  the parent of its commit: `G2` must be the map now (else `groups_moved`), and its parent must be `G1` (else the
+  token names no write of the map). `undo_regroup_core` moves both refs back in one transaction
+  (`restore_branch_head_with`), with CAS on each; a ref that moves meanwhile is `head_moved` or `groups_moved` too.
+- Only a regroup writes the map; the sync, `bd status`, `bd check` and `bd suggest` read it. The ref is shared by
+  every branch and worktree (`refs/branch-deck/*` is not per worktree), so a write changes only the keys the plan
+  names: a key that groups no commit on this HEAD may group the commits of another branch, and only `ungroup_issues`
+  removes it. The lines that the parser can't use are written back as they are, unless the write sets or ungroups
+  their key. git keeps no reflog outside `refs/heads`, so the parent chain of the map commits is its history.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover

@@ -25,8 +25,9 @@ pub struct BranchGrouping {
   pub base: Option<String>,
   /// The stack setting and the issue groups the commits were grouped with
   pub grouping: GroupingInputs,
-  /// The keys of the issue groups that group no commit ahead of the baseline
-  pub stale_issue_groups: Vec<String>,
+  /// The keys of the issue groups that group no commit ahead of the baseline on this HEAD; they may group the commits
+  /// of another branch or worktree
+  pub idle_issue_groups: Vec<String>,
   /// How the branches stack; `None` with stacked branches off
   pub forest: Option<StackForest>,
   /// With stacked branches on, where each branch with commits goes, as a sync places it
@@ -58,7 +59,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
       branches,
       unassigned,
       branch_emails,
-      stale_issue_groups,
+      idle_issue_groups,
     },
     forest,
   ) = grouper.finish_with_stacks();
@@ -79,7 +80,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     commit_ids,
     base,
     grouping,
-    stale_issue_groups,
+    idle_issue_groups,
     forest,
     placements,
   })

@@ -58,10 +58,11 @@ pub struct StatusOutput {
   /// Newest first; omitted with --branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unassigned: Option<Vec<CommitSummary>>,
-  /// The keys of the issue groups (`refs/branch-deck/issue-groups`) that group no commit ahead of the baseline;
-  /// `ungroup_issues` of `bd group` removes them, and so does any write of the issue groups
+  /// The keys of the issue groups (`refs/branch-deck/issue-groups`) that group no commit ahead of the baseline on this
+  /// branch. The map is shared by every branch and worktree, so they may group the commits of another one: nothing
+  /// removes them on its own
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub stale_issue_groups: Vec<String>,
+  pub idle_issue_groups: Vec<String>,
   /// The lines of the issue groups that are not used: not `KEY<TAB>name`, an invalid key or name, a key listed twice
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub issue_group_problems: Vec<IssueGroupLine>,
@@ -92,7 +93,7 @@ pub struct StatusBrief {
   /// Newest first
   pub unassigned: Vec<CommitSummary>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub stale_issue_groups: Vec<String>,
+  pub idle_issue_groups: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub issue_group_problems: Vec<IssueGroupLine>,
 }
@@ -347,7 +348,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     issue_groups
       .entries
       .iter()
-      .filter(|(key, group)| *group == name && !grouping.stale_issue_groups.contains(key))
+      .filter(|(key, group)| *group == name && !grouping.idle_issue_groups.contains(key))
       .map(|(key, _)| key.clone())
       .collect()
   };
@@ -417,7 +418,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     forest: forest.map(|forest| forest.order.clone()),
     branches,
     unassigned,
-    stale_issue_groups: grouping.stale_issue_groups.clone(),
+    idle_issue_groups: grouping.idle_issue_groups.clone(),
     issue_group_problems: issue_groups
       .problems
       .iter()
@@ -472,7 +473,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
     forest: full.forest,
     branches,
     unassigned: full.unassigned.unwrap_or_default(),
-    stale_issue_groups: full.stale_issue_groups,
+    idle_issue_groups: full.idle_issue_groups,
     issue_group_problems: full.issue_group_problems,
   })
 }

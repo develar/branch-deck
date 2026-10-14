@@ -10,7 +10,8 @@ use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, MIN_ID_LENGTH, match_commit_id};
 use crate::issue_groups::{
-  ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, prepare_issue_groups_write, read_grouping_inputs, read_issue_groups_commit, validate_issue_group_name, validate_issue_key,
+  ISSUE_GROUPS_REF, IssueGroups, IssueGroupsMoved, format_issue_groups, issue_groups_store_update, read_grouping_inputs, read_issue_groups_head, validate_issue_group_name,
+  validate_issue_key,
 };
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, lock_repository};
@@ -18,6 +19,7 @@ use crate::reword_commit::reword_read_commits_at;
 use crate::stack::{StackForest, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::commit_writer::write_store_commit;
 use git_ops::model::sanitize_branch_name;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
@@ -117,8 +119,12 @@ pub struct IssueGroupsChange {
   pub previous_commit: Option<String>,
   /// The commit written; `None` for a dry run
   pub new_commit: Option<String>,
-  /// Issue key -> branch name afterwards, without the keys that group no commit
+  /// Issue key -> branch name afterwards: the plan changes only the keys it names (and a rename the entries of the old
+  /// name); a key that groups no commit on this HEAD stays, for another branch or worktree
   pub entries: IssueGroupEntries,
+  /// The lines of the store that are not used, written back as they are, without those of a key the change sets or
+  /// ungroups
+  pub kept_lines: Vec<String>,
 }
 
 /// What `bd undo` moves back, as a regroup printed it: `H1..H2` for a rewrite, `groups:G1..G2` for a change of the
@@ -144,12 +150,12 @@ impl UndoToken {
     (head.is_some() || issue_groups.is_some()).then_some(Self { head, issue_groups })
   }
 
+  /// A token as `of` prints it: full ids (40 or 64 hex digits), one `..` per pair, at most one `+`, and a previous map
+  /// of zeros only of the length of the new one; anything else is `None`
   pub fn parse(text: &str) -> Option<Self> {
-    let pair = |text: &str| {
-      text
-        .split_once("..")
-        .filter(|(previous, new)| !previous.is_empty() && !new.is_empty())
-        .map(|(previous, new)| (previous.to_string(), new.to_string()))
+    let pair = |text: &str| -> Option<(String, String)> {
+      let (previous, new) = text.split_once("..")?;
+      (is_full_id(previous) && is_full_id(new) && previous.len() == new.len()).then(|| (previous.to_string(), new.to_string()))
     };
     let groups = |text: &str| pair(text.strip_prefix(GROUPS_TOKEN)?).map(|(previous, new)| ((!previous.bytes().all(|b| b == b'0')).then_some(previous), new));
     let token = match text.split_once('+') {
@@ -166,8 +172,18 @@ impl UndoToken {
         issue_groups: None,
       },
     };
-    Some(token)
+    // a zero head is no commit
+    let zero_head = token
+      .head
+      .as_ref()
+      .is_some_and(|(previous, new)| [previous, new].iter().any(|id| id.bytes().all(|b| b == b'0')));
+    (!zero_head).then_some(token)
   }
+}
+
+/// A full object id: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits
+fn is_full_id(id: &str) -> bool {
+  matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 impl std::fmt::Display for UndoToken {
@@ -279,6 +295,8 @@ struct Change {
   issue_groups: Option<IssueGroupEntries>,
   /// The keys the plan groups: each must group a commit afterwards
   grouped_keys: BTreeSet<String>,
+  /// The keys the plan ungroups
+  ungrouped_keys: BTreeSet<String>,
 }
 
 impl From<Assignment> for Change {
@@ -363,7 +381,7 @@ pub fn rename_branch_core(
     Ok(Change {
       assignment,
       issue_groups,
-      grouped_keys: BTreeSet::new(),
+      ..Change::default()
     })
   })
 }
@@ -427,47 +445,60 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   let _lock = lock_repository(git_executor, repository_path, lock_timeout)?;
   let mut also = RefTransaction::new();
   if let Some((previous, new)) = &token.issue_groups {
-    let new = resolve_rev(git_executor, repository_path, new)?;
-    let previous = previous.as_deref().map(|previous| resolve_rev(git_executor, repository_path, previous)).transpose()?;
-    let actual = read_issue_groups_commit(git_executor, repository_path)?;
-    if actual.as_deref() != Some(new.as_str()) {
-      return Err(RegroupError::GroupsMoved(IssueGroupsMoved { expected: Some(new), actual }));
+    // every write puts the new map commit on the previous one, so the parent proves that the token names a map write
+    let actual = read_issue_groups_head(git_executor, repository_path)?;
+    match &actual {
+      Some((commit, _)) if commit != new => {}
+      Some((_, parents)) if parents.first() == previous.as_ref() && parents.len() <= 1 => {}
+      Some(_) => {
+        return Err(RegroupError::invalid(
+          format!("{new} is not a write of the issue groups on {}", previous.as_deref().unwrap_or("nothing")),
+          Vec::new(),
+        ));
+      }
+      None => {}
     }
-    match &previous {
-      Some(previous) => also.update(ISSUE_GROUPS_REF, previous, Some(&new)),
-      None => also.delete(ISSUE_GROUPS_REF, Some(&new)),
+    if actual.as_ref().map(|(commit, _)| commit) != Some(new) {
+      return Err(RegroupError::GroupsMoved(IssueGroupsMoved {
+        expected: Some(new.clone()),
+        actual: actual.map(|(commit, _)| commit),
+      }));
+    }
+    match previous {
+      Some(previous) => also.update(ISSUE_GROUPS_REF, previous, Some(new)),
+      None => also.delete(ISSUE_GROUPS_REF, Some(new)),
     };
   }
-  let Some((previous_head, new_head)) = &token.head else {
-    also.commit(git_executor, repository_path, "undo issue groups")?;
-    info!("Undid a change of the issue groups");
-    return Ok(());
+  let undone = match &token.head {
+    None => also.commit(git_executor, repository_path, "undo issue groups").map_err(RegroupError::Other),
+    Some((previous_head, new_head)) => {
+      let head = read_head(git_executor, repository_path)?;
+      if head != *new_head {
+        return Err(RegroupError::HeadMoved(HeadMoved {
+          branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
+          expected: new_head.clone(),
+          actual: head,
+        }));
+      }
+      restore_branch_head_with(git_executor, repository_path, new_head, previous_head, "undo", &also).map_err(|e| RegroupError::Other(anyhow::anyhow!("{e}")))
+    }
   };
-  let head = read_head(git_executor, repository_path)?;
-  let new_head = resolve_rev(git_executor, repository_path, new_head)?;
-  let previous_head = resolve_rev(git_executor, repository_path, previous_head)?;
-  if head != new_head {
-    return Err(RegroupError::HeadMoved(HeadMoved {
-      branch: get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
-      expected: new_head,
-      actual: head,
-    }));
-  }
-  restore_branch_head_with(git_executor, repository_path, &new_head, &previous_head, "undo", &also).map_err(|e| RegroupError::Other(anyhow::anyhow!("{e}")))?;
-  info!(previous_head, "Undid a rewrite");
+  // a ref that moved between the checks and the transaction explains the failure
+  undone.map_err(|error| {
+    let expected = Expected {
+      head: token.head.as_ref().map(|(_, new)| new.as_str()),
+      branch: None,
+      moves_issue_groups: token.issue_groups.is_some(),
+      issue_groups: token.issue_groups.as_ref().map(|(_, new)| new.as_str()),
+    };
+    moved_or(git_executor, repository_path, &expected, error)
+  })?;
+  info!(head = token.head.is_some(), issue_groups = token.issue_groups.is_some(), "Undid a regroup");
   Ok(())
 }
 
 fn read_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String, RegroupError> {
   Ok(git_executor.execute_command(&["rev-parse", "HEAD"], repository_path)?.trim().to_string())
-}
-
-fn resolve_rev(git_executor: &GitCommandExecutor, repository_path: &str, rev: &str) -> Result<String, RegroupError> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], repository_path)?;
-  if exit_code != 0 {
-    return Err(RegroupError::invalid(format!("{rev} is not a commit"), vec![rev.to_string()]));
-  }
-  Ok(output.trim().to_string())
 }
 
 /// Read the snapshot, turn it into a change, validate the result and write it: the reworded commits and the issue
@@ -513,12 +544,8 @@ fn regroup_accepted(
   }
 
   let previous_groups = snapshot.grouping.issue_groups.commit.as_deref();
-  let groups_write = match &outcome.issue_groups {
-    Some(change) => Some(prepare_issue_groups_write(git_executor, repository_path, previous_groups, &change.entries)?),
-    None => None,
-  };
-  let no_refs = RefTransaction::new();
-  let also = groups_write.as_ref().map_or(&no_refs, |(_, transaction)| transaction);
+  let content = outcome.issue_groups.as_ref().map(|change| format_issue_groups(&change.entries, &change.kept_lines));
+  let store = content.as_deref().map(|content| issue_groups_store_update(previous_groups, content));
   let written = if outcome.changed_count() > 0 {
     let commits: HashMap<String, Commit> = snapshot.commits.iter().map(|commit| (commit.id.clone(), commit.clone())).collect();
     let rewrites = outcome
@@ -526,51 +553,73 @@ fn regroup_accepted(
       .iter()
       .filter(|commit| commit.changed)
       .map(|commit| (commit.id.as_str(), commit.message.as_str()));
-    reword_read_commits_at(git_executor, repository_path, &commits, rewrites, Some(&snapshot.head), also).map(|(_, recreated)| recreated)
+    reword_read_commits_at(git_executor, repository_path, &commits, rewrites, Some(&snapshot.head), store.as_ref()).map(|reworded| (reworded.recreated, reworded.store_commit))
   } else {
     // only the issue groups change: they were computed for this HEAD
-    let mut transaction = RefTransaction::new();
-    transaction.verify(&format!("refs/heads/{}", snapshot.branch), &snapshot.head).extend(also);
-    transaction.commit(git_executor, repository_path, "issue groups").map(|()| HashMap::new())
+    let store = store.as_ref().expect("a regroup that changes no message changes the issue groups");
+    let branch_ref = format!("refs/heads/{}", snapshot.branch);
+    write_store_commit(git_executor, repository_path, store, Some((&branch_ref, &snapshot.head)), "issue groups").map(|commit| (HashMap::new(), Some(commit)))
   };
-  let recreated = match written {
-    Ok(recreated) => recreated,
-    Err(error) => {
-      if let Some((written, _)) = &groups_write {
-        written.discard(git_executor, repository_path);
-      }
-      return Err(moved_or(git_executor, repository_path, &snapshot, error.into()));
-    }
-  };
+  let (recreated, store_commit) = written.map_err(|error| {
+    let expected = Expected {
+      head: Some(&snapshot.head),
+      branch: Some(&snapshot.branch),
+      moves_issue_groups: true,
+      issue_groups: previous_groups,
+    };
+    moved_or(git_executor, repository_path, &expected, error.into())
+  })?;
   for commit in &mut outcome.commits {
     if let Some(new_id) = recreated.get(&commit.id) {
       commit.new_id.clone_from(new_id);
     }
   }
   outcome.new_head = recreated.get(&snapshot.head).cloned().unwrap_or_else(|| snapshot.head.clone());
-  if let (Some(change), Some((written, _))) = (&mut outcome.issue_groups, &groups_write) {
-    change.new_commit = written.ids.first().cloned();
+  if let Some(change) = &mut outcome.issue_groups {
+    change.new_commit = store_commit;
   }
   info!(changed = outcome.changed_count(), new_head = %outcome.new_head, issue_groups = outcome.issue_groups.is_some(), "Regrouped commits");
   Ok(outcome)
 }
 
+/// Where a write expected the refs it moves
+struct Expected<'a> {
+  /// HEAD
+  head: Option<&'a str>,
+  /// The checked out branch, for the message
+  branch: Option<&'a str>,
+  /// Whether the write moves the issue groups
+  moves_issue_groups: bool,
+  /// The commit of the issue groups; `None` when they did not exist
+  issue_groups: Option<&'a str>,
+}
+
 /// A failed write as the ref that moved explains it: HEAD (`HeadMoved`), the issue groups (`GroupsMoved`), else `error`
-fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, snapshot: &Snapshot, error: RegroupError) -> RegroupError {
-  if let Ok(head) = read_head(git_executor, repository_path)
-    && head != snapshot.head
+fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: &Expected<'_>, error: RegroupError) -> RegroupError {
+  if let Some(expected_head) = expected.head
+    && let Ok(head) = read_head(git_executor, repository_path)
+    && head != expected_head
   {
     return RegroupError::HeadMoved(HeadMoved {
-      branch: snapshot.branch.clone(),
-      expected: snapshot.head.clone(),
+      branch: expected
+        .branch
+        .map_or_else(|| get_current_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()), str::to_string),
+      expected: expected_head.to_string(),
       actual: head,
     });
   }
-  let expected = snapshot.grouping.issue_groups.commit.clone();
-  match read_issue_groups_commit(git_executor, repository_path) {
-    Ok(actual) if actual != expected => RegroupError::GroupsMoved(IssueGroupsMoved { expected, actual }),
-    _ => error,
+  if expected.moves_issue_groups
+    && let Ok(actual) = read_issue_groups_head(git_executor, repository_path)
+  {
+    let actual = actual.map(|(commit, _)| commit);
+    if actual.as_deref() != expected.issue_groups {
+      return RegroupError::GroupsMoved(IssueGroupsMoved {
+        expected: expected.issue_groups.map(str::to_string),
+        actual,
+      });
+    }
   }
+  error
 }
 
 /// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
@@ -604,7 +653,7 @@ struct Grouped {
   /// With stacked branches on
   forest: Option<StackForest>,
   /// The keys of the issue groups that group no commit
-  stale_issue_groups: Vec<String>,
+  idle_issue_groups: Vec<String>,
 }
 
 fn group_commits(commits: &[Commit], grouping: &GroupingInputs) -> Grouped {
@@ -625,7 +674,7 @@ fn group_commits(commits: &[Commit], grouping: &GroupingInputs) -> Grouped {
   Grouped {
     groups,
     forest,
-    stale_issue_groups: grouped.stale_issue_groups,
+    idle_issue_groups: grouped.idle_issue_groups,
   }
 }
 
@@ -634,7 +683,23 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
   for path in plan.branches.keys() {
     validate_path(path, snapshot.grouping.stacks)?;
   }
-  let (issue_groups, grouped_keys) = plan_issue_groups(&snapshot.grouping.issue_groups, plan)?;
+  let PlannedGroups {
+    entries: issue_groups,
+    grouped_keys,
+    ungrouped_keys,
+  } = plan_issue_groups(&snapshot.grouping.issue_groups, plan)?;
+  // a parent level for the leaf of an issue group would stack it, which `restack` refuses
+  if snapshot.grouping.stacks {
+    let entries = issue_groups.as_ref().unwrap_or(&snapshot.grouping.issue_groups.entries);
+    for path in plan.branches.keys().filter(|path| path.contains('/')) {
+      if let Some(leaf) = path.rsplit('/').next().filter(|leaf| entries.values().any(|name| name == leaf)) {
+        return Err(RegroupError::invalid(
+          format!("{leaf} is an issue group, which can't be stacked: give its commits a prefix first, without a parent"),
+          Vec::new(),
+        ));
+      }
+    }
+  }
 
   let mut unknown = Vec::new();
   let mut ambiguous = Vec::new();
@@ -696,15 +761,25 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
     assignment,
     issue_groups,
     grouped_keys,
+    ungrouped_keys,
   })
 }
 
-/// The issue groups after the `issue_groups` and `ungroup_issues` of a plan, and the keys it groups; `None` for a plan
-/// without either. A key may be in one group of a plan only, and not in `ungroup_issues` too; a key to ungroup must be
-/// in an issue group
-fn plan_issue_groups(before: &IssueGroups, plan: &RegroupPlan) -> Result<(Option<IssueGroupEntries>, BTreeSet<String>), RegroupError> {
+/// The issue groups a plan asks for
+#[derive(Default)]
+struct PlannedGroups {
+  /// The entries afterwards; `None` for a plan without `issue_groups` and `ungroup_issues`
+  entries: Option<IssueGroupEntries>,
+  grouped_keys: BTreeSet<String>,
+  ungrouped_keys: BTreeSet<String>,
+}
+
+/// The issue groups after the `issue_groups` and `ungroup_issues` of a plan, and the keys it groups and ungroups. A key
+/// may be in one group of a plan only, and not in `ungroup_issues` too; a key to ungroup must be in an issue group, or
+/// in a line of the store that is not used
+fn plan_issue_groups(before: &IssueGroups, plan: &RegroupPlan) -> Result<PlannedGroups, RegroupError> {
   if plan.issue_groups.is_empty() && plan.ungroup_issues.is_empty() {
-    return Ok((None, BTreeSet::new()));
+    return Ok(PlannedGroups::default());
   }
   let invalid = |message: String| RegroupError::invalid(message, Vec::new());
   let mut named: BTreeMap<&str, &str> = BTreeMap::new();
@@ -727,7 +802,7 @@ fn plan_issue_groups(before: &IssueGroups, plan: &RegroupPlan) -> Result<(Option
     validate_issue_key(key).map_err(invalid)?;
     if named.contains_key(key.as_str()) {
       both.insert(key.as_str());
-    } else if entries.remove(key).is_none() {
+    } else if entries.remove(key).is_none() && !before.problems.iter().any(|problem| problem.key.as_ref() == Some(key)) {
       not_grouped.insert(key.as_str());
     }
   }
@@ -740,7 +815,11 @@ fn plan_issue_groups(before: &IssueGroups, plan: &RegroupPlan) -> Result<(Option
   for (key, name) in &named {
     entries.insert((*key).to_string(), (*name).to_string());
   }
-  Ok((Some(entries), named.into_keys().map(str::to_string).collect()))
+  Ok(PlannedGroups {
+    entries: Some(entries),
+    grouped_keys: named.into_keys().map(str::to_string).collect(),
+    ungrouped_keys: plan.ungroup_issues.iter().cloned().collect(),
+  })
 }
 
 fn join(keys: &BTreeSet<&str>) -> String {
@@ -765,6 +844,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     assignment,
     issue_groups,
     grouped_keys,
+    ungrouped_keys,
   } = change;
   let mut targets: HashMap<String, Option<String>> = assignment.into_iter().collect();
   let before = &snapshot.grouping;
@@ -808,7 +888,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
   let Grouped {
     groups,
     forest,
-    stale_issue_groups,
+    idle_issue_groups,
   } = group_commits(&regrouped, &after);
 
   // the plan may not separate a fixup from its target; separations it didn't touch are left alone
@@ -840,21 +920,28 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
   let issue_groups_change = if issue_groups.is_none() {
     None
   } else {
-    let grouping_nothing: Vec<&str> = stale_issue_groups.iter().map(String::as_str).filter(|key| grouped_keys.contains(*key)).collect();
+    let grouping_nothing: Vec<&str> = idle_issue_groups.iter().map(String::as_str).filter(|key| grouped_keys.contains(*key)).collect();
     if !grouping_nothing.is_empty() {
       return Err(RegroupError::invalid(
         format!("No commit without a prefix carries {}: the issue group would group nothing", grouping_nothing.join(", ")),
         Vec::new(),
       ));
     }
-    // a key that groups no commit is dropped whenever the issue groups are written
-    for key in &stale_issue_groups {
-      after.issue_groups.entries.remove(key);
-    }
-    (after.issue_groups.entries != before.issue_groups.entries).then(|| IssueGroupsChange {
+    // the unused lines stay as they are, except those of a key the change sets or ungroups
+    let entries = &after.issue_groups.entries;
+    after.issue_groups.problems = before
+      .issue_groups
+      .problems
+      .iter()
+      .filter(|problem| problem.key.as_ref().is_none_or(|key| !entries.contains_key(key) && !ungrouped_keys.contains(key)))
+      .cloned()
+      .collect();
+    let changed = *entries != before.issue_groups.entries || after.issue_groups.problems != before.issue_groups.problems;
+    changed.then(|| IssueGroupsChange {
       previous_commit: before.issue_groups.commit.clone(),
       new_commit: None,
-      entries: after.issue_groups.entries.clone(),
+      entries: entries.clone(),
+      kept_lines: after.issue_groups.problems.iter().map(|problem| problem.line.clone()).collect(),
     })
   };
   if issue_groups_change.is_none() {

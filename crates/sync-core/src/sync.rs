@@ -96,11 +96,12 @@ fn compute_branch_summary(commits: &[Commit]) -> String {
 }
 
 /// A branch is an issue branch only while no commit names it with an explicit prefix and every commit carries its
-/// name as the key; a commit of another key came in through the issue groups
+/// name as the key, read as the grouper reads it (after the autosquash markers); a commit of another key came in
+/// through the issue groups
 fn branch_origin(branch_name: &str, commits: &[Commit]) -> BranchOrigin {
   if commits.iter().any(|c| parse_subject(&c.subject).prefix.is_some()) {
     BranchOrigin::Prefix
-  } else if commits.iter().any(|c| find_issue_number(&c.stripped_subject) != Some(branch_name)) {
+  } else if commits.iter().any(|c| find_issue_number(parse_subject(&c.subject).rest) != Some(branch_name)) {
     BranchOrigin::IssueGroup
   } else {
     BranchOrigin::Issue
