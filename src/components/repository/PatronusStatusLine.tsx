@@ -18,6 +18,7 @@ export function PatronusStatusLine() {
       hint={formatPatronusAvailabilityHint(availability)}
       checkedText={`Patronus checked ${formatRelativeTime(fetchedAt)}`}
       isRefreshing={isRefreshing}
+      refreshLabel="Refresh Patronus robots"
       onRefresh={() => void refreshPatronus("manual")}
       testId="patronus-status-line"
       refreshTestId="patronus-refresh"

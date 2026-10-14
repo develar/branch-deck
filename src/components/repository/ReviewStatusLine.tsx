@@ -9,13 +9,15 @@ export interface ReviewStatusLineProps {
   /** "Pull requests checked just now", shown without a hint */
   checkedText: string
   isRefreshing: boolean
+  /** The accessible name of the Refresh button, naming what it refreshes: "Refresh pull requests" */
+  refreshLabel: string
   onRefresh: () => void
   testId: string
   refreshTestId: string
 }
 
 /** A footer line of the outgoing overview: when a review service was last asked, or a quiet hint why it can't be, and a refresh button */
-export function ReviewStatusLine({ hint, checkedText, isRefreshing, onRefresh, testId, refreshTestId }: ReviewStatusLineProps) {
+export function ReviewStatusLine({ hint, checkedText, isRefreshing, refreshLabel, onRefresh, testId, refreshTestId }: ReviewStatusLineProps) {
   return (
     <div className="flex items-center justify-between gap-3" data-testid={testId}>
       {hint === null
@@ -27,7 +29,7 @@ export function ReviewStatusLine({ hint, checkedText, isRefreshing, onRefresh, t
               <TooltipContent>{hint}</TooltipContent>
             </Tooltip>
           )}
-      <Button variant="ghost" size="xs" disabled={isRefreshing} data-testid={refreshTestId} onClick={onRefresh}>
+      <Button variant="ghost" size="xs" disabled={isRefreshing} aria-label={refreshLabel} data-testid={refreshTestId} onClick={onRefresh}>
         {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
         Refresh
       </Button>

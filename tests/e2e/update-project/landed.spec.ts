@@ -24,7 +24,7 @@ test.describe("Landed commits", () => {
     await syncAndWaitForBranches()
 
     const button = updateButton(page)
-    await expect(button).toHaveAttribute("data-state", "clean")
+    await expect(button).toHaveAttribute("data-status", "clean")
     await expect(button.getByTestId("update-state-icon")).toHaveAttribute("data-landing", "true")
     await button.hover()
     await expect(page.getByTestId("update-project-tooltip")).toContainText(

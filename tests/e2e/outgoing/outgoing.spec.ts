@@ -77,7 +77,7 @@ test.describe("Outgoing indicator", () => {
 
     const row = getOverviewRow(popover, "ABC-123")
     await row.getByRole("button", { name: "Create Remote" }).click()
-    await expect(row).toHaveAttribute("data-state", "force")
+    await expect(row).toHaveAttribute("data-status", "force")
     await expect(row).toContainText("1 (1)↑ · 1↓")
     await expect(row).toContainText("force")
     await expect(row.getByRole("button", { name: "Force Push (1)" })).toBeEnabled()

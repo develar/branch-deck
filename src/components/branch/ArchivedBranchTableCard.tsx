@@ -112,7 +112,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           <ArchivedDateCell branch={branch} />
         </td>
         <td className="w-px px-4 py-4 whitespace-nowrap">
-          <CopyButton text={() => name} tooltip="Copy full branch name" alwaysVisible />
+          <CopyButton text={() => name} tooltip="Copy full branch name" label={`Copy full name of ${name}`} alwaysVisible />
         </td>
       </BranchContextMenuRow>
 

@@ -26,24 +26,24 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
   const { state } = review
   if (state.status === "loading") {
     return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-review" data-state="loading">
+      <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-review" data-status="loading">
         <Spinner className="size-4" />
         Checking the code-owner review…
       </p>
     )
   }
   if (state.status === "error") {
-    return <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-state="error">{`Review check: ${state.message}`}</p>
+    return <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-status="error">{`Review check: ${state.message}`}</p>
   }
 
   const { requirement } = state
   const mergeRequest = requirement.mergeRequest
   if (requirement.skipped) {
-    return <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-state="skipped">Too many commits to check the review before the start; the Safe Push checks it.</p>
+    return <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-status="skipped">Too many commits to check the review before the start; the Safe Push checks it.</p>
   }
   if (!requirement.required) {
     return (
-      <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="patronus-review" data-state="approved">
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="patronus-review" data-status="approved">
         <CircleCheckIcon className="size-4 shrink-0 text-success" />
         {mergeRequest === null ? "No code-owner review needed." : `Approved in ${mergeRequest.reviewKey}.`}
       </p>
@@ -55,7 +55,7 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
       tone="warning"
       title={mergeRequest === null ? "Needs review by the code owners" : `Waiting for approval in ${mergeRequest.reviewKey}`}
       data-testid="patronus-review"
-      data-state="required"
+      data-status="required"
     >
       <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
         {requirement.groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}

@@ -17,6 +17,7 @@ export function PullRequestStatusLine() {
       hint={formatAvailabilityHint(availability)}
       checkedText={`Pull requests checked ${formatRelativeTime(fetchedAt)}`}
       isRefreshing={isRefreshing}
+      refreshLabel="Refresh pull requests"
       onRefresh={() => void refreshPullRequests("manual")}
       testId="pull-request-status-line"
       refreshTestId="pull-request-refresh"

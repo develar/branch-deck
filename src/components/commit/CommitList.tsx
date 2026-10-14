@@ -155,7 +155,7 @@ export function CommitList<T extends CommitUnion>({
       {portalTarget}
       <table
         ref={tableRef}
-        className="w-full rounded-lg focus:outline-none"
+        className="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
         tabIndex={selectable ? 0 : -1}
         onKeyDown={handleKeyDown}
       >

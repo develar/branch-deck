@@ -142,6 +142,13 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
     tall box;
   - copy: through `copyText` (`src/lib/clipboard.ts`); a copy button says "Copied" in place (`CopyButton`), a menu
     item copies without a toast.
+- **Anything that opens on hover or click is a button**: a help icon, a hash or a time with a popover, the AI toggle.
+  Base UI triggers render a `button` by default; never a `span` trigger with `nativeButton={false}`, which the keyboard
+  cannot reach.
+- **Focus ring**: `outline-none focus-visible:ring-3 focus-visible:ring-ring/30` with a radius (`rounded-sm` on inline
+  text, `rounded-lg` on a row or a header), as the shadcn controls draw it.
+- **`data-state` is Base UI's open/closed vocabulary** (set by hand where E2E reads it); the domain state of a component
+  is `data-status` (`data-status="upToDate"` on Update Project, `data-status="force"` on an outgoing row).
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Spacing**:

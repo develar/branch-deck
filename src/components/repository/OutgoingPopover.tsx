@@ -95,7 +95,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
       className="col-span-full grid min-h-7 grid-cols-subgrid items-center"
       data-testid="outgoing-branch"
       data-branch-name={branch.name}
-      data-state={branch.state}
+      data-status={branch.state}
     >
       <BranchNameButton name={branch.name} onReveal={onReveal} />
       <OutgoingRowBar branch={branch} max={max} />

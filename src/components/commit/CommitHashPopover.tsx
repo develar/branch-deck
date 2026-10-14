@@ -12,14 +12,14 @@ export interface CommitHashPopoverProps {
   authorTime?: number
 }
 
-/** Short hash; hovering shows the commit header (subject and meta line) and its body, as in the commit lists. */
+/** Short hash, a button; hovering or focusing it shows the commit header (subject and meta line) and its body, as in the commit lists. */
 export function CommitHashPopover({ hash, subject, message, author, authorTime }: CommitHashPopoverProps) {
   const title = subject || message?.split("\n", 1)[0] || "No message available"
   const hasBody = !!message && hasCommitMessageBody(title, message)
 
   return (
     <Popover>
-      <PopoverTrigger openOnHover nativeButton={false} render={<span className="font-mono" />}>
+      <PopoverTrigger openOnHover className="font-mono rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
         {formatShortHash(hash)}
       </PopoverTrigger>
       <PopoverContent

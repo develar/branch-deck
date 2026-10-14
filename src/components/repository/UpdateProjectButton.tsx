@@ -102,7 +102,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
             aria-busy={phase !== null || undefined}
             aria-label={`Update Project: ${summary}`}
             data-testid="update-project-button"
-            data-state={state}
+            data-status={state}
             onClick={() => void runUpdateProject()}
           />
         )}

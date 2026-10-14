@@ -16,7 +16,7 @@ export interface CollapsibleFileHeaderProps {
 export function CollapsibleFileHeader({ fileName, actions }: CollapsibleFileHeaderProps) {
   return (
     <AccordionPrimitive.Header className="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50">
-      <AccordionPrimitive.Trigger className="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset">
+      <AccordionPrimitive.Trigger className="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset">
         {fileName}
       </AccordionPrimitive.Trigger>
       <CopyButton

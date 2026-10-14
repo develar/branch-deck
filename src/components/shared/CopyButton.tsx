@@ -9,6 +9,8 @@ export interface CopyButtonProps {
   /** Evaluated only on click */
   text: () => string
   tooltip?: string
+  /** The accessible name, when the tooltip repeats on every row: it names the object ("Copy full name of feature-auth") */
+  label?: string
   size?: "icon-xs" | "icon-sm" | "icon"
   variant?: "ghost" | "outline"
   /** Otherwise the button is transparent until the parent (`.group`) is hovered */
@@ -17,7 +19,7 @@ export interface CopyButtonProps {
 }
 
 /** Icon button copying text; its tooltip switches to "Copied!" in place for a moment. */
-export function CopyButton({ text, tooltip = "Copy to clipboard", size = "icon-xs", variant = "ghost", alwaysVisible = false, className }: CopyButtonProps) {
+export function CopyButton({ text, tooltip = "Copy to clipboard", label, size = "icon-xs", variant = "ghost", alwaysVisible = false, className }: CopyButtonProps) {
   const { isCopied, tooltipOpen, setTooltipOpen, copyToClipboard } = useCopyToClipboard()
   const tooltipText = isCopied ? "Copied!" : tooltip
 
@@ -36,7 +38,7 @@ export function CopyButton({ text, tooltip = "Copy to clipboard", size = "icon-x
             <Button
               size={size}
               variant={variant}
-              aria-label={tooltipText}
+              aria-label={isCopied ? tooltipText : (label ?? tooltipText)}
               className={cn(alwaysVisible && "text-muted-foreground")}
               onClick={handleClick}
             />
