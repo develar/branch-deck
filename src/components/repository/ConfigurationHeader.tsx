@@ -14,9 +14,9 @@ import { PullRequestStatusLine } from "@/components/repository/PullRequestStatus
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import { formatRelativeTime } from "@/lib/time"
 import { useBranchSync } from "@/stores/branch-sync"
 import { usePatronusNeedsAttention } from "@/stores/patronus"
 import { useRepository, useSelectedProject } from "@/stores/repository"
@@ -118,7 +118,8 @@ export function ConfigurationHeader() {
           {lastSyncTime && !isSyncing && pathValidation.valid
             ? (
                 <div className="text-xs text-muted-foreground">
-                  {`Last synced ${formatRelativeTime(lastSyncTime)}`}
+                  {"Last synced "}
+                  <RelativeTime time={lastSyncTime} />
                 </div>
               )
             : null}

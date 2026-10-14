@@ -7,10 +7,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { CopyButton } from "@/components/shared/CopyButton"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { isSquashedUpstream, landedBranchName, landedCountLabel } from "@/lib/landed"
-import { formatRelativeTime } from "@/lib/time"
 import { clearNewlyArchived } from "@/stores/archived-branches"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { dismissLanded, useLandedReport } from "@/stores/landed"
@@ -41,7 +41,7 @@ export function LandedCard() {
         <div className="flex min-w-0 items-center gap-2">
           <PackageCheckIcon className="size-4 shrink-0 text-info" />
           <h2 className="truncate text-sm font-semibold text-foreground">{`Landed in ${upstream}`}</h2>
-          <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(landedAt * 1000)}</span>
+          <span className="shrink-0 text-xs text-muted-foreground"><RelativeTime time={landedAt * 1000} /></span>
         </div>
         <Tooltip>
           <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Dismiss" data-testid="landed-dismiss" onClick={dismiss} />}>
@@ -105,7 +105,10 @@ function LandedCommitRow({ commit }: { commit: LandedCommit }) {
             <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
               <span className="font-mono text-foreground" data-testid="landed-upstream-hash">{formatShortHash(upstream.id)}</span>
               <CopyButton text={() => upstream.id} tooltip="Copy the baseline commit" />
-              <span className="hidden sm:inline">{`${upstream.committer} · ${formatRelativeTime(upstream.time * 1000)}`}</span>
+              <span className="hidden sm:inline">
+                {`${upstream.committer} · `}
+                <RelativeTime time={upstream.time * 1000} />
+              </span>
             </span>
           )}
     </li>

@@ -1,15 +1,23 @@
 import { PackageCheckIcon } from "lucide-react"
 import { StatusChip } from "@/components/branch/StatusChip"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import { formatRelativeTime } from "@/lib/time"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useIncomingLandedCommit } from "@/stores/landed"
 
 /** "abc1234 · Patronus · 2 hours ago", or "squashed upstream" */
-function describeUpstream(commit: LandedCommit): string {
+function UpstreamDescription({ commit }: { commit: LandedCommit }) {
   const upstream = commit.upstream
-  return upstream === null ? "squashed upstream" : `${formatShortHash(upstream.id)} · ${upstream.committer} · ${formatRelativeTime(upstream.time * 1000)}`
+  if (upstream === null) {
+    return "squashed upstream"
+  }
+  return (
+    <>
+      {`${formatShortHash(upstream.id)} · ${upstream.committer} · `}
+      <RelativeTime time={upstream.time * 1000} />
+    </>
+  )
 }
 
 function useUpstreamName(): string {
@@ -46,7 +54,7 @@ export function LandedChip({ branchName }: { branchName: string }) {
             {branch.commits.map(commit => (
               <li key={commit.id} className="flex flex-col">
                 <span className="truncate">{commit.subject}</span>
-                <span className="text-muted-foreground">{describeUpstream(commit)}</span>
+                <span className="text-muted-foreground"><UpstreamDescription commit={commit} /></span>
               </li>
             ))}
           </ul>
@@ -76,7 +84,7 @@ export function LandedCommitMarker({ commitId }: { commitId: string }) {
       details={(
         <div className="flex flex-col gap-1 text-xs">
           <span className="font-medium">{`In ${upstream}: the update drops this commit`}</span>
-          <span className="text-muted-foreground">{describeUpstream(commit)}</span>
+          <span className="text-muted-foreground"><UpstreamDescription commit={commit} /></span>
         </div>
       )}
       detailsTestId="landed-commit-popover"

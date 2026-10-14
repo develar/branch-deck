@@ -1,6 +1,5 @@
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
 import { formatAvailabilityHint } from "@/lib/pull-request"
-import { formatRelativeTime } from "@/lib/time"
 import { refreshPullRequests, useRepositoryPullRequests } from "@/stores/pull-requests"
 
 /**
@@ -15,7 +14,8 @@ export function PullRequestStatusLine() {
   return (
     <ReviewStatusLine
       hint={formatAvailabilityHint(availability)}
-      checkedText={`Pull requests checked ${formatRelativeTime(fetchedAt)}`}
+      checkedLabel="Pull requests checked"
+      checkedAt={fetchedAt}
       isRefreshing={isRefreshing}
       onRefresh={() => void refreshPullRequests("manual")}
       testId="pull-request-status-line"

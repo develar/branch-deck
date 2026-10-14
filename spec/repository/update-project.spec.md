@@ -15,6 +15,8 @@ targets:
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/repository/UpdateBlockedDialog.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/components/shared/RelativeTime.tsx
+  - ../../src/hooks/useNow.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/update-state.ts
@@ -143,6 +145,14 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The tooltip must say when the baseline was last fetched: Branch Deck's own fetch or one elsewhere (`FETCH_HEAD`),
   whichever is newer, and the shortcut.
   [@test] ../../src/lib/update-state.test.ts (`takes the newer of Branch Deck's fetch and one elsewhere`)
+- A relative time must age while it is shown, without a sync or a fetch: "Last synced 1 minute ago" next to the button,
+  the fetch time of the tooltip and of the footer line, "Pull requests checked" and "Patronus checked" in the overview,
+  the times of the Landed island and chips, of the commits a force push drops and of the commit that merged an archived
+  branch. One interval per interval length renews them every 15 s (`useNow`), so "1 minute ago" is at most a tick late;
+  only the text re-renders.
+  [@test] ../../src/hooks/useNow.test.ts (`ticks every listener of an interval length at once, with one interval that stops with the last listener`)
+  [@test] ../../src/hooks/useNow.test.ts (`ages a relative time without anything else changing: "Last synced just now" becomes "1 minute ago"`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
 - A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
   "Fetching…", "Checking…", "Updating…", and its tooltip names the step instead of the state of the last check:
   "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to origin/master…".

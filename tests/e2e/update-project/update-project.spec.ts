@@ -38,6 +38,18 @@ test.describe("Update Project", () => {
     await verifyCommitCount(findBranchRow(page, "feature-auth"), "1 commit")
   })
 
+  test("should age the last sync next to the Update button while it is shown", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the fetch time of the templates is the real one (FETCH_HEAD), not the page's clock: the last sync shows the tick
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const lastSynced = page.getByText(/^Last synced /)
+    await expect(lastSynced).toHaveText("Last synced just now")
+
+    // nothing but the clock moves: no sync
+    await page.clock.fastForward("01:15")
+    await expect(lastSynced).toHaveText("Last synced 1 minute ago")
+  })
+
   test("should name the running step in the tooltip, not the last state", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()

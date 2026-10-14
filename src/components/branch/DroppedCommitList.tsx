@@ -1,6 +1,6 @@
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { DroppedCommits } from "@/hooks/usePushButton"
 import { formatShortHash } from "@/lib/hash"
-import { formatRelativeTime } from "@/lib/time"
 
 /** The remote commits a force push drops, under the description of the push button: subject, author, id and age */
 export function DroppedCommitList({ dropped }: { dropped: DroppedCommits }) {
@@ -14,7 +14,8 @@ export function DroppedCommitList({ dropped }: { dropped: DroppedCommits }) {
             <span className="truncate text-xs text-muted-foreground">
               {`${commit.author} · `}
               <span className="font-mono">{formatShortHash(commit.id)}</span>
-              {` · ${formatRelativeTime(commit.authorTime * 1000)}`}
+              {" · "}
+              <RelativeTime time={commit.authorTime * 1000} />
             </span>
           </li>
         ))}

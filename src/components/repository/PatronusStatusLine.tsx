@@ -1,6 +1,5 @@
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
 import { formatPatronusAvailabilityHint } from "@/lib/patronus"
-import { formatRelativeTime } from "@/lib/time"
 import { refreshPatronus, useRepositoryPatronus } from "@/stores/patronus"
 
 /**
@@ -16,7 +15,8 @@ export function PatronusStatusLine() {
   return (
     <ReviewStatusLine
       hint={formatPatronusAvailabilityHint(availability)}
-      checkedText={`Patronus checked ${formatRelativeTime(fetchedAt)}`}
+      checkedLabel="Patronus checked"
+      checkedAt={fetchedAt}
       isRefreshing={isRefreshing}
       onRefresh={() => void refreshPatronus("manual")}
       testId="patronus-status-line"

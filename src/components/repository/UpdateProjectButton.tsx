@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { TransferProgress, UpdatePhase } from "@/lib/bindings"
 import { describeLanding, shortLanding } from "@/lib/landed"
 import { isMac } from "@/lib/platform"
-import { formatRelativeTime } from "@/lib/time"
 import { transferAmount } from "@/lib/transfer-progress"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
 import { describeUpdateState, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
@@ -39,6 +39,16 @@ function upstreamName(status: BaselineStatus): string {
 function useFetchTime(status: BaselineStatus): number | null {
   const ownFetchTime = useSelectedProject()?.lastFetchTime
   return lastFetchTime(status.update, ownFetchTime)
+}
+
+/** "fetched 5 minutes ago", aging while it is shown */
+function FetchedAgo({ time, capitalized = false }: { time: number, capitalized?: boolean }) {
+  return (
+    <>
+      {capitalized ? "Fetched " : "fetched "}
+      <RelativeTime time={time} />
+    </>
+  )
 }
 
 /** The state icon; a clean update that brings in the user's own landed commits shows the `info` package */
@@ -115,7 +125,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
         <div className="flex flex-col gap-0.5">
           <span>{phase === null ? summary : runningUpdateSummary(phase, fetch, upstreamName(status))}</span>
           <span className="flex items-center gap-1.5 opacity-70">
-            {fetchTime === null ? "Not fetched yet" : `Fetched ${formatRelativeTime(fetchTime)}`}
+            {fetchTime === null ? "Not fetched yet" : <FetchedAgo time={fetchTime} capitalized />}
             {" · fetch and update"}
             <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
           </span>
@@ -154,7 +164,12 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
           {transfer === null
-            ? `: ${description.short}${landing === null ? "" : ` · ${landing}`} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`
+            ? (
+                <>
+                  {`: ${description.short}${landing === null ? "" : ` · ${landing}`} · `}
+                  {fetchTime === null ? "not fetched yet" : <FetchedAgo time={fetchTime} />}
+                </>
+              )
             : `: ${transfer}`}
         </span>
       </span>

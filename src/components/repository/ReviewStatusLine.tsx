@@ -1,12 +1,15 @@
 import { RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 
 export interface ReviewStatusLineProps {
   /** Why the service can't be asked, or null when it answers */
   hint: string | null
-  /** "Pull requests checked just now", shown without a hint */
-  checkedText: string
+  /** "Pull requests checked", followed by how long ago (`checkedAt`, it ages while shown); shown without a hint */
+  checkedLabel: string
+  /** When the service last answered, `Date.now()` */
+  checkedAt: number
   isRefreshing: boolean
   onRefresh: () => void
   testId: string
@@ -14,11 +17,16 @@ export interface ReviewStatusLineProps {
 }
 
 /** A footer line of the outgoing overview: when a review service was last asked, or a quiet hint why it can't be, and a refresh button */
-export function ReviewStatusLine({ hint, checkedText, isRefreshing, onRefresh, testId, refreshTestId }: ReviewStatusLineProps) {
+export function ReviewStatusLine({ hint, checkedLabel, checkedAt, isRefreshing, onRefresh, testId, refreshTestId }: ReviewStatusLineProps) {
   return (
     <div className="flex items-center justify-between gap-3" data-testid={testId}>
       <span className="min-w-0 truncate text-muted-foreground" title={hint ?? undefined}>
-        {hint ?? checkedText}
+        {hint ?? (
+          <>
+            {`${checkedLabel} `}
+            <RelativeTime time={checkedAt} />
+          </>
+        )}
       </span>
       <Button variant="ghost" size="xs" disabled={isRefreshing} data-testid={refreshTestId} onClick={onRefresh}>
         {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}

@@ -169,9 +169,10 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 - With nothing to push and an open pull request, the indicator stays: the pull request icon and the count of open pull
   requests, named "Nothing to push, 1 pull request open"; the overview has the same title.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should keep the indicator for an open pull request when nothing is outgoing`)
-- The footer of the overview has a line "Pull requests checked just now" with a Refresh button. When `gh` can't answer,
-  the line is a quiet hint instead: "Install the GitHub CLI (gh) to see pull requests", "Run gh auth login to see pull
-  requests", or "GitHub: <the error>". It is never a toast. A repository that is not on GitHub has no line.
+- The footer of the overview has a line "Pull requests checked just now" (it ages while shown, as every relative time:
+  [Update Project](../repository/update-project.spec.md)) with a Refresh button. When `gh` can't answer, the line is a
+  quiet hint instead: "Install the GitHub CLI (gh) to see pull requests", "Run gh auth login to see pull requests", or
+  "GitHub: <the error>". It is never a toast. A repository that is not on GitHub has no line.
   [@test] ../../src/lib/pull-request.test.ts (`hints at what to do, and says nothing when there is nothing to do`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should hint quietly when gh is not logged in`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say nothing for a repository that is not on GitHub`)

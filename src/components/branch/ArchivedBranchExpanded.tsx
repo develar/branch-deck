@@ -3,6 +3,7 @@ import { GitCommitHorizontalIcon } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitList } from "@/components/commit/CommitList"
 import { CopyButton } from "@/components/shared/CopyButton"
+import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { UpstreamCommit } from "@/lib/bindings"
 import { describeIntegrationCommit } from "@/lib/integration-commit"
 import type { ArchivedBranch } from "@/stores/archived-branches"
@@ -41,8 +42,14 @@ function IntegrationCommitLine({ commit }: { commit: UpstreamCommit }) {
   return (
     <div className="group flex items-center gap-2 pl-4 text-sm text-muted-foreground" data-testid="archived-branch-integration-commit">
       <GitCommitHorizontalIcon className="size-4 shrink-0 text-success" />
-      <span className="truncate" title={`Authored by ${commit.author}`}>{describeIntegrationCommit(commit)}</span>
+      <span className="truncate" title={`Authored by ${commit.author}`}><IntegrationCommitText commit={commit} /></span>
       <CopyButton text={() => commit.id} tooltip="Copy the commit hash" />
     </div>
   )
+}
+
+/** The text of the line, aging while it is shown; only it re-renders on the tick */
+function IntegrationCommitText({ commit }: { commit: UpstreamCommit }) {
+  const now = useNow(RELATIVE_TIME_TICK_MS)
+  return describeIntegrationCommit(commit, now)
 }
