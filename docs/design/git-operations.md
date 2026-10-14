@@ -335,6 +335,12 @@ Details:
   transaction and the update reports "Files changed during the update; nothing was changed".
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
+  Which commits landed, and where, takes three read-only `log` processes after the check (the preview's are cached
+  with its replay): the local commits (`HEAD ^U ^<previous tips>`), the ones that stay (`N ^U`) and the upstream
+  commits since the merge base by the authors of the local commits (`--fixed-strings --author=<email>`, so a monorepo
+  upstream stays small). See "Landed commits" in [Integration Detection](integration-detection.md); the report is
+  `branch-deck/landed.json` in the worktree's git directory, written through a temporary file and a rename, never git
+  state.
 - **Metadata.** The replayed commits keep their author; the committer is the current user, as with any content rewrite.
 - **The check inside sync** (`CheckPurpose::Preview`) runs steps 0, 1 and 3 to 6 against the last fetched tracking
   ref, and a cheaper form of steps 7 and 8. It starts as soon as the sync knows the baseline, beside the commit

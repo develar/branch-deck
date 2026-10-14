@@ -1,6 +1,7 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use model_tauri::blocking::run_blocking;
 use model_tauri::command_error::CommandError;
+use sync_core::landed::dismiss_landed as dismiss_landed_core;
 use sync_core::update_project::{UpdateProgress, UpdateProjectParams, UpdateProjectResult, update_project_core};
 use tauri::State;
 use tauri::ipc::Channel;
@@ -25,4 +26,13 @@ pub async fn update_project(
     })
   })
   .await
+}
+
+/// Clears the report of the commits that landed with an update; the next update starts a new one
+#[tauri::command]
+#[instrument(skip(git_executor))]
+#[specta::specta]
+pub async fn dismiss_landed(git_executor: State<'_, GitCommandExecutor>, repository_path: String) -> Result<(), CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || dismiss_landed_core(&git, &repository_path)).await
 }

@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitMessageButton } from "@/components/commit/CommitMessage"
 import { CommitHeader } from "@/components/commit/CommitHeader"
 import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
@@ -324,6 +325,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         subjectAddon={(
           <>
             {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
+            <LandedCommitMarker commitId={hash} />
             {status === "Pending" && (
               <Badge variant="secondary">
                 <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />

@@ -11,14 +11,14 @@ use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone of it whose `master` tracks `origin/master`
-struct Setup {
-  upstream: TestRepo,
-  clone: TestRepo,
+pub(crate) struct Setup {
+  pub(crate) upstream: TestRepo,
+  pub(crate) clone: TestRepo,
 }
 
 const SHARED: &str = "one\ntwo\nthree\n";
 
-fn setup() -> Setup {
+pub(crate) fn setup() -> Setup {
   let upstream = TestRepo::new();
   upstream.create_commit_with_files("Initial", &[("shared.txt", SHARED), ("other.txt", "other\n")]);
   let clone = TestRepo::new_empty();
@@ -26,15 +26,15 @@ fn setup() -> Setup {
   Setup { upstream, clone }
 }
 
-fn path(repo: &TestRepo) -> &str {
+pub(crate) fn path(repo: &TestRepo) -> &str {
   repo.path().to_str().unwrap()
 }
 
-fn git(repo: &TestRepo, args: &[&str]) -> String {
+pub(crate) fn git(repo: &TestRepo, args: &[&str]) -> String {
   repo.git_executor().execute_command(args, path(repo)).unwrap()
 }
 
-fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
+pub(crate) fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
   update_project_core(
     repo.git_executor(),
     &UpdateProjectParams {
@@ -347,7 +347,7 @@ fn check_after_a_forced_fetch_elsewhere_uses_the_fork_point() {
   // a fetch in a terminal: the previous tip is only in the reflog of the tracking ref
   git(&clone, &["fetch", "origin"]);
 
-  let check = check_baseline_update(clone.git_executor(), path(&clone), "origin/master").unwrap().unwrap();
+  let check = check_baseline_update(clone.git_executor(), path(&clone), "origin/master").unwrap().unwrap().check;
   assert_eq!(check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   assert!(check.fetched_at.is_some(), "the terminal fetch wrote FETCH_HEAD");
 }
@@ -460,6 +460,7 @@ async fn sync_reports_the_baseline_status() -> anyhow::Result<()> {
     baseline_branch,
     update,
     check_error,
+    ..
   } = statuses[0]
   else {
     unreachable!()
@@ -497,7 +498,7 @@ fn e2e_templates_have_the_expected_update_states() {
     let repo = dir.path().join(name);
     template.build(&repo).unwrap();
     let repo = repo.to_str().unwrap().to_string();
-    let check = check_baseline_update(&git_executor, &repo, "origin/master").unwrap().unwrap();
+    let check = check_baseline_update(&git_executor, &repo, "origin/master").unwrap().unwrap().check;
     (repo, check.state)
   };
 
@@ -513,6 +514,12 @@ fn e2e_templates_have_the_expected_update_states() {
       if files == &["src/app.txt"] && commits.len() == 2 && upstream_commits.len() == 1),
     "{state:?}"
   );
+  let (repo, state) = check("landed_upstream", templates::landed_upstream());
+  assert_eq!(state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let landing = check_baseline_update(&git_executor, &repo, "origin/master").unwrap().unwrap().landing;
+  let landing: Vec<(Option<&str>, usize, u32)> = landing.iter().map(|b| (b.name.as_deref(), b.commits.len(), b.remaining)).collect();
+  assert_eq!(landing, vec![(Some("feature-auth"), 1, 0), (Some("search"), 1, 1)]);
+
   let (_, state) = check("update_blocked", templates::update_blocked());
   assert_eq!(
     state,
@@ -524,7 +531,7 @@ fn e2e_templates_have_the_expected_update_states() {
 
 /// The state of the check inside a sync: the preview, without the network
 fn preview(repo: &TestRepo) -> UpdateState {
-  check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().state
+  check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().check.state
 }
 
 fn blocked(paths: &[&str]) -> UpdateState {

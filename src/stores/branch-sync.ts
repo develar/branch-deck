@@ -8,6 +8,7 @@ import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
+import { setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
@@ -604,9 +605,12 @@ function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: Syn
         setBranchRemoteStatus(event.data.branchName, toRemoteStatus(event.data))
       }
       break
-    case "baselineStatus":
-      branchSyncStore.setState({ baselineStatus: { repositoryPath, ...event.data } })
+    case "baselineStatus": {
+      const { landing, landed, ...status } = event.data
+      branchSyncStore.setState({ baselineStatus: { repositoryPath, ...status } })
+      setLandedStatus(repositoryPath, landing, landed)
       break
+    }
     case "commitsBlocked":
       // not displayed
       break

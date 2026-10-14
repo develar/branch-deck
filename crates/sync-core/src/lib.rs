@@ -10,6 +10,7 @@ pub mod commit_grouper;
 pub mod delete_archived_branch;
 pub mod grouping;
 pub mod issue_navigation;
+pub mod landed;
 pub mod move_commits;
 pub mod patronus;
 pub mod pull_requests;

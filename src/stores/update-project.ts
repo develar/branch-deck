@@ -2,12 +2,13 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { AppliedUpdate, TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
+import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
-import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
+import { appliedUpdateToast } from "@/lib/landed"
 import { setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
+import { addLandedUpdate } from "@/stores/landed"
 import { getSelectedProject } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
@@ -42,13 +43,6 @@ export function closeRefusedUpdate(): void {
   updateProjectStore.setState({ refused: null })
 }
 
-function appliedTitle(check: UpdateCheck, applied: AppliedUpdate): string {
-  if (applied.kind === "fastForward") {
-    return `Updated ${check.branch}: fast-forwarded to ${check.upstream}`
-  }
-  return `Updated ${check.branch}: rebased ${formatCommitCount(applied.replayed)} onto ${check.upstream}`
-}
-
 /**
  * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T). A conflict or a block
  * opens the dialog that explains it; nothing changed then. One update at a time.
@@ -72,7 +66,7 @@ export async function runUpdateProject(): Promise<void> {
     }
 
     updateProject(repositoryPath, { lastFetchTime: Date.now() })
-    const { check, applied } = result.data
+    const { check, applied, landed } = result.data
     switch (check.state.status) {
       case "upToDate":
         setBaselineUpdate(repositoryPath, check)
@@ -81,13 +75,9 @@ export async function runUpdateProject(): Promise<void> {
       case "clean":
         if (applied !== null) {
           setBaselineUpdate(repositoryPath, { ...check, head: applied.newHead, state: { status: "upToDate" } })
-          toast.add({
-            type: "success",
-            title: appliedTitle(check, applied),
-            description: applied.droppedAlreadyUpstream > 0
-              ? `Dropped ${formatCommitCount(applied.droppedAlreadyUpstream)} already upstream`
-              : undefined,
-          })
+          // the island of what landed shows at once, the sync that follows confirms it
+          addLandedUpdate(repositoryPath, landed)
+          toast.add({ type: "success", ...appliedUpdateToast(check, applied, landed) })
           void syncBranches({ autoScroll: false, autoExpand: false })
         }
         break

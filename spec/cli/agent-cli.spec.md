@@ -211,7 +211,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   exit code must be 1.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
 - The integration results of archived branches and the update check of the checked out branch must be included
-  compactly.
+  compactly, with the landed commits (`update.landing`, `landed`).
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)
 
 ### `bd push`
 

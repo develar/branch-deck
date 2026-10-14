@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use sync_core::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository};
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_types::branch_integration::BranchIntegrationStatus;
+use sync_types::landed::LandedBranch;
 use sync_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 
 /// `bd sync`
@@ -32,6 +33,9 @@ pub struct SyncOutput {
   /// Whether the checked out branch can be updated onto the last fetched baseline; omitted for a local baseline
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateSummary>,
+  /// Commits that landed in the baseline with an update (here or elsewhere) and that the app hasn't dismissed
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub landed: Vec<LandedSummary>,
 }
 
 impl SyncOutput {
@@ -161,6 +165,57 @@ pub struct UpdateSummary {
   pub files: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
+  /// Local commits the fetched baseline already has: the update drops them
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub landing: Vec<LandedSummary>,
+}
+
+/// The landed commits of a branch
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandedSummary {
+  /// The virtual branch; omitted for unassigned commits
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  pub commits: Vec<LandedCommitSummary>,
+  /// The commits of the branch that stay local
+  pub remaining: u32,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandedCommitSummary {
+  /// The local commit
+  pub commit: String,
+  pub subject: String,
+  /// The baseline commit that carries it; omitted when the baseline has the change in another commit (squashed)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub upstream: Option<String>,
+}
+
+fn landed_summary(branches: Vec<LandedBranch>, short: &ShortIds) -> Vec<LandedSummary> {
+  branches
+    .into_iter()
+    .map(|branch| LandedSummary {
+      branch: branch.name,
+      commits: branch
+        .commits
+        .into_iter()
+        .map(|commit| LandedCommitSummary {
+          commit: short.get(&commit.id).to_string(),
+          subject: commit.subject,
+          upstream: commit.upstream.map(|upstream| short.get(&upstream.id).to_string()),
+        })
+        .collect(),
+      remaining: branch.remaining,
+    })
+    .collect()
+}
+
+/// The ids a landed report names
+fn landed_ids(branches: &[LandedBranch]) -> impl Iterator<Item = &str> {
+  branches
+    .iter()
+    .flat_map(|branch| &branch.commits)
+    .flat_map(|commit| std::iter::once(commit.id.as_str()).chain(commit.upstream.as_ref().map(|upstream| upstream.id.as_str())))
 }
 
 /// Collects the events of a sync
@@ -212,6 +267,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
   let mut remotes: HashMap<String, RemoteStatusUpdate> = HashMap::new();
   let mut archived: BTreeMap<String, ArchivedBranch> = BTreeMap::new();
   let mut update = None;
+  let (mut landing, mut landed) = (Vec::new(), Vec::new());
   for event in events {
     match event {
       SyncEvent::BranchesGrouped { branches, baseline_branch, .. } => {
@@ -248,7 +304,15 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
           },
         );
       }
-      SyncEvent::BaselineStatus { update: check, check_error, .. } => {
+      SyncEvent::BaselineStatus {
+        update: check,
+        check_error,
+        landing: incoming,
+        landed: report,
+        ..
+      } => {
+        landing = incoming;
+        landed = report;
         update = match (check, check_error) {
           (Some(check), _) => {
             let (state, files) = match check.state {
@@ -263,6 +327,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
               state: state.to_string(),
               files,
               error: None,
+              landing: Vec::new(),
             })
           }
           (None, Some(error)) => Some(UpdateSummary {
@@ -270,6 +335,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
             state: "error".to_string(),
             files: Vec::new(),
             error: Some(error),
+            landing: Vec::new(),
           }),
           (None, None) => None,
         };
@@ -289,7 +355,13 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
     .collect();
   ids.extend(conflicts);
   ids.extend(remotes.values().flat_map(RemoteSummary::ids));
+  ids.extend(landed_ids(&landing));
+  ids.extend(landed_ids(&landed));
   let short = context.short_ids(ids);
+  if let Some(update) = &mut update {
+    update.landing = landed_summary(std::mem::take(&mut landing), &short);
+  }
+  let landed = landed_summary(landed, &short);
 
   let branches = grouped
     .into_iter()
@@ -334,6 +406,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
     unassigned_count,
     archived: archived.into_values().collect(),
     update,
+    landed,
   }
 }
 

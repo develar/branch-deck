@@ -87,6 +87,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
     .route("/invoke/squash_fixup_commits", post(tauri_command_bridge::squash_fixup_commits))
     .route("/invoke/update_project", post(tauri_command_bridge::update_project))
+    .route("/invoke/dismiss_landed", post(tauri_command_bridge::dismiss_landed))
     .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
@@ -178,6 +179,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     ("behind_upstream", templates::behind_upstream()),
     ("update_conflict", templates::update_conflict()),
     ("update_blocked", templates::update_blocked()),
+    ("landed_upstream", templates::landed_upstream()),
   ] {
     let repo_path = target_dir.join(name);
     futures.push(tokio::task::spawn_blocking(move || {
@@ -254,6 +256,8 @@ pub enum RepositoryTemplate {
   UpdateConflict,
   #[serde(rename = "update_blocked")]
   UpdateBlocked,
+  #[serde(rename = "landed_upstream")]
+  LandedUpstream,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "NO_REPO")]
@@ -280,6 +284,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::BehindUpstream => "behind_upstream",
       RepositoryTemplate::UpdateConflict => "update_conflict",
       RepositoryTemplate::UpdateBlocked => "update_blocked",
+      RepositoryTemplate::LandedUpstream => "landed_upstream",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",
       RepositoryTemplate::NoRepo => "NO_REPO",
     }

@@ -101,6 +101,8 @@ export const commands = {
 	 *  fetch is
 	 */
 	fetchBaseline: (params: FetchBaselineParams, progress: Channel<TransferProgress>) => typedError<FetchBaselineResult, CommandError>(__TAURI_INVOKE("fetch_baseline", { params, progress })),
+	/**  Clears the report of the commits that landed with an update; the next update starts a new one */
+	dismissLanded: (repositoryPath: string) => typedError<null, CommandError>(__TAURI_INVOKE("dismiss_landed", { repositoryPath })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
@@ -500,6 +502,31 @@ export type IssueNavigationLink = {
 export type KnownRobotStatus = {
 	id: string,
 	status: PatronusRobotStatus,
+};
+
+/**  The landed commits of one branch */
+export type LandedBranch = {
+	/**  The virtual branch the commits are grouped into; `None` for unassigned commits */
+	name: string | null,
+	/**  Oldest first */
+	commits: LandedCommit[],
+	/**  The commits of the branch that stay local */
+	remaining: number,
+	/**  When Branch Deck found the commits in the baseline, Unix seconds */
+	landedAt: number,
+};
+
+/**  A local commit whose change is in the baseline */
+export type LandedCommit = {
+	/**  The local commit, as it was before the update */
+	id: string,
+	/**  The subject without the `(prefix)` */
+	subject: string,
+	/**
+	 *  The baseline commit with the same author, author time and subject (without the prefix); `None` when the baseline
+	 *  has the change in another commit (squashed upstream)
+	 */
+	upstream: UpstreamCommit | null,
 };
 
 /**
@@ -1090,6 +1117,10 @@ export type SyncEvent =
 	update: UpdateCheck | null,
 	/**  Why the check failed, e.g. a rebase in progress; the sync itself does not fail */
 	checkError: string | null,
+	/**  Local commits that the fetched baseline already has: the update drops them */
+	landing: LandedBranch[],
+	/**  Commits that landed with an update (by Branch Deck or elsewhere) and that the user has not dismissed yet */
+	landed: LandedBranch[],
 } };
 
 /**  How far a fetch or a push is, for the button that runs it */
@@ -1188,6 +1219,8 @@ export type UpdateProjectResult = {
 	check: UpdateCheck,
 	/**  What the update changed; `None` when up to date, conflicting or blocked */
 	applied: AppliedUpdate | null,
+	/**  The local commits this update dropped because the upstream has them, by branch */
+	landed: LandedBranch[],
 };
 
 /**  Whether the branch can be updated, relative to the last fetch of the upstream */

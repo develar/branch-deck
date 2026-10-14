@@ -38,7 +38,7 @@ fn fetch_moves_only_the_tracking_ref_of_the_baseline() {
   assert_eq!(git(&["for-each-ref", "--format=%(refname)", "refs/remotes/origin/other"]), "");
   // the check of the next sync sees the fetched upstream
   let check = check_baseline_update(clone.git_executor(), repo_path, "origin/master").unwrap().unwrap();
-  assert_eq!(check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(check.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
 }
 
 #[test]

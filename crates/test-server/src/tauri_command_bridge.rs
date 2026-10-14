@@ -320,6 +320,20 @@ pub async fn update_project(
     .map_err(|e| command_failed("update the project", &e))
 }
 
+#[derive(Deserialize)]
+pub struct DismissLandedRequest {
+  #[serde(rename = "repositoryPath")]
+  repository_path: String,
+}
+
+/// Clears the report of what landed; see `update_project`
+pub async fn dismiss_landed(State(state): State<Arc<AppState>>, Json(request): Json<DismissLandedRequest>) -> Result<Json<()>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &request.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::landed::dismiss_landed(&state.git_executor, &request.repository_path)
+    .map(Json)
+    .map_err(|e| command_failed("dismiss the landed commits", &e))
+}
+
 /// Fails with the error message as the body, see `update_project`; the progress channel is not mocked
 pub async fn fetch_baseline(
   State(state): State<Arc<AppState>>,

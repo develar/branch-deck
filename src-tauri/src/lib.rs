@@ -32,7 +32,7 @@ use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
-use commands::update_project::update_project;
+use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::open_sub_window;
 use tauri_specta::{Builder, collect_commands};
 
@@ -82,6 +82,7 @@ pub fn run() {
     squash_fixup_commits,
     update_project,
     fetch_baseline,
+    dismiss_landed,
     amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,

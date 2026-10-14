@@ -31,6 +31,9 @@ repositories: all operations run through the Git CLI.
 - **Update Project** (`⌘T`): fetches the baseline and rebases your local commits onto it. The header tells you
   beforehand whether the rebase is clean. On a conflict nothing is changed, and you can copy a ready prompt for a
   coding agent. Uncommitted changes survive as long as upstream didn't touch the same files.
+- **Landed commits**: when a robot or a pull request brought your commits into the baseline, the header and the branch
+  rows say so before the update, the update toast leads with it, and an island lists what landed (with the baseline
+  commits, the robot or pull request) until you dismiss it, also after an update made in the IDE.
 - **Squash**: squash selected commits into the oldest one, even when other branches' commits lie between them. Fold
   `fixup!`, `squash!` and `amend!` commits into their targets in one click, as `git rebase --autosquash` does. Both
   can be undone.

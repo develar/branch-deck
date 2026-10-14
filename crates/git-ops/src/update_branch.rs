@@ -128,10 +128,25 @@ pub struct UpdatePlan {
   purpose: CheckPurpose,
   /// HEAD after the update, for a clean one
   new_head: Option<String>,
+  /// HEAD after the replay, also when local changes block it; `None` up to date and on a conflict
+  replayed_head: Option<String>,
   /// The update changes HEAD's tree, so the index and the working tree must follow
   files_change: bool,
   /// The revisions excluded from the replayed range besides the upstream (previous upstream tips)
   excluded: Vec<String>,
+}
+
+impl UpdatePlan {
+  /// HEAD after the replay of the local commits, also when local changes block the update; `None` up to date and on a
+  /// conflict
+  pub fn replayed_head(&self) -> Option<&str> {
+    self.replayed_head.as_deref()
+  }
+
+  /// The revisions excluded from the local commits besides the upstream (previous upstream tips)
+  pub fn excluded(&self) -> &[String] {
+    &self.excluded
+  }
 }
 
 /// Check, without the network and without writing anything, whether the checked out branch can be updated to
@@ -164,6 +179,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     },
     purpose,
     new_head: None,
+    replayed_head: None,
     files_change: false,
     excluded: Vec::new(),
   };
@@ -219,6 +235,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     preview_cache().put(key, outcome.clone(), probe);
   }
   let Some(new_head) = new_head else { return Ok(plan) };
+  plan.replayed_head = Some(new_head.clone());
   if !blocked.is_empty() {
     plan.check.state = UpdateState::Blocked { paths: blocked };
     return Ok(plan);

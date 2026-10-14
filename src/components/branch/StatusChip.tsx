@@ -17,8 +17,8 @@ export interface StatusChipProps {
   /** The hover popover */
   details: ReactNode
   detailsTestId: string
-  /** A click: opens the item in the browser */
-  onActivate: () => void
+  /** A click: opens the item in the browser; without it a click opens the details */
+  onActivate?: () => void
   onOpenChange?: (open: boolean) => void
 }
 
@@ -45,7 +45,7 @@ export function StatusChip({ label, color, className, data, children, details, d
             onClick={(event) => {
               // the row toggles on click
               event.stopPropagation()
-              onActivate()
+              onActivate?.()
             }}
           />
         )}

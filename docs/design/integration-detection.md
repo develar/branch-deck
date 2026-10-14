@@ -92,6 +92,27 @@ flowchart TB
    **Rationale**: Archiving is the moment a branch landed; the archived card marks those rows "New" for the rest of
    the session, until the user dismisses what landed, instead of the branch silently moving into a collapsed card.
 
+9. **Decision**: Landed commits are found by author email, author time and subject without the `(prefix)`, with the
+   replay onto the upstream as the ground truth where it is known
+   **Rationale**: Archiving sees only whole branches, and only after the update. A Safe Push robot, `git rebase` and
+   `cherry-pick` keep the author, the author time and the message, and the pushed message is the local one without the
+   prefix (see [Virtual Branches](virtual-branches.md)), so the key names the baseline commit that carries a local
+   commit, with its committer (the robot), before and after the update and also partly (3 of 12 commits of a branch).
+   Patch ids would miss a commit whose fixups the robot folded in. Where the check replayed the local commits onto the
+   upstream, a commit `git replay` drops as empty is landed even without a key match: a fixup with its target, or a
+   branch squashed into one commit (no upstream commit then). Without a replay (a commit the user squashed, reworded
+   or dropped between two syncs is also gone), only key matches count.
+
+   Three moments, three places, no overlap (`crates/sync-core/src/landed.rs`):
+   - **Before the update** (the check of every sync, `BaselineStatus.landing`): the Update button says "brings in your
+     wsm", the branch row shows "Landed", the commit row "in origin/master".
+   - **The update** (`UpdateProjectResult.landed`): the toast leads with what landed.
+   - **After it** (`BaselineStatus.landed`): the undismissed report in `branch-deck/landed.json` of the worktree's git
+     directory, shared by the app and `bd`, shown as the Landed island until Dismiss (or 7 days). Each sync keeps where
+     the branch was; when the merge base moved since (an update here or in the IDE, `git pull --rebase`), the commits
+     that were local then and match the upstream now are added. Amend, reword and squash keep the merge base, so they
+     cost nothing and report nothing.
+
 ### Implementation Notes
 
 - **Detection Strategies**: 

@@ -6,6 +6,7 @@ use serde::Serialize;
 
 pub mod branch_integration;
 pub mod issue_navigation;
+pub mod landed;
 pub mod patronus;
 pub mod pull_request;
 pub mod stack;
@@ -107,9 +108,13 @@ pub enum SyncEvent {
   #[serde(rename_all = "camelCase")]
   BaselineStatus {
     baseline_branch: String,
-    update: Option<UpdateCheck>,
+    update: Option<Box<UpdateCheck>>,
     /// Why the check failed, e.g. a rebase in progress; the sync itself does not fail
     check_error: Option<String>,
+    /// Local commits that the fetched baseline already has: the update drops them
+    landing: Vec<landed::LandedBranch>,
+    /// Commits that landed with an update (by Branch Deck or elsewhere) and that the user has not dismissed yet
+    landed: Vec<landed::LandedBranch>,
   },
 }
 

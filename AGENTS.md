@@ -73,6 +73,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
 - **Update Project**: fetch and replay onto the baseline; the only working-tree write
   (`spec/repository/update-project.spec.md`).
+- **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
+  matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs

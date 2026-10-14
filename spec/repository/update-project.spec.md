@@ -46,7 +46,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 ## Non-goals
 
 - No count of incoming commits anywhere: a monorepo gets hundreds, and only conflicts matter. The state is up to date,
-  applies cleanly, conflicts in N files, or blocked by uncommitted changes.
+  applies cleanly, conflicts in N files, or blocked by uncommitted changes. The user's own commits that the baseline
+  already has are named, not counted as incoming ([Landed Commits](landed-commits.spec.md)).
 - Branch Deck does not resolve conflicts and does not launch an agent; it copies a prompt.
 - No merge of the upstream (`pull --no-rebase`), no update of submodules.
 
@@ -164,7 +165,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/remote_command_test.rs (`remote_command_runs_untranslated`)
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`failed_command_reports_messages_without_progress_updates`)
 - After an applied update a toast says "Updated master: rebased 2 commits onto origin/master" or "…: fast-forwarded to
-  origin/master" (with the commits dropped as already upstream), and a sync follows without expanding or scrolling.
+  origin/master", and a sync follows without expanding or scrolling. When commits landed, the toast leads with them
+  instead ([Landed Commits](landed-commits.spec.md)).
   Up to date says "master is already up to date with origin/master".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
 - The footer of the outgoing overview must show the same state in one line, named as incoming and with the fetch time,

@@ -297,6 +297,10 @@ detection of archived branches and the update check of the checked out branch. I
   (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:
   `{"commit","subject","author","author_time"}`.
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
+- `update.landing` lists the local commits the fetched baseline already has (the update drops them), and `landed` what
+  landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with
+  `commit`, `subject` and the baseline commit `upstream` (omitted when squashed upstream), and `remaining`, the commits
+  that stay local.
 - The exit code is 1 when any branch has a conflict; the summary is printed either way.
 
 ### `bd push <branch>… | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run]`

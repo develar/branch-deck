@@ -1,10 +1,11 @@
-import { ArrowDownIcon, CheckIcon, CircleHelpIcon, TriangleAlertIcon } from "lucide-react"
+import { ArrowDownIcon, CheckIcon, CircleHelpIcon, PackageCheckIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { TransferProgress, UpdatePhase } from "@/lib/bindings"
+import { describeLanding, shortLanding } from "@/lib/landed"
 import { isMac } from "@/lib/platform"
 import { formatRelativeTime } from "@/lib/time"
 import { transferAmount } from "@/lib/transfer-progress"
@@ -12,6 +13,7 @@ import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
 import { describeUpdateState, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
+import { useLanding } from "@/stores/landed"
 import { useSelectedProject } from "@/stores/repository"
 import { runUpdateProject, useFetchProgress, useUpdatePhase } from "@/stores/update-project"
 
@@ -39,9 +41,13 @@ function useFetchTime(status: BaselineStatus): number | null {
   return lastFetchTime(status.update, ownFetchTime)
 }
 
-function StateIcon({ tone, unknown }: { tone: UpdateTone, unknown: boolean }) {
+/** The state icon; a clean update that brings in the user's own landed commits shows the `info` package */
+function StateIcon({ tone, unknown, landing }: { tone: UpdateTone, unknown: boolean, landing: boolean }) {
   if (unknown) {
     return <CircleHelpIcon data-icon="inline-end" className="text-muted-foreground" data-testid="update-state-icon" />
+  }
+  if (landing && tone === "success") {
+    return <PackageCheckIcon data-icon="inline-end" className="text-info" data-testid="update-state-icon" data-landing />
   }
   switch (tone) {
     case "success":
@@ -78,6 +84,9 @@ export function UpdateProjectButton() {
 function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { status: BaselineStatus }) {
   const description = describeStatus(status)
   const fetchTime = useFetchTime(status)
+  const landing = useLanding()
+  const landingSentence = describeLanding(landing)
+  const summary = landingSentence === null ? description.summary : `${description.summary} · ${landingSentence}`
   const state = status.update?.state.status ?? "unknown"
   return (
     <Tooltip>
@@ -91,7 +100,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
             // the tooltip with the progress line stays reachable while the update runs
             focusableWhenDisabled
             aria-busy={phase !== null || undefined}
-            aria-label={`Update Project: ${description.summary}`}
+            aria-label={`Update Project: ${summary}`}
             data-testid="update-project-button"
             data-state={state}
             onClick={() => void runUpdateProject()}
@@ -100,11 +109,11 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
       >
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
         {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
-        {phase === null && <StateIcon tone={description.tone} unknown={status.update === null} />}
+        {phase === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} />}
       </TooltipTrigger>
       <TooltipContent data-testid="update-project-tooltip">
         <div className="flex flex-col gap-0.5">
-          <span>{phase === null ? description.summary : runningUpdateSummary(phase, fetch, upstreamName(status))}</span>
+          <span>{phase === null ? summary : runningUpdateSummary(phase, fetch, upstreamName(status))}</span>
           <span className="flex items-center gap-1.5 opacity-70">
             {fetchTime === null ? "Not fetched yet" : `Fetched ${formatRelativeTime(fetchTime)}`}
             {" · fetch and update"}
@@ -135,6 +144,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
   const description = describeStatus(status)
   const fetchTime = useFetchTime(status)
   const transfer = phase === "fetching" ? transferAmount(fetch) : null
+  const landing = shortLanding(useLanding())
   return (
     <div className="flex items-center justify-between gap-3" data-testid="update-state-line">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
@@ -144,7 +154,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
           {transfer === null
-            ? `: ${description.short} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`
+            ? `: ${description.short}${landing === null ? "" : ` · ${landing}`} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`
             : `: ${transfer}`}
         </span>
       </span>

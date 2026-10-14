@@ -63,3 +63,30 @@ fn waits_for_the_lock() {
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!((exit_code, &output["error"]["code"]), (3, &json!("locked")));
 }
+
+#[test_log::test]
+fn reports_the_commits_the_baseline_already_has() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "auth.rs", "auth\n");
+  let login = commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  write(&repo, "ui.rs", "ui\n");
+  commit_all(&repo, "(ui) Add button", 1_700_000_200);
+  // a robot rebased the commit onto the baseline without its prefix, keeping the author time
+  git(&repo, &["switch", "--quiet", "--create", "robot", "refs/remotes/origin/master"]);
+  write(&repo, "auth.rs", "auth\n");
+  let landed = commit_all(&repo, "Add login", 1_700_000_100);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &landed]);
+  git(&repo, &["switch", "--quiet", "master"]);
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["update"]["landing"],
+    json!([{
+      "branch": "auth",
+      "commits": [{ "commit": short_id(&login), "subject": "Add login", "upstream": short_id(&landed) }],
+      "remaining": 0,
+    }])
+  );
+  assert_eq!(output["landed"], json!(null), "nothing landed with an update yet");
+}

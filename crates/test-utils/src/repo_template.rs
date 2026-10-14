@@ -587,6 +587,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     Conflict,
     /// The local commits rebase cleanly, but the file the upstream changed has uncommitted changes
     Blocked,
+    /// A robot pushed `feature-auth` and the first of the two `search` commits: the upstream has them rebased, without
+    /// the prefix, with their author and author time and the committer `Patronus`; `ui` stays local
+    Landed,
   }
 
   /// A clone whose `master` tracks `origin/master` of an upstream that has moved on. The upstream is a bare repository
@@ -604,6 +607,10 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
   pub fn update_blocked() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Blocked)
+  }
+
+  pub fn landed_upstream() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::Landed)
   }
 
   pub const UPDATE_APP_FILE: &str = "src/app.txt";
@@ -670,6 +677,22 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         1704121200,
       )?;
       commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704121500)?;
+      if scenario == UpdateScenario::Landed {
+        // as a Safe Push robot pushes the local commits below
+        for (message, path, content, author_time) in [("Add login", "src/auth.txt", "login\n", 1704118500), ("Add index", "src/search.txt", "index\n", 1704118600)] {
+          write(path, content)?;
+          git(&["add", "--", path], None)?;
+          let output = Command::new("git")
+            .args(["commit", "-q", "-m", message])
+            .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
+            .env("GIT_COMMITTER_DATE", "1704122000 +0000")
+            .env("GIT_COMMITTER_NAME", "Patronus")
+            .env("GIT_COMMITTER_EMAIL", "patronus@example.com")
+            .current_dir(output_path)
+            .output()?;
+          anyhow::ensure!(output.status.success(), "robot commit failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+      }
       git(&["push", "-q", ".git/upstream.git", "HEAD:refs/heads/master"], None)?;
       git(&["checkout", "-q", "master"], None)?;
 
@@ -677,12 +700,17 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       if scenario == UpdateScenario::Conflict {
         commit("(feature-auth) Change line 2", &[(UPDATE_APP_FILE, "line 1\nline 2 local\nline 3\n")], 1704118800)?;
       }
+      if scenario == UpdateScenario::Landed {
+        commit("(search) Add index", &[("src/search.txt", "index\n")], 1704118600)?;
+        commit("(search) Add query", &[("src/search.txt", "index\nquery\n")], 1704118700)?;
+        commit("(ui) Add button", &[("src/button.txt", "button\n")], 1704118800)?;
+      }
       git(&["fetch", "-q", "origin"], None)?;
 
       match scenario {
         UpdateScenario::BehindUpstream => write("src/config.txt", "debug=true\n")?,
         UpdateScenario::Blocked => write(UPDATE_APP_FILE, "line 1\nline 2\nline 3\nlocal edit\n")?,
-        UpdateScenario::Conflict => {}
+        UpdateScenario::Conflict | UpdateScenario::Landed => {}
       }
       Ok(())
     }

@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
+import { LandedCard } from "@/components/repository/LandedCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
@@ -72,6 +73,8 @@ export function BranchCreator() {
       <ConfigurationHeader />
 
       {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} hasBranchPrefix={hasBranchPrefix} />}
+
+      <LandedCard />
 
       {errorTitle && !isSyncing
         ? (
