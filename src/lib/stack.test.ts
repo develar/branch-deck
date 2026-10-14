@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
+import { summarizePushState } from "@/lib/push-summary"
 import { describePrefixChange } from "@/lib/stack"
 
 const table: Record<string, StackBranchInfo> = {
@@ -38,5 +39,16 @@ describe("describePrefixChange", () => {
   it("compares the whole prefix without stacked branches", () => {
     expect(change("(docs) Document", "(auth/login) Document", false).text).toBe("Saving moves the commit to the branch auth/login")
     expect(change("(auth/login) Add form", "(auth/login) Add the form", false).warning).toBe(false)
+  })
+})
+
+describe("push summary with stacked branches", () => {
+  it("leaves out a blocked branch: it offers no push", () => {
+    const remoteStatus = { exists: false, unpushedCommits: [], commitsAhead: 1, commitsBehind: 0, myCommitsAhead: 1, fastForward: true, lastPushTime: 0 }
+    const summary = summarizePushState([
+      { name: "auth", remoteStatus, hasError: false, commitCount: 1, status: "Created" },
+      { name: "login", remoteStatus, hasError: false, commitCount: 1, status: "Blocked" },
+    ])
+    expect(summary.branches.map(branch => branch.name)).toEqual(["auth"])
   })
 })

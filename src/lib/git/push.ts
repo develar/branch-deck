@@ -29,6 +29,8 @@ export async function pushBranch(branchName: string): Promise<void> {
       branchName,
       myEmail: branch.myEmail,
       baselineBranch: branchSyncStore.getState().baselineBranch!,
+      // a stacked branch's own commits are those after its parent
+      parentBranch: branch.stack?.effectiveBase ?? null,
     })
 
     if (result.status === "ok") {

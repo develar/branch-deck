@@ -85,9 +85,12 @@ export interface PushSummary {
   notLoaded: number
 }
 
-type SummaryInput = Pick<Branch, "name" | "remoteStatus" | "hasError" | "commitCount">
+type SummaryInput = Pick<Branch, "name" | "remoteStatus" | "hasError" | "commitCount"> & { status?: Branch["status"] }
 
-/** What is waiting to be pushed: only the branches whose row offers a push (synced without an error, with commits). */
+/**
+ * What is waiting to be pushed: only the branches whose row offers a push (synced without an error, with commits, not
+ * blocked by their stack parent).
+ */
 export function summarizePushState(branches: readonly SummaryInput[]): PushSummary {
   const summary: PushSummary = {
     total: 0,
@@ -98,7 +101,7 @@ export function summarizePushState(branches: readonly SummaryInput[]): PushSumma
     notLoaded: 0,
   }
   for (const branch of branches) {
-    if (branch.hasError || branch.commitCount === 0) {
+    if (branch.hasError || branch.commitCount === 0 || branch.status === "Blocked") {
       continue
     }
     const action = getPushAction(branch)

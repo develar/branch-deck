@@ -27,6 +27,10 @@ targets:
   - ../../src/components/commit/PrefixChangeHint.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
   - ../../src/hooks/useBranchNameValidation.ts
+  - ../../src/hooks/usePushButton.ts
+  - ../../src/lib/push-summary.ts
+  - ../../src/lib/git/push.ts
+  - ../../src/components/branch/StackBaseLabel.tsx
 ---
 
 # Stacked Branches
@@ -51,8 +55,7 @@ renames branches.
 
 ## Non-goals
 
-- Set the base of a pull request, a "Push Stack" action, and "on auth" where the tree isn't visible (the Outgoing
-  popover, the Space preview) (later).
+- Set the base of a pull request, a "Push Stack" action (later).
 - Stacked branches in the `bd` CLI (later).
 
 ## Requirements
@@ -161,8 +164,14 @@ renames branches.
   they block. See [Move Commits](move-commits.spec.md).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
 - A blocked branch must show a muted `blocked by <parent>` status with the reason as its tooltip, a disabled push
-  button, and, expanded, an info alert with a link that reveals the parent.
+  button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and, expanded, an info
+  alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
+  [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
+- Where the tree isn't visible, a stacked branch must say what it is built on ("on auth"): the Outgoing overview and the
+  branch preview.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+- A push of a stacked branch must count only its own commits as unpushed afterwards (`parentBranch`).
 
 ## Testing / Local Run
 

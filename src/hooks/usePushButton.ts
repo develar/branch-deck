@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
+import { blockingBranchOf } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -12,6 +13,11 @@ export interface PushButtonState {
 }
 
 export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing: boolean): PushButtonState {
+  // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
+  if (branch.status === "Blocked") {
+    const blocker = blockingBranchOf(branch)
+    return { text: "Push", color: "neutral", tooltip: blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`, disabled: true }
+  }
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
   const action = getPushAction(branch)

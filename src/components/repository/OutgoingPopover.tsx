@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
+import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
 import { formatOutgoingCount, formatOutgoingTitle, getOutgoingLegend, getPushHue, outgoingBarFill } from "@/lib/push-summary"
 import { useBranch } from "@/stores/branch-sync"
@@ -131,6 +132,8 @@ function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: s
       onClick={() => onReveal(name)}
     >
       {name}
+      {/* the popover has no tree: a stacked branch says what it is built on */}
+      <StackBaseLabel name={name} className="ml-1.5" />
     </button>
   )
 }

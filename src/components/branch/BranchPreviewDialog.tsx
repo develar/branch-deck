@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
+import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
@@ -108,6 +109,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               <DialogTitle className="shrink-0 leading-5">
                 <LinkedText text={branch.name} className="text-sm font-medium" linkClassName="text-foreground hover:underline" />
               </DialogTitle>
+              <StackBaseLabel name={branch.name} />
               {/* an issue branch is named after its issue */}
               {branch.issueKey !== null && branch.issueKey !== branch.name && <BranchIssueBadge issueKey={branch.issueKey} />}
               {branch.summary && <BranchSummary summary={branch.summary} />}

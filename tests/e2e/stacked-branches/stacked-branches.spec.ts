@@ -1,7 +1,7 @@
 // @spec spec/branch/stacked-branches.spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
@@ -17,6 +17,17 @@ test.describe("Stacked branches", () => {
     await verifyCommitCount(findBranchRow(page, "login"), "1 commit")
 
     expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    // the preview has no tree: it says what the branch is built on
+    await findBranchRow(page, "oauth").hover()
+    await page.keyboard.press("Space")
+    await expect(page.getByTestId("branch-preview-body")).toBeVisible()
+    await expect(page.getByRole("dialog").getByTestId("stack-base")).toHaveText("on login")
+    await page.keyboard.press("Escape")
+    // nor does the outgoing overview
+    await page.getByTestId("outgoing-indicator").hover()
+    const loginRow = page.getByTestId("outgoing-popover").locator("[data-testid=outgoing-branch][data-branch-name=login]")
+    await expect(loginRow.getByTestId("stack-base")).toHaveText("on auth")
+    await page.keyboard.press("Escape")
     // session belongs to an issue that its parent doesn't: the chip says so
     await expect(findBranchRow(page, "session").getByTestId("branch-issue-key")).toHaveText("ABC-1")
     await expect(findBranchRow(page, "login").getByTestId("branch-issue-key")).toHaveCount(0)
@@ -28,7 +39,8 @@ test.describe("Stacked branches", () => {
 
     const loginRow = findBranchRow(page, "login")
     await expect(loginRow).toContainText("blocked by auth")
-    await expect(loginRow.getByTestId("blocked-push").getByRole("button")).toBeDisabled()
+    await expect(getPushButton(loginRow)).toBeDisabled()
+    await expect(getPushButton(loginRow)).toHaveText("Push")
 
     await expandBranch(page, loginRow)
     const alert = getBranchDetailsRow(page, "login").getByTestId("branch-blocked")
