@@ -38,6 +38,33 @@ test.describe("Update Project", () => {
     await verifyCommitCount(findBranchRow(page, "feature-auth"), "1 commit")
   })
 
+  test("should name the running step in the tooltip, not the last state", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    // hold the update in its fetch: the mock forwards no progress, as before git reports the first stage
+    let releaseUpdate!: () => void
+    const updateHeld = new Promise<void>((resolve) => {
+      releaseUpdate = resolve
+    })
+    await page.route("**/invoke/update_project", async (route) => {
+      await updateHeld
+      await route.continue()
+    })
+    const button = updateButton(page)
+    await button.click()
+    await expect(button).toHaveText("Fetching…")
+    // the click closed the tooltip; it opens again on the next hover, and the disabled button stays hoverable
+    await page.mouse.move(0, 0)
+    await button.hover()
+    const tooltip = page.getByTestId("update-project-tooltip")
+    await expect(tooltip).toContainText("Fetching origin/master…")
+    await expect(tooltip).not.toContainText("Rebases cleanly")
+
+    releaseUpdate()
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    await expect(button).toHaveText("Update")
+  })
+
   test("should show the update state in the footer of the outgoing overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()

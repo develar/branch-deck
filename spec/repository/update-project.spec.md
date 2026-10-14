@@ -144,6 +144,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to origin/master…".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the running step in the tooltip, not the last state`)
 - Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
   tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
@@ -223,7 +224,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   back and the written files show as uncommitted changes. See "Update project" in the design doc.
 - The first check after a start or a fetch hashes the changed files the probe hasn't seen: about 60–130 µs a file on a
   loaded machine, so an update that changes tens of thousands of files costs seconds once.
-- The e2e mock does not forward the progress channel, so the steps of a running update are not tested in the page.
+- The e2e mock does not forward the progress channel: the page sees only the fetch before git reports a stage (the test
+  holds the request); the percent and the later steps are tested in the units.
 
 ## References
 
