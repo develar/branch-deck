@@ -1,3 +1,4 @@
+// @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
@@ -30,6 +31,23 @@ test.describe("Archived Branches Table", () => {
 
     // Capture expanded snapshot
     await captureHtmlSnapshot(card, "archived-branches-card-expanded")
+  })
+
+  test("should name the integration status in words, with the counts in the tooltip", async ({ page }) => {
+    const card = page.getByTestId("archived-branches-card")
+    await card.getByText("Archived Branches", { exact: true }).click()
+    await waitForCollapsibleCardExpanded(card)
+
+    const status = (name: string) => card.locator(`tr[data-branch-name="user-name/archived/2025-01-11/${name}"]`).getByTestId("archived-branch-status")
+    await expect(status("feature-full")).toHaveAttribute("data-status", "merged")
+    await expect(status("feature-full")).toHaveText("Merged")
+    await expect(status("feature-partial")).toHaveAttribute("data-status", "partial")
+    await expect(status("feature-partial")).toHaveText("Partially merged · 1 of 2")
+    await expect(status("feature-pending")).toHaveAttribute("data-status", "not-merged")
+    await expect(status("feature-pending")).toHaveText("Not merged")
+
+    await status("feature-pending").getByText("Not merged").hover()
+    await expect(page.getByTestId("archived-branch-status-tooltip")).toHaveText("1 commit, none merged; the original commits are no longer in HEAD")
   })
 
   test("should show empty state alert when only archived branches exist", async ({ page }) => {

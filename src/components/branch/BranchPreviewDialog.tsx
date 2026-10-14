@@ -186,7 +186,7 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
     <Tooltip>
       <TooltipTrigger render={<span data-testid="branch-preview-status" className="flex items-center gap-1.5" />}>
         <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />
-        <span className="lowercase">{status.text}</span>
+        <span>{status.text}</span>
       </TooltipTrigger>
       <TooltipContent className="max-w-sm whitespace-pre-line">{status.tooltip}</TooltipContent>
     </Tooltip>,

@@ -139,8 +139,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 ### Chip
 
-- The Status cell of a branch row shows the chip after the pull request chip: a shield and the state. A branch without
-  a robot shows nothing.
+- The Status cell of a branch row shows the chip in its third column, after the pull request chip and before the
+  Landed chip ([Branch Row](branch-row.spec.md)): a shield and the state. A branch without a robot shows nothing.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
 - Running and canceling are muted, failed `destructive`, failed for missing approvals "Needs review" `warning`, a
   successful Safe Push "Merged" `info`, a successful dry run
@@ -338,6 +338,7 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 ## References
 
+- [Branch Row](branch-row.spec.md): the Status cell and the anatomy of the chip details
 - [Pull Requests](pull-requests.spec.md): the other review status, the same chip and refresh gate
 - [Outgoing Commits](../repository/outgoing.spec.md)
 - [Branch Preview](branch-preview.spec.md)

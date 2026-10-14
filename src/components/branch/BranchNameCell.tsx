@@ -32,8 +32,8 @@ export interface BranchNameCellProps {
 export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, depth = 0, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   const content = (
-    // the rule spans the row height, below the icon of the row above
-    <div className={cn("flex min-w-0 items-center gap-2", depth > 0 && "-my-4 border-l border-border py-4 pl-4", depth > 1 && "ml-3")}>
+    // the rule spans the row height, under the icon of the row above (`--bd-nesting-step` in index.css)
+    <div className={cn("flex min-w-0 items-center gap-2", depth > 0 && "bd-nesting-leaf")} data-testid={depth > 0 ? "nesting-rule" : undefined}>
       {canExpand && (
         <Button
           variant="ghost"
@@ -58,17 +58,22 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
     </div>
   )
   return (
-    <td className={cn("w-full max-w-0 py-4", depth > 0 ? "pr-6 pl-9" : "px-6")}>
-      <NestingRules depth={depth}>{content}</NestingRules>
+    // a nested row starts at its first rule (2rem), a top-level row at its folder icon
+    <td className={cn("w-full max-w-0 py-4", depth > 0 ? "pr-6 pl-8" : "px-6")}>
+      <NestingRules levels={depth - 1}>{content}</NestingRules>
     </td>
   )
 }
 
-/** The rules of the levels above the row's own: one per level, each under the icon of the row of that level */
-function NestingRules({ depth, children }: { depth: number, children: ReactNode }) {
+/**
+ * The rules of `levels` tree levels around `children`, one `--bd-nesting-step` apart, each over the whole height of its
+ * `py-4` cell. The branch row draws the levels above its own; its expanded commits draw all of its levels, so the tree
+ * continues past them.
+ */
+export function NestingRules({ levels, children }: { levels: number, children: ReactNode }) {
   let nested = children
-  for (let level = depth - 1; level >= 1; level--) {
-    nested = <div className={cn("-my-4 border-l border-border py-4 pl-4", level > 1 && "ml-3")}>{nested}</div>
+  for (let level = 0; level < levels; level++) {
+    nested = <div className="bd-nesting-level" data-testid="nesting-rule">{nested}</div>
   }
   return nested
 }

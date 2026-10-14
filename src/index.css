@@ -43,6 +43,29 @@
   @apply px-4 sm:px-6 py-4;
 }
 
+/*
+ * The tree of the branch table (BranchNameCell, ActiveBranchExpanded). A nested row is indented by --bd-nesting-step per
+ * level and draws one rule per level. The rule of level n sits 2rem + (n - 1) × step from the cell edge: under the left
+ * wall of the folder icon of the row above (the icon starts at the px-6 cell padding, its rule 0.5rem in). The commit
+ * rail of an expanded row of depth d is the rule of level d + 1, so a parent's commits continue into its children's
+ * rule, and the commit subjects start at the branch name.
+ */
+:root {
+  --bd-nesting-step: 1.75rem;
+}
+
+/* a level above the row's own: its rule over the whole row height, then the next level one step to the right */
+@utility bd-nesting-level {
+  @apply -my-4 border-l border-border py-4;
+  padding-left: calc(var(--bd-nesting-step) - 1px);
+}
+
+/* the row's own level: its rule, then the folder icon one step to the right of the rule above, less the 0.5rem from the icon to its rule */
+@utility bd-nesting-leaf {
+  @apply -my-4 border-l border-border py-4;
+  padding-left: calc(var(--bd-nesting-step) - 0.5rem - 1px);
+}
+
 /* indeterminate progress bar (inline form rows) */
 @theme {
   --animate-carousel: carousel 2s ease-in-out infinite;

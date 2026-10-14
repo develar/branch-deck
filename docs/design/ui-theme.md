@@ -57,7 +57,7 @@ The Rhea preset derives all radii from `--radius` through the multipliers in the
 | --- | --- | --- | --- | --- |
 | `rounded-4xl`, capped at 24px | 2.6× | 10.4px | `Card`, `Dialog` | `Island.arc` 20, a 10px radius |
 | `rounded-3xl` | 2.2× | 8.8px | `Popover` | popup |
-| `rounded-2xl` | 1.8× | 7.2px | button, input, select, badge, toast, menu | `Button.arc` 8, a 4px radius |
+| `rounded-2xl` | 1.8× | 7.2px | button, input, select, badge, status chip, toast, menu | `Button.arc` 8, a 4px radius |
 | `rounded-xl` | 1.4× | 5.6px | menu items, tooltip | `Banner.arc` 12, a 6px radius |
 | `rounded-lg` | 1× | 4px | `kbd`, inner panels in app code | `Component.arc` 8, a 4px radius |
 

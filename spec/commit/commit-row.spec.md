@@ -56,7 +56,7 @@ The commit hash popover shows the same header and body.
 
 - The row does not render Markdown. It recognizes git conventions and code tokens only.
 - The row does not show a diff or a file list.
-- This spec does not cover the branch status column or the branch actions.
+- This spec does not cover the branch status column or the branch actions: see [Branch Row](../branch/branch-row.spec.md).
 
 ## Requirements
 
@@ -290,7 +290,9 @@ The commit hash popover shows the same header and body.
 ### Branch table
 
 - An expanded branch shows its commits behind a neutral `border-l border-border` rail.
-- The rail sits under the folder icon (`ml-8`). The subjects start at the left edge of the branch name.
+- The rail sits under the left wall of the folder icon: 2rem from the cell edge, one `--bd-nesting-step` further per
+  nesting level, where it continues into the rule of the branch's children
+  ([Branch Row](../branch/branch-row.spec.md)). The subjects start at the left edge of the branch name.
 - An archived branch uses the same rail.
 
 ### Commit hash popover

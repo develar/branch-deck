@@ -36,6 +36,15 @@ test.describe("Landed commits", () => {
     await expect(findBranchRow(page, "search").getByTestId("landed-chip")).toHaveText("1 of 2 landed")
     await expect(findBranchRow(page, "ui").getByTestId("landed-chip")).toHaveCount(0)
 
+    // the details have the anatomy of the pull request and Patronus details: the state line, then `dl` rows
+    await findBranchRow(page, "search").getByTestId("landed-chip").hover()
+    const details = page.getByTestId("landed-popover").getByTestId("landed-details")
+    await expect(details.getByTestId("landed-details-state")).toHaveText("1 of 2 landed")
+    await expect(details.getByTestId("landed-details-commits")).toContainText("Add index")
+    await expect(details.getByTestId("landed-details-commits")).toContainText("Patronus")
+    await expect(details.getByTestId("landed-details-remaining")).toHaveText("1 commit")
+    await page.mouse.move(0, 0)
+
     const search = findBranchRow(page, "search")
     await expandBranch(page, search)
     await expect(getBranchCommitRow(page, "search", "Add index").getByTestId("landed-commit-marker")).toHaveText("in origin/master")

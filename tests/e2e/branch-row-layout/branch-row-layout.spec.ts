@@ -1,7 +1,8 @@
+// @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
-import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
 import { testCopyButton, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 
@@ -27,6 +28,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(branchName).toContainText("test-branch")
     await verifyCommitCount(branchRow, "commit")
     await expect(status).toBeVisible()
+    await verifyBranchStatus(branchRow, "not pushed")
     await expect(actions).toBeVisible()
 
     // Verify copy button is present in actions column

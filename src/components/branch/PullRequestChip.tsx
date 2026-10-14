@@ -43,7 +43,6 @@ export function PullRequestChip({ branchName }: { branchName: string }) {
     <StatusChip
       label={`Pull request #${pullRequest.number}: ${chip.label}`}
       color={chip.color}
-      className={cn(chip.icon === "draft" && "border-dashed border-muted-foreground/50")}
       data={{
         "data-testid": "pull-request-chip",
         "data-kind": chip.icon,

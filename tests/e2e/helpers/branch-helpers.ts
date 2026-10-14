@@ -98,8 +98,7 @@ export async function verifyCommitCount(branchRow: Locator, expectedText: string
  */
 export async function verifyBranchStatus(branchRow: Locator, expectedStatus: string): Promise<void> {
   const { status } = getBranchCells(branchRow)
-  const statusBadge = status.locator(".lowercase")
-  await expect(statusBadge).toContainText(expectedStatus)
+  await expect(status.getByTestId("branch-status")).toContainText(expectedStatus)
 }
 
 /**

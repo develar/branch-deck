@@ -1,5 +1,5 @@
 // @spec spec/branch/stacked-branches.spec.md
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
@@ -11,6 +11,17 @@ import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, sele
 /** `name@depth` of the branch rows in display order */
 async function tree(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-depth") ?? 0}`))
+}
+
+/** The x of each tree rule in a row, outermost first */
+async function ruleXs(row: Locator): Promise<number[]> {
+  return row.getByTestId("nesting-rule").evaluateAll(rules => rules.map(rule => Math.round(rule.getBoundingClientRect().left)))
+}
+
+async function boxOf(locator: Locator): Promise<{ x: number, y: number, width: number, height: number }> {
+  const box = await locator.boundingBox()
+  expect(box).not.toBeNull()
+  return box!
 }
 
 test.describe("Stacked branches", () => {
@@ -36,12 +47,41 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "login").getByTestId("branch-issue-key")).toHaveCount(0)
   })
 
+  test("should continue the commit rail of a parent into the rule of its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    await expandBranch(page, findBranchRow(page, "auth"))
+    await expandBranch(page, findBranchRow(page, "login"))
+
+    const authRail = await boxOf(getBranchDetailsRow(page, "auth").getByTestId("commit-rail"))
+    const loginRail = await boxOf(getBranchDetailsRow(page, "login").getByTestId("commit-rail"))
+    const railX = Math.round(authRail.x)
+    const loginRailX = Math.round(loginRail.x)
+    // session and login hang from the rail of auth, oauth from the rail of login, one step further
+    expect(await ruleXs(findBranchRow(page, "session"))).toEqual([railX])
+    expect(await ruleXs(findBranchRow(page, "login"))).toEqual([railX])
+    expect(await ruleXs(findBranchRow(page, "oauth"))).toEqual([railX, loginRailX])
+    // the commits of login keep the rule of its level beside them
+    expect(await ruleXs(getBranchDetailsRow(page, "login"))).toEqual([railX])
+    expect(loginRailX - railX).toBe(28)
+    // a rail runs to the bottom of its cell, into the rule of the first child
+    const session = await boxOf(findBranchRow(page, "session"))
+    expect(Math.abs(authRail.y + authRail.height - session.y)).toBeLessThanOrEqual(1)
+    const oauth = await boxOf(findBranchRow(page, "oauth"))
+    expect(Math.abs(loginRail.y + loginRail.height - oauth.y)).toBeLessThanOrEqual(1)
+    // the commit subjects start at the branch name
+    const name = await boxOf(findBranchRow(page, "login").getByText("login", { exact: true }))
+    const subject = await boxOf(getBranchCommitRow(page, "login", "Add login form").getByText("Add login form", { exact: true }))
+    expect(Math.abs(subject.x - name.x)).toBeLessThanOrEqual(1)
+  })
+
   test("should block the children of a parent that doesn't build", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_conflict")
     await syncAndWaitForBranches()
 
     const loginRow = findBranchRow(page, "login")
-    await expect(loginRow).toContainText("blocked by auth")
+    await expect(loginRow.getByTestId("branch-status")).toHaveText("blocked by auth")
+    await expect(findBranchRow(page, "auth").getByTestId("branch-status")).toHaveText("merge conflict")
     await expect(getPushButton(loginRow)).toBeDisabled()
     await expect(getPushButton(loginRow)).toHaveText("Push")
 

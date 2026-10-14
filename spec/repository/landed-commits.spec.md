@@ -107,8 +107,12 @@ by the next sync the same way.
   [@test] ../../src/lib/landed.test.ts (`names the user's branches, a part as a count of the branch`)
   [@test] ../../src/lib/landed.test.ts (`says it in a few words for the footer`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
-- The branch row shows an `info` chip "Landed" (all its commits) or "1 of 2 landed"; its popover lists the commits with
-  the baseline commits. A landed commit shows "in origin/master" after its subject.
+- The branch row shows an `info` chip "Landed" (all its commits) or "1 of 2 landed" in the third column of its Status
+  cell, after the Patronus chip ([Branch Row](../branch/branch-row.spec.md)). Its popover has the anatomy of the pull
+  request and Patronus details: the state line, what the update does, then the rows "Commits" (each subject with its
+  baseline commit) and "Stays local". A landed commit shows "in origin/master" after its subject; its popover has the
+  row "Landed as".
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 
 ### After the update
 
@@ -154,3 +158,4 @@ by the next sync the same way.
 
 - [Integration Detection](../../docs/design/integration-detection.md): decision 9, "Landed commits".
 - [Update Project](update-project.spec.md), [Patronus](../branch/patronus.spec.md).
+- [Branch Row](../branch/branch-row.spec.md): the Status cell and the anatomy of the chip details.
