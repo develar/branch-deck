@@ -4,6 +4,9 @@ description: Requirements for bd, the command line a coding agent uses to read t
 style: plain-1
 targets:
   - ../../src-tauri/src/main.rs
+  - ../../crates/bd-cli/src/main.rs
+  - ../../scripts/build-bd.mjs
+  - ../../src-tauri/tauri.windows-bd.conf.json
   - ../../crates/bd-cli/src/lib.rs
   - ../../crates/bd-cli/src/context.rs
   - ../../crates/bd-cli/src/error.rs
@@ -46,7 +49,7 @@ Date: 2026-10-14
 unassigned commits, and every commit with its files and what ties it to the others. The agent clusters the commits
 into branches from that, applies the grouping with one validated rewrite of the commit messages, syncs the virtual
 branches and writes their pull request text. It is the `cli` subcommand of the app binary
-(`branch-deck cli status`), or the binary symlinked as `bd`. Every output is one JSON object with a stable schema.
+(`branch-deck cli status`), or the binary symlinked as `bd`; on Windows a console `bd.exe` next to the app. Every output is one JSON object with a stable schema.
 How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli.md).
 
 ## Goals
@@ -59,13 +62,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ## Non-goals
 
 - Reordering, squashing, dropping or splitting commits.
-- A console binary on Windows; the CLI runs from the macOS app binary first.
 
 ## Requirements
 
 ### Invocation
 
 - `branch-deck cli <command>` and a binary named `bd` must run the CLI without starting Tauri.
+- On Windows, where the app binary has no console, the installer must put a console `bd.exe` next to the app
+  (`crates/bd-cli/src/main.rs`, bundled as an `externalBin` by `src-tauri/tauri.windows-bd.conf.json`).
 - `-C <repo>` must select the repository, default the current directory; a subdirectory must resolve to the top level.
   [@test] ../../crates/bd-cli/src/status_test.rs (`subdirectory_resolves_to_top_level`)
 - The branch prefix must come from `--prefix`, else the app setting `globalUserBranchPrefix`, else

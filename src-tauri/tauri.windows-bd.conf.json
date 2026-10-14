@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "pnpm build && node scripts/build-bd.mjs"
+  },
+  "bundle": {
+    "externalBin": [
+      "binaries/bd"
+    ]
+  }
+}

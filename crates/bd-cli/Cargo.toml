@@ -4,6 +4,13 @@ version.workspace = true
 edition.workspace = true
 description = "The `bd` agent command line of Branch Deck: JSON on stdout, logs on stderr"
 
+# the console binary Windows installs next to the app (src-tauri/tauri.windows-bd.conf.json); elsewhere the app binary
+# runs the CLI
+[[bin]]
+name = "bd"
+path = "src/main.rs"
+test = false
+
 [dependencies]
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }

@@ -43,3 +43,5 @@ playwright-report/
 
 # Test repositories
 tests/test-repos/
+# the console bd that scripts/build-bd.mjs builds for the Windows bundle
+src-tauri/binaries/

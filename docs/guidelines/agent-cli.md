@@ -11,10 +11,13 @@ together), regroup the commits and sync them. It reads with `status`, `commits` 
 with `group`, `rename`, `restack`, `unstack` and `undo`, rebuilds the virtual branches with `sync` and keeps their pull
 request text with `describe`, tries a plan without writing refs with `check` and pushes with `push`.
 
-It is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked as `bd`, the CLI
-runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or plugin is created.
-The code is in `crates/bd-cli`; the requirements are in the [Agent CLI spec](../../spec/cli/agent-cli.spec.md). Windows
-needs a console sidecar and is not supported yet.
+On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
+as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
+plugin is created. On Windows the app binary is a GUI-subsystem program without a console, so the installer puts a
+console `bd.exe` next to `branch-deck.exe`: the `bd` binary of `crates/bd-cli`, which `scripts/build-bd.mjs` builds
+for the Tauri `externalBin` of `src-tauri/tauri.windows-bd.conf.json` (passed with `--config` by the Windows CI jobs
+only, so other builds don't need the file). The code is in `crates/bd-cli`; the requirements are in the
+[Agent CLI spec](../../spec/cli/agent-cli.spec.md).
 
 ## Invocation
 
@@ -26,7 +29,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `-C <repo>` sets the repository. It defaults to the current directory, and any subdirectory resolves to the
   top level of the working tree.
 - `--prefix <p>` sets the branch prefix. The default is the app setting `globalUserBranchPrefix`, read from
-  `settings.json` in the app data directory (`~/Library/Application Support/org.develar.branch-deck/` on macOS).
+  `settings.json` in the app data directory (`~/Library/Application Support/org.develar.branch-deck/` on macOS,
+  `%APPDATA%\org.develar.branch-deck\` on Windows).
   Without it, `git config branchdeck.branchPrefix` is used. An empty prefix is the error `no_branch_prefix`. Every
   output echoes the prefix.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
