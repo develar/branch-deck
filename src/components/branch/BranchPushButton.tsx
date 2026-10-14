@@ -52,7 +52,7 @@ export function BranchPushButton({ branch, colored = true }: BranchPushButtonPro
         {isPushing ? <Spinner data-icon="inline-start" /> : <UploadIcon data-icon="inline-start" />}
         {isPushing ? transferLabel("Pushing", progress) : push.text}
       </PopoverTrigger>
-      <PopoverContent className="w-auto max-w-sm gap-2 px-3 py-2 text-sm leading-snug">
+      <PopoverContent className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug">
         {isPushing
           ? <PushProgressDescription branchName={branch.name} progress={progress} />
           : (

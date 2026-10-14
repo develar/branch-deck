@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
@@ -125,16 +126,22 @@ function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReve
 /** Shows the branch row */
 function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: string) => void }) {
   return (
-    <button
-      type="button"
-      className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-      title={`Show ${name}`}
-      onClick={() => onReveal(name)}
-    >
-      {name}
-      {/* the popover has no tree: a stacked branch says what it is built on */}
-      <StackBaseLabel name={name} className="ml-1.5" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <button
+            type="button"
+            className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+            onClick={() => onReveal(name)}
+          />
+        )}
+      >
+        {name}
+        {/* the popover has no tree: a stacked branch says what it is built on */}
+        <StackBaseLabel name={name} className="ml-1.5" />
+      </TooltipTrigger>
+      <TooltipContent>{`Show ${name}`}</TooltipContent>
+    </Tooltip>
   )
 }
 

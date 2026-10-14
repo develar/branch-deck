@@ -1,12 +1,12 @@
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useStatusBadge } from "@/hooks/useStatusBadge"
 import { statusDotClassName, subtleBadgeVariant } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
 /**
- * Sync/remote status of an active branch; the full description is shown on hover.
+ * Sync/remote status of an active branch; the full description is a tooltip, as in the branch preview.
  * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a colour dot.
  */
 export function BranchStatusBadge({ branch }: { branch: Branch }) {
@@ -14,11 +14,9 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
   const exceptional = status.badge === true
   return (
     <div>
-      <Popover>
-        <PopoverTrigger
-          openOnHover
+      <Tooltip>
+        <TooltipTrigger
           delay={300}
-          nativeButton={false}
           // E2E locates the status text by the `lowercase` class
           render={exceptional
             ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate lowercase" />
@@ -26,11 +24,9 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
         >
           {!exceptional && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
           {exceptional ? status.text : <span className="truncate lowercase">{status.text}</span>}
-        </PopoverTrigger>
-        <PopoverContent className="w-auto max-w-sm px-3 py-2 text-sm leading-snug break-words whitespace-pre-line">
-          {status.tooltip}
-        </PopoverContent>
-      </Popover>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm break-words whitespace-pre-line">{status.tooltip}</TooltipContent>
+      </Tooltip>
     </div>
   )
 }

@@ -16,7 +16,7 @@ export function ModelDownloadProgress({ variant }: ModelDownloadProgressProps) {
   const isPopover = variant === "popover"
   return (
     <div
-      className={cn("flex flex-col gap-2 text-xs", isPopover ? "w-xs p-3" : "w-full")}
+      className={cn("flex flex-col gap-2 text-xs", isPopover ? "w-80 p-3" : "w-full")}
       data-testid={isPopover ? "model-download-progress-popover" : "model-download-progress-toast"}
     >
       {downloadProgress
