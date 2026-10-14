@@ -64,11 +64,18 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
 
   const hasError = !!pathValidation.error
   return (
-    <Tooltip>
-      <TooltipTrigger render={<FieldGroup />}>
+    // the selected path explains itself: the tooltip only invites to choose one or says why it fails
+    <Tooltip disabled={value !== null && !hasError}>
+      {/* gives way first on a narrow window */}
+      <TooltipTrigger render={<FieldGroup className="min-w-0" />}>
         <Select items={items} value={value} onValueChange={onValueChange} disabled={disabled}>
-          <SelectTrigger size="sm" className="w-3xs border-border bg-background" aria-invalid={hasError || undefined}>
-            <SelectValue placeholder="Select repository..." />
+          <SelectTrigger size="sm" className="w-3xs min-w-0 border-border bg-background" aria-invalid={hasError || undefined}>
+            <SelectValue>
+              {(selected: string | null) => (
+                // rtl clips the start, the project name stays; bdi keeps the path itself left to right
+                <span dir="rtl" className="truncate"><bdi>{items.find(item => item.value === selected)?.label ?? "Select repository..."}</bdi></span>
+              )}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
             {items.map(item => (

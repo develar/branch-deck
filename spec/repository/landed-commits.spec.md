@@ -102,8 +102,8 @@ by the next sync the same way.
 ### Before the update
 
 - The tooltip of the Update button adds what the baseline brings in: "Rebases cleanly onto origin/master · brings in
-  your feature-auth and 1 of 2 commits of search"; a clean update shows the `info` package instead of the check. The
-  footer of the outgoing overview says "your wsm landed".
+  your feature-auth and 1 of 2 commits of search"; a clean update shows the `info` package instead of the check, on the
+  button and in the footer line of the outgoing overview, which says "your wsm landed".
   [@test] ../../src/lib/landed.test.ts (`names the user's branches, a part as a count of the branch`)
   [@test] ../../src/lib/landed.test.ts (`says it in a few words for the footer`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)

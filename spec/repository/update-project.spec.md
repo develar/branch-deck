@@ -15,6 +15,9 @@ targets:
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/repository/UpdateBlockedDialog.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/components/repository/SyncButton.tsx
+  - ../../src/components/repository/RepositorySelector.tsx
+  - ../../src-tauri/src/lib.rs
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/update-state.ts
@@ -132,6 +135,17 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 - The Update button sits in the header before the outgoing indicator: incoming and outgoing together, the time of the
   last sync next to Sync. It is hidden for a local baseline and before the first sync.
+- The header must stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
+  overlapping: the repository selector gives way first (its path clipped from the start), the branch count shows from
+  1024 px, the time of the last sync from 768 px; Update, the outgoing indicator, Sync and its settings never shrink.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
+- While a sync runs, the time of the last sync gives its place to "Syncing…", so nothing in the header moves.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should not move while a sync runs`)
+- Sync has the tooltip "Sync branches ⌘R" (`Ctrl+R` off macOS) and its settings (auto-sync on focus) next to it. A
+  failed sync turns it `destructive` with the error in its tooltip; with the page alert, the error shows twice at most.
+  The repository selector has a tooltip only without a repository ("Select a Git repository to manage branches") or
+  for its error.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should name the shortcut of Sync and keep the selected repository without a tooltip`)
 - It shows the state, never a count:
   - up to date: muted, no state icon, tooltip "Up to date with origin/master";
   - clean: a `success` check, tooltip "Rebases cleanly onto origin/master" ("Fast-forwards to origin/master");
@@ -172,11 +186,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   instead ([Landed Commits](landed-commits.spec.md)).
   Up to date says "master is already up to date with origin/master".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
-- The footer of the outgoing overview must show the same state in one line, named as incoming and with the fetch time,
-  "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to date: "nothing new"), with an Update
-  button. Below the push rows, a bare "origin/master: up to date" reads as nothing to push. While the fetch receives,
-  the text has the amount and the rate as git prints them, "Incoming from origin/master: 5.79 MiB · 32.57 MiB/s", and
-  the button the percent.
+- The footer of the outgoing overview must show the same state in one line, with the state icon of the button, named
+  as incoming and with the fetch time, "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to
+  date: "nothing new"), with an Update button. Below the push rows, a bare "origin/master: up to date" reads as nothing
+  to push. While the fetch receives, the text has the amount and the rate as git prints them, "Incoming from
+  origin/master: 5.79 MiB · 32.57 MiB/s", and the button the percent; the button keeps its full colour while the
+  update runs, as the one in the header.
   [@test] ../../src/lib/transfer-progress.test.ts (`shows the amount and the rate as git prints them`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
 
@@ -217,7 +232,11 @@ The header shows whether an update would apply cleanly, from a check that every 
 ## User Experience
 
 - The button is `ghost` `sm` with `ArrowDownIcon` and "Update"; the state icon follows the label (`CheckIcon`
-  `text-success`, `TriangleAlertIcon` `text-warning`). Up to date mutes the label instead of adding an icon.
+  `text-success`, `PackageCheckIcon` `text-info` when the user's commits landed, `TriangleAlertIcon` `text-warning`,
+  `CircleHelpIcon` muted for a failed check). Up to date mutes the label instead of adding an icon. The footer line
+  starts with the same icon at `size-3`.
+- Sync is the `default` `sm` button with `RefreshCwIcon` (a `Spinner` at full colour while it runs), the shortcut a
+  `Kbd` in its tooltip; its settings are the `ghost` `icon-sm` `Settings2Icon` after it.
 - The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body starts with one line on what to do,
   then lists the files, each as its name and then its muted directory, which is clipped from its start on a narrow
   window, with a copy button on hover; the commits of each side sit below in aligned columns (side, hash, subject,

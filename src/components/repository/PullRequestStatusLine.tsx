@@ -18,6 +18,7 @@ export function PullRequestStatusLine() {
       checkedText={`Pull requests checked ${formatRelativeTime(fetchedAt)}`}
       isRefreshing={isRefreshing}
       onRefresh={() => void refreshPullRequests("manual")}
+      refreshLabel="Refresh pull requests"
       testId="pull-request-status-line"
       refreshTestId="pull-request-refresh"
     />

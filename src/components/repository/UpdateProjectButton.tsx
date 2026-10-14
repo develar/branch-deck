@@ -1,4 +1,5 @@
 import { ArrowDownIcon, CheckIcon, CircleHelpIcon, PackageCheckIcon, TriangleAlertIcon } from "lucide-react"
+import type { LucideProps } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -9,7 +10,7 @@ import { describeLanding, shortLanding } from "@/lib/landed"
 import { isMac } from "@/lib/platform"
 import { formatRelativeTime } from "@/lib/time"
 import { transferAmount } from "@/lib/transfer-progress"
-import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
+import type { UpdateStateDescription } from "@/lib/update-state"
 import { describeUpdateState, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
@@ -41,19 +42,31 @@ function useFetchTime(status: BaselineStatus): number | null {
   return lastFetchTime(status.update, ownFetchTime)
 }
 
-/** The state icon; a clean update that brings in the user's own landed commits shows the `info` package */
-function StateIcon({ tone, unknown, landing }: { tone: UpdateTone, unknown: boolean, landing: boolean }) {
-  if (unknown) {
-    return <CircleHelpIcon data-icon="inline-end" className="text-muted-foreground" data-testid="update-state-icon" />
+/** The icon props pass through, e.g. `data-icon` inside the button */
+interface StateIconProps extends LucideProps {
+  status: BaselineStatus
+  /** The update brings in the user's own landed commits */
+  landing: boolean
+}
+
+/**
+ * The state icon of the button and of the footer line: a question mark for a failed check, the `info` package for a
+ * clean update that brings in the user's own landed commits, a check for a clean one, a warning; none when up to date.
+ */
+function StateIcon({ status, landing, className, ...props }: StateIconProps) {
+  const iconProps = { ...props, "data-testid": "update-state-icon" }
+  if (status.update === null) {
+    return <CircleHelpIcon {...iconProps} className={cn("text-muted-foreground", className)} />
   }
+  const tone = describeStatus(status).tone
   if (landing && tone === "success") {
-    return <PackageCheckIcon data-icon="inline-end" className="text-info" data-testid="update-state-icon" data-landing />
+    return <PackageCheckIcon {...iconProps} className={cn("text-info", className)} data-landing />
   }
   switch (tone) {
     case "success":
-      return <CheckIcon data-icon="inline-end" className="text-success" data-testid="update-state-icon" />
+      return <CheckIcon {...iconProps} className={cn("text-success", className)} />
     case "warning":
-      return <TriangleAlertIcon data-icon="inline-end" className="text-warning" data-testid="update-state-icon" />
+      return <TriangleAlertIcon {...iconProps} className={cn("text-warning", className)} />
     case "muted":
       return null
   }
@@ -109,7 +122,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
       >
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
         {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
-        {phase === null && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} />}
+        {phase === null && <StateIcon status={status} landing={landing.length > 0} data-icon="inline-end" />}
       </TooltipTrigger>
       <TooltipContent data-testid="update-project-tooltip">
         <div className="flex flex-col gap-0.5">
@@ -144,12 +157,12 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
   const description = describeStatus(status)
   const fetchTime = useFetchTime(status)
   const transfer = phase === "fetching" ? transferAmount(fetch) : null
-  const landing = shortLanding(useLanding())
+  const landed = useLanding()
+  const landing = shortLanding(landed)
   return (
     <div className="flex items-center justify-between gap-3" data-testid="update-state-line">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-        {transfer === null && description.tone === "success" && <CheckIcon className="size-3 shrink-0 text-success" />}
-        {transfer === null && description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
+        {transfer === null && <StateIcon status={status} landing={landed.length > 0} className="size-3 shrink-0" />}
         {/* wraps: the overview is at most `max-w-xl`, and a truncated state says nothing */}
         <span className="min-w-0">
           {"Incoming from "}
@@ -159,7 +172,16 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
             : `: ${transfer}`}
         </span>
       </span>
-      <Button variant="ghost" size="xs" disabled={phase !== null} data-testid="update-state-line-button" onClick={() => void runUpdateProject()}>
+      <Button
+        variant="ghost"
+        size="xs"
+        disabled={phase !== null}
+        // full opacity while the update runs, as the header button
+        focusableWhenDisabled
+        aria-busy={phase !== null || undefined}
+        data-testid="update-state-line-button"
+        onClick={() => void runUpdateProject()}
+      >
         {phase === null ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
         {phase === null ? "Update" : updatePhaseLabel(phase, fetch)}
       </Button>

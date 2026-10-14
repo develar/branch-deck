@@ -1,10 +1,10 @@
 import { lazy, Suspense, useState } from "react"
-import { CircleAlertIcon, Settings2Icon } from "lucide-react"
+import { Settings2Icon } from "lucide-react"
+import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -37,7 +37,6 @@ function renderReviewChips(branchName: string) {
 
 export function ConfigurationHeader() {
   const isSyncing = useBranchSync(state => state.isSyncing)
-  const syncError = useBranchSync(state => state.syncError)
   const branchCount = useBranchSync(state => state.branchOrder.length)
   const pathValidation = useRepository(state => state.pathValidation)
   const selectedProject = useSelectedProject()
@@ -61,42 +60,23 @@ export function ConfigurationHeader() {
   return (
     <Card className="gap-0 py-0" data-testid="configuration-header">
       <div className="flex h-14 items-center justify-between gap-4 px-4">
-        {/* repository info */}
-        <div className="flex min-w-0 items-center gap-3">
+        {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <RepositorySelector disabled={isSyncing} />
 
           <BranchPrefixField disabled={isSyncing || !pathValidation.valid} />
 
-          <Popover>
-            <PopoverTrigger
-              render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />}
-            >
-              <Settings2Icon />
-            </PopoverTrigger>
-            <PopoverContent className="w-auto min-w-[200px] gap-2 p-3">
-              <label className="flex items-center gap-2 text-sm">
-                <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
-                Auto-sync on focus
-              </label>
-              <div className="text-xs text-muted-foreground">
-                Automatically sync when the window gains focus
-              </div>
-            </PopoverContent>
-          </Popover>
-
           {selectedProject && branchCount > 0 && pathValidation.valid && (
-            <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
-              <span className="whitespace-nowrap">
-                {branchCount}
-                {" "}
-                {branchCount === 1 ? "branch" : "branches"}
-              </span>
-            </div>
+            <span className="hidden text-xs whitespace-nowrap text-muted-foreground lg:flex">
+              {branchCount}
+              {" "}
+              {branchCount === 1 ? "branch" : "branches"}
+            </span>
           )}
         </div>
 
-        {/* actions: incoming and outgoing together, the last sync time next to Sync */}
-        <div className="flex items-center gap-3">
+        {/* actions: incoming and outgoing together, the last sync time next to Sync and its settings */}
+        <div className="flex shrink-0 items-center gap-3">
           {pathValidation.valid && (
             // hidden while empty: an empty flex item would still take a gap
             <div className="flex items-center gap-1 empty:hidden">
@@ -115,22 +95,35 @@ export function ConfigurationHeader() {
               />
             </div>
           )}
-          {lastSyncTime && !isSyncing && pathValidation.valid
-            ? (
-                <div className="text-xs text-muted-foreground">
-                  {`Last synced ${formatRelativeTime(lastSyncTime)}`}
-                </div>
-              )
-            : null}
-          {syncError && (
-            <Tooltip>
-              <TooltipTrigger render={<span className="inline-flex" />}>
-                <CircleAlertIcon className="size-4 text-destructive" />
-              </TooltipTrigger>
-              <TooltipContent>{syncError}</TooltipContent>
-            </Tooltip>
+          {pathValidation.valid && (lastSyncTime || isSyncing) && (
+            // both texts share one cell, so the controls before it stay in place while a sync runs
+            <div className="hidden text-xs whitespace-nowrap text-muted-foreground md:grid" data-testid="last-sync-time">
+              <span className={cn("col-start-1 row-start-1 text-right", isSyncing && "invisible")}>
+                {lastSyncTime ? `Last synced ${formatRelativeTime(lastSyncTime)}` : null}
+              </span>
+              <span className={cn("col-start-1 row-start-1 text-right", !isSyncing && "invisible")}>Syncing…</span>
+            </div>
           )}
-          <SyncButton />
+          {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
+          <div className="flex items-center gap-1">
+            <SyncButton />
+            <Popover>
+              <PopoverTrigger
+                render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />}
+              >
+                <Settings2Icon />
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto min-w-[200px] gap-2 p-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
+                  Auto-sync on focus
+                </label>
+                <div className="text-xs text-muted-foreground">
+                  Automatically sync when the window gains focus
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
       {isRefusedDialogMounted && (

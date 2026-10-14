@@ -4,6 +4,7 @@ import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
@@ -268,14 +269,7 @@ test.describe("Commit message", () => {
       await expect(editButton).toBeEnabled()
 
       // hold the auto-sync on focus until the checks are done
-      let releaseSync!: () => void
-      const syncHeld = new Promise<void>((resolve) => {
-        releaseSync = resolve
-      })
-      await page.route("**/invoke/sync_branches", async (route) => {
-        await syncHeld
-        await route.continue()
-      })
+      const releaseSync = await holdCommand(page, "sync_branches")
       const syncDone = syncOnWindowFocus(page)
 
       await expect(editButton).toBeDisabled()

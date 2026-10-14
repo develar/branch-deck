@@ -41,6 +41,11 @@ test.describe("Landed commits", () => {
     await expect(getBranchCommitRow(page, "search", "Add index").getByTestId("landed-commit-marker")).toHaveText("in origin/master")
     await expect(getBranchCommitRow(page, "search", "Add query").getByTestId("landed-commit-marker")).toHaveCount(0)
     await expect(landedCard(page)).toHaveCount(0)
+
+    // the footer line of the outgoing overview has the icon of the button
+    await page.getByTestId("outgoing-indicator").hover()
+    const line = page.getByTestId("outgoing-popover").getByTestId("update-state-line")
+    await expect(line.getByTestId("update-state-icon")).toHaveAttribute("data-landing", "true")
   })
 
   test("should lead the toast with what landed and keep the island until it is dismissed", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -175,6 +175,8 @@ pub fn run() {
       tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
         .title("BranchDeck")
         .inner_size(1024.0, 900.0)
+        // the header fits one line from 960 px (`ConfigurationHeader`); narrower, its controls would overlap
+        .min_inner_size(960.0, 600.0)
         .initialization_script(&init_script)
         // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
         .disable_drag_drop_handler()
