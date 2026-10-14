@@ -289,7 +289,7 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   twice, the restarted robot without the merge request. The push of the Dry Run form keeps the restart: a dry run
   doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for a push of a new one, and never restarts it`)
-  [@test] ../../src/lib/git/push.test.ts (`restarts the cancelled Safe Push on the pushed commit for any other push`)
+  [@test] ../../src/lib/git/push.test.ts (`restarts the canceled Safe Push on the pushed commit for any other push`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. A robot

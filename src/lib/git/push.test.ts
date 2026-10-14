@@ -109,7 +109,7 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     await vi.waitFor(() => expect(calls).toEqual(["cancel old", "push auth"]))
   })
 
-  it("restarts the cancelled Safe Push on the pushed commit for any other push", async () => {
+  it("restarts the canceled Safe Push on the pushed commit for any other push", async () => {
     const push = pushBranch("auth")
     expect(await question()).toMatchObject({ startsRobot: false })
     answerPushGuard("cancel-push-restart")

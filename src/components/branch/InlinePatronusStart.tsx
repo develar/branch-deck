@@ -70,7 +70,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
 
   /**
    * The branch on the remote with its tip: a start and a merge request need it. False when the push failed (it said so).
-   * A Safe Push running on an older commit is cancelled for the push, not restarted: the form starts the new one, which
+   * A Safe Push running on an older commit is canceled for the push, not restarted: the form starts the new one, which
    * has the merge request. A dry run doesn't replace it, so the push of a dry run restarts it.
    */
   const pushIfNeeded = async (): Promise<boolean> => {

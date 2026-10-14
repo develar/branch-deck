@@ -12,7 +12,7 @@ export interface PushGuardRequest {
   readonly branchName: string
   readonly robot: PatronusRobot
   /**
-   * The push is for a Safe Push started right after it (the Safe Push form): the running one is cancelled, not
+   * The push is for a Safe Push started right after it (the Safe Push form): the running one is canceled, not
    * restarted, or the branch would run twice
    */
   readonly startsRobot: boolean

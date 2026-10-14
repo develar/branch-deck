@@ -23,7 +23,7 @@ export interface PushOptions {
   restartRobot?: PatronusRobot
   /**
    * The caller starts a Safe Push right after the push (the Safe Push form): a running Safe Push of the branch is
-   * cancelled, never restarted, so the branch doesn't run twice
+   * canceled, never restarted, so the branch doesn't run twice
    */
   startsRobot?: boolean
 }
