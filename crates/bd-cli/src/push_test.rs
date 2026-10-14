@@ -1,10 +1,12 @@
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
-use crate::push_command::{PUSHED_NAMESPACE, parse_porcelain};
+use crate::fixture_test::{PREFIX, commit_all, git, repo_with_baseline, run_in, write};
+use crate::push_command::parse_porcelain;
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use sync_core::push::{PushBranchParams, push_branch};
+use sync_core::push_lease::PUSHED_NAMESPACE;
 use tempfile::TempDir;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
 
@@ -40,6 +42,14 @@ fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
     .iter()
     .find(|branch| branch["name"] == json!(name))
     .unwrap_or_else(|| panic!("no {name} in {output}"))
+}
+
+/// `bd push auth` has nothing to push, and its lease is the recorded push
+fn assert_pushes_up_to_date_on_the_record(repo: &TestRepo) {
+  let (exit_code, output) = run_in(repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let auth = branch(&output, "auth");
+  assert_eq!((&auth["status"], &auth["lease_source"]), (&json!("up_to_date"), &json!("recorded")));
 }
 
 fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
@@ -80,12 +90,7 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 
   // nothing new: the lease is the recorded push
-  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
-  assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(
-    (&branch(&output, "auth")["status"], &branch(&output, "auth")["lease_source"]),
-    (&json!("up_to_date"), &json!("recorded"))
-  );
+  assert_pushes_up_to_date_on_the_record(&repo);
 }
 
 #[test_log::test]
@@ -185,4 +190,48 @@ fn parses_porcelain_lines() {
     parse_porcelain(output),
     HashMap::from([("refs/heads/a".to_string(), '*'), ("refs/heads/b".to_string(), '+'), ("refs/heads/c".to_string(), '!')])
   );
+}
+
+/// The app's push of a branch, as the push button runs it
+fn app_push(repo: &TestRepo, branch: &str) {
+  let params = PushBranchParams {
+    repository_path: repo.path().to_str().unwrap().to_string(),
+    branch_prefix: PREFIX.to_string(),
+    branch_name: branch.to_string(),
+    my_email: None,
+    baseline_branch: "origin/master".to_string(),
+    parent_branch: None,
+  };
+  push_branch(repo.git_executor(), &params).unwrap();
+}
+
+#[test_log::test]
+fn the_app_and_bd_share_the_lease() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  // the app pushes, then bd: the app's push is the recorded lease
+  app_push(&repo, "auth");
+  let tip = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
+  assert_eq!(git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]), tip);
+  assert_pushes_up_to_date_on_the_record(&repo);
+  write(&repo, "more.txt", "more\n");
+  commit_all(&repo, "(auth) Add logout", 1_700_000_500);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch(&output, "auth")["status"], json!("updated"));
+
+  // bd pushed, then the app
+  write(&repo, "even-more.txt", "more\n");
+  commit_all(&repo, "(auth) Add reset", 1_700_000_600);
+  run_in(&repo, &["sync"]);
+  app_push(&repo, "auth");
+  let tip = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
+  assert_eq!(remote_tip(&remote, AUTH), tip);
+  assert_eq!(git(&repo, &["rev-parse", &format!("{PUSHED_NAMESPACE}{AUTH}")]), tip);
+  // bd again: the app's push moved the lease, so this is not a stale lease
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch(&output, "auth")["status"], json!("up_to_date"));
 }

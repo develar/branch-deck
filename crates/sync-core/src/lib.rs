@@ -12,6 +12,7 @@ pub mod issue_navigation;
 pub mod move_commits;
 pub mod pull_requests;
 pub mod push;
+pub mod push_lease;
 pub mod regroup;
 pub mod remote_command;
 pub mod remote_status;

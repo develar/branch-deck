@@ -1,12 +1,10 @@
 //! `bd push`: sync, then push the virtual branches in one atomic `git push --porcelain` with an explicit lease per ref,
 //! parents first, and print a ready `gh pr create` per branch.
 //!
-//! The lease is the commit this command last pushed for the ref, kept in `refs/branch-deck/pushed/<branch>`: one
-//! `for-each-ref` reads all of them and one `update-ref --stdin` records a push, atomically and batched as every other
-//! ref change; the ref keeps the pushed commit reachable, and it never leaves the repository (no refspec fetches or
-//! pushes `refs/branch-deck/`). A config key (`branch.<name>.branchDeckPushed`) costs one process per branch, and a
-//! notes ref would be fetched and pushed along with the user's notes. A background fetch moves the remote-tracking ref,
-//! never this one, so it can't defeat the lease.
+//! The lease is the one the app's push uses too (`sync_core::push_lease`): the commit Branch Deck last pushed for the
+//! ref, kept in `refs/branch-deck/pushed/<branch>`, else the remote-tracking ref. A config key
+//! (`branch.<name>.branchDeckPushed`) would cost one process per branch, and a notes ref would be fetched and pushed
+//! along with the user's notes.
 
 use crate::context::RepoContext;
 use crate::describe::read_descriptions;
@@ -15,15 +13,12 @@ use crate::output::SchemaVersion;
 use crate::status::read_grouping;
 use crate::sync_command::{SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::model::to_final_branch_name;
-use git_ops::ref_transaction::RefTransaction;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::grouping::branch_tips;
+use sync_core::push_lease::{PushRef, prepare_push, record_push};
 use sync_core::remote_command::execute_remote_command_accepting;
-
-/// The namespace of the recorded leases
-pub const PUSHED_NAMESPACE: &str = "refs/branch-deck/pushed/";
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -69,8 +64,8 @@ pub struct PushedBranch {
   pub status: String,
   /// The commit the remote branch had to be at; `null` when it had not to exist
   pub lease: Option<String>,
-  /// `recorded` (the last push of bd), `tracking` (the fetched remote branch: never pushed by bd, or --force) or
-  /// `absent`
+  /// `recorded` (the last push of Branch Deck, the app's or bd's), `tracking` (the fetched remote branch: no push was
+  /// recorded, or --force) or `absent`
   pub lease_source: String,
   pub pull_request: PullRequestDraft,
 }
@@ -93,7 +88,6 @@ pub struct PullRequestDraft {
 struct Candidate<'a> {
   synced: &'a SyncedBranch,
   full_name: String,
-  tip: String,
   parent: Option<String>,
 }
 
@@ -180,14 +174,13 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
       }
     }
     let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-    let Some(tip) = tips.get(&full_name).cloned() else {
+    if !tips.contains_key(&full_name) {
       refusals.push(format!("{name} has no virtual branch"));
       continue;
-    };
+    }
     candidates.push(Candidate {
       synced: branch,
       full_name,
-      tip,
       parent,
     });
   }
@@ -195,28 +188,11 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     return Err(CliError::new(ErrorCode::PushRefused, format!("Nothing was pushed: {}", refusals.join("; "))));
   }
 
-  let recorded = read_refs(context, PUSHED_NAMESPACE)?;
-  let tracking = read_refs(context, &format!("refs/remotes/{remote}/"))?;
-  let leases: Vec<(Option<String>, &str)> = candidates
-    .iter()
-    .map(|candidate| {
-      let tracked = tracking.get(&candidate.full_name);
-      match (recorded.get(&candidate.full_name), tracked) {
-        // --force replaces what was fetched, not what bd pushed last
-        (_, Some(tracked)) if args.force => (Some(tracked.clone()), "tracking"),
-        (Some(pushed), _) => (Some(pushed.clone()), "recorded"),
-        (None, Some(tracked)) => (Some(tracked.clone()), "tracking"),
-        (None, None) => (None, "absent"),
-      }
-    })
-    .collect();
-
-  let lease_args: Vec<String> = candidates
-    .iter()
-    .zip(&leases)
-    .map(|(candidate, (lease, _))| format!("--force-with-lease=refs/heads/{}:{}", candidate.full_name, lease.as_deref().unwrap_or_default()))
-    .collect();
-  let refspecs: Vec<String> = candidates.iter().map(|candidate| format!("refs/heads/{0}:refs/heads/{0}", candidate.full_name)).collect();
+  // --force replaces what was fetched, not what Branch Deck pushed last
+  let full_names: Vec<String> = candidates.iter().map(|candidate| candidate.full_name.clone()).collect();
+  let refs = prepare_push(&context.git, &context.repository, &remote, &full_names, args.force)?;
+  let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
+  let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
   let mut push_args = vec!["push", "--porcelain", "--atomic"];
   if args.dry_run {
     push_args.push("--dry-run");
@@ -244,24 +220,15 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   }
 
   if !args.dry_run {
-    let mut transaction = RefTransaction::new();
-    for candidate in &candidates {
-      transaction.update(&format!("{PUSHED_NAMESPACE}{}", candidate.full_name), &candidate.tip, None);
-    }
-    transaction.commit(&context.git, &context.repository, "record push")?;
+    record_push(&context.git, &context.repository, &refs)?;
   }
 
   let descriptions = read_descriptions(context)?;
-  let short = context.short_ids(
-    candidates
-      .iter()
-      .map(|candidate| candidate.tip.as_str())
-      .chain(leases.iter().filter_map(|(lease, _)| lease.as_deref())),
-  );
+  let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
   let branches = candidates
     .iter()
-    .zip(leases)
-    .map(|(candidate, (lease, source))| {
+    .zip(&refs)
+    .map(|(candidate, pushed)| {
       let flag = statuses.get(&format!("refs/heads/{}", candidate.full_name)).copied().unwrap_or(' ');
       let base = candidate
         .parent
@@ -281,7 +248,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
       PushedBranch {
         name: candidate.synced.name.clone(),
         remote_branch: candidate.full_name.clone(),
-        commit: short.get(&candidate.tip).to_string(),
+        commit: short.get(&pushed.tip).to_string(),
         status: match flag {
           '*' => "new",
           '+' => "forced",
@@ -289,8 +256,8 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
           _ => "updated",
         }
         .to_string(),
-        lease: lease.as_deref().map(|lease| short.get(lease).to_string()),
-        lease_source: source.to_string(),
+        lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
+        lease_source: pushed.source.as_str().to_string(),
         pull_request: PullRequestDraft {
           base,
           head: candidate.full_name.clone(),
@@ -310,22 +277,6 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     dry_run: args.dry_run,
     branches,
   })
-}
-
-/// Branch full name (without the namespace) -> commit of the refs in `namespace`, from one `for-each-ref`
-fn read_refs(context: &RepoContext, namespace: &str) -> Result<HashMap<String, String>, CliError> {
-  let lines = context
-    .git
-    .execute_command_lines(&["for-each-ref", "--format=%(objectname) %(refname)", namespace], &context.repository)?;
-  Ok(
-    lines
-      .iter()
-      .filter_map(|line| {
-        let (id, reference) = line.split_once(' ')?;
-        Some((reference.strip_prefix(namespace)?.to_string(), id.to_string()))
-      })
-      .collect(),
-  )
 }
 
 /// Remote ref -> flag of the `push --porcelain` lines `<flag> TAB <from>:<to> TAB <summary>`

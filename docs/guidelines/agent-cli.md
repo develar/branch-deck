@@ -310,9 +310,9 @@ repository lock (see "Agent push" in [Git Operations](../design/git-operations.m
 - Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has
   commits it lacks (`behind`) without `--force`, and a stacked branch whose parent isn't on the remote or pushed with
   it. `--all` needs `--yes`.
-- `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the commit bd last pushed
-  (`lease_source: recorded`, kept in `refs/branch-deck/pushed/`), else the fetched remote branch (`tracking`, also
-  with `--force`), else none (`absent`: the branch must not exist). A remote that moved since is `lease_rejected`
+- `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the commit Branch Deck last pushed, from the
+  app or bd (`lease_source: recorded`, kept in `refs/branch-deck/pushed/`), else the fetched remote branch
+  (`tracking`, also with `--force`), else none (`absent`: the branch must not exist). A remote that moved since is `lease_rejected`
   (exit 3): fetch, check and retry.
 - `pull_request.base` is the parent's remote branch, or the baseline without the remote (`master`). With a
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses

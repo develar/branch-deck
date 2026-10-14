@@ -446,16 +446,28 @@ Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
 1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), a
    branch whose remote branch has commits it lacks unless `--force`, and a stacked branch whose parent is neither on
    the remote nor pushed with it. Branches go parents first.
-2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… refs/heads/<b>:refs/heads/<b>…`
+2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… <tip>:refs/heads/<b>…`
    through `execute_remote_command_accepting` (exit 1, a rejected ref, still prints the porcelain report). Atomic: a
    stack is pushed whole or not at all, and a rejection is `lease_rejected`.
-3. The lease is the commit bd last pushed for the ref, recorded in `refs/branch-deck/pushed/<branch>` by one
-   `update-ref --stdin` after the push. A background fetch moves `refs/remotes/…`, never this ref, so it can't defeat
-   the lease the way a plain `--force-with-lease` against the remote-tracking ref can. Without a record, the lease is
-   the remote-tracking ref, and without that, "must not exist". With `--force` it is the remote-tracking ref: the user
-   replaces what they fetched and saw.
+3. The lease comes from `push_lease`, which the app's push button uses as well (below). With `--force` it is the
+   remote-tracking ref: the user replaces what they fetched and saw.
 
 Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/remote_command.rs`.
+
+#### Push lease
+
+The app's push (`push_branch`) and `bd push` share one lease (`crates/sync-core/src/push_lease.rs`), so a push from
+either one leaves the next push of the other valid:
+
+- `prepare_push` reads, with one `for-each-ref` over explicit refs, each branch's local tip, its recorded push
+  `refs/branch-deck/pushed/<branch>` and its remote-tracking ref. The lease is the record, else the remote-tracking
+  ref (a branch pushed before records existed), else "must not exist".
+- The push names the tip it read (`<tip>:refs/heads/<branch>`), so the record is exactly what was pushed even if the
+  branch moves meanwhile.
+- `record_push` writes the records of all pushed branches in one `update-ref --stdin` after the push succeeds.
+- A background fetch moves `refs/remotes/…`, never a record, so it can't defeat the lease the way a bare
+  `--force-with-lease=<ref>` (leased on the remote-tracking ref) can. A record also keeps the pushed commit
+  reachable, and no default refspec fetches or pushes `refs/branch-deck/`.
 
 ### Index policy
 
@@ -517,9 +529,11 @@ recovery hint (`git reset -q`).
    - it combines related refs atomically;
    - it deletes the temporary ref in the same step.
 
-7. **Decision**: push with `--force-with-lease=refs/heads/<branch>`.
+7. **Decision**: push with `--force-with-lease=refs/heads/<branch>:<last pushed commit>`, the commit recorded in
+   `refs/branch-deck/pushed/<branch>` by the last push of the app or `bd` ("Push lease").
    **Rationale**: a virtual branch is rebuilt on every sync, so the push must force. The lease still refuses to
-   overwrite a remote branch that someone else updated since the last fetch or push.
+   overwrite a remote branch that someone else updated since the last push, also after a background fetch, which a
+   lease on the remote-tracking ref would accept.
 
 8. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
    `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds
@@ -565,7 +579,7 @@ recovery hint (`git reset -q`).
 ## References
 
 - Implementation: `crates/git-executor/src/git_info.rs`, `crates/git-executor/src/git_command_executor.rs`,
-  `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`,
+  `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,

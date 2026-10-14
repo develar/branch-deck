@@ -1,3 +1,4 @@
+use crate::push_lease::{prepare_push, record_push};
 use crate::remote_command::execute_remote_command;
 use crate::remote_status::compute_remote_status_for_branch;
 use anyhow::{Context, Result};
@@ -23,27 +24,21 @@ pub struct PushBranchParams {
   pub parent_branch: Option<String>,
 }
 
-/// Force-pushes (with a lease) the virtual branch to `origin` and returns its updated remote status.
+/// Force-pushes the virtual branch to `origin` with the lease `bd push` uses too (`push_lease`), records the push, and
+/// returns its updated remote status.
 #[instrument(skip(git_executor), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
 pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams) -> Result<RemoteStatusUpdate> {
   let repository_path = &params.repository_path;
   let branch_name = &params.branch_name;
   let final_branch_name = to_final_branch_name(&params.branch_prefix, branch_name)?;
 
-  // The lease overwrites the remote branch only if it is still where the last fetch or push saw it,
-  // so a commit pushed from elsewhere meanwhile is not lost.
+  // The lease overwrites the remote branch only if it is still where the last push of Branch Deck (the app or bd) left
+  // it, so a commit pushed from elsewhere meanwhile is not lost, even after a background fetch (`push_lease`).
   // The remote policy keeps the user's credential helpers but never prompts: the push must not block on input
-  execute_remote_command(
-    git_executor,
-    &[
-      "push",
-      "--porcelain",
-      &format!("--force-with-lease=refs/heads/{final_branch_name}"),
-      "origin",
-      &format!("refs/heads/{final_branch_name}:refs/heads/{final_branch_name}"),
-    ],
-    repository_path,
-  )?;
+  let refs = prepare_push(git_executor, repository_path, "origin", std::slice::from_ref(&final_branch_name), false)?;
+  let pushed = &refs[0];
+  execute_remote_command(git_executor, &["push", "--porcelain", &pushed.lease_arg(), "origin", &pushed.refspec()], repository_path)?;
+  record_push(git_executor, repository_path, &refs)?;
 
   let parent_ref = params
     .parent_branch
