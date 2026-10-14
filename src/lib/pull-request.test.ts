@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
-import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getPullRequestChipState } from "@/lib/pull-request"
+import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getCompareUrl, getPullRequestChipState } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -91,5 +91,14 @@ describe("formatAvailabilityHint", () => {
     expect(formatAvailabilityHint({ status: "available", owner: "o", name: "r" })).toBeNull()
     expect(formatAvailabilityHint({ status: "notGitHub" })).toBeNull()
     expect(formatAvailabilityHint(null)).toBeNull()
+  })
+})
+
+describe("getCompareUrl", () => {
+  it("opens the pull request form of the pushed branch into its base", () => {
+    const repository = { owner: "JetBrains", name: "ultimate" }
+    expect(getCompareUrl(repository, "master", "develar/virtual/auth")).toBe("https://github.com/JetBrains/ultimate/compare/master...develar/virtual/auth?expand=1")
+    // a stacked branch targets its parent's pushed branch; a name keeps its slashes, the rest is encoded
+    expect(getCompareUrl(repository, "develar/virtual/auth", "develar/virtual/login#2")).toBe("https://github.com/JetBrains/ultimate/compare/develar/virtual/auth...develar/virtual/login%232?expand=1")
   })
 })

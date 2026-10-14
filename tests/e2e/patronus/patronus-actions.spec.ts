@@ -3,7 +3,7 @@ import type { Page, Route } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions } from "../../../src/lib/bindings"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton } from "../helpers/branch-helpers"
+import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushOutcome, routePush } from "../helpers/push-helpers"
@@ -103,6 +103,70 @@ test.describe("Patronus actions", () => {
     await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
     expect(options[0]).toMatchObject({ baselineBranch: "origin/master", lastRobotId: null })
     expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "rebaseAutosquash", profileId: "lsc" })])
+  })
+
+  test("should open the Safe Push form from the row button and from the \"⋯\" menu, and say why a start is not possible", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+    const form = page.getByTestId("patronus-start-form")
+
+    // a robot runs on the commit JIRA-456 is at: Patronus would refuse a start
+    const running = findBranchRow(page, "JIRA-456").getByRole("button", { name: "Safe Push…" })
+    await expect(running).toBeDisabled()
+    await running.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText("A Safe Push of the last commit is running")
+
+    const row = findBranchRow(page, "ABC-123")
+    const button = row.getByRole("button", { name: "Safe Push…" })
+    await button.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "code-owner review" })).toHaveText("Checks the code-owner review, offers a merge request, then starts the robot.")
+    await button.click()
+    await expect(form).toBeVisible()
+    await expect(form.getByTestId("patronus-start-explanation")).toContainText("Patronus rebases ABC-123 onto master")
+    // the button opens the form, it doesn't toggle the row
+    await verifyBranchState(row, "closed")
+    await form.getByRole("button", { name: "Cancel" }).click()
+    await expect(form).toHaveCount(0)
+
+    // "⋯" has the menu of the right-click
+    await row.getByRole("button", { name: "More actions for ABC-123" }).click()
+    const rowMenu = page.getByRole("menu", { name: "More actions for ABC-123" })
+    await expect(rowMenu.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
+    await expect(rowMenu.getByRole("menuitem", { name: "Create Merge Request…" })).toBeEnabled()
+    await rowMenu.getByRole("menuitem", { name: "Safe Push…" }).click()
+    await expect(form).toBeVisible()
+    await verifyBranchState(row, "closed")
+
+    // the menu of the branch with the running robot says why too
+    await findBranchRow(page, "JIRA-456").getByRole("button", { name: "More actions for JIRA-456" }).click()
+    // the menu of ABC-123 may still be closing
+    const menu = page.getByRole("menu", { name: "More actions for JIRA-456" })
+    const menuItem = menu.getByRole("menuitem", { name: "Safe Push…" })
+    await expect(menuItem).toBeDisabled()
+    await menuItem.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText("A Safe Push of the last commit is running")
+    // Escape closes the menu with its description
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+  })
+
+  test("should create a merge request from the branch menu, pushing the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const pushes = await routePush(page, {})
+    const mergeRequest: PatronusMergeRequest = { projectKey: "IJ", reviewKey: "IJ-CR-8", url: "https://jetbrains.team/p/ij/reviews/8" }
+    const creates = await routeCommand(page, "create_patronus_merge_request", () => mergeRequest)
+
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Create Merge Request…" }).click()
+
+    // Space opens a merge request of a pushed branch
+    const toast = page.locator("[data-slot=toast]", { hasText: "Created merge request IJ-CR-8" })
+    await expect(toast).toBeVisible()
+    expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
+    expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
+    expect(await getOpenedUrls(page)).toEqual([mergeRequest.url])
+    await toast.getByRole("button", { name: "Open merge request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([mergeRequest.url, mergeRequest.url])
   })
 
   test("should cancel the robot for a new Safe Push from the form, and not restart it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

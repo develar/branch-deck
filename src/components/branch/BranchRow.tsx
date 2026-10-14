@@ -4,7 +4,7 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
-import { BranchActions } from "@/components/branch/BranchActions"
+import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
@@ -14,7 +14,6 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { UnpushedParentLabel } from "@/components/branch/StackBaseLabel"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
-import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
@@ -99,7 +98,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
         dropTarget={dropTarget.canDrop ? (dropTarget.isOver ? "over" : "ready") : undefined}
         dropProps={dropTarget.dropProps}
         onToggle={toggle}
-        menu={<BranchContextMenuItems name={name} setExpanded={setExpanded} />}
+        menu={<BranchMenuItems name={name} setExpanded={setExpanded} Items={ContextMenuItems} />}
       >
         <BranchNameCell
           name={name}
@@ -135,7 +134,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
           </div>
         </td>
         <td className="w-px px-4 py-4 whitespace-nowrap">
-          <BranchActions branch={branch} />
+          <BranchActions branch={branch} setExpanded={setExpanded} />
         </td>
       </BranchContextMenuRow>
 
@@ -191,12 +190,3 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
     </>
   )
 })
-
-/** Rendered only while the menu is open, so the items are computed lazily from the current branch state. */
-function BranchContextMenuItems({ name, setExpanded }: { name: string, setExpanded: (name: string, expanded: boolean) => void }) {
-  const branch = useBranch(name)
-  if (branch === undefined) {
-    return null
-  }
-  return <ContextMenuItems groups={getBranchContextMenuItems(branch, setExpanded)} />
-}

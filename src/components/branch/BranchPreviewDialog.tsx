@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
-import { ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
+import { TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,7 @@ import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameC
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { PatronusChip } from "@/components/branch/PatronusChip"
+import { SafePushButton } from "@/components/branch/SafePushButton"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
@@ -25,20 +26,19 @@ import {
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
 import { useLandedIn } from "@/hooks/useLandedIn"
-import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
+import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
 import { getPushButtonState } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
-import { isStartBlocked } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
-import { getBranchRobot, useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
+import { useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
@@ -78,8 +78,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, { isSyncing, isPushing })
   const canPush = push !== null && !push.disabled && !processing
   const pullRequest = usePullRequest(currentName ?? "")
-  // the start form is a form of the row: the preview closes for it
-  const canStartRobot = usePatronusAvailable() && push !== null && !processing && !isStartBlocked(getBranchRobot(currentName ?? ""), branch?.commits[0]?.hash)
+  const patronusAvailable = usePatronusAvailable()
 
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -144,12 +143,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                 Open Pull Request
               </Button>
             )}
-            {canStartRobot && (
-              <Button variant="ghost" size="xs" onClick={() => openRowForm("safe-push", branch.name, onClose)}>
-                <ShieldCheckIcon data-icon="inline-start" />
-                Safe Push…
-              </Button>
-            )}
+            {/* the start form is a form of the row: the preview closes for it (`ClosePreviewContext`) */}
+            {patronusAvailable && push !== null && <SafePushButton branch={branch} />}
             {push !== null && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
           </PreviewDialogFooter>
         </ClosePreviewContext>

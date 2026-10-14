@@ -5,7 +5,7 @@ import { pushStack } from "@/lib/git/push"
 import { landedBranchDescription } from "@/lib/landed"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import { blockingBranchOf, formatPushStackLabel, needsPush, stackPushOrder } from "@/lib/stack"
+import { formatBlockedReason, formatPushStackLabel, needsPush, stackPushOrder } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -69,16 +69,7 @@ function describeUnpushedParent(branchName: string, parent: UnpushedParent): str
 export function getPushButtonState(branch: Branch, { isSyncing = false, isPushing = false, unpushedParent = null, landedIn = null }: PushButtonContext = {}): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
-    const blocker = blockingBranchOf(branch)
-    return {
-      text: "Push",
-      color: "neutral",
-      tooltip: blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`,
-      dropped: null,
-      disabled: true,
-      confirm: false,
-      action: null,
-    }
+    return { text: "Push", color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, action: null }
   }
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null

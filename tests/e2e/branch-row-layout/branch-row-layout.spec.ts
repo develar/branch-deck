@@ -120,6 +120,18 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await testCopyButton(page, copyButton, /^[\w-]+\/virtual\/test-branch$/)
   })
 
+  test("should open the branch menu from the more actions button without toggling the row", async ({ page }) => {
+    const branchRow = findBranchRow(page, "test-branch")
+    await waitForBranchSyncComplete(page, "test-branch")
+
+    await branchRow.getByRole("button", { name: "More actions for test-branch" }).click()
+    // the menu of the right-click
+    await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible()
+    await testContextMenuCopy(page, "Copy Branch Name", "test-branch")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+    await verifyBranchState(branchRow, "closed")
+  })
+
   test("should verify copy button visual states and icon changes", async ({ page }) => {
     const branchRow = findBranchRow(page, "test-branch")
 
@@ -175,12 +187,11 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
 
     await waitForBranchSyncComplete(page, "test-branch")
 
-    // Check actions column - should have both copy and push buttons
+    // Check actions column: copy, push and the branch menu ("Safe Push…" only on Space)
     const { actions } = getBranchCells(branchRow)
     const buttons = actions.locator("button")
-
-    // Should have 2 buttons: copy and push
-    await expect(buttons).toHaveCount(2)
+    await expect(buttons).toHaveCount(3)
+    await expect(buttons.nth(2)).toHaveAccessibleName("More actions for test-branch")
 
     // Capture HTML snapshot of the branch row with commits state
     await captureBranchTableSnapshot(page, branchRow, "branch-with-commits-state")

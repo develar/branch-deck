@@ -19,6 +19,7 @@ targets:
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/BranchActions.tsx
+  - ../../src/lib/git/new-pull-request.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useStackActions.ts
   - ../../src/components/branch/InlineUngroupConfirm.tsx
@@ -146,8 +147,10 @@ renames branches.
 ### Pull requests
 
 - The pull request base of a stacked branch must be its parent's pushed branch; of a root, the baseline as the remote
-  names it (`master`). "Copy PR Base" in the branch menu must copy it.
+  names it (`master`). "Copy PR Base" in the branch menu must copy it, and "Create Pull Request" opens GitHub's form
+  with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
   [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`)
+  [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
 - After a push, the toast must name the base and offer to copy `gh pr create --base … --head …`. An open pull request
   whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or the branch was
   restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the copy

@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the read-only GitHub pull request status of the virtual branches, read through the gh CLI and shown as a chip in the branch row, the branch preview and the outgoing overview.
+description: Requirements for the read-only GitHub pull request status of the virtual branches, read through the gh CLI and shown as a chip in the branch row, the branch preview and the outgoing overview; and "Create Pull Request" in the branch menu and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -23,6 +23,8 @@ targets:
   - ../../src/lib/refresh-gate.ts
   - ../../src/components/branch/StatusChip.tsx
   - ../../src/lib/git/push.ts
+  - ../../src/lib/git/new-pull-request.ts
+  - ../../src/lib/git/stacked-push-toast.tsx
 ---
 
 # Pull Requests
@@ -34,7 +36,8 @@ Date: 2026-10-14
 
 Reviews happen on GitHub pull requests of the pushed virtual branches. Branch Deck shows, per branch, the pull request
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
-status is read through the `gh` CLI, never written; opening a pull request opens the browser.
+status is read through the `gh` CLI, never written; opening a pull request opens the browser. A pushed branch without
+one gets "Create Pull Request", which opens GitHub's form of a new pull request into the branch's base.
 
 ## Goals
 
@@ -43,10 +46,12 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 - Notice that the branch changed since the commit its pull request shows, so a push is due, without a false alarm after
   a sync that only rebuilt the branch on a newer baseline.
 - Open the pull request of a branch in one click.
+- Open a review after a plain push in one click: GitHub's form of a new pull request, its base already set.
 
 ## Non-goals
 
-- Creating, updating, merging or commenting on pull requests. Approvals are final and a bot merges; the app only reads.
+- Creating pull requests itself, updating, merging or commenting on them. Approvals are final and a bot merges; the app
+  reads, and leaves the creation to GitHub's form.
 - Pull requests of others, of forks, and of branches that are not virtual branches of the user.
 - GitHub Enterprise and other hosts: only github.com.
 - Polling: GitHub is asked after a sync, a push, a focus and a manual refresh only.
@@ -171,6 +176,25 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 - The branch context menu has "Open Pull Request" in its history group when the branch has a pull request, also when the
   branch can't be modified; it shows `O`, the key of the branch preview.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
+
+### Creating a pull request
+
+- "Create Pull Request" opens GitHub's form of a new pull request in the browser (the opener plugin, as "Open Pull
+  Request"): `https://github.com/<owner>/<name>/compare/<base>...<prefix>/virtual/<branch>?expand=1`. The repository is
+  the one `gh` lists the pull requests of (`getGitHubRepository()`); the base is the pull request base of the branch
+  ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed branch, else the baseline as the
+  remote names it, `master`). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
+  GitHub creates nothing until the form is submitted.
+  [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
+- The history group of the branch menu (the right-click and "⋯") has "Create Pull Request" when the branch is on the
+  remote, has no pull request and the GitHub repository is known; a branch that isn't pushed or has one doesn't.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
+- The toast of a push of a branch that isn't stacked has the action "Open Pull Request" when the branch has a pull
+  request, else "Create Pull Request" under the same conditions as the menu, and stays 10 s; off GitHub it has no
+  action. The toast of a stacked branch keeps naming the base with "Copy gh pr create" ([Stacked
+  Branches](stacked-branches.spec.md#pull-requests)).
+  [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
 
 ### Branch preview
 

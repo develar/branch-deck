@@ -4,8 +4,9 @@ import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
+import { formatBlockedReason } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
-import type { RemoteStatus } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
 /** What the chip shows of a robot */
 export type PatronusChipKind = "running" | "failed" | "needsReview" | "merged" | "passed" | "canceled" | "unknown"
@@ -255,6 +256,28 @@ export function isPushIntoRobotRisky(robot: PatronusRobot, branchName: string): 
 export function isStartBlocked(robot: PatronusRobot | undefined, localTip: string | undefined): boolean {
   return robot !== undefined && isRobotActive(robot) && robot.sourceRevision !== null && robot.sourceRevision === localTip
 }
+
+/** Whether a Safe Push or a Dry Run of a branch can start; `reason` says why not, for the hover of a disabled action */
+export type RobotStartCheck = { ok: true } | { ok: false, reason: string }
+
+/**
+ * Whether a Safe Push or a Dry Run of the branch can start: not while a robot runs on the commit the branch is at
+ * (Patronus would refuse it), nor for a blocked stacked branch (its build lacks its parent's state). `robot` is the robot
+ * of the branch (`getBranchRobot`, `useBranchRobot`). Every entry point asks it: the row button, the branch menu, the
+ * preview footer and the chip popover.
+ */
+export function canStartRobot(branch: Branch, robot: PatronusRobot | undefined): RobotStartCheck {
+  if (branch.status === "Blocked") {
+    return { ok: false, reason: formatBlockedReason(branch) }
+  }
+  if (robot !== undefined && isStartBlocked(robot, branch.commits[0]?.hash)) {
+    return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
+  }
+  return { ok: true }
+}
+
+/** The text of "Safe Push…" where it can start: what the form does before the robot runs */
+export const SAFE_PUSH_DESCRIPTION = "Checks the code-owner review, offers a merge request, then starts the robot."
 
 /** The profile allows the mode; no modes listed = any */
 export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {

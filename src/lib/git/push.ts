@@ -3,6 +3,7 @@ import { toast } from "@/components/ui/toast"
 import type { PatronusRobot, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { getPullRequestToastAction } from "@/lib/git/new-pull-request"
 import { showStackedPushToast } from "@/lib/git/stacked-push-toast"
 import { formatPushMode, isPushIntoRobotRisky } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
@@ -94,10 +95,13 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
         return false
       }
       if (branch.stack === null) {
+        // the branch with its new remote status: a branch the push created can have a pull request now
+        const action = getPullRequestToastAction(getBranch(branchName) ?? branch)
         toast.add({
           type: "success",
           title: "Success",
           description: `Branch ${branchName} pushed successfully`,
+          ...(action !== null && { timeout: 10_000, actionProps: action }),
         })
       }
       else {

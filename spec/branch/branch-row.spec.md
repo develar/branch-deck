@@ -1,6 +1,6 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the tree of stacked and issue branches, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the push button, hover and click, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the tree of stacked and issue branches, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the Actions cell with the push button, "Safe Push…" and the "⋯" menu, hover and click, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
@@ -21,6 +21,13 @@ targets:
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/StackBaseLabel.tsx
+  - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/components/shared/RowActions.tsx
+  - ../../src/components/shared/MoreActionsMenu.tsx
+  - ../../src/components/shared/MenuItems.tsx
+  - ../../src/components/shared/ContextMenuItems.tsx
+  - ../../src/components/shared/DropdownMenuItems.tsx
+  - ../../src/components/ui/dropdown-menu.tsx
   - ../../src/components/shared/TableHeader.tsx
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/usePushButton.ts
@@ -153,6 +160,13 @@ parent's commits runs into the rule of its children.
 
 ### Actions cell
 
+- The Actions cell must show, in this order: the copy button at its start, then, at its end, the push button,
+  "Safe Push…" and "⋯". So the last two line up across the rows, whatever the push label; the column is as wide as its
+  widest row and doesn't wrap.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should handle branch with commits state`)
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
+- A click in the cell must not toggle the row: on a button, on a disabled one (it passes the click on) and in the
+  menu "⋯" opens (its popup is in the row's React tree; a right-click in it doesn't open the row menu either).
 - The copy button must always be visible and copy the full branch name, `{prefix}/virtual/{name}`.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md): its label ("Push (2)", "Create
@@ -162,6 +176,16 @@ parent's commits runs into the rule of its children.
   without commits has no push button.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
+- On Space (Patronus answered), a branch with a push button must have "Safe Push…": it opens the Safe Push form below
+  the row, disabled with the reason on hover when a start is not possible
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The product lands through Safe Push, so it is not
+  only behind the right-click.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+- "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
+  knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
+  The outgoing overview keeps only the push button.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the branch menu from the more actions button without toggling the row`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 
 ### Hover and click
 
@@ -169,7 +193,8 @@ parent's commits runs into the rule of its children.
 - A click on the row or on its folder button must toggle its commits. A click on another button, a chip or a link in
   the row must not.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
-- A right-click must open the branch menu. A row running an inline action has no menu.
+- A right-click must open the branch menu, the same as "⋯" in the Actions cell. A row running an inline action has no
+  menu.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display context menu with copy options`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
@@ -232,8 +257,10 @@ parent's commits runs into the rule of its children.
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
 - The menu of an archived row must offer the copy items and "Delete Archived Branch…" in the `destructive` colour,
-  which asks for the branch name; its Delete button is `destructive` too.
+  which asks for the branch name; its Delete button is `destructive` too. The Actions cell has the copy button and "⋯"
+  with the same menu.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete archived branch via context menu`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should open the menu of an archived row from its more actions button`)
 
 ## User Experience
 
@@ -265,6 +292,12 @@ parent's commits runs into the rule of its children.
 
 - The copy button is a ghost `icon-xs` button, muted.
 - The push button is a ghost `xs` button with the upload icon, its text in the push colour (`ghostButtonColorClass`).
+- "Safe Push…" is a ghost `xs` button with the `ShieldCheckIcon` in the foreground colour; disabled, it is dimmed to
+  `opacity-50` and keeps its hover (`focusableWhenDisabled`).
+- "⋯" is a ghost `icon-xs` button with the `EllipsisIcon`, muted, named "More actions for feature-auth", with the
+  tooltip "More actions". Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
+  (`w-auto min-w-36`, as the context menu); one renderer, `MenuItems` with the primitives of either menu, draws both.
+- The cell is a `flex items-center gap-2` (`RowActions`); the copy button has `mr-auto`.
 
 ### Inline forms
 
@@ -305,6 +338,8 @@ parent's commits runs into the rule of its children.
 - The commit subjects start at the name from `sm` up only: below it the commit rows have `px-4`, the name cell `px-6`.
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.
+- "Safe Push…" arrives with the first answer of Patronus, after the sync: the Actions column widens once then, and the
+  name column gives the room.
 
 ## References
 

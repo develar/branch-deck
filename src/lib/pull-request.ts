@@ -131,6 +131,16 @@ export function gitHubRepositoryOf(availability: PullRequestAvailability | null)
 }
 
 /**
+ * The GitHub page that opens a pull request of `head` into `base` (branch names as the remote has them):
+ * `https://github.com/JetBrains/ultimate/compare/master...develar/virtual/auth?expand=1`, the form already expanded
+ */
+export function getCompareUrl(repository: GitHubRepository, base: string, head: string): string {
+  // a branch name keeps its slashes, the rest of it is encoded
+  const ref = (name: string) => name.split("/").map(encodeURIComponent).join("/")
+  return `https://github.com/${repository.owner}/${repository.name}/compare/${ref(base)}...${ref(head)}?expand=1`
+}
+
+/**
  * A quiet hint why pull requests are not shown, null when they are (or the repository is not on GitHub, which needs no
  * hint). Never a toast: GitHub status is an extra.
  */

@@ -1,6 +1,6 @@
 ---
 name: Patronus
-description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch with the code-owner review it needs, restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
+description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs and its merge request, restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/patronus.rs
@@ -25,6 +25,10 @@ targets:
   - ../../src/hooks/usePatronusRobotDetails.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useOpenRowForm.ts
+  - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/components/branch/BranchActions.tsx
+  - ../../src/components/shared/MenuItems.tsx
+  - ../../src/lib/patronus-merge-request.ts
   - ../../src/lib/git/push.ts
   - ../../src/stores/push-guard.ts
   - ../../src/components/branch/StatusChip.tsx
@@ -190,11 +194,22 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 ### Starting a Safe Push or a Dry Run
 
-- The branch menu has "Safe Push…" and "Dry Run…" in a Patronus group when the repository is on Space (Patronus
-  answered), disabled while a robot runs on the commit the branch is at (Patronus would refuse it). The preview footer
-  has "Safe Push…": it closes the preview and opens the form of the row; so does "Safe Push…" of the robot details
-  inside the preview (its Patronus section, the chip popover of its meta line), one helper (`openRowForm`) for both.
+- When the repository is on Space (Patronus answered), "Safe Push…" opens the form below the row from four places: the
+  button after the push button in the Actions cell of the row ([Branch Row](branch-row.spec.md#actions-cell)), the
+  Patronus group of the branch menu (the right-click and "⋯"; with "Dry Run…"), the preview footer and the popover of a
+  robot that needs review. A click on the row button doesn't toggle the row. The preview footer's "Safe Push…" closes
+  the preview and opens the form of the row; so does "Safe Push…" of the robot details inside the preview (its Patronus
+  section, the chip popover of its meta line), one helper (`openRowForm`) for both.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push form of its Patronus section`)
+- Every entry point asks one predicate, `canStartRobot(branch, robot)` (`src/lib/patronus.ts`): a start is not possible
+  while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last commit is
+  running") nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's words).
+  Then the button and the menu items are disabled, and their hover says the reason; "Safe Push…" that can start says
+  "Checks the code-owner review, offers a merge request, then starts the robot." The row button is disabled while the
+  row runs an inline action too.
+  [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 - The form below the row ("Safe Push of auth") says what happens: "Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks,
   without pushing into master.". It offers the merge profiles of the target branch that allow the mode (the emergency
@@ -276,6 +291,14 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals, create the merge request and start with it`)
 - The start links the merge request of the branch (`spaceReview`), so its approvals count.
+- The Patronus group of the branch menu has "Create Merge Request…", the step of the form on its own, so the code
+  owners can approve before a start: it pushes the branch when the remote lacks its tip (asking first while a Safe Push
+  of the branch runs; a failed push creates nothing), creates the merge request into the target branch
+  (`POST /space/merge-requests`, as the form's "Create Merge Request") and opens it in the browser. While Patronus
+  answers, a loading toast says "Creating a merge request of auth…"; then a `success` toast "Created merge request
+  IJ-CR-8" offers "Open merge request". A failure is an error toast. A blocked branch can't (it can't be pushed): the
+  item is disabled with the reason on hover.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should create a merge request from the branch menu, pushing the branch first`)
 - A robot that failed for missing approvals (its problems are read once per session, for the failed robots of the
   branches) is "Needs review" in `warning`; its popover says how to go on and offers "Safe Push…" instead of Restart
   (a restart would check the same merge request).
@@ -368,6 +391,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the pull request details).
 - `info` is the merged colour, as for pull requests; push states never use it.
 - The details popover is `w-80`; in the preview the same details sit in a nested `rounded-lg` panel.
+- "Safe Push…" (`SafePushButton`) is an `xs` button with the `ShieldCheckIcon`, ghost in the row and the preview footer,
+  outline among the popover's buttons, in the foreground colour (the push colour is the push button's). Disabled, it
+  keeps the focus and the hover (`focusableWhenDisabled`) and is dimmed to `opacity-50`; its reason is a `Tooltip`.
+- A menu item's reason or description is a `Tooltip` beside it (`side="inline-end"`); a disabled item keeps the
+  pointer for it. Escape closes the menu together with the tooltip.
 
 ## Testing / Local Run
 

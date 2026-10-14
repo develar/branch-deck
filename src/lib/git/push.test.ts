@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { pushBranch } from "@/lib/git/push"
 import type { PushGuardRequest } from "@/stores/push-guard"
 import { answerPushGuard, pushGuardStore } from "@/stores/push-guard"
 
-const { calls, robots } = vi.hoisted(() => ({
-  /** What reached the backend and Patronus, in order */
+const { calls, robots, toasts, stores } = vi.hoisted(() => ({
+  /** What reached the backend, Patronus and the browser, in order */
   calls: [] as string[],
   robots: { running: undefined as PatronusRobot | undefined },
+  toasts: [] as { description?: unknown, actionProps?: { children: string, onClick: () => void } }[],
+  stores: {
+    /** The remote status of each branch after its push, as the store keeps it */
+    remoteStatuses: {} as Record<string, unknown>,
+    /** The pull requests GitHub lists, by branch */
+    pullRequests: {} as Record<string, PullRequest>,
+  },
 }))
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -17,8 +24,21 @@ vi.mock("@tauri-apps/api/core", () => ({
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
-vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
-vi.mock("@/lib/git/stacked-push-toast", () => ({ showStackedPushToast: () => {} }))
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: async (url: string) => {
+    calls.push(`open ${url}`)
+  },
+}))
+vi.mock("@/components/ui/toast", () => ({
+  toast: {
+    add: (options: (typeof toasts)[number]) => {
+      toasts.push(options)
+      return "toast"
+    },
+    close: () => {},
+  },
+}))
+vi.mock("@/lib/git/stacked-push-toast", () => ({ showStackedPushToast: () => {}, getPullRequestBase: () => "master" }))
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
@@ -47,12 +67,14 @@ vi.mock("@/lib/bindings", () => ({
 
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
-  getBranch: (name: string) => ({ name, myEmail: "me@example.com", stack: null, remoteStatus: null, commits: [{ hash: "tip" }] }),
+  getBranch: (name: string) => ({ name, myEmail: "me@example.com", stack: null, remoteStatus: stores.remoteStatuses[name] ?? null, commits: [{ hash: "tip" }] }),
   isBranchPushing: () => false,
   setBranchPushing: () => {},
   setBranchPushProgress: () => {},
-  setBranchRemoteStatus: () => {},
-  toRemoteStatus: (status: { remoteTip: string }) => ({ remoteTip: status.remoteTip }),
+  setBranchRemoteStatus: (name: string, status: unknown) => {
+    stores.remoteStatuses[name] = status
+  },
+  toRemoteStatus: (status: { remoteExists: boolean, remoteTip: string }) => ({ exists: status.remoteExists, remoteTip: status.remoteTip }),
 }))
 
 vi.mock("@/stores/patronus", () => ({
@@ -68,10 +90,15 @@ vi.mock("@/stores/patronus", () => ({
   },
 }))
 
-vi.mock("@/stores/pull-requests", () => ({ refreshPullRequestsAfterPush: async () => {} }))
+vi.mock("@/stores/pull-requests", () => ({
+  refreshPullRequestsAfterPush: async () => {},
+  getPullRequest: (name: string) => stores.pullRequests[name],
+  getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
+}))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/repository", () => ({
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
+  getFullBranchName: (name: string) => `user/virtual/${name}`,
 }))
 
 /** A Safe Push of `auth` running on an older commit than the branch is at */
@@ -97,7 +124,34 @@ async function question(): Promise<PushGuardRequest> {
 
 beforeEach(() => {
   calls.length = 0
+  toasts.length = 0
   robots.running = RUNNING
+  stores.remoteStatuses = {}
+  stores.pullRequests = {}
+})
+
+describe("the toast of a push", () => {
+  beforeEach(() => {
+    robots.running = undefined
+  })
+
+  it("offers to create the pull request of a branch without one, into the baseline", async () => {
+    expect(await pushBranch("auth")).toBe(true)
+    const toast = toasts.at(-1)!
+    expect(toast.description).toBe("Branch auth pushed successfully")
+    expect(toast.actionProps?.children).toBe("Create Pull Request")
+    toast.actionProps!.onClick()
+    await vi.waitFor(() => expect(calls).toEqual(["push auth", "open https://github.com/JetBrains/ultimate/compare/master...user/virtual/auth?expand=1"]))
+  })
+
+  it("opens the pull request the branch has", async () => {
+    stores.pullRequests.auth = { url: "https://github.com/JetBrains/ultimate/pull/7" } as PullRequest
+    expect(await pushBranch("auth")).toBe(true)
+    const toast = toasts.at(-1)!
+    expect(toast.actionProps?.children).toBe("Open Pull Request")
+    toast.actionProps!.onClick()
+    await vi.waitFor(() => expect(calls).toEqual(["push auth", "open https://github.com/JetBrains/ultimate/pull/7"]))
+  })
 })
 
 describe("pushBranch into a branch whose Safe Push runs", () => {
