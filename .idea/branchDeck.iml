@@ -31,6 +31,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/sync-types/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/sync-utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/model-types/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/bd-cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/object-cache/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.output" />
       <excludeFolder url="file://$MODULE_DIR$/.tools" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />
