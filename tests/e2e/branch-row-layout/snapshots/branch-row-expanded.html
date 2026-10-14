@@ -7,7 +7,7 @@
       <th class="py-3 text-left text-sm font-medium text-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
         Commits
       </th>
-      <th class="py-3 text-left text-sm font-medium text-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
+      <th class="py-3 text-left text-sm font-medium text-foreground hidden w-px min-w-[16rem] px-4 whitespace-nowrap sm:table-cell">
         Status
       </th>
       <th class="py-3 text-left text-sm font-medium text-foreground w-px px-4 whitespace-nowrap">
@@ -33,15 +33,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -60,45 +62,47 @@
     </tr>
     <tr>
       <td class="px-0 py-4" colspan="4">
-        <div class="ml-8 border-l border-border pr-6">
-          <div class="flex flex-col gap-2">
-            <div>
-              <table class="w-full rounded-lg focus:outline-none" data-space-preview="" tabindex="0">
-                <tbody class="divide-y divide-border">
-                  <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="ddf3648ed6af7efe3f03d950c12b2b3e5139abae" data-selected="false" data-slot="context-menu-trigger" draggable="true">
-                    <td class="bd-padding-list-item">
-                      <div class="flex flex-col gap-1">
-                        <div class="flex min-w-0 flex-col gap-1">
-                          <div class="flex items-center gap-2">
-                            <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
-                              <span>
-                                foo 2
+        <div class="pl-8">
+          <div class="flex flex-col gap-2 border-l border-border pr-6" data-testid="commit-rail">
+            <div class="flex flex-col gap-2">
+              <div>
+                <table class="w-full rounded-lg focus:outline-none" data-space-preview="" tabindex="0">
+                  <tbody class="divide-y divide-border">
+                    <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="ddf3648ed6af7efe3f03d950c12b2b3e5139abae" data-selected="false" data-slot="context-menu-trigger" draggable="true">
+                      <td class="bd-padding-list-item">
+                        <div class="flex flex-col gap-1">
+                          <div class="flex min-w-0 flex-col gap-1">
+                            <div class="flex items-center gap-2">
+                              <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
+                                <span>
+                                  foo 2
+                                </span>
                               </span>
-                            </span>
-                          </div>
-                          <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                            <span class="font-mono">
-                              [SHA]
-                            </span>
-                            <span>
-                              →
-                            </span>
-                            <span class="font-mono">
-                              [SHA]
-                            </span>
-                            <span>
-                              •
-                            </span>
-                            <span>
-                              Yesterday 3:30 PM
-                            </span>
+                            </div>
+                            <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                              <span class="font-mono">
+                                [SHA]
+                              </span>
+                              <span>
+                                →
+                              </span>
+                              <span class="font-mono">
+                                [SHA]
+                              </span>
+                              <span>
+                                ·
+                              </span>
+                              <span>
+                                Yesterday 3:30 PM
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

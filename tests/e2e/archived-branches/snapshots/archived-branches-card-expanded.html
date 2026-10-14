@@ -50,10 +50,10 @@
             </div>
           </td>
           <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-            <div class="flex items-center gap-2">
-              <svg aria-hidden="true" class="lucide lucide-chart-pie size-4 text-info" />
+            <div class="flex items-center gap-2" data-status="partial" data-testid="archived-branch-status">
+              <svg aria-hidden="true" class="lucide lucide-chart-pie size-4 shrink-0 text-muted-foreground" />
               <span class="text-sm text-muted-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                Partially merged · 1/2
+                Partially merged · 1 of 2
               </span>
             </div>
           </td>
@@ -84,10 +84,10 @@
             </div>
           </td>
           <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-            <div class="flex items-center gap-2">
-              <svg aria-hidden="true" class="lucide lucide-triangle-alert size-4 text-warning" />
+            <div class="flex items-center gap-2" data-status="not-merged" data-testid="archived-branch-status">
+              <svg aria-hidden="true" class="lucide lucide-triangle-alert size-4 shrink-0 text-warning" />
               <span class="text-sm text-muted-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                Not merged · 1
+                Not merged
               </span>
             </div>
           </td>
@@ -113,10 +113,10 @@
           </td>
           <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
             <div class="flex items-center gap-2">
-              <svg aria-hidden="true" class="lucide lucide-circle-check size-4 text-success" />
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2" data-status="merged" data-testid="archived-branch-status">
+                <svg aria-hidden="true" class="lucide lucide-git-merge size-4 shrink-0 text-info" />
                 <span class="text-sm text-muted-foreground">
-                  Merged · 0
+                  Merged
                 </span>
               </div>
             </div>

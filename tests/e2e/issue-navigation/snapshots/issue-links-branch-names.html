@@ -7,7 +7,7 @@
       <th class="py-3 text-left text-sm font-medium text-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
         Commits
       </th>
-      <th class="py-3 text-left text-sm font-medium text-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
+      <th class="py-3 text-left text-sm font-medium text-foreground hidden w-px min-w-[16rem] px-4 whitespace-nowrap sm:table-cell">
         Status
       </th>
       <th class="py-3 text-left text-sm font-medium text-foreground w-px px-4 whitespace-nowrap">
@@ -28,7 +28,9 @@
             </a>
           </span>
           <span class="truncate text-xs text-muted-foreground">
-            Add connection retry logic
+            <span>
+              Add connection retry logic
+            </span>
           </span>
         </div>
       </td>
@@ -38,15 +40,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -75,7 +79,9 @@
             </a>
           </span>
           <span class="truncate text-xs text-muted-foreground">
-            Add authentication tests
+            <span>
+              Add authentication tests
+            </span>
           </span>
         </div>
       </td>
@@ -85,15 +91,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -127,15 +135,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -169,7 +179,17 @@
             </span>
           </span>
           <span class="truncate text-xs text-muted-foreground">
-            and PROD-999: Database optimization
+            <span>
+              <span>
+                and
+              </span>
+              <a class="rounded-md transition-colors outline-primary/25 hover:text-foreground focus-visible:outline-3 text-muted-foreground" href="https://jira.example.com/browse/PROD-999" rel="noopener noreferrer" target="_blank">
+                PROD-999
+              </a>
+              <span>
+                : Database optimization
+              </span>
+            </span>
           </span>
         </div>
       </td>
@@ -179,15 +199,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -221,15 +243,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -263,15 +287,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
@@ -305,7 +331,9 @@
             </span>
           </span>
           <span class="truncate text-xs text-muted-foreground">
-            Add authentication service
+            <span>
+              Add authentication service
+            </span>
           </span>
         </div>
       </td>
@@ -315,15 +343,17 @@
         </span>
       </td>
       <td class="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
-        <div class="flex items-center gap-2">
+        <div class="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
           <div>
             <span aria-expanded="false" aria-haspopup="dialog" class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
               <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
-              <span class="truncate lowercase">
+              <span class="truncate" data-testid="branch-status">
                 not pushed
               </span>
             </span>
           </div>
+          <div class="col-start-2 flex" />
+          <div class="col-start-3 flex gap-2" />
         </div>
       </td>
       <td class="w-px px-4 py-4 whitespace-nowrap">
