@@ -40,7 +40,7 @@ vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-
 vi.mock("@/lib/errors", () => ({ logError: () => {} }))
 
 beforeEach(() => {
-  commitFilesStore.setState({ byCommit: new Map() })
+  commitFilesStore.setState({ byCommit: new Map(), loading: new Set() })
   calls.batches = []
   calls.singles = []
   calls.fail = false
@@ -65,17 +65,21 @@ describe("loadCommitFiles", () => {
     const first = loadCommitFiles(["a", "b"])
     const second = loadCommitFiles(["b"])
     const single = loadFilesOfCommit("a")
+    // the lists of these commits are busy meanwhile
+    expect([...commitFilesStore.getState().loading]).toEqual(["a", "b"])
     calls.release?.()
     await Promise.all([first, second, single])
     expect(calls.batches).toEqual([["a", "b"]])
     expect(calls.singles).toEqual([])
     expect(getFilesOfCommit("a")).toEqual(files("a"))
+    expect(commitFilesStore.getState().loading.size).toBe(0)
   })
 
   it("tries again after a failed load", async () => {
     calls.fail = true
     await loadCommitFiles(["a"])
     expect(getFilesOfCommit("a")).toBeUndefined()
+    expect(commitFilesStore.getState().loading.size).toBe(0)
     calls.fail = false
     await loadCommitFiles(["a"])
     expect(calls.batches).toEqual([["a"], ["a"]])

@@ -84,7 +84,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files
-  useCommitFiles(open && branch !== undefined ? branch.commits.map(getCommitHash) : [])
+  const isLoadingFiles = useCommitFiles(open && branch !== undefined ? branch.commits.map(getCommitHash) : [])
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, index, names.length, next => onNameChange(names[next]!), onClose)) {
@@ -133,7 +133,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
             <div className="flex flex-col gap-5">
               <BranchErrorNotice branch={branch} />
               {renderReviewSections?.(branch)}
-              <ol data-testid="branch-preview-commits" className="flex flex-col divide-y divide-border">
+              <ol data-testid="branch-preview-commits" aria-busy={isLoadingFiles || undefined} className="flex flex-col divide-y divide-border">
                 {branch.commits.map(commit => <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} />)}
               </ol>
             </div>

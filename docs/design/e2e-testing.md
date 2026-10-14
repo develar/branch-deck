@@ -121,7 +121,9 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   canonical name and its own classes, without paths and SVG presentation attributes. No icon name index is needed.
 - **Transition settling**: before capturing, the helper waits until no element has `data-starting-style`/`data-ending-style`,
   no closed Base UI popup is still mounted in a portal, and no finite animation is running. Base UI keeps closing popups and
-  outgoing tab panels mounted until their exit transition ends; `waitForTabSwitchSettled` covers tab switches.
+  outgoing tab panels mounted until their exit transition ends; `waitForTabSwitchSettled` covers tab switches. It also
+  waits until no commit list (`table`, the `ol` of the branch preview) is `aria-busy`: a list is busy while the file
+  counts of its meta lines are read ([Commit Files](../../spec/commit/commit-files.spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
 
 ## Alternatives Considered

@@ -18,6 +18,7 @@ targets:
   - ../../src/components/conflict/OnDemandFileDiffList.tsx
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
   - ../../src/hooks/useCommitCopyActions.ts
+  - ../../tests/e2e/helpers/aria-snapshot-helpers.ts
 ---
 
 # Commit Files
@@ -73,6 +74,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - A list must load the files of its commits with one call when it is shown or gets other commits, and only for the
   commits not known yet. A second request for a commit must wait for the one in flight.
+- A list must be `aria-busy` while the files of its commits are read, so that a snapshot waits for the counts.
 - A failed load must be logged, not shown; the rows go without counts, and the next load tries again.
   [@test] ../../src/stores/commit-files.test.ts (`loads the commits of a list with one call, and only the ones not known yet`, `waits for a load in flight instead of asking again`, `tries again after a failed load`)
 - Once known, the meta line of a commit row must end with the file count and the line counts: `1 file · +1 −0`.

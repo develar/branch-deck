@@ -9,12 +9,15 @@ import { getSelectedProject } from "@/stores/repository"
 export interface CommitFilesState {
   /** By commit id. The files of a commit never change: an entry is never stale, also after a repository switch */
   byCommit: ReadonlyMap<string, CommitFiles>
+  /** The commits whose files are being read: a list is busy until its commits are done */
+  loading: ReadonlySet<string>
   /** The Files section of the commit preview is shown; `F` toggles it */
   isPreviewSectionOpen: boolean
 }
 
 export const commitFilesStore = createStore<CommitFilesState>(() => ({
   byCommit: new Map(),
+  loading: new Set(),
   isPreviewSectionOpen: true,
 }))
 
@@ -28,6 +31,11 @@ export function useFilesOfCommit(commitId: string): CommitFiles | undefined {
 
 export function getFilesOfCommit(commitId: string): CommitFiles | undefined {
   return commitFilesStore.getState().byCommit.get(commitId)
+}
+
+/** Whether the files of one of the commits are being read */
+export function useIsLoadingCommitFiles(commitIds: readonly string[]): boolean {
+  return useStore(commitFilesStore, state => state.loading.size > 0 && commitIds.some(id => state.loading.has(id)))
 }
 
 /**
@@ -65,35 +73,42 @@ function load(commitIds: readonly string[], fetch: (repositoryPath: string, miss
     for (const id of missing) {
       inFlight.set(id, request)
     }
+    commitFilesStore.setState(state => ({ loading: new Set([...state.loading, ...missing]) }))
     waiting.push(request)
   }
   return Promise.all(waiting).then(() => {})
 }
 
 async function fetchInto(repositoryPath: string, missing: string[], fetch: (repositoryPath: string, missing: string[]) => Promise<CommandResult<CommitFiles[]>>): Promise<void> {
+  let loaded: readonly CommitFiles[] = []
   try {
     const result = await fetch(repositoryPath, missing)
     if (result.status === "error") {
       logError("Cannot read the files of commits", result.error)
-      return
     }
-    commitFilesStore.setState((state) => {
-      const byCommit = new Map(state.byCommit)
-      for (const files of result.data) {
-        byCommit.set(files.commitId, files)
-      }
-      return { byCommit }
-    })
+    else {
+      loaded = result.data
+    }
   }
   catch (error) {
     // the command did not run (IPC)
     logError("Cannot read the files of commits", error)
   }
-  finally {
-    for (const id of missing) {
-      inFlight.delete(id)
-    }
+  for (const id of missing) {
+    inFlight.delete(id)
   }
+  // one update: the counts appear as the list stops being busy
+  commitFilesStore.setState((state) => {
+    const byCommit = new Map(state.byCommit)
+    for (const files of loaded) {
+      byCommit.set(files.commitId, files)
+    }
+    const loading = new Set(state.loading)
+    for (const id of missing) {
+      loading.delete(id)
+    }
+    return { byCommit, loading }
+  })
 }
 
 export function useIsCommitFilesSectionOpen(): boolean {

@@ -87,7 +87,7 @@ export function CommitList<T extends CommitUnion>({
   renderAfterCommit,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
-  useCommitFiles(commits.map(getCommitHash))
+  const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
 
   // stable callbacks for the memoized rows, reading the latest props
   const latestRef = useRef({ selection, contextMenuItems, onDragCommits, onDragEnd })
@@ -161,6 +161,8 @@ export function CommitList<T extends CommitUnion>({
         ref={tableRef}
         className="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
         tabIndex={selectable ? 0 : -1}
+        // the meta lines get their file counts
+        aria-busy={isLoadingFiles || undefined}
         onKeyDown={handleKeyDown}
       >
         <tbody className="divide-y divide-border">
