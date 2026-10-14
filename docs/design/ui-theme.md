@@ -129,6 +129,9 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 - **Type sizes** come from the scale: `text-sm` for text, `text-xs` for meta lines, and `text-message`
   (`--text-message` in `src/index.css`, 13px on a 20px line) for commit messages. No arbitrary sizes (`text-[13px]`,
   `text-[10px]`).
+  - Island titles are `text-sm font-semibold` (`SectionCardHeader`), dialog titles `text-base`.
+  - The one exception is the Welcome card title, `text-base font-semibold`: it greets once, above an otherwise empty
+    window, so it is the size of a dialog title, never `text-lg`.
 - **Live counters are `tabular-nums`** ("Pushing 45%", the fetch percent, "syncing 3/10", download bytes, "3 / 12"), so
   the text does not jitter while it counts. A hash inside a sentence is in the monospace font (`InlineCode plain`).
 - **Icons, one per concept** (lucide):

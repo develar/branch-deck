@@ -11,6 +11,7 @@ test.describe("Welcome Card", () => {
     // Verify the welcome card structure using HTML snapshot
     const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
     await expect(welcomeCard).toBeVisible()
+    await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
 
     await captureHtmlSnapshot(welcomeCard, "welcome-card-new-user")
   })
@@ -32,14 +33,15 @@ test.describe("Welcome Card", () => {
     await captureModalSnapshot(page, "branch-prefix-help-modal")
   })
 
-  test("shows Step 2 when repository has no branch prefix configured", async ({ page, setupRepo }) => {
+  test("shows the prefix step as step 1 when the repository has no branch prefix configured", async ({ page, setupRepo }) => {
     await setupRepo("simple_no_prefix", { prepopulateStore: true })
 
     const welcomeCard = page.locator("[data-testid=\"welcome-card\"]")
     await expect(welcomeCard).toBeVisible()
 
-    // Should show Step 2 content (check for the heading specifically)
+    // Should show the prefix step (check for the heading specifically), numbered 1: the steps shown count from 1
     await expect(welcomeCard.getByRole("heading", { name: "Configure your branch prefix" })).toBeVisible()
+    await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1"])
 
     // Should NOT show Step 1 content
     await expect(welcomeCard.getByText("Select a Git repository")).toHaveCount(0)

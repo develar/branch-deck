@@ -13,13 +13,16 @@ interface WelcomeCardProps {
 
 export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps) {
   const [helpOpen, setHelpOpen] = useState(false)
+  // the steps shown are numbered from 1: with a repository selected, the prefix is the first step
+  const prefixStep = hasRepository ? 1 : 2
   return (
     <div>
       <Card data-testid="welcome-card">
         <CardHeader className="border-b">
           <div className="flex items-center gap-2">
             <GitBranchIcon className="size-5 text-primary" />
-            <h3 className="text-lg font-semibold">
+            {/* the one island title above text-sm (docs/design/ui-theme.md, "Type sizes") */}
+            <h3 className="text-base font-semibold">
               Welcome to Branch Deck
             </h3>
           </div>
@@ -42,7 +45,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
             )}
 
             {!hasBranchPrefix && (
-              <Step number={2} title="Configure your branch prefix">
+              <Step number={prefixStep} title="Configure your branch prefix">
                 <p className="text-sm text-muted-foreground">
                   Set a default prefix for your branches to keep them organized. For example:
                   {" "}
@@ -76,9 +79,9 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
 
 function Step({ number, title, children }: { number: number, title: string, children: ReactNode }) {
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-3" data-testid="welcome-step">
       <div className="mt-0.5 shrink-0">
-        <div className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+        <div className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
           {number}
         </div>
       </div>
