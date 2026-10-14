@@ -248,6 +248,21 @@ recovery hint (`git reset -q`).
    **Rationale**: a virtual branch is rebuilt on every sync, so the push must force. The lease still refuses to
    overwrite a remote branch that someone else updated since the last fetch or push.
 
+7. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
+   `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds
+   `-c credential.interactive=false -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and `GCM_INTERACTIVE=never`
+   on top of the executor's `GIT_TERMINAL_PROMPT=0`.
+   **Rationale**:
+   - the user's credential helpers (osxkeychain, Git Credential Manager, `gh auth git-credential`) keep working, so
+     stored HTTPS credentials are used. The earlier `-c credential.helper=` disabled them, and an HTTPS remote that
+     needed credentials failed;
+   - nothing may ask for new credentials: the app has no terminal, and a hidden prompt would block forever;
+   - a transfer that stalls below 1000 bytes/s for 30 s is aborted instead of hanging on a dead connection.
+
+   SSH is left as configured. The app started from Finder has no controlling terminal, so ssh fails instead of
+   prompting. Forcing `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` would override `core.sshCommand` and break
+   `SSH_ASKPASS` prompts.
+
 ## Performance
 
 | Operation | Before | After |
@@ -267,12 +282,13 @@ recovery hint (`git reset -q`).
   the files yet.
 - **Mapping notes** live on the default notes ref (`refs/notes/commits`), so they show up in the user's `git log`.
   Moving them to a private ref needs a migration that reads both refs.
-- **Push** passes `-c credential.helper=`. This disables keychain helpers, so an HTTPS remote that needs credentials
-  fails.
+- **SSH stalls**: the low-speed limits apply to HTTP only. A dead SSH connection is bounded only by the user's
+  `ServerAliveInterval`.
 
 ## References
 
 - Implementation: `crates/git-executor/src/git_info.rs`, `crates/git-executor/src/git_command_executor.rs`,
+  `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`,
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`

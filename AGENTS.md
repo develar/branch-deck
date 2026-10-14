@@ -91,6 +91,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
   `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`.
 - Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts.
+- **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
+  the user's credential helpers stay, prompts are off, stalled HTTP transfers abort. Never pass `-c credential.helper=`.
 
 ### Rust Import Rules
 - **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.

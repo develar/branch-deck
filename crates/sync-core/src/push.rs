@@ -1,3 +1,4 @@
+use crate::remote_command::execute_remote_command;
 use crate::remote_status::compute_remote_status_for_branch;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -27,11 +28,10 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams)
 
   // The lease overwrites the remote branch only if it is still where the last fetch or push saw it,
   // so a commit pushed from elsewhere meanwhile is not lost.
-  // An empty credential helper keeps git from prompting: the push must not block on interactive input
-  git_executor.execute_command(
+  // The remote policy keeps the user's credential helpers but never prompts: the push must not block on input
+  execute_remote_command(
+    git_executor,
     &[
-      "-c",
-      "credential.helper=",
       "push",
       "--porcelain",
       &format!("--force-with-lease=refs/heads/{final_branch_name}"),
