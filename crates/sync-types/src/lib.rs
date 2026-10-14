@@ -41,6 +41,9 @@ pub enum SyncEvent {
     branches: Vec<GroupedBranchInfo>,
     /// Repository's baseline branch (e.g., "origin/master", "master")
     baseline_branch: String,
+    /// Stacked branches are on (`branchdeck.stacks`): prefixes are read as `(parent/leaf)`
+    #[cfg_attr(feature = "specta", specta(optional))]
+    stacks: bool,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

@@ -154,7 +154,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
   let mut update = None;
   for event in events {
     match event {
-      SyncEvent::BranchesGrouped { branches, baseline_branch } => {
+      SyncEvent::BranchesGrouped { branches, baseline_branch, .. } => {
         baseline = baseline_branch;
         grouped = branches.into_iter().map(|branch| (branch.name, branch.commits.len())).collect();
       }

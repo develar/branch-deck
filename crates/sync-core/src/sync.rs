@@ -273,6 +273,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   progress.send(SyncEvent::BranchesGrouped {
     branches: prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref()),
     baseline_branch: baseline_branch.clone(),
+    stacks: stacks.is_some(),
   })?;
 
   Ok(PreparedSync {

@@ -246,6 +246,30 @@ pub async fn move_commits_to_branch(
 }
 
 /// Fails with the error message as the body, see `move_commits_to_branch`
+pub async fn rename_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::stack_operations::RenameBranchParams>,
+) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+
+  sync_core::stack_operations::rename_branch(&state.git_executor, &params)
+    .map(Json)
+    .map_err(|e| command_failed("rename branch", &e))
+}
+
+/// Fails with the error message as the body, see `move_commits_to_branch`
+pub async fn restack_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::stack_operations::RestackBranchParams>,
+) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+
+  sync_core::stack_operations::restack_branch(&state.git_executor, &params)
+    .map(Json)
+    .map_err(|e| command_failed("restack branch", &e))
+}
+
+/// Fails with the error message as the body, see `move_commits_to_branch`
 pub async fn squash_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::squash::SquashCommitsParams>,

@@ -32,6 +32,10 @@ export const commands = {
 	 *  rewrite; the working tree is not touched.
 	 */
 	moveCommitsToBranch: (params: MoveCommitsParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params })),
+	/**  Renames a branch, and its name in the prefixes of the branches stacked on it, in one history rewrite. */
+	renameBranch: (params: RenameBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("rename_branch", { params })),
+	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
+	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
@@ -601,6 +605,20 @@ export type RemoteStatusUpdate = {
 	lastPushTime: number,
 };
 
+export type RenameBranchParams = {
+	repositoryPath: string,
+	/**  The branch (a leaf with stacked branches on) */
+	branchName: string,
+	newName: string,
+};
+
+export type RestackBranchParams = {
+	repositoryPath: string,
+	branchName: string,
+	/**  The branch to stack on; `None` makes the branch a root (unstack) */
+	parent: string | null,
+};
+
 export type RestoreBranchHeadParams = {
 	repositoryPath: string,
 	/**  HEAD the squash left; the undo is refused if the branch moved since */
@@ -725,6 +743,8 @@ export type SyncEvent =
 	branches: GroupedBranchInfo[],
 	/**  Repository's baseline branch (e.g., "origin/master", "master") */
 	baselineBranch: string,
+	/**  Stacked branches are on (`branchdeck.stacks`): prefixes are read as `(parent/leaf)` */
+	stacks?: boolean,
 } } | 
 /**  Sent for commits that don't match any prefix pattern */
 { type: "unassignedCommits"; data: {

@@ -19,6 +19,7 @@ pub mod repository_validation;
 pub mod reword_commit;
 pub mod squash;
 pub mod stack;
+pub mod stack_operations;
 pub mod sync;
 pub mod unapply_branch;
 pub mod uncommitted_changes;
