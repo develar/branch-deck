@@ -39,6 +39,22 @@ async function setupRobots(page: Page, setupRepo: (template: string, options: { 
   await setupRepo("issue_links", { patronus: availableRobots(...robots) })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+  // the robots load after the sync: a push before they did would not know that one runs
+  for (const it of robots) {
+    if (it.branchName !== null) {
+      await expect(chip(page, it.branchName)).toBeVisible()
+    }
+  }
+}
+
+/** Answers the question about the running Safe Push of JIRA-456 with Back: Escape, once the dialog has the focus */
+async function answerPushGuardBack(page: Page): Promise<void> {
+  const dialog = page.getByTestId("push-guard-dialog")
+  await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
+  // the dialog moves the focus to its primary button; an Escape before that closes nothing
+  await expect(dialog.getByRole("button", { name: "Cancel, Push and Restart" })).toBeFocused()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
 }
 
 function chip(page: Page, branchName: string) {
@@ -252,9 +268,7 @@ test.describe("Patronus actions", () => {
       const dialog = page.getByTestId("push-guard-dialog")
 
       await getPushButton(findBranchRow(page, "JIRA-456")).click()
-      await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-      await page.keyboard.press("Escape")
-      await expect(dialog).toBeHidden()
+      await answerPushGuardBack(page)
       expect(pushes).toHaveLength(0)
       expect(statuses).toHaveLength(1)
 
@@ -305,10 +319,7 @@ test.describe("Patronus actions", () => {
       await toast.getByRole("button", { name: "Force Push" }).click()
 
       // the robot still runs: the same question, and Back pushes nothing
-      const dialog = page.getByTestId("push-guard-dialog")
-      await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-      await page.keyboard.press("Escape")
-      await expect(dialog).toBeHidden()
+      await answerPushGuardBack(page)
       expect(pushes.map(push => push.expectedRemote)).toEqual([null])
       expect(statuses).toHaveLength(2)
     })
