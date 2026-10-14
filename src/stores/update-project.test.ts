@@ -40,6 +40,7 @@ vi.mock("@/stores/branch-sync", () => ({
   },
 }))
 vi.mock("@/stores/landed", () => ({ addLandedUpdate: () => {} }))
+vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: selection.path }),

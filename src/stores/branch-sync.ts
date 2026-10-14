@@ -8,7 +8,7 @@ import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
-import { setLandedStatus } from "@/stores/landed"
+import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
@@ -530,6 +530,7 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
       })
     }
     branchSyncStore.setState({ hasCompletedSync: true })
+    hideAfterSync(vcsRequest.repositoryPath)
     void loadAutosquashPlan(vcsRequest.repositoryPath)
   }
   catch (error) {
@@ -608,7 +609,7 @@ function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: Syn
     case "baselineStatus": {
       const { landing, landed, ...status } = event.data
       branchSyncStore.setState({ baselineStatus: { repositoryPath, ...status } })
-      setLandedStatus(repositoryPath, landing, landed)
+      setLandedStatus(repositoryPath, landing, landed, status.update?.upstream ?? status.baselineBranch)
       break
     }
     case "commitsBlocked":

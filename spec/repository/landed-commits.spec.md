@@ -1,6 +1,6 @@
 ---
 name: Landed Commits
-description: Requirements for telling the user that their commits reached the baseline (a Safe Push robot, a merged pull request, a cherry-pick): before the update the header and the rows name what the fetched baseline already has, the update toast leads with what landed, and an island keeps the report until it is dismissed, also for an update made outside Branch Deck.
+description: Requirements for telling the user that their commits reached the baseline (a Safe Push robot, a merged pull request, a cherry-pick): before the update the header and the rows name what the fetched baseline already has, the update toast leads with what landed, and an island keeps the report until the user has seen it or dismissed it, also for an update made outside Branch Deck; Activity keeps it after.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/landed.rs
@@ -16,6 +16,8 @@ targets:
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/components/repository/LandedCard.tsx
+  - ../../src/components/repository/ActivityLog.tsx
+  - ../../src/stores/settings/repositorySettings.ts
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/components/shared/CopyButton.tsx
@@ -34,7 +36,7 @@ Date: 2026-10-14
 A Safe Push robot rebases the commits of a virtual branch onto `master`; the next Update Project drops them locally.
 Branch Deck says so at three moments: before the update, the header and the branch rows name what the fetched baseline
 already has; the update toast leads with what landed; afterwards an island lists it, with the baseline commits and the
-robot or pull request, until the user dismisses it. An update made elsewhere (the IDE, `git pull --rebase`) is reported
+robot or pull request, until the user has seen it or dismisses it, and Activity keeps the report. An update made elsewhere (the IDE, `git pull --rebase`) is reported
 by the next sync the same way.
 
 ## Goals
@@ -141,9 +143,16 @@ by the next sync the same way.
   "40 landed · 12 stay local" or "3 landed · squashed", the pull request and Patronus chips and the committer; a row
   expands to the commits, each with the short baseline commit (copy), its committer and time, or "squashed upstream".
   When every row has the same committer, the header names it once instead ("Landed in origin/master · by Space Team ·
-  just now"). Dismiss (`XIcon`) closes it and clears the "New" marks of the archive.
+  just now"). Dismiss (`XIcon`) closes it and clears the report, the chips and the "New" marks of the archive.
   [@test] ../../src/lib/landed.test.ts (`names the committer once when every branch has the same one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
+- The island shows from the report until the first successful sync that completes while the window has focus, at least
+  10 s after the user saw the island (it showed while the window had focus): the sync that follows the update keeps it,
+  a later one hides what was seen. Hidden is remembered for the repository (`landedHiddenUntil`, the newest `landedAt`
+  seen), so a restart doesn't show it again; what lands later shows again. The "N landed" chips and the "New" marks stay
+  until Dismiss, which the Activity entry of the report offers once the island is hidden, and the entry keeps the
+  report ([Activity](activity.spec.md)).
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island`)
 - The copy button of a baseline commit (the full hash) shows while its commit row is hovered or the button has keyboard
   focus, as the copy button of the commit that merged an archived branch.
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should show the copy button of a baseline commit on hover`)

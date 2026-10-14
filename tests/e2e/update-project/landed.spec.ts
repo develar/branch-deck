@@ -70,7 +70,11 @@ test.describe("Landed commits", () => {
     await expect(page.getByText("2 branches landed in origin/master")).toBeVisible()
     await expect(page.getByText("feature-auth and search · rebased 2 commits")).toBeVisible()
 
+    // the report is the backend's: a sync keeps it, as the user saw the island for less than 10 s (a sync after that
+    // hides it, see tests/e2e/activity/activity.spec.ts)
     const card = landedCard(page)
+    await expect(card).toBeVisible()
+    await syncAndWaitForBranches()
     await expect(card).toContainText("Landed in origin/master")
     // the robot pushed both branches: the header names it once, the rows don't repeat it
     await expect(card.getByTestId("landed-header")).toContainText("by Patronus")
@@ -92,9 +96,7 @@ test.describe("Landed commits", () => {
     await page.getByTestId("archived-branches-card").getByRole("button").first().click()
     await expect(page.getByTestId("archived-branch-new")).toHaveCount(1)
 
-    // the report is the backend's: a sync keeps it, Dismiss clears it for good
-    await syncAndWaitForBranches()
-    await expect(landedBranch(page, "search")).toBeVisible()
+    // Dismiss clears it for good
     await card.getByTestId("landed-dismiss").click()
     await expect(card).toHaveCount(0)
     await expect(page.getByTestId("archived-branch-new")).toHaveCount(0)

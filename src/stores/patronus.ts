@@ -15,6 +15,7 @@ import {
 } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import { recordRobot } from "@/stores/activity"
 import { branchSyncStore, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
 import { runFetchBaseline } from "@/stores/update-project"
@@ -191,6 +192,7 @@ function announceMerge(key: string, robot: PatronusRobot): void {
     return
   }
   announcedMerges.add(robot.id)
+  recordRobot(formatMergedRobotTitle(robot), robot, true, key.split("\n")[0])
   if (windowFocused) {
     showMergeToast(key, robot)
     return
@@ -478,6 +480,7 @@ export async function startPatronusRobot(
     throw new Error(result.error.message)
   }
   upsertPatronusRobot(result.data)
+  recordRobot(`${formatPushMode(mode)} started`, result.data)
   return result.data
 }
 

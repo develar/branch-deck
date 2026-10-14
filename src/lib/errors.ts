@@ -12,10 +12,18 @@ export function getErrorDetails(error: unknown): string {
   return String(error)
 }
 
-/** Logs the error and shows a sticky error toast. Usable outside React. */
+/** Records the errors the user was told about in Activity; set by `@/stores/activity`, which this module can't import */
+let errorRecorder: ((title: string, description: string) => void) | null = null
+
+export function setErrorRecorder(recorder: (title: string, description: string) => void): void {
+  errorRecorder = recorder
+}
+
+/** Logs the error, shows a sticky error toast and records it in Activity. Usable outside React. */
 export function notifyError(title: string, error: unknown): void {
   const description = getErrorDetails(error)
   logError(title, error, description)
+  errorRecorder?.(title, description)
 
   toast.add({
     type: "error",

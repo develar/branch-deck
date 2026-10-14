@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
+import { ActivityButton } from "@/components/repository/ActivityButton"
 import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -93,6 +94,7 @@ export function ConfigurationHeader() {
                   </>
                 )}
               />
+              <ActivityButton />
             </div>
           )}
           {pathValidation.valid && (lastSyncTime || isSyncing) && (

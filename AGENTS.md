@@ -83,6 +83,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   guard before a push into a branch whose Safe Push runs (`spec/branch/patronus.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children (`spec/branch/stacked-branches.spec.md`).
+- **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
+  the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
+  (`spec/repository/activity.spec.md`).
 
 ## Development Rules
 

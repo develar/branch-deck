@@ -198,11 +198,19 @@ export function registerStore(registration: StoreRegistration): void {
 /**
  * Current settings for sub-window initialization (`storeCache` of `open_sub_window`):
  * parsed state of registered stores (arrays as plain arrays) plus raw values of unregistered keys.
+ * Main-only stores are left out: a sub-window never receives their changes.
  */
 export function getStoreSnapshot(): Record<string, unknown> {
-  const snapshot = Object.fromEntries(rawSnapshot)
+  const snapshot: Record<string, unknown> = {}
+  for (const [key, value] of rawSnapshot) {
+    if (registry.get(key)?.isMainOnly !== true) {
+      snapshot[key] = value
+    }
+  }
   for (const [key, registration] of registry) {
-    snapshot[key] = registration.getValue()
+    if (!registration.isMainOnly) {
+      snapshot[key] = registration.getValue()
+    }
   }
   return snapshot
 }

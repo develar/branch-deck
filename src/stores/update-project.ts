@@ -7,6 +7,7 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { appliedUpdateToast } from "@/lib/landed"
+import { recordUpdate } from "@/stores/activity"
 import { setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
 import { getSelectedProject, useSelectedProject } from "@/stores/repository"
@@ -96,6 +97,7 @@ export async function runUpdateProject(): Promise<void> {
 
     updateProject(repositoryPath, { lastFetchTime: Date.now() })
     const { check, applied, landed } = result.data
+    recordUpdate(repositoryPath, result.data)
     switch (check.state.status) {
       case "upToDate":
         setBaselineUpdate(repositoryPath, check)

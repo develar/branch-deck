@@ -123,30 +123,42 @@ function appliedWords(applied: AppliedUpdate): string {
 }
 
 /**
+ * What landed, as the news: "wsm landed in origin/master", "40 commits of IJPL-257337 landed · 12 stay local"; several
+ * branches are "3 branches landed in origin/master" with their names as the description. Null when nothing landed.
+ */
+export function landedNews(landed: readonly LandedBranch[], upstream: string): UpdateToast | null {
+  const only = landed[0]
+  if (only === undefined) {
+    return null
+  }
+  if (landed.length > 1) {
+    return { title: `${landed.length} branches landed in ${upstream}`, description: joinNames(landed.map(landedBranchName)) }
+  }
+  return {
+    title: only.remaining > 0
+      ? `${landedSubject(only)} landed · ${formatStayLocal(only.remaining)}`
+      : `${landedSubject(only)} landed in ${upstream}${isSquashedUpstream(only) ? ", squashed" : ""}`,
+  }
+}
+
+/**
  * The toast after an applied update. What landed is the news and leads; how the branch was updated follows. Without
  * anything landed, the title says how the branch was updated, as before.
  */
 export function appliedUpdateToast(check: UpdateCheck, applied: AppliedUpdate, landed: readonly LandedBranch[]): UpdateToast {
   const { branch, upstream } = check
-  const only = landed[0]
-  if (only === undefined) {
+  const news = landedNews(landed, upstream)
+  if (news === null) {
     return {
       title: applied.kind === "fastForward"
         ? `Updated ${branch}: fast-forwarded to ${upstream}`
         : `Updated ${branch}: rebased ${formatCommitCount(applied.replayed)} onto ${upstream}`,
     }
   }
-  if (landed.length > 1) {
-    return {
-      title: `${landed.length} branches landed in ${upstream}`,
-      description: `${joinNames(landed.map(landedBranchName))} · ${appliedWords(applied)}`,
-    }
+  return {
+    title: news.title,
+    description: news.description === undefined ? `Updated ${branch}: ${appliedWords(applied)}` : `${news.description} · ${appliedWords(applied)}`,
   }
-
-  const title = only.remaining > 0
-    ? `${landedSubject(only)} landed · ${formatStayLocal(only.remaining)}`
-    : `${landedSubject(only)} landed in ${upstream}${isSquashedUpstream(only) ? ", squashed" : ""}`
-  return { title, description: `Updated ${branch}: ${appliedWords(applied)}` }
 }
 
 /** The report of a new update merged into the undismissed one, as the backend merges it: by branch name, new commits added */
