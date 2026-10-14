@@ -1,7 +1,15 @@
 // @spec spec/repository/update-project.spec.md
 import { describe, expect, it } from "vitest"
 import type { TransferProgress, UpdateCheck } from "@/lib/bindings"
-import { describeUpdateState, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
+import {
+  describeAsFetched,
+  describeUpdateState,
+  fetchAndUpdateLine,
+  lastFetchTime,
+  runningUpdateSummary,
+  updateFooterWords,
+  updatePhaseLabel,
+} from "@/lib/update-state"
 
 describe("describeUpdateState", () => {
   it("names the state, never a count of upstream commits", () => {
@@ -31,6 +39,34 @@ describe("lastFetchTime", () => {
     expect(lastFetchTime(update(100), 150_000)).toBe(150_000)
     expect(lastFetchTime(update(null), 150_000)).toBe(150_000)
     expect(lastFetchTime(null, undefined)).toBeNull()
+  })
+})
+
+describe("describeAsFetched", () => {
+  const upToDate = describeUpdateState({ status: "upToDate" }, "origin/master")
+  const clean = describeUpdateState({ status: "clean", kind: "rebase" }, "origin/master")
+  const conflict = describeUpdateState({ status: "conflict", files: ["a.txt"], commits: [], upstreamCommits: [] }, "origin/master")
+
+  it("says the baseline was not fetched yet instead of a state nobody asked the remote for", () => {
+    const fetched = Date.now()
+    expect(describeAsFetched(clean, "origin/master", fetched)).toBe(clean)
+    expect(fetchAndUpdateLine(fetched)).toBe("Fetched just now · fetch and update")
+
+    const notFetched = { tone: "muted", summary: "origin/master not fetched yet", short: "not fetched yet" }
+    expect(describeAsFetched(upToDate, "origin/master", null)).toEqual(notFetched)
+    expect(describeAsFetched(clean, "origin/master", null)).toEqual(notFetched)
+    // a warning keeps its words: its icon shows
+    expect(describeAsFetched(conflict, "origin/master", null)).toEqual({
+      tone: "warning",
+      summary: "Conflicts in 1 file: a.txt · origin/master not fetched yet",
+      short: "conflicts in 1 file · not fetched yet",
+    })
+    expect(fetchAndUpdateLine(null)).toBe("fetch and update")
+  })
+
+  it("says the same in the footer of the outgoing overview", () => {
+    expect(updateFooterWords(clean, Date.now(), "your wsm landed")).toBe("rebases cleanly · your wsm landed · fetched just now")
+    expect(updateFooterWords(describeAsFetched(upToDate, "origin/master", null), null, null)).toBe("not fetched yet")
   })
 })
 

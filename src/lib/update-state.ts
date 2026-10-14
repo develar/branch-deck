@@ -1,4 +1,5 @@
 import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateState } from "@/lib/bindings"
+import { formatRelativeTime } from "@/lib/time"
 import { transferLabel } from "@/lib/transfer-progress"
 
 /** How the Update button shows the state: muted, a success check, or a warning */
@@ -48,6 +49,35 @@ export function describeUpdateState(state: UpdateState, upstream: string): Updat
         short: "blocked by your uncommitted changes",
       }
   }
+}
+
+/**
+ * The state as of the last fetch (`fetchTime`, null before the first one). Before it, "Up to date with origin/master"
+ * or "Rebases cleanly" would claim what nobody asked the remote: muted, "origin/master not fetched yet". A warning,
+ * found against the copy of the clone, keeps its words and its icon, then says that nothing was fetched.
+ */
+export function describeAsFetched(description: UpdateStateDescription, upstream: string, fetchTime: number | null): UpdateStateDescription {
+  if (fetchTime !== null) {
+    return description
+  }
+  if (description.tone === "warning") {
+    return { tone: "warning", summary: `${description.summary} · ${upstream} not fetched yet`, short: `${description.short} · not fetched yet` }
+  }
+  return { tone: "muted", summary: `${upstream} not fetched yet`, short: "not fetched yet" }
+}
+
+/** The second line of the tooltip of the Update button, before the shortcut: "Fetched 5 minutes ago · fetch and update" */
+export function fetchAndUpdateLine(fetchTime: number | null): string {
+  return fetchTime === null ? "fetch and update" : `Fetched ${formatRelativeTime(fetchTime)} · fetch and update`
+}
+
+/**
+ * The words after "Incoming from origin/master: " in the footer of the outgoing overview, of a state `describeAsFetched`
+ * gave: "rebases cleanly · your wsm landed · fetched 5 minutes ago", "not fetched yet"
+ */
+export function updateFooterWords(description: UpdateStateDescription, fetchTime: number | null, landing: string | null): string {
+  const fetched = fetchTime === null ? null : `fetched ${formatRelativeTime(fetchTime)}`
+  return [description.short, landing, fetched].filter(part => part !== null).join(" · ")
 }
 
 /** The last fetch of the baseline (ms): Branch Deck's own, or one elsewhere (`FETCH_HEAD`), whichever is newer */
