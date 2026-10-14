@@ -2,12 +2,20 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { PatronusRobot } from "@/lib/bindings"
 
-/** What the user chose when a push would abort the running Safe Push of the branch */
-export type PushGuardAnswer = "cancel-push-restart" | "push" | "back"
+/**
+ * What the user chose when a push would abort the running Safe Push of the branch: cancel it, push and restart it on the
+ * pushed commit; cancel it and push (the push is for a new robot, which replaces it); push anyway; or go back
+ */
+export type PushGuardAnswer = "cancel-push-restart" | "cancel-push" | "push" | "back"
 
 export interface PushGuardRequest {
   readonly branchName: string
   readonly robot: PatronusRobot
+  /**
+   * The push is for a Safe Push started right after it (the Safe Push form): the running one is cancelled, not
+   * restarted, or the branch would run twice
+   */
+  readonly startsRobot: boolean
 }
 
 interface PushGuardState {
@@ -24,11 +32,11 @@ export function usePushGuardRequest(): PushGuardRequest | null {
 }
 
 /** Asks the user (the push guard dialog); a question still open is answered "back" */
-export function askPushGuard(branchName: string, robot: PatronusRobot): Promise<PushGuardAnswer> {
+export function askPushGuard(request: PushGuardRequest): Promise<PushGuardAnswer> {
   resolveRequest?.("back")
   return new Promise((resolve) => {
     resolveRequest = resolve
-    pushGuardStore.setState({ request: { branchName, robot } })
+    pushGuardStore.setState({ request })
   })
 }
 

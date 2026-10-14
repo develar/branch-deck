@@ -8,10 +8,10 @@ import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { CopyButton } from "@/components/shared/CopyButton"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { landedBranchName, landedCommitter, landedCountLabel, sharedCommitter } from "@/lib/landed"
-import { formatRelativeTime } from "@/lib/time"
 import { clearNewlyArchived } from "@/stores/archived-branches"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { dismissLanded, useLandedReport } from "@/stores/landed"
@@ -45,7 +45,8 @@ export function LandedCard() {
           <PackageCheckIcon className="size-4 shrink-0 text-info" />
           <h2 className="truncate text-sm font-semibold text-foreground">{`Landed in ${upstream}`}</h2>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {`· ${committer === undefined ? "" : `by ${committer} · `}${formatRelativeTime(landedAt * 1000)}`}
+            {`· ${committer === undefined ? "" : `by ${committer} · `}`}
+            <RelativeTime time={landedAt * 1000} />
           </span>
         </div>
         <Tooltip>
@@ -108,7 +109,10 @@ function LandedCommitRow({ commit }: { commit: LandedCommit }) {
             <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
               <span className="font-mono text-foreground" data-testid="landed-upstream-hash">{formatShortHash(upstream.id)}</span>
               <CopyButton text={() => upstream.id} tooltip="Copy the baseline commit" />
-              <span className="hidden sm:inline">{`${upstream.committer} · ${formatRelativeTime(upstream.time * 1000)}`}</span>
+              <span className="hidden sm:inline">
+                {`${upstream.committer} · `}
+                <RelativeTime time={upstream.time * 1000} />
+              </span>
             </span>
           )}
     </li>

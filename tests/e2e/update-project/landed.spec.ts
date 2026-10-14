@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 
 // The `landed_upstream` template: a robot pushed `feature-auth` (one commit) and the first of the two `search` commits to
 // origin/master, rebased without the prefix, committer `Patronus`; `ui` stays local. Already fetched. The `search` commit
@@ -99,5 +100,18 @@ test.describe("Landed commits", () => {
     await expect(page.getByTestId("archived-branch-new")).toHaveCount(0)
     await syncAndWaitForBranches()
     await expect(landedCard(page)).toHaveCount(0)
+  })
+
+  test("should show the copy button of a baseline commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("landed_upstream")
+    await syncAndWaitForBranches()
+    await updateButton(page).click()
+
+    const branch = landedBranch(page, "feature-auth")
+    await branch.getByRole("button", { expanded: false }).click()
+    const commit = branch.getByTestId("landed-commits").locator("li", { hasText: "Add login" })
+    const hash = commit.getByTestId("landed-upstream-hash")
+    await expect(hash).toHaveText(/^[0-9a-f]{8}$/)
+    await testCopyButtonOnHover(page, commit, new RegExp(`^${await hash.textContent()}[0-9a-f]{32}$`), "Copy the baseline commit")
   })
 })

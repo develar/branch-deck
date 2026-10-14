@@ -18,6 +18,8 @@ targets:
   - ../../src/components/repository/SyncButton.tsx
   - ../../src/components/repository/RepositorySelector.tsx
   - ../../src-tauri/src/lib.rs
+  - ../../src/components/shared/RelativeTime.tsx
+  - ../../src/hooks/useNow.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/update-state.ts
@@ -164,6 +166,14 @@ The header shows whether an update would apply cleanly, from a check that every 
   keeps its words and its icon, then "· origin/master not fetched yet".
   [@test] ../../src/lib/update-state.test.ts (`says the baseline was not fetched yet instead of a state nobody asked the remote for`)
   [@test] ../../src/lib/update-state.test.ts (`says the same in the footer of the outgoing overview`)
+- A relative time must age while it is shown, without a sync or a fetch: "Last synced 1 minute ago" next to the button,
+  the fetch time of the tooltip and of the footer line, "Pull requests checked" and "Patronus checked" in the overview,
+  the times of the Landed island and chips, of the commits a force push drops and of the commit that merged an archived
+  branch. One interval per interval length renews them every 15 s (`useNow`), so "1 minute ago" is at most a tick late;
+  only the text re-renders.
+  [@test] ../../src/hooks/useNow.test.ts (`ticks every listener of an interval length at once, with one interval that stops with the last listener`)
+  [@test] ../../src/hooks/useNow.test.ts (`ages a relative time without anything else changing: "Last synced just now" becomes "1 minute ago"`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
 - A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
   "Fetching…", "Checking…", "Updating…", and its tooltip names only the step, without the state of the last check and
   without "fetch and update": "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to
@@ -171,6 +181,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the running step in the tooltip, not the last state`)
+- The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
+  switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
+  repository; another repository can update meanwhile. An update applied in a repository that is no longer selected
+  doesn't sync the selected one.
+  [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
+  [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository`)
 - Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
   tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas

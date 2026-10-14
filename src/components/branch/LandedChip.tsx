@@ -2,17 +2,25 @@ import type { ReactNode } from "react"
 import { PackageCheckIcon } from "lucide-react"
 import { StatusChip } from "@/components/branch/StatusChip"
 import { CommitSubjectLine } from "@/components/commit/CommitSubject"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import type { LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatStayLocal, landedChipLabel } from "@/lib/landed"
-import { formatRelativeTime } from "@/lib/time"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useIncomingLandedCommit } from "@/stores/landed"
 
 /** "abc1234 · Patronus · 2 hours ago", or "squashed upstream" */
-function describeUpstream(commit: LandedCommit): string {
+function UpstreamDescription({ commit }: { commit: LandedCommit }) {
   const upstream = commit.upstream
-  return upstream === null ? "squashed upstream" : `${formatShortHash(upstream.id)} · ${upstream.committer} · ${formatRelativeTime(upstream.time * 1000)}`
+  if (upstream === null) {
+    return "squashed upstream"
+  }
+  return (
+    <>
+      {`${formatShortHash(upstream.id)} · ${upstream.committer} · `}
+      <RelativeTime time={upstream.time * 1000} />
+    </>
+  )
 }
 
 function useUpstreamName(): string {
@@ -48,7 +56,7 @@ export function LandedChip({ branchName }: { branchName: string }) {
             {branch.commits.map(commit => (
               <span key={commit.id} className="flex min-w-0 flex-col">
                 <CommitSubjectLine subject={commit.subject} />
-                <span className="text-muted-foreground">{describeUpstream(commit)}</span>
+                <span className="text-muted-foreground"><UpstreamDescription commit={commit} /></span>
               </span>
             ))}
           </dd>
@@ -83,7 +91,7 @@ export function LandedCommitMarker({ commitId }: { commitId: string }) {
       details={(
         <LandedDetails heading="Landed" title={`Already in ${upstream} · the update removes the local copy`}>
           <dt className="text-muted-foreground">Landed as</dt>
-          <dd className="break-words text-muted-foreground">{describeUpstream(commit)}</dd>
+          <dd className="break-words text-muted-foreground"><UpstreamDescription commit={commit} /></dd>
         </LandedDetails>
       )}
       detailsTestId="landed-commit-popover"

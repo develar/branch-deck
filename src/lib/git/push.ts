@@ -21,6 +21,11 @@ export interface PushOptions {
   expectedRemote?: string | null
   /** A Safe Push an earlier push canceled to restart it on the pushed commit, but did not push (the remote moved) */
   restartRobot?: PatronusRobot
+  /**
+   * The caller starts a Safe Push right after the push (the Safe Push form): a running Safe Push of the branch is
+   * cancelled, never restarted, so the branch doesn't run twice
+   */
+  startsRobot?: boolean
 }
 
 /**
@@ -42,11 +47,11 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
     return false
   }
 
-  const guard = await guardRunningRobot(branchName)
+  const guard = await guardRunningRobot(branchName, options.startsRobot === true)
   if (guard.answer === "back") {
     return false
   }
-  if (guard.answer === "cancel-push-restart") {
+  if (guard.answer === "cancel-push-restart" || guard.answer === "cancel-push") {
     try {
       await cancelPatronusRobot(guard.robot)
     }
@@ -120,10 +125,11 @@ type RobotGuard = { answer: "push" } | { answer: PushGuardAnswer, robot: Patronu
 
 /**
  * A push into a branch whose Safe Push runs makes the robot fail at the end ("branch was modified"): the user chooses
- * to cancel it, push and restart it on the pushed commit, to push anyway, or to go back. The status is read fresh
- * first (one row on the server), so a robot that finished meanwhile asks nothing.
+ * to cancel it, push and restart it on the pushed commit (only cancel it when the push is for a new Safe Push), to push
+ * anyway, or to go back. The status is read fresh first (one row on the server), so a robot that finished meanwhile
+ * asks nothing.
  */
-async function guardRunningRobot(branchName: string): Promise<RobotGuard> {
+async function guardRunningRobot(branchName: string, startsRobot: boolean): Promise<RobotGuard> {
   const robot = getBranchRobot(branchName)
   if (robot === undefined || !isPushIntoRobotRisky(robot, branchName)) {
     return { answer: "push" }
@@ -132,7 +138,7 @@ async function guardRunningRobot(branchName: string): Promise<RobotGuard> {
   if (status !== null && status !== "running") {
     return { answer: "push" }
   }
-  return { answer: await askPushGuard(branchName, robot), robot }
+  return { answer: await askPushGuard({ branchName, robot, startsRobot }), robot }
 }
 
 /**

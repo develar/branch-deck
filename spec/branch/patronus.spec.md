@@ -186,10 +186,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 - A branch whose tip the remote lacks is pushed first, as the push button does it ("Push and Start Safe Push"), and the
   form says so: "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The
   last commit of auth isn't on the remote yet: …" when the remote branch is older). A dry run pushes the branch too:
-  only the push into the target is left out. A failed push starts nothing. Then `POST /robots` starts the robot on the
-  pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch `refs/heads/{prefix}/virtual/{name}`,
-  kept: delete policy `NEVER`), so a restart takes the newest commit of the branch. The robot shows at once and is
-  polled.
+  only the push into the target is left out. A failed push starts nothing. A Safe Push of the branch still running on
+  an older commit is canceled for that push, not restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then
+  `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
+  `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
+  branch. The robot shows at once and is polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
 - A start is never repeated by itself, not even right after the push: Patronus fetches the pushed branch while it
@@ -212,8 +213,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   without it, or without the plugin, nothing is said but the toast.
   [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
 - Fetch fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
-  the files (`fetch_baseline`). Meanwhile the Update button shows the fetch ("Fetching 45%"); then a sync checks the
-  update against the fetched baseline, without expanding or scrolling. A failed fetch is an error toast.
+  the files (`fetch_baseline`). Meanwhile the Update button of the robot's repository shows the fetch ("Fetching 45%"),
+  never the button of another repository selected meanwhile; then a sync of the robot's repository, if it is still the
+  selected one, checks the update against the fetched baseline, without expanding or scrolling. A failed fetch is an
+  error toast.
+  [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`fetch_moves_only_the_tracking_ref_of_the_baseline`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`local_baseline_has_nothing_to_fetch`)
 - Branch Deck never updates by itself: the update stays a click.
@@ -279,6 +283,14 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push at once when the robot finished meanwhile`)
+- The push of the Safe Push form ("Push and Start Safe Push", or the push before "Create Merge Request") is for a new
+  robot: the dialog offers "Cancel and Push" instead of the restart and says "The new Safe Push takes the pushed
+  commit." The form then starts the one robot of the branch, with the merge request; a restart would run the branch
+  twice, the restarted robot without the merge request. The push of the Dry Run form keeps the restart: a dry run
+  doesn't replace the Safe Push.
+  [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for a push of a new one, and never restarts it`)
+  [@test] ../../src/lib/git/push.test.ts (`restarts the cancelled Safe Push on the pushed commit for any other push`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. A robot
   canceled for a push that did not happen must stay canceled until the toast's push, which restarts it on the pushed
@@ -300,9 +312,10 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   that says why: "ABC-123 needs attention: failed Safe Push" ([Outgoing Commits](../repository/outgoing.spec.md)).
   [@test] ../../src/lib/patronus.test.ts (`names a failed robot of the commit the branch is at`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column and a dot for a robot that failed on the branch tip`)
-- The footer has a line "Patronus checked just now" with a Refresh button (a full list), named "Refresh Patronus". When
-  Patronus can't answer, the line is a quiet hint instead: "Run ./safePush.cmd once to log in to Patronus" or
-  "Patronus: <the error>". It is never a toast. A repository that is not on Space has no line.
+- The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:
+  [Update Project](../repository/update-project.spec.md)) with a Refresh button (a full list), named "Refresh
+  Patronus". When Patronus can't answer, the line is a quiet hint instead: "Run ./safePush.cmd once to log in to
+  Patronus" or "Patronus: <the error>". It is never a toast. A repository that is not on Space has no line.
   [@test] ../../src/lib/patronus.test.ts (`hints at what to do, and says nothing when there is nothing to do`)
   [@test] ../../src/lib/check-counts.test.ts (`lists the failing checks first, then the running, the canceled and the passed ones`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should list the robots again from the overview`)

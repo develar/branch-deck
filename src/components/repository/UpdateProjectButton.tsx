@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { TransferProgress, UpdatePhase } from "@/lib/bindings"
 import { describeLanding, shortLanding } from "@/lib/landed"
 import { isMac } from "@/lib/platform"
@@ -83,6 +84,18 @@ function StateIcon({ tone, unknown, landing, className, ...props }: StateIconPro
   }
 }
 
+/** "Fetched 5 minutes ago · fetch and update", the second line of the tooltip: it ages while it is shown */
+function FetchAndUpdateLine({ fetchTime }: { fetchTime: number | null }) {
+  const now = useNow(RELATIVE_TIME_TICK_MS)
+  return fetchAndUpdateLine(fetchTime, now)
+}
+
+/** "rebases cleanly · fetched 5 minutes ago" after "Incoming from origin/master: ": it ages while it is shown */
+function UpdateFooterWords({ description, fetchTime, landing }: { description: UpdateStateDescription, fetchTime: number | null, landing: string | null }) {
+  const now = useNow(RELATIVE_TIME_TICK_MS)
+  return updateFooterWords(description, fetchTime, landing, now)
+}
+
 interface RunningUpdate {
   phase: UpdatePhase | null
   fetch: TransferProgress | null
@@ -142,7 +155,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
               <div className="flex flex-col gap-0.5">
                 <span>{summary}</span>
                 <span className="flex items-center gap-1.5 opacity-70">
-                  {fetchAndUpdateLine(fetchTime)}
+                  <FetchAndUpdateLine fetchTime={fetchTime} />
                   <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
                 </span>
               </div>
@@ -182,7 +195,8 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
         <span className="min-w-0">
           {"Incoming from "}
           <span className="text-foreground">{upstreamName(status)}</span>
-          {`: ${transfer ?? updateFooterWords(description, fetchTime, landing)}`}
+          {": "}
+          {transfer ?? <UpdateFooterWords description={description} fetchTime={fetchTime} landing={landing} />}
         </span>
       </span>
       <Button

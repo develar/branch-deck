@@ -67,16 +67,16 @@ export function describeAsFetched(description: UpdateStateDescription, upstream:
 }
 
 /** The second line of the tooltip of the Update button, before the shortcut: "Fetched 5 minutes ago · fetch and update" */
-export function fetchAndUpdateLine(fetchTime: number | null): string {
-  return fetchTime === null ? "fetch and update" : `Fetched ${formatRelativeTime(fetchTime)} · fetch and update`
+export function fetchAndUpdateLine(fetchTime: number | null, now: number = Date.now()): string {
+  return fetchTime === null ? "fetch and update" : `Fetched ${formatRelativeTime(fetchTime, now)} · fetch and update`
 }
 
 /**
  * The words after "Incoming from origin/master: " in the footer of the outgoing overview, of a state `describeAsFetched`
  * gave: "rebases cleanly · your wsm landed · fetched 5 minutes ago", "not fetched yet"
  */
-export function updateFooterWords(description: UpdateStateDescription, fetchTime: number | null, landing: string | null): string {
-  const fetched = fetchTime === null ? null : `fetched ${formatRelativeTime(fetchTime)}`
+export function updateFooterWords(description: UpdateStateDescription, fetchTime: number | null, landing: string | null, now: number = Date.now()): string {
+  const fetched = fetchTime === null ? null : `fetched ${formatRelativeTime(fetchTime, now)}`
   return [description.short, landing, fetched].filter(part => part !== null).join(" · ")
 }
 

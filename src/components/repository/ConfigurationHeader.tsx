@@ -14,10 +14,10 @@ import { PullRequestStatusLine } from "@/components/repository/PullRequestStatus
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
+import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import { formatRelativeTime } from "@/lib/time"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
@@ -99,7 +99,14 @@ export function ConfigurationHeader() {
             // both texts share one cell, so the controls before it stay in place while a sync runs
             <div className="hidden text-xs whitespace-nowrap text-muted-foreground md:grid" data-testid="last-sync-time">
               <span className={cn("col-start-1 row-start-1 text-right", isSyncing && "invisible")}>
-                {lastSyncTime ? `Last synced ${formatRelativeTime(lastSyncTime)}` : null}
+                {lastSyncTime
+                  ? (
+                      <>
+                        {"Last synced "}
+                        <RelativeTime time={lastSyncTime} />
+                      </>
+                    )
+                  : null}
               </span>
               <span className={cn("col-start-1 row-start-1 text-right", !isSyncing && "invisible")}>Syncing…</span>
             </div>

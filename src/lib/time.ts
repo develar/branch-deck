@@ -25,8 +25,8 @@ export function formatTimestamp(unixSeconds: number): string {
   }
 }
 
-export function formatRelativeTime(timestamp: number): string {
-  const now = Date.now()
+/** "just now", "5 minutes ago", "yesterday": how long before `now` the `timestamp` (both in milliseconds) was */
+export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
   const diff = now - timestamp
 
   const seconds = Math.floor(diff / 1000)

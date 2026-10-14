@@ -9,30 +9,47 @@ import { notifyError } from "@/lib/errors"
 import { appliedUpdateToast } from "@/lib/landed"
 import { setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedProject, useSelectedProject } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
+/** An update or a fetch of the baseline that runs in a repository */
+export interface RunningUpdate {
+  /** The step it is at */
+  readonly phase: UpdatePhase
+  /** How far its fetch is; null before git reports a stage and after the fetch */
+  readonly fetch: TransferProgress | null
+}
+
 export interface UpdateProjectState {
-  /** The step of the running update; null when none runs */
-  phase: UpdatePhase | null
-  /** How far the fetch of the running update is; null before git reports a stage and after the fetch */
-  fetch: TransferProgress | null
+  /**
+   * What runs, by repository path: the Fetch of a merge toast fetches the baseline of its own repository, which need not
+   * be the selected one, and the header shows only what runs in the selected repository
+   */
+  readonly running: Readonly<Record<string, RunningUpdate>>
   /** A conflicting or blocked update to explain; null while the dialog is closed */
-  refused: UpdateCheck | null
+  readonly refused: UpdateCheck | null
 }
 
 export const updateProjectStore = createStore<UpdateProjectState>(() => ({
-  phase: null,
-  fetch: null,
+  running: {},
   refused: null,
 }))
 
-export function useUpdatePhase(): UpdatePhase | null {
-  return useStore(updateProjectStore, state => state.phase)
+/** What runs in the repository; undefined when nothing does, or without a repository */
+export function selectRunningUpdate(state: UpdateProjectState, repositoryPath: string | undefined): RunningUpdate | undefined {
+  return repositoryPath === undefined ? undefined : state.running[repositoryPath]
 }
 
+/** The step of the update or fetch running in the selected repository; null when none runs there */
+export function useUpdatePhase(): UpdatePhase | null {
+  const repositoryPath = useSelectedProject()?.path
+  return useStore(updateProjectStore, state => selectRunningUpdate(state, repositoryPath)?.phase ?? null)
+}
+
+/** How far the fetch running in the selected repository is */
 export function useFetchProgress(): TransferProgress | null {
-  return useStore(updateProjectStore, state => state.fetch)
+  const repositoryPath = useSelectedProject()?.path
+  return useStore(updateProjectStore, state => selectRunningUpdate(state, repositoryPath)?.fetch ?? null)
 }
 
 export function useRefusedUpdate(): UpdateCheck | null {
@@ -43,21 +60,33 @@ export function closeRefusedUpdate(): void {
   updateProjectStore.setState({ refused: null })
 }
 
+function setRunning(repositoryPath: string, running: RunningUpdate | null): void {
+  const { [repositoryPath]: _previous, ...others } = updateProjectStore.getState().running
+  updateProjectStore.setState({ running: running === null ? others : { ...others, [repositoryPath]: running } })
+}
+
+/** Takes the one-at-a-time slot of the repository for an update or a fetch; false when one runs there already */
+function startRunning(repositoryPath: string): boolean {
+  if (selectRunningUpdate(updateProjectStore.getState(), repositoryPath) !== undefined) {
+    return false
+  }
+  setRunning(repositoryPath, { phase: "fetching", fetch: null })
+  return true
+}
+
 /**
  * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T). A conflict or a block
- * opens the dialog that explains it; nothing changed then. One update at a time.
+ * opens the dialog that explains it; nothing changed then. One update at a time in a repository.
  */
 export async function runUpdateProject(): Promise<void> {
-  const project = getSelectedProject()
-  if (project === null || updateProjectStore.getState().phase !== null) {
+  const repositoryPath = getSelectedProject()?.path
+  if (repositoryPath === undefined || !startRunning(repositoryPath)) {
     return
   }
-  const repositoryPath = project.path
-  updateProjectStore.setState({ phase: "fetching", fetch: null })
   try {
     const progress = new Channel<UpdateProgress>()
     progress.onmessage = ({ phase, fetch }) => {
-      updateProjectStore.setState({ phase, fetch })
+      setRunning(repositoryPath, { phase, fetch })
     }
     const result = await invokeCommand(() => commands.updateProject({ repositoryPath }, progress))
     if (result.status !== "ok") {
@@ -78,7 +107,10 @@ export async function runUpdateProject(): Promise<void> {
           // the island of what landed shows at once, the sync that follows confirms it
           addLandedUpdate(repositoryPath, landed)
           toast.add({ type: "success", ...appliedUpdateToast(check, applied, landed) })
-          void syncBranches({ autoScroll: false, autoExpand: false })
+          // the table shows the selected repository: another one selected meanwhile has nothing to sync for this update
+          if (getSelectedProject()?.path === repositoryPath) {
+            void syncBranches({ autoScroll: false, autoExpand: false })
+          }
         }
         break
       case "conflict":
@@ -89,24 +121,23 @@ export async function runUpdateProject(): Promise<void> {
     }
   }
   finally {
-    updateProjectStore.setState({ phase: null, fetch: null })
+    setRunning(repositoryPath, null)
   }
 }
 
 /**
  * Fetches only the baseline of the repository, without updating (the Fetch of a merged robot's toast): the button shows
  * the fetch as for an update, then a sync of the selected repository checks the update against the fetched baseline.
- * Shares the one-at-a-time slot of the update.
+ * Shares the one-at-a-time slot of the update in the repository.
  */
 export async function runFetchBaseline(repositoryPath: string): Promise<void> {
-  if (updateProjectStore.getState().phase !== null) {
+  if (!startRunning(repositoryPath)) {
     return
   }
-  updateProjectStore.setState({ phase: "fetching", fetch: null })
   try {
     const progress = new Channel<TransferProgress>()
     progress.onmessage = (fetch) => {
-      updateProjectStore.setState({ fetch })
+      setRunning(repositoryPath, { phase: "fetching", fetch })
     }
     const result = await invokeCommand(() => commands.fetchBaseline({ repositoryPath }, progress))
     if (result.status !== "ok") {
@@ -119,6 +150,6 @@ export async function runFetchBaseline(repositoryPath: string): Promise<void> {
     }
   }
   finally {
-    updateProjectStore.setState({ phase: null, fetch: null })
+    setRunning(repositoryPath, null)
   }
 }

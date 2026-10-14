@@ -92,6 +92,24 @@ export async function testCopyButton(
 }
 
 /**
+ * A copy button that is transparent until its row (the `.group` around it) is hovered: transparent with the pointer away,
+ * opaque on hover, then it copies with the tooltip feedback
+ */
+export async function testCopyButtonOnHover(
+  page: Page,
+  row: Locator,
+  expectedContent: string | RegExp,
+  tooltipText: string,
+): Promise<void> {
+  const reveal = row.locator(".copy-button")
+  await page.mouse.move(0, 0)
+  await expect(reveal).toHaveCSS("opacity", "0")
+  await row.hover()
+  await expect(reveal).toHaveCSS("opacity", "1")
+  await testCopyButton(page, reveal.getByRole("button"), expectedContent, tooltipText)
+}
+
+/**
  * Test context menu copy action
  */
 export async function testContextMenuCopy(
