@@ -11,7 +11,7 @@ import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, Pr
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
+import { copyText } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
 import { groupConflictFiles, splitPath } from "@/lib/update-conflict"
@@ -144,12 +144,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
   const fetchTime = lastFetchTime(shown, project?.lastFetchTime)
   const copyPrompt = async () => {
     const prompt = buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime })
-    try {
-      await navigator.clipboard.writeText(prompt)
+    if (await copyText(prompt)) {
       toast.add({ type: "success", title: "Prompt copied", description: "Paste it into your coding agent" })
-    }
-    catch (error) {
-      notifyError("Copy Failed", error)
     }
   }
 

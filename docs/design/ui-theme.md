@@ -135,6 +135,13 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   - message and title icons are `size-4`, the help icon `size-3.5`.
 - **An icon-only button has a `Tooltip`** and an `aria-label`; a label repeated on every row names its object
   ("Expand feature-auth"). Text is a `Tooltip`, rich content a `Popover`; never a native `title`.
+- **States**:
+  - empty: one muted `text-sm` line where the content would be ("No commits found"), no icon; only the empty window
+    is an `Alert`;
+  - loading: an inline `Spinner` (`size-4`) and "Loading …" in a muted `text-sm` line, never a centred spinner in a
+    tall box;
+  - copy: through `copyText` (`src/lib/clipboard.ts`); a copy button says "Copied" in place (`CopyButton`), a menu
+    item copies without a toast.
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Spacing**:

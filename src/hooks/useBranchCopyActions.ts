@@ -1,13 +1,7 @@
 import { CopyIcon } from "lucide-react"
-import { notifyError } from "@/lib/errors"
+import { copyText } from "@/lib/clipboard"
 import type { MenuItem } from "@/lib/menu"
 import { getFullBranchName } from "@/stores/repository"
-
-function copy(text: string): void {
-  navigator.clipboard.writeText(text).catch((error: unknown) => {
-    notifyError("Copy Failed", error)
-  })
-}
 
 /**
  * "Copy Full Branch Name" / "Copy Branch Name" context menu items.
@@ -18,12 +12,12 @@ export function getBranchCopyMenuItems(branchName: string, isFullPath = false): 
     {
       label: "Copy Full Branch Name",
       icon: CopyIcon,
-      onSelect: () => copy(isFullPath ? branchName : getFullBranchName(branchName)),
+      onSelect: () => void copyText(isFullPath ? branchName : getFullBranchName(branchName)),
     },
     {
       label: "Copy Branch Name",
       icon: CopyIcon,
-      onSelect: () => copy(isFullPath ? branchName.slice(branchName.lastIndexOf("/") + 1) : branchName),
+      onSelect: () => void copyText(isFullPath ? branchName.slice(branchName.lastIndexOf("/") + 1) : branchName),
     },
   ]
 }

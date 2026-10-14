@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { notifyError } from "@/lib/errors"
+import { copyText } from "@/lib/clipboard"
 
 /**
  * Copies text to the clipboard and exposes a transient "copied" state (also used to open a confirmation tooltip).
@@ -17,24 +17,21 @@ export function useCopyToClipboard() {
   }, [])
 
   const copyToClipboard = useCallback(async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setIsCopied(true)
-      setTooltipOpen(true)
+    if (!await copyText(text)) {
+      return
+    }
+    setIsCopied(true)
+    setTooltipOpen(true)
 
-      const timeout = window.__BRANCH_DECK_TEST_CONFIG__?.copyTimeout ?? 2000
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current)
-      }
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
-        setIsCopied(false)
-        setTooltipOpen(false)
-      }, timeout)
+    const timeout = window.__BRANCH_DECK_TEST_CONFIG__?.copyTimeout ?? 2000
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current)
     }
-    catch (error) {
-      notifyError("Copy Failed", error)
-    }
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      setIsCopied(false)
+      setTooltipOpen(false)
+    }, timeout)
   }, [])
 
   return {
