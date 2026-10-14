@@ -8,6 +8,7 @@ targets:
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/sync-core/src/autosquash.rs
+  - ../../crates/branch-integration/src/detector.rs
   - ../../crates/sync-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
 ---
@@ -93,6 +94,17 @@ the other branches still sync. The backend is done; the branch table does not sh
 - A new parent commit must move the children onto the parent's new head; an unchanged stack must reuse every commit.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`builds_each_branch_on_its_parent`)
 
+### Integration detection
+
+- A rebuilt child must get a stack note (`refs/notes/branch-deck/stack`) on its tip naming the commit it was built on,
+  written with the mapping notes in one `fast-import` run.
+- Detection of an archived child must look only at the commits after that base: `^<base>` in the cherry-mark scans and
+  the merge count, the base as the merge base of the squash check. A child whose own commits are upstream is
+  integrated even if its parent is not.
+  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
+- Only an `Integrated` result of a stacked child may be cached; another one is detected again on the next sync.
+  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_integrated`)
+
 ### Fixups
 
 - With stacks on, a fixup's prefix must agree with its target's when both name the same leaf, so `fixup! (login) X`
@@ -113,7 +125,6 @@ the other branches still sync. The backend is done; the branch table does not sh
 
 - An integrated parent is recognized only once its archived branch has a detection note, so the first sync after the
   parent's merge blocks the child (`Missing`); the next one moves it.
-- Integration detection does not know the stack base of an archived child yet.
 - The unpushed commits of a child still count its parent's commits as its own.
 
 ## References

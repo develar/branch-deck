@@ -8,6 +8,10 @@ use tracing::{debug, instrument};
 // Git notes ref for detection cache - this is the namespace where notes are stored
 pub const NOTES_REF: &str = "refs/notes/branch-deck/detection";
 
+/// Notes on the tips of stacked virtual branches: the commit the branch was built on (its parent's head), so detection
+/// of the archived branch looks only at its own commits
+pub const STACK_NOTES_REF: &str = "refs/notes/branch-deck/stack";
+
 // Current detection cache version
 pub const DETECTION_CACHE_VERSION: u8 = 1;
 

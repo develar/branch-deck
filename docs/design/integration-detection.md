@@ -65,7 +65,15 @@ flowchart TB
    **Rationale**: Fast cherry-pick detection covers most workflows; Full detection optional via env var
 
 5. **Decision**: Cache all statuses, not just integrated
-   **Rationale**: Avoid re-computation for any unchanged branch
+   **Rationale**: Avoid re-computation for any unchanged branch. The exception is a stacked branch: only `Integrated`
+   is cached for it, because its result also depends on its parent
+
+6. **Decision**: An archived stacked branch is detected from its stack base
+   **Rationale**: Its virtual branch contains its parent's commits too. The sync writes a note on the tip of every
+   rebuilt stacked branch (`refs/notes/branch-deck/stack`, the commit it was built on); detection reads those notes
+   for the branches it detects afresh (one `log --no-walk --stdin`, one `cat-file --batch-check` for the bases that
+   still exist) and excludes `^<base>` from the cherry-mark scans and the merge count, and uses the base as the merge
+   base of the squash check
 
 ### Implementation Notes
 

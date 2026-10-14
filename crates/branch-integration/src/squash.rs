@@ -25,8 +25,19 @@ fn find_squash_timestamp(git_executor: &GitCommandExecutor, repo_path: &str, bra
   find_commit_time_by_subject(git_executor, repo_path, baseline_branch, subject.trim())
 }
 
-pub fn detect_squash_status(git: &GitCommandExecutor, repo: &str, branch_name: &str, baseline: &str, right_count: usize) -> Result<Option<BranchIntegrationStatus>> {
-  let diff_clean = diff_is_clean(git, repo, baseline, branch_name);
+/// `stack_base` is the commit a stacked branch was built on: only the changes after it are the branch's own
+pub fn detect_squash_status(
+  git: &GitCommandExecutor,
+  repo: &str,
+  branch_name: &str,
+  baseline: &str,
+  stack_base: Option<&str>,
+  right_count: usize,
+) -> Result<Option<BranchIntegrationStatus>> {
+  let diff_clean = match stack_base {
+    Some(base) => git.execute_command(&["diff", "--quiet", base, branch_name], repo).is_ok(),
+    None => diff_is_clean(git, repo, baseline, branch_name),
+  };
   if diff_clean {
     let integrated_at = find_squash_timestamp(git, repo, branch_name, baseline);
     info!(name = %branch_name, method = "diff-clean", "Branch fully integrated");
@@ -37,7 +48,10 @@ pub fn detect_squash_status(git: &GitCommandExecutor, repo: &str, branch_name: &
     }));
   }
 
-  let merge_base_result = git.execute_command(&["merge-base", baseline, branch_name], repo);
+  let merge_base_result = match stack_base {
+    Some(base) => Ok(base.to_string()),
+    None => git.execute_command(&["merge-base", baseline, branch_name], repo),
+  };
   if let Ok(merge_base_output) = merge_base_result {
     let merge_base = merge_base_output.trim();
     if !merge_base.is_empty()

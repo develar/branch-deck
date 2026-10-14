@@ -34,6 +34,8 @@ pub(crate) struct BranchJob {
   /// The commit the branch is built on: the base of the sync (the parent of the oldest commit ahead of the baseline),
   /// or the new head of its parent branch
   pub base_commit: String,
+  /// `base_commit` is the head of the parent branch: the branch's tip gets a stack note naming it
+  pub on_parent: bool,
 }
 
 /// A branch whose commits are written; its ref, notes and remote status are not updated yet
@@ -45,6 +47,8 @@ pub(crate) struct BuiltBranch {
   status: BranchSyncStatus,
   /// `(original, new)` mappings of the created commits
   notes: Vec<(String, String)>,
+  /// `(new tip, base)` of a branch built on its parent whose tip changed, for `STACK_NOTES_REF`
+  stack_note: Option<(String, String)>,
   my_email: Option<String>,
 }
 
@@ -75,7 +79,7 @@ enum CommitProcessingResult {
 #[cfg(test)]
 pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<(String, String)>> {
   match build_branch(ctx, job)? {
-    BuildOutcome::Built(built) => finish_branch(ctx, built),
+    BuildOutcome::Built(built) => finish_branch(ctx, built).map(|notes| notes.mappings),
     BuildOutcome::Failed(_) => Ok(Vec::new()),
   }
 }
@@ -109,6 +113,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     my_email,
     branch_idx: current_branch_idx,
     base_commit,
+    on_parent,
   } = job;
 
   let full_branch_name = to_final_branch_name(branch_prefix, &branch_name)?;
@@ -226,7 +231,9 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     BranchSyncStatus::Unchanged
   };
 
+  let stack_note = (on_parent && status != BranchSyncStatus::Unchanged).then(|| (last_commit_hash.clone(), base_commit));
   Ok(BuildOutcome::Built(BuiltBranch {
+    stack_note,
     head: last_commit_hash,
     branch_name,
     full_branch_name,
@@ -236,16 +243,26 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   }))
 }
 
+/// The notes a branch leaves for the sync to write
+#[derive(Default)]
+pub(crate) struct BranchNotes {
+  /// `(original, new)` mappings of the created commits
+  pub mappings: Vec<(String, String)>,
+  /// `(tip, base)` of a stacked branch, see `BuiltBranch::stack_note`
+  pub stack_note: Option<(String, String)>,
+}
+
 /// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
-/// mapping notes of the created commits
+/// notes to write
 #[instrument(skip(ctx, built), fields(branch_name = %built.branch_name))]
-pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: BuiltBranch) -> Result<Vec<(String, String)>> {
+pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: BuiltBranch) -> Result<BranchNotes> {
   let BuiltBranch {
     head,
     branch_name,
     full_branch_name,
     status,
     notes,
+    stack_note,
     my_email,
   } = built;
   let git_executor = &ctx.git_executor;
@@ -269,7 +286,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     let _ = ctx.progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }
 
-  Ok(notes)
+  Ok(BranchNotes { mappings: notes, stack_note })
 }
 
 #[instrument(

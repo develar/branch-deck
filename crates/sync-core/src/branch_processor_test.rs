@@ -71,6 +71,7 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
     my_email: None,
     branch_idx: 0,
     base_commit: base.to_string(),
+    on_parent: false,
   };
   let notes = process_single_branch(&context, job).unwrap();
   write_commit_notes(test_repo.git_executor(), repo_path(test_repo), &notes).unwrap();

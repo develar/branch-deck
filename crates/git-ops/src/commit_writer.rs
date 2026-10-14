@@ -207,21 +207,29 @@ pub fn current_committer(git_executor: &GitCommandExecutor, repo_path: &str) -> 
 /// Add or overwrite notes on `notes_ref` with one `git fast-import` run (one notes commit for all of them).
 /// Like `git notes add`, each note is stored with a trailing newline. fast-import refuses to move the notes ref
 /// if it changed meanwhile, so a concurrent writer is not overwritten.
-#[instrument(skip(git_executor, notes), fields(count = notes.len()))]
 pub fn write_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref: &str, notes: &[(String, String)]) -> Result<()> {
-  if notes.is_empty() {
+  write_notes_to_refs(git_executor, repo_path, &[(notes_ref, notes)])
+}
+
+/// `write_notes` for several notes refs, `(notes ref, notes)`, with one `git fast-import` run: one notes commit per ref
+/// that gets notes
+#[instrument(skip(git_executor, refs), fields(refs = refs.len()))]
+pub fn write_notes_to_refs(git_executor: &GitCommandExecutor, repo_path: &str, refs: &[(&str, &[(String, String)])]) -> Result<()> {
+  if refs.iter().all(|(_, notes)| notes.is_empty()) {
     return Ok(());
   }
   let committer = current_committer(git_executor, repo_path)?;
-  let mut stream = Vec::with_capacity(notes.len() * 128);
-  push_notes_commit(
-    &mut stream,
-    git_executor,
-    repo_path,
-    notes_ref,
-    &committer,
-    notes.iter().map(|(target, content)| (target.as_str(), content.as_str())),
-  );
+  let mut stream = Vec::with_capacity(refs.iter().map(|(_, notes)| notes.len() * 128).sum());
+  for (notes_ref, notes) in refs.iter().filter(|(_, notes)| !notes.is_empty()) {
+    push_notes_commit(
+      &mut stream,
+      git_executor,
+      repo_path,
+      notes_ref,
+      &committer,
+      notes.iter().map(|(target, content)| (target.as_str(), content.as_str())),
+    );
+  }
   stream.extend_from_slice(b"done\n");
   git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done"], repo_path, &stream)?;
   Ok(())

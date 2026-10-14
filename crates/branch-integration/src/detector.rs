@@ -1,4 +1,5 @@
-use super::{cache::CacheOps, common, merge, rebase, squash, strategy::DetectionStrategy};
+use super::cache::{CacheOps, STACK_NOTES_REF};
+use super::{common, merge, rebase, squash, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -24,6 +25,49 @@ struct DetectionJob {
   branch: String,
   tip: String,
   is_merged: bool,
+  /// The commit a stacked branch was built on (its stack note), so only its own commits count
+  stack_base: Option<String>,
+}
+
+/// The stack bases of the tips that have a stack note and whose base still exists: one `log` for the notes and one
+/// `cat-file --batch-check` for the bases. Best effort: a failure only means detecting without the bases.
+fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> HashMap<String, String> {
+  let read = || -> Result<HashMap<String, String>> {
+    let mut input = String::with_capacity(tips.len() * 41);
+    for tip in tips {
+      input.push_str(tip);
+      input.push('\n');
+    }
+    let notes_arg = format!("--notes={STACK_NOTES_REF}");
+    let output = git.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg], repo, &input)?;
+    let mut bases: HashMap<String, String> = output
+      .split('\u{1e}')
+      .filter_map(|record| record.trim().split_once('\u{1f}'))
+      .filter(|(_, base)| !base.trim().is_empty())
+      .map(|(tip, base)| (tip.to_string(), base.trim().to_string()))
+      .collect();
+    if bases.is_empty() {
+      return Ok(bases);
+    }
+
+    let mut check = String::with_capacity(bases.len() * 41);
+    for base in bases.values() {
+      check.push_str(base);
+      check.push('\n');
+    }
+    let existing: HashSet<String> = git
+      .execute_command_with_input(&["cat-file", "--batch-check=%(objectname) %(objecttype)"], repo, &check)?
+      .lines()
+      .filter_map(|line| line.strip_suffix(" commit"))
+      .map(str::to_string)
+      .collect();
+    bases.retain(|_, base| existing.contains(base));
+    Ok(bases)
+  };
+  read().unwrap_or_else(|e| {
+    warn!(error = %e, "Failed to read the stack notes, detecting stacked branches with their parents' commits");
+    HashMap::new()
+  })
 }
 
 /// Summary for issue-named archived branches: the tip subject without the issue reference
@@ -209,7 +253,19 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
       config.progress.send(SyncEvent::BranchIntegrationDetected { info })?;
     } else {
       let is_merged = merged_branches.contains(&branch);
-      jobs.push(DetectionJob { branch, tip, is_merged });
+      jobs.push(DetectionJob {
+        branch,
+        tip,
+        is_merged,
+        stack_base: None,
+      });
+    }
+  }
+  if !jobs.is_empty() {
+    let tips: Vec<&str> = jobs.iter().map(|job| job.tip.as_str()).collect();
+    let mut stack_bases = read_stack_bases(git_executor, repo_path, &tips);
+    for job in &mut jobs {
+      job.stack_base = stack_bases.remove(&job.tip);
     }
   }
 
@@ -244,7 +300,7 @@ fn detect_in_parallel(
       let Some(job) = queue.lock().unwrap_or_else(PoisonError::into_inner).next() else {
         return Ok(());
       };
-      let status = match perform_fresh_detection(git, repo, &job.branch, baseline, job.is_merged, strategy) {
+      let status = match perform_fresh_detection(git, repo, &job.branch, baseline, job.is_merged, job.stack_base.as_deref(), strategy) {
         Ok(status) => status,
         Err(e) => {
           warn!(branch = %job.branch, error = %e, "Integration detection failed for branch");
@@ -258,6 +314,11 @@ fn detect_in_parallel(
       };
       // Send unified event immediately as each branch completes detection
       progress.send(SyncEvent::BranchIntegrationDetected { info: info.clone() })?;
+      // a stacked branch's result depends on more than its tip (its parent may still be integrated), so only a final
+      // `Integrated` is cached
+      if job.stack_base.is_some() && !matches!(info.status, BranchIntegrationStatus::Integrated { .. }) {
+        continue;
+      }
       results.lock().unwrap_or_else(PoisonError::into_inner).push((job.tip, info));
     }
   };
@@ -279,24 +340,25 @@ fn perform_fresh_detection(
   branch_name: &str,
   baseline: &str,
   is_merged: bool,
+  stack_base: Option<&str>,
   strategy: DetectionStrategy,
 ) -> Result<BranchIntegrationStatus> {
   // 1) Merge detection first if enabled and branch is known merged
   if (strategy == DetectionStrategy::Merge || strategy == DetectionStrategy::All)
     && is_merged
-    && let Some(merge_integrated) = merge::detect_merge_status(git, repo, branch_name, baseline)?
+    && let Some(merge_integrated) = merge::detect_merge_status(git, repo, branch_name, baseline, stack_base)?
   {
     return Ok(merge_integrated);
   }
 
   // 2) Rebase/cherry-pick detection via marker scan
-  let (total_right, orphaned_right, integrated_right) = rebase::scan_right_side_marks(git, repo, baseline, branch_name)?;
-  let mut status = rebase::detect_rebase_status_with_marks(git, repo, branch_name, baseline, total_right, orphaned_right, integrated_right)?;
+  let marks = rebase::scan_right_side_marks(git, repo, baseline, branch_name, stack_base)?;
+  let mut status = rebase::detect_rebase_status_with_marks(git, repo, branch_name, baseline, stack_base, marks)?;
 
   // 3) Squash detection fallback for branches with no integrated commits
   if matches!(status, BranchIntegrationStatus::NotIntegrated { integrated_count: 0, .. }) && (strategy == DetectionStrategy::Squash || strategy == DetectionStrategy::All) {
-    let right_count = orphaned_right as usize;
-    if let Some(squash_integrated) = squash::detect_squash_status(git, repo, branch_name, baseline, right_count)? {
+    let right_count = marks.orphaned as usize;
+    if let Some(squash_integrated) = squash::detect_squash_status(git, repo, branch_name, baseline, stack_base, right_count)? {
       status = squash_integrated;
     }
   }

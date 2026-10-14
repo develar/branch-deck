@@ -23,3 +23,6 @@ pub mod archive_cleanup_tests;
 
 #[cfg(test)]
 pub mod remote_status_tests;
+
+#[cfg(test)]
+pub mod stack_tests;

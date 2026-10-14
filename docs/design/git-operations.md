@@ -397,7 +397,9 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
 - **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../spec/branch/stacked-branches.spec.md)).
   Each branch is a build task, which publishes its head after its last `commit-tree`, and a finish task for the ref,
   the status and the remote status. A child is spawned only once its parent's head is known, so no task holds a slot
-  of the process limit while it waits; ready branches start longest chain first.
+  of the process limit while it waits; ready branches start longest chain first. A rebuilt child's tip gets a note on
+  `refs/notes/branch-deck/stack` naming its base, in the same `fast-import` run as the mapping notes (one notes commit
+  per ref), for the integration detection of its archived branch.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
 `crates/git-ops/src/reword_commits.rs`, `crates/sync-core/src/reword_commit.rs`.

@@ -1,11 +1,12 @@
 use crate::baseline::detect_baseline_branch;
-use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
+use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::stack::{describe_block, describe_problem, empty_parent_states, place_branches, stacks_enabled};
 use crate::update_project::check_baseline_update;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
+use branch_integration::cache::STACK_NOTES_REF;
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::concurrency::max_parallel_git_processes;
@@ -13,7 +14,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace};
-use git_ops::notes::write_commit_notes;
+use git_ops::notes::write_commit_notes_with;
 use indexmap::IndexMap;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -300,7 +301,7 @@ fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, br
 /// What a branch task of `process_branches` returns
 enum TaskOutput {
   Built(String, Result<BuildOutcome>),
-  Finished(String, Result<Vec<(String, String)>>),
+  Finished(String, Result<BranchNotes>),
 }
 
 /// The branches of one sync and what they wait for, as `process_branches` schedules them
@@ -325,6 +326,7 @@ impl Schedule {
     for index in self.children.remove(branch).unwrap_or_default() {
       if let Some(job) = self.jobs.get_mut(&index) {
         head.clone_into(&mut job.base_commit);
+        job.on_parent = true;
       }
       self.ready(index);
     }
@@ -360,7 +362,7 @@ fn report_not_built(progress: &dyn ProgressReporter, job: &BranchJob, status: Br
 }
 
 /// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` tasks at a time, then
-/// write the mapping notes of all of them in one notes commit. A stacked branch starts once its parent's head is
+/// write the mapping notes and the stack notes of all of them in one `fast-import` run. A stacked branch starts once its parent's head is
 /// written, built on that head; a branch waiting for its parent holds no permit. A parent that fails blocks its
 /// descendants. Returns the first failure, naming its branch.
 async fn process_branches<P: ProgressReporter + Clone + 'static>(
@@ -388,6 +390,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       commits,
       branch_idx,
       base_commit: base_commit.clone(),
+      on_parent: false,
     };
     if let Some(stack) = stack {
       if let Some(problem) = stack.problems.first() {
@@ -434,6 +437,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   let mut to_finish: Vec<BuiltBranch> = Vec::new();
   let mut first_error = None;
   let mut notes = Vec::new();
+  let mut stack_notes = Vec::new();
   loop {
     // builds first: branches wait for their parents' heads, not for their refs
     while tasks.len() < max_running {
@@ -469,7 +473,8 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
         Some((branch_name, BlockReason::Error))
       }
       Ok(TaskOutput::Finished(_, Ok(branch_notes))) => {
-        notes.extend(branch_notes);
+        notes.extend(branch_notes.mappings);
+        stack_notes.extend(branch_notes.stack_note);
         None
       }
       Err(e) => {
@@ -490,7 +495,8 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   }
 
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
-  let notes_result = tokio::task::spawn_blocking(move || write_commit_notes(&context.git_executor, &context.repository_path, &notes))
+  // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
+  let notes_result = tokio::task::spawn_blocking(move || write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes))))
     .await
     .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
   match first_error {
