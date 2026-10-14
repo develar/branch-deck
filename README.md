@@ -18,7 +18,9 @@ repositories: all operations run through the Git CLI.
   `username/virtual/feature-auth` and `username/virtual/IJPL-163558`. `fixup!`, `squash!` and `amend!` commits follow
   their target.
 - **Stacked branches** (opt-in, `git config branchdeck.stacks true`): `(auth/login) Add form` builds `login` on top of
-  `auth`. A branch whose parent has a conflict or is missing is blocked instead of moved.
+  `auth`, and the branch table shows the stack as a tree. Stack a branch on another one, unstack it or rename a parent
+  from the branch menu; Move to… takes `auth/login`. A branch whose parent has a conflict or is missing is blocked
+  instead of moved.
 - **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection, with branch
   name suggestions from an on-device AI model, or move commits to an existing branch.
 - **Conflict viewer**: when grouping changes the order of dependent commits, Branch Deck shows the conflicting files in a
@@ -63,10 +65,6 @@ Grouping rules, checked on the first line of the commit message:
 3. Commits with neither stay on the main branch as unassigned.
 
 See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout and storage.
-
-### Current Limitations
-
-- Nested branches (e.g. `(feature-auth/oauth)`) are not supported yet.
 
 ## Installation
 

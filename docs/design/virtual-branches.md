@@ -111,6 +111,11 @@ parent, on the nearest active ancestor of an integrated parent, on the baseline,
 sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. Without the setting a `/` is
 part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
 
+In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
+issue families come from the stack roots. `groupFor` (`src/lib/commit.ts`) mirrors `stack_path` for the commit editor
+and Move to…. The branch menu restacks and renames over `rename_branch` and `restack_branch`
+(`crates/sync-core/src/stack_operations.rs`, wrapping the regroup cores), which rewrite prefixes in one history rewrite.
+
 ### Implementation Notes
 
 - **Commit Grouping**: `CommitGrouper` scans commits and extracts patterns (see `crates/sync-core/src/commit_grouper.rs`)

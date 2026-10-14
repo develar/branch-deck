@@ -40,7 +40,8 @@ A commit `(auth/login) Add form` belongs to the branch `login`, and `login` stac
 built on the new head of `auth`'s virtual branch, so a pull request for `login` contains only its own commits on top
 of `auth`. Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
 its parent is declared. A branch that can't be placed, or whose parent can't be built on, is reported and not rebuilt;
-the other branches still sync. The backend is done; the branch table does not show the stack yet.
+the other branches still sync. The branch table shows the stacks as a tree, and the branch menu stacks, unstacks and
+renames branches.
 
 ## Goals
 
@@ -50,7 +51,8 @@ the other branches still sync. The backend is done; the branch table does not sh
 
 ## Non-goals
 
-- Show the stack in the branch table, or set the base of a pull request (later).
+- Set the base of a pull request, a "Push Stack" action, and "on auth" where the tree isn't visible (the Outgoing
+  popover, the Space preview) (later).
 - Stacked branches in the `bd` CLI (later).
 
 ## Requirements
