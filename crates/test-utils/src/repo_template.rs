@@ -1,3 +1,4 @@
+use crate::git_test_utils::disable_background_maintenance;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -65,6 +66,7 @@ impl RepoTemplate {
 
     // Initialize git repository
     Command::new("git").args(["init", "--initial-branch=master"]).current_dir(output_path).output()?;
+    disable_background_maintenance(output_path);
 
     // Configure git
     Command::new("git").args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
@@ -137,6 +139,7 @@ impl RepoTemplate {
 /// Pre-defined test repository templates
 pub mod templates {
   use super::RepoTemplate;
+  use crate::git_test_utils::disable_background_maintenance;
   use anyhow::Result;
   use std::fs;
   use std::path::Path;
@@ -636,6 +639,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       };
 
       git(&["init", "-q", "--initial-branch=master"], None)?;
+      disable_background_maintenance(output_path);
       git(&["config", "user.name", "Test User"], None)?;
       git(&["config", "user.email", "test@example.com"], None)?;
       git(&["config", "branchdeck.branchPrefix", "user-name"], None)?;
@@ -650,6 +654,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       )?;
 
       git(&["init", "-q", "--bare", "--initial-branch=master", ".git/upstream.git"], None)?;
+      disable_background_maintenance(&output_path.join(".git/upstream.git"));
       git(&["remote", "add", "origin", ".git/upstream.git"], None)?;
       git(&["push", "-q", "origin", "master"], None)?;
       git(&["branch", "-q", "--set-upstream-to=origin/master", "master"], None)?;
@@ -689,6 +694,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       // Initialize repo
       fs::create_dir_all(output_path)?;
       Command::new("git").args(["init", "--initial-branch=main"]).current_dir(output_path).output()?;
+      disable_background_maintenance(output_path);
       Command::new("git").args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
       Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
       Command::new("git")

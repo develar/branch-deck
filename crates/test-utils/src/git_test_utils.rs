@@ -7,6 +7,23 @@ use tempfile::TempDir;
 const TEST_USER_NAME: &str = "Test User";
 const TEST_USER_EMAIL: &str = "test@example.com";
 
+/// Config for a fixture repository: no background `git maintenance` or auto gc. A commit or a push would otherwise
+/// start one that holds `.git/objects/maintenance.lock`, and a clone of the repository at that moment fails with
+/// "failed to copy file to '.git/objects/maintenance.lock'"
+pub const NO_BACKGROUND_MAINTENANCE: [(&str, &str); 2] = [("maintenance.auto", "false"), ("gc.auto", "0")];
+
+/// Apply `NO_BACKGROUND_MAINTENANCE` to the repository (bare or not) at `repo_path`, right after it is created or cloned
+pub fn disable_background_maintenance(repo_path: &Path) {
+  for (key, value) in NO_BACKGROUND_MAINTENANCE {
+    let output = std::process::Command::new("git")
+      .args(["config", key, value])
+      .current_dir(repo_path)
+      .output()
+      .unwrap_or_else(|e| panic!("git config {key} failed: {e}"));
+    assert!(output.status.success(), "git config {key}: {}", String::from_utf8_lossy(&output.stderr));
+  }
+}
+
 /// Git test repository wrapper with helper methods
 pub struct TestRepo {
   dir: TempDir,
@@ -32,6 +49,7 @@ impl TestRepo {
     git_executor
       .execute_command(&["init", "--initial-branch=master"], repo_path)
       .unwrap_or_else(|e| panic!("Git init failed: {e}"));
+    disable_background_maintenance(dir.path());
 
     // Configure git user for the test repo
     Self::configure_git_user(&git_executor, repo_path).unwrap();
@@ -324,6 +342,7 @@ impl TestRepo {
       .git_executor
       .execute_command(&["clone", source_path.to_str().unwrap(), "."], self.path_str())
       .map_err(|e| e.to_string())?;
+    disable_background_maintenance(self.path());
 
     // Configure git user for the cloned repo
     Self::configure_git_user(&self.git_executor, self.path_str()).map_err(|e| e.to_string())?;

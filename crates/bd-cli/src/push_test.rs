@@ -6,7 +6,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use tempfile::TempDir;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
 
 const AUTH: &str = "test-user/virtual/auth";
 
@@ -15,6 +15,7 @@ fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   let remote = tempfile::tempdir().unwrap();
   git(&repo, &["init", "--bare", "-q", remote.path().to_str().unwrap()]);
+  disable_background_maintenance(remote.path());
   git(&repo, &["remote", "set-url", "origin", remote.path().to_str().unwrap()]);
   for (index, subject) in subjects.iter().enumerate() {
     write(&repo, &format!("f{index}.txt"), *subject);
@@ -141,6 +142,7 @@ fn a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced() {
     assert!(status.status.success(), "{args:?}: {}", String::from_utf8_lossy(&status.stderr));
   };
   run(&["clone", "-q", "--branch", AUTH, remote.path().to_str().unwrap(), "."]);
+  disable_background_maintenance(elsewhere.path());
   run(&[
     "-c",
     "user.name=Other",
