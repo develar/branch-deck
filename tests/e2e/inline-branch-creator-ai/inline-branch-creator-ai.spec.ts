@@ -199,6 +199,19 @@ test.describe("Inline Branch Creator - AI Features", () => {
     )
   })
 
+  test("should say in the help popover what the AI button does", async ({ page, setupUnassignedRepo }) => {
+    await setupUnassignedRepo(AI_ENABLED_SETUP)
+
+    await openBranchCreatorForFirstCommit(page)
+    await expectAIEnabled(page)
+
+    await getAIStatusIcon(page).hover()
+    const help = page.locator("[data-slot=popover-content]")
+    await expect(help).toContainText("AI suggestions are on. The button turns them off.")
+    await expect(help).toContainText("No data is sent to any external service.")
+    await expect(help).not.toContainText(/click/i)
+  })
+
   test("should populate branch name input with selected suggestion", async ({ page, setupUnassignedRepo }) => {
     // Pre-set AI as enabled
     await setupUnassignedRepo(AI_ENABLED_SETUP)
@@ -214,10 +227,16 @@ test.describe("Inline Branch Creator - AI Features", () => {
     const firstValue = await input.inputValue()
     expect(firstValue).toContain("user-name")
 
+    // the chip of the name in the input is the chosen one
+    await expect(suggestionButtons.first()).toHaveAttribute("aria-pressed", "true")
+    await expect(suggestionButtons.nth(1)).toHaveAttribute("aria-pressed", "false")
+
     // Click second suggestion
     await suggestionButtons.nth(1).click()
     const secondValue = await input.inputValue()
     expect(secondValue).toContain("user-name")
+    await expect(suggestionButtons.nth(1)).toHaveAttribute("aria-pressed", "true")
+    await expect(suggestionButtons.first()).toHaveAttribute("aria-pressed", "false")
   })
 
   test("should show download progress in popover when hovering pulsing icon", async ({ page, setupUnassignedRepo }) => {
@@ -238,8 +257,10 @@ test.describe("Inline Branch Creator - AI Features", () => {
     const downloadProgressPopover = page.locator("[data-testid='model-download-progress-popover']")
     await expect(downloadProgressPopover).toBeVisible()
 
-    // Verify it shows download progress content
-    await expect(downloadProgressPopover).toContainText(/KB|MB|%|config|model/)
+    // one line of state and Pause: the download toast is the progress surface
+    await expect(downloadProgressPopover.locator("p")).toHaveText(/^Downloading \S+(…|: \d+%)$/)
+    await expect(downloadProgressPopover.getByRole("button", { name: "Pause" })).toBeVisible()
+    await expect(downloadProgressPopover.getByRole("progressbar")).toHaveCount(0)
   })
 
   test("should pause and resume model download", async ({ page, setupUnassignedRepo }) => {
