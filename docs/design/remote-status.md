@@ -83,7 +83,8 @@ flowchart TD
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
-- **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` says whether the remote branch exists and
+- **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` (the sync and the app compare with
+  `origin`, `bd push --remote` with its remote) says whether the remote branch exists and
   returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The
   [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
   The walks below use this commit, not the ref name, so a fetch meanwhile can't make the counts disagree with it.

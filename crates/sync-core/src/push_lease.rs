@@ -5,16 +5,8 @@
 //! (`prepare_push_expecting`): the app's row, the sync `bd push` runs first, or `bd push --expect-remote`. The push
 //! replaces exactly that remote state, also after someone else's commit was fetched and shown as dropped, or brought
 //! into the branch. A rejected push fetches the branches (`fetch_remote_branches`), so the caller can show what the
-//! remote has now.
-//!
-//! Without a fresh status (`bd push --remote` other than `origin`, which the status doesn't compare with) the lease is
-//! the commit Branch Deck last pushed for the ref, recorded in `refs/branch-deck/pushed/<branch>` at push time
-//! (`prepare_push`), else the remote-tracking ref, else the branch must not exist on the remote:
-//! - one `for-each-ref` reads the records with the local tips and the remote-tracking refs, and one `update-ref --stdin`
-//!   records a push of any number of branches; every push records, whatever its lease;
-//! - the record keeps the pushed commit reachable, and no default refspec fetches or pushes `refs/branch-deck/`;
-//! - a background fetch moves the remote-tracking ref, never the record, so it can't defeat the lease the way a bare
-//!   `--force-with-lease=<ref>` (leased on the remote-tracking ref) can.
+//! remote has now. The status, and so the lease, compares with the remote-tracking ref: a background fetch that
+//! moves it shows up as the commits a push drops (`behind`), which a push replaces only once the user saw them.
 
 use crate::remote_command::{execute_remote_command, execute_remote_command_accepting};
 use anyhow::{Result, anyhow};
@@ -23,16 +15,9 @@ use git_ops::ref_transaction::RefTransaction;
 use std::collections::{HashMap, HashSet};
 use tracing::instrument;
 
-/// The namespace of the recorded pushes
-pub const PUSHED_NAMESPACE: &str = "refs/branch-deck/pushed/";
-
 /// Where the lease of a push comes from
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeaseSource {
-  /// The commit Branch Deck last pushed
-  Recorded,
-  /// The remote-tracking ref: no push was recorded, or the caller replaces what it fetched (`force`)
-  Tracking,
   /// The remote head the caller showed the user (`prepare_push_expecting`)
   Expected,
   /// No remote branch: it must not exist
@@ -42,8 +27,6 @@ pub enum LeaseSource {
 impl LeaseSource {
   pub fn as_str(self) -> &'static str {
     match self {
-      Self::Recorded => "recorded",
-      Self::Tracking => "tracking",
       Self::Expected => "expected",
       Self::Absent => "absent",
     }
@@ -71,42 +54,6 @@ impl PushRef {
   pub fn refspec(&self) -> String {
     format!("{}:refs/heads/{}", self.tip, self.full_name)
   }
-}
-
-/// The push of `full_names` to `remote` with their leases, from one `for-each-ref`. With `force` the lease is the
-/// remote-tracking ref when there is one: the caller replaces what it fetched and saw. A missing local branch is an
-/// error
-#[instrument(skip(git_executor, full_names))]
-pub fn prepare_push(git_executor: &GitCommandExecutor, repository_path: &str, remote: &str, full_names: &[String], force: bool) -> Result<Vec<PushRef>> {
-  let tracking_namespace = format!("refs/remotes/{remote}/");
-  let mut args = vec!["for-each-ref".to_string(), "--format=%(objectname) %(refname)".to_string()];
-  for full_name in full_names {
-    args.push(format!("refs/heads/{full_name}"));
-    args.push(format!("{PUSHED_NAMESPACE}{full_name}"));
-    args.push(format!("{tracking_namespace}{full_name}"));
-  }
-  let refs = read_refs(git_executor, repository_path, &args)?;
-
-  full_names
-    .iter()
-    .map(|full_name| {
-      let tip = local_tip(&refs, full_name)?;
-      let recorded = refs.get(&format!("{PUSHED_NAMESPACE}{full_name}"));
-      let tracking = refs.get(&format!("{tracking_namespace}{full_name}"));
-      let (lease, source) = match (recorded, tracking) {
-        (_, Some(tracking)) if force => (Some(tracking.clone()), LeaseSource::Tracking),
-        (Some(recorded), _) => (Some(recorded.clone()), LeaseSource::Recorded),
-        (None, Some(tracking)) => (Some(tracking.clone()), LeaseSource::Tracking),
-        (None, None) => (None, LeaseSource::Absent),
-      };
-      Ok(PushRef {
-        full_name: full_name.clone(),
-        tip: tip.clone(),
-        lease,
-        source,
-      })
-    })
-    .collect()
 }
 
 /// The push of each `(full_name, expected)` leased on `expected`: the remote head of the status the caller showed the
@@ -221,15 +168,6 @@ pub fn fetch_remote_branches(git_executor: &GitCommandExecutor, repository_path:
   }
   transaction.commit(git_executor, repository_path, "remote branch deleted")?;
   if present.is_empty() { Ok(()) } else { fetch(&present) }
-}
-
-/// Record a successful push of `refs` in one ref transaction, as the leases of the next push
-pub fn record_push<'a>(git_executor: &GitCommandExecutor, repository_path: &str, refs: impl IntoIterator<Item = &'a PushRef>) -> Result<()> {
-  let mut transaction = RefTransaction::new();
-  for pushed in refs {
-    transaction.update(&format!("{PUSHED_NAMESPACE}{}", pushed.full_name), &pushed.tip, None);
-  }
-  transaction.commit(git_executor, repository_path, "record push")
 }
 
 #[cfg(test)]

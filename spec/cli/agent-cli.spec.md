@@ -229,13 +229,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   since, and either one's push must leave the other's next push valid. `--expect-remote <commit>` must lease one
   branch on that commit.
   [@test] ../../crates/bd-cli/src/push_test.rs (`a_plain_push_replaces_a_remote_commit_the_branch_has_by_content`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `the_app_and_bd_share_the_lease`)
-- With `--remote` other than `origin`, which the remote status doesn't compare with, the lease must be the commit
-  Branch Deck last pushed, recorded in `refs/branch-deck/pushed/` by every push of bd and the app, so a background
-  fetch can't defeat it; else the remote-tracking ref (also with `--force`), else the branch must not exist.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`another_remote_leases_on_the_record`)
-  [@test] ../../crates/sync-core/src/push_lease_test.rs (`the_lease_is_the_record_else_the_tracking_ref_else_absent`)
-- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 3) with nothing pushed or
-  recorded; bd must fetch the rejected branches and list them in `error.branches` with their remote status as fetched
+- With `--remote` other than `origin`, which the sync compares with, the refusal, the lease and the errors must use
+  the remote status of the pushed branches against that remote, computed the same way; a `--remote` that is not a
+  configured remote must be `no_remote`.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`another_remote_is_compared_with_as_origin_is`)
+- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 3) with nothing pushed; bd
+  must fetch the rejected branches and list them in `error.branches` with their remote status as fetched
   (`head`, `behind`, `dropped_commits`). A branch refused as behind is listed the same way, and `bd sync` prints the
   same remote status per branch.
   [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`)

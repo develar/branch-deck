@@ -320,13 +320,13 @@ repository lock (see "Agent push" in [Git Operations](../design/git-operations.m
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,
   `--force` drops the `behind` commits of that sync, and nothing pushed since is lost. `--expect-remote COMMIT` leases
   one branch on the given remote commit, a `remote.head` bd printed: the remote state the user saw.
-- With `--remote` other than `origin`, which the status doesn't compare with, the lease is the commit Branch Deck last
-  pushed, from the app or bd (`recorded`, kept in `refs/branch-deck/pushed/`), else that remote's remote-tracking
-  branch (`tracking`, also with `--force`), else none (`absent`).
-- A remote branch that is not where the lease expects it is `lease_rejected` (exit 3), nothing pushed or recorded. bd
+- With `--remote` other than `origin`, which the sync compares with, bd computes the same remote status of each
+  pushed branch against that remote's remote-tracking branch, and the refusal, the lease and the errors use it. A
+  `--remote` that is not a configured remote is `no_remote`.
+- A remote branch that is not where the lease expects it is `lease_rejected` (exit 3), nothing pushed. bd
   fetches the rejected branches and lists them in `error.branches` with their remote status as fetched:
-  `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`
-  (`remote` is `null` for another remote than `origin`). Show the `dropped_commits` to the user; only after the user
+  `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`.
+  Show the `dropped_commits` to the user; only after the user
   approves, `bd push auth --force --expect-remote 7c8d9e0f`.
 - `pull_request.base` is the parent's remote branch, or the baseline without the remote (`master`). With a
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses

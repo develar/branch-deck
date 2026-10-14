@@ -1,4 +1,4 @@
-use crate::push_lease::{PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting, record_push};
+use crate::push_lease::{PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use crate::remote_command::execute_remote_command_with_progress;
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
@@ -42,9 +42,9 @@ pub enum PushOutcome {
   RemoteMoved { remote_status: RemoteStatusUpdate },
 }
 
-/// Force-pushes the virtual branch to `origin`, leased on the remote head the user saw (`push_lease`), and records the
-/// push as the lease `bd push` uses next. A remote that moved meanwhile is fetched, not overwritten: the outcome then
-/// carries the new remote status, which a push can replace once the user saw it. `on_progress` gets how far the push is.
+/// Force-pushes the virtual branch to `origin`, leased on the remote head the user saw (`push_lease`). A remote that
+/// moved meanwhile is fetched, not overwritten: the outcome then carries the new remote status, which a push can
+/// replace once the user saw it. `on_progress` gets how far the push is.
 #[instrument(skip(git_executor, on_progress), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
 pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushOutcome> {
   let repository_path = &params.repository_path;
@@ -59,6 +59,7 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
     compute_remote_status_for_branch(
       git_executor,
       repository_path,
+      "origin",
       &final_branch_name,
       branch_name,
       params.my_email.as_deref(),
@@ -81,7 +82,6 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
   )?;
   let report = parse_push_porcelain(&output).remove(&format!("refs/heads/{final_branch_name}"));
   if report.as_ref().is_some_and(PushedRefStatus::accepted) {
-    record_push(git_executor, repository_path, &refs)?;
     return Ok(PushOutcome::Pushed { remote_status: remote_status()? });
   }
 

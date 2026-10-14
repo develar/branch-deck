@@ -139,7 +139,6 @@ pub struct ErrorBody {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ErrorBranch {
   pub name: String,
-  /// Its remote status after the fetch; `null` when the push went to a remote other than `origin`, which the status
-  /// doesn't compare with
-  pub remote: Option<RemoteSummary>,
+  /// Its remote status against the remote pushed to: as fetched after `lease_rejected`
+  pub remote: RemoteSummary,
 }

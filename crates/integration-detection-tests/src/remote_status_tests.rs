@@ -267,6 +267,7 @@ async fn test_compute_remote_status_directly() {
   let result = compute_remote_status_for_branch(
     &scenario.git_executor,
     scenario.local_repo.path().to_str().unwrap(),
+    "origin",
     "user/virtual/test",
     "test",
     Some(&scenario.user_email),
@@ -357,6 +358,7 @@ async fn test_rebased_branch_shows_zero_unpushed() {
   let result = compute_remote_status_for_branch(
     &scenario.git_executor,
     scenario.local_repo.path().to_str().unwrap(),
+    "origin",
     "user/virtual/grpc",
     "grpc",
     Some(&scenario.user_email),
@@ -458,6 +460,7 @@ fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
   compute_remote_status_for_branch(
     &scenario.git_executor,
     scenario.local_repo.path().to_str().unwrap(),
+    "origin",
     "user/virtual/feature",
     "feature",
     Some(&scenario.user_email),

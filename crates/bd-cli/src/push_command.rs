@@ -4,9 +4,8 @@
 //! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
 //! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
 //! state; the refusal of a branch behind its remote without `--force` decides whether it may drop commits. A rejected
-//! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync's
-//! remote status doesn't compare with, the lease is the commit Branch Deck last pushed
-//! (`refs/branch-deck/pushed/<branch>`), else the remote-tracking ref.
+//! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync
+//! compares with, the remote status of the pushed branches is computed the same way against that remote.
 
 use crate::context::RepoContext;
 use crate::describe::read_descriptions;
@@ -17,8 +16,9 @@ use crate::sync_command::{RemoteSummary, SyncState, SyncedBranch, lock, sync_loc
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::HashSet;
 use sync_core::grouping::branch_tips;
-use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push, prepare_push_expecting, record_push};
+use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use sync_core::remote_command::execute_remote_command_accepting;
 use sync_core::remote_status::compute_remote_status_for_branch;
 
@@ -71,8 +71,8 @@ pub struct PushedBranch {
   pub status: String,
   /// The commit the remote branch had to be at; `null` when it had not to exist
   pub lease: Option<String>,
-  /// `recorded` (the last push of Branch Deck, the app's or bd's), `tracking` (the fetched remote branch: no push was
-  /// recorded, or --force) or `absent`
+  /// `expected` (the remote head of the status: the sync's, or --expect-remote) or `absent` (no remote branch: it must
+  /// not exist)
   pub lease_source: String,
   pub pull_request: PullRequestDraft,
 }
@@ -96,6 +96,8 @@ struct Candidate<'a> {
   synced: &'a SyncedBranch,
   full_name: String,
   parent: Option<String>,
+  /// The status against the remote pushed to; `None` without one
+  remote: Option<RemoteSummary>,
 }
 
 pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliError> {
@@ -122,6 +124,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
       .map(|(remote, _)| remote.to_string())
       .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?,
   };
+  check_remote(context, &remote)?;
   let base_branch = synced.baseline.strip_prefix(&format!("{remote}/")).unwrap_or(&synced.baseline).to_string();
 
   let grouping = read_grouping(context, None)?;
@@ -150,6 +153,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   };
 
   let tips = branch_tips(&context.git, &context.repository, &context.prefix)?;
+  let on_remote = remote_branches(context, &remote)?;
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut behind = Vec::new();
@@ -168,7 +172,15 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
       ));
       continue;
     }
-    if let Some(remote_state) = &branch.remote
+    let full_name = final_name(context, name)?;
+    if !tips.contains_key(&full_name) {
+      refusals.push(format!("{name} has no virtual branch"));
+      continue;
+    }
+    let parent = parent_of(name);
+    let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
+    let remote_state = remote_status(context, &remote, &synced.baseline, branch, &full_name, parent_ref.as_deref())?;
+    if let Some(remote_state) = &remote_state
       && remote_state.behind > 0
       && !args.force
     {
@@ -178,28 +190,20 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
       ));
       behind.push(ErrorBranch {
         name: (*name).to_string(),
-        remote: Some(remote_state.clone()),
+        remote: remote_state.clone(),
       });
     }
-    let parent = parent_of(name);
-    if let Some(parent) = &parent {
-      let parent_on_remote = synced
-        .branches
-        .iter()
-        .any(|other| &other.name == parent && other.remote.as_ref().is_some_and(|remote| remote.exists));
-      if !parent_on_remote && !selected.contains(&parent.as_str()) {
-        refusals.push(format!("{name}: its parent {parent} is not on the remote; push {parent} first or with it"));
-      }
-    }
-    let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-    if !tips.contains_key(&full_name) {
-      refusals.push(format!("{name} has no virtual branch"));
-      continue;
+    if let (Some(parent), Some(parent_ref)) = (&parent, &parent_ref)
+      && !on_remote.contains(parent_ref)
+      && !selected.contains(&parent.as_str())
+    {
+      refusals.push(format!("{name}: its parent {parent} is not on the remote; push {parent} first or with it"));
     }
     candidates.push(Candidate {
       synced: branch,
       full_name,
       parent,
+      remote: remote_state,
     });
   }
   if !refusals.is_empty() {
@@ -208,22 +212,16 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     return Err(error);
   }
 
-  let full_names: Vec<String> = candidates.iter().map(|candidate| candidate.full_name.clone()).collect();
-  let refs = if let Some(expected) = &args.expect_remote {
-    let expected = resolve_commit(context, expected)?;
-    prepare_push_expecting(&context.git, &context.repository, &[(full_names[0].clone(), Some(expected))])?
-  } else if remote == "origin" {
-    // the remote head the sync just compared with, not what Branch Deck pushed last: a remote commit the branch has by
-    // content goes, and --force drops what the sync counted, but nothing pushed since
-    let expected: Vec<(String, Option<String>)> = candidates
+  let expected: Vec<(String, Option<String>)> = match &args.expect_remote {
+    Some(expected) => vec![(candidates[0].full_name.clone(), Some(resolve_commit(context, expected)?))],
+    // the remote head the status compared with: a remote commit the branch has by content goes, and --force drops what
+    // the status counted, but nothing pushed since
+    None => candidates
       .iter()
-      .map(|candidate| (candidate.full_name.clone(), candidate.synced.remote.as_ref().and_then(|remote| remote.head_id.clone())))
-      .collect();
-    prepare_push_expecting(&context.git, &context.repository, &expected)?
-  } else {
-    // the remote status compares with origin: with another remote, the record, else what was fetched from it
-    prepare_push(&context.git, &context.repository, &remote, &full_names, args.force)?
+      .map(|candidate| (candidate.full_name.clone(), candidate.remote.as_ref().and_then(|remote| remote.head_id.clone())))
+      .collect(),
   };
+  let refs = prepare_push_expecting(&context.git, &context.repository, &expected)?;
   let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
   let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
   let mut push_args = vec!["push", "--porcelain", "--atomic"];
@@ -243,10 +241,6 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     .collect();
   if !rejected.is_empty() {
     return Err(lease_rejected(context, &remote, &synced.baseline, &rejected, args.dry_run));
-  }
-
-  if !args.dry_run {
-    record_push(&context.git, &context.repository, &refs)?;
   }
 
   let descriptions = read_descriptions(context)?;
@@ -305,6 +299,42 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   })
 }
 
+/// `<prefix>/virtual/<name>`
+fn final_name(context: &RepoContext, name: &str) -> Result<String, CliError> {
+  to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))
+}
+
+/// `no_remote` unless `remote` is a configured remote: a URL has no remote-tracking refs to compare with
+fn check_remote(context: &RepoContext, remote: &str) -> Result<(), CliError> {
+  let (_, exit_code) = context
+    .git
+    .execute_command_with_status(&["config", "--get", &format!("remote.{remote}.url")], &context.repository)?;
+  if exit_code == 0 {
+    Ok(())
+  } else {
+    Err(CliError::new(ErrorCode::NoRemote, format!("No remote named {remote:?}: `git remote` lists them")))
+  }
+}
+
+/// The virtual branches that have a remote-tracking ref of `remote`, by full name: one `for-each-ref`
+fn remote_branches(context: &RepoContext, remote: &str) -> Result<HashSet<String>, CliError> {
+  let namespace = format!("refs/remotes/{remote}/");
+  let pattern = format!("{namespace}{}/virtual/", context.prefix.trim_end_matches('/'));
+  let lines = context.git.execute_command_lines(&["for-each-ref", "--format=%(refname)", &pattern], &context.repository)?;
+  Ok(lines.iter().filter_map(|line| line.strip_prefix(&namespace)).map(str::to_string).collect())
+}
+
+/// The status of `branch` against `remote`: the one of the sync for `origin`, which the sync compares with; for another
+/// remote computed now the same way, from its remote-tracking ref
+fn remote_status(context: &RepoContext, remote: &str, baseline: &str, branch: &SyncedBranch, full_name: &str, parent_ref: Option<&str>) -> Result<Option<RemoteSummary>, CliError> {
+  if remote == "origin" {
+    return Ok(branch.remote.clone());
+  }
+  let status = compute_remote_status_for_branch(&context.git, &context.repository, remote, full_name, &branch.name, None, baseline, parent_ref)?;
+  let short = context.short_ids(RemoteSummary::ids(&status));
+  Ok(Some(RemoteSummary::new(&status, branch.commit_count, &short)))
+}
+
 /// The full id of the commit `rev` names
 fn resolve_commit(context: &RepoContext, rev: &str) -> Result<String, CliError> {
   let (id, exit_code) = context
@@ -335,32 +365,27 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
     );
   }
 
-  // the remote status compares with origin only
-  let remote_statuses = if remote == "origin" {
-    let computed: anyhow::Result<Vec<_>> = rejected
-      .iter()
-      .map(|candidate| {
-        let parent_ref = candidate.parent.as_deref().map(|parent| to_final_branch_name(&context.prefix, parent)).transpose()?;
-        compute_remote_status_for_branch(
-          &context.git,
-          &context.repository,
-          &candidate.full_name,
-          &candidate.synced.name,
-          None,
-          baseline,
-          parent_ref.as_deref(),
-        )
-        .map(Some)
-      })
-      .collect();
-    match computed {
-      Ok(computed) => computed,
-      Err(e) => return CliError::from(e),
-    }
-  } else {
-    vec![None; rejected.len()]
+  let computed: anyhow::Result<Vec<_>> = rejected
+    .iter()
+    .map(|candidate| {
+      let parent_ref = candidate.parent.as_deref().map(|parent| to_final_branch_name(&context.prefix, parent)).transpose()?;
+      compute_remote_status_for_branch(
+        &context.git,
+        &context.repository,
+        remote,
+        &candidate.full_name,
+        &candidate.synced.name,
+        None,
+        baseline,
+        parent_ref.as_deref(),
+      )
+    })
+    .collect();
+  let remote_statuses = match computed {
+    Ok(computed) => computed,
+    Err(e) => return CliError::from(e),
   };
-  let short = context.short_ids(remote_statuses.iter().flatten().flat_map(RemoteSummary::ids));
+  let short = context.short_ids(remote_statuses.iter().flat_map(RemoteSummary::ids));
   let mut error = CliError::new(
     ErrorCode::LeaseRejected,
     format!(
@@ -374,7 +399,7 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
     .zip(&remote_statuses)
     .map(|(candidate, status)| ErrorBranch {
       name: candidate.synced.name.clone(),
-      remote: status.as_ref().map(|status| RemoteSummary::new(status, candidate.synced.commit_count, &short)),
+      remote: RemoteSummary::new(status, candidate.synced.commit_count, &short),
     })
     .collect();
   error

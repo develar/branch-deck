@@ -289,6 +289,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
   if let Ok(remote_status) = compute_remote_status_for_branch(
     git_executor,
     repository_path,
+    "origin",
     &full_branch_name,
     &branch_name,
     my_email.as_deref(),

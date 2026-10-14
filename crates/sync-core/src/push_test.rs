@@ -1,5 +1,4 @@
 use crate::push::{PushBranchParams, PushOutcome, push_branch};
-use crate::push_lease::PUSHED_NAMESPACE;
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
 use pretty_assertions::assert_eq;
@@ -40,10 +39,6 @@ fn remote_tip(remote: &TestRepo) -> Option<String> {
   rev_parse(remote, &format!("refs/heads/{BRANCH}"))
 }
 
-fn recorded_push(local: &TestRepo) -> Option<String> {
-  rev_parse(local, &format!("{PUSHED_NAMESPACE}{BRANCH}"))
-}
-
 /// Point the virtual branch at `id`, as a sync does
 fn set_branch(local: &TestRepo, id: &str) {
   local
@@ -70,7 +65,7 @@ fn push_from_elsewhere(remote: &TestRepo, subject: &str) -> String {
 
 /// The remote status the branch row shows
 fn shown_status(local: &TestRepo) -> RemoteStatusUpdate {
-  compute_remote_status_for_branch(local.git_executor(), path(local), BRANCH, "feature", Some("test@example.com"), "master", None).unwrap()
+  compute_remote_status_for_branch(local.git_executor(), path(local), "origin", BRANCH, "feature", Some("test@example.com"), "master", None).unwrap()
 }
 
 /// The push button's push, leased on `expected`
@@ -115,12 +110,12 @@ fn dropped_subjects(status: &RemoteStatusUpdate) -> Vec<&str> {
   status.dropped_commits.iter().map(|commit| commit.subject.as_str()).collect()
 }
 
-/// The branch is pushed once: the remote and the record are at `tip`
+/// The branch is pushed once: the remote is at `tip`
 fn first_push(remote: &TestRepo, local: &TestRepo) -> String {
   let tip = local.create_commit("(feature) Add feature", "feature.txt", "feature");
   set_branch(local, &tip);
   let status = pushed(push(local, None));
-  assert_eq!((remote_tip(remote), recorded_push(local)), (Some(tip.clone()), Some(tip.clone())));
+  assert_eq!(remote_tip(remote), Some(tip.clone()));
   assert_eq!((status.remote_tip.as_deref(), status.commits_behind), (Some(tip.as_str()), 0));
   assert!(status.unpushed_commits.is_empty(), "{:?}", status.unpushed_commits);
   tip
@@ -177,11 +172,11 @@ fn a_rebuilt_branch_replaces_the_remote_tip_it_saw() {
   set_branch(&local, &rewritten);
 
   pushed(push_as_shown(&local));
-  assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(rewritten.clone()), Some(rewritten)));
+  assert_eq!(remote_tip(&remote), Some(rewritten.clone()));
 }
 
-/// The regression of the recorded lease: someone else's fetched commit is shown as dropped, and the Force Push the user
-/// confirms replaces it, although Branch Deck's last push (the record) is older
+/// Someone else's fetched commit is shown as dropped, and the Force Push the user confirms replaces it, although Branch
+/// Deck's last push is older
 #[test]
 fn a_force_push_drops_the_remote_commit_the_user_saw() {
   let (remote, local) = local_with_bare_remote();
@@ -196,12 +191,11 @@ fn a_force_push_drops_the_remote_commit_the_user_saw() {
 
   let status = pushed(push_as_shown(&local));
   assert_eq!(remote_tip(&remote), Some(first.clone()), "their commit is dropped");
-  assert_eq!(recorded_push(&local), Some(first));
   assert_eq!(status.commits_behind, 0);
 }
 
 /// The user brought someone else's commit into the branch: a plain push with the head the user saw goes through,
-/// although the record is the older push
+/// although Branch Deck's last push is older
 #[test]
 fn a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit() {
   let (remote, local) = local_with_bare_remote();
@@ -217,7 +211,7 @@ fn a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit() {
   assert_eq!((shown.commits_behind, shown.fast_forward), (0, false));
 
   pushed(push_as_shown(&local));
-  assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(rebuilt.clone()), Some(rebuilt)));
+  assert_eq!(remote_tip(&remote), Some(rebuilt.clone()));
 }
 
 /// A commit pushed after the user's last look is not overwritten: the push fetches it and returns the new status, and
@@ -234,7 +228,6 @@ fn a_remote_that_moved_since_the_status_is_fetched_not_overwritten() {
   let status = remote_moved(push(&local, shown.remote_tip.as_deref()));
   assert_eq!(shown.remote_tip, Some(seen));
   assert_eq!(remote_tip(&remote), Some(newer.clone()), "the remote is unchanged");
-  assert_eq!(recorded_push(&local), Some(first.clone()), "nothing is recorded");
   assert_eq!(status.remote_tip, Some(newer.clone()));
   assert_eq!(rev_parse(&local, &format!("refs/remotes/origin/{BRANCH}")), Some(newer), "the branch was fetched");
   assert_eq!(status.commits_behind, 2);
@@ -274,7 +267,7 @@ fn a_branch_deleted_on_the_remote_is_shown_as_not_pushed() {
   assert_eq!(remote_tip(&remote), Some(first));
 }
 
-/// The lease held, but the remote refused the push (a hook, a protected branch): an error, nothing recorded
+/// The lease held, but the remote refused the push (a hook, a protected branch): an error
 #[test]
 fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
   let (remote, local) = local_with_bare_remote();
@@ -300,5 +293,5 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
   };
   let error = push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err();
   assert!(error.to_string().contains("The remote rejected the push"), "{error}");
-  assert_eq!((remote_tip(&remote), recorded_push(&local)), (Some(first.clone()), Some(first)));
+  assert_eq!(remote_tip(&remote), Some(first.clone()));
 }

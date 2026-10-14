@@ -154,7 +154,7 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_force_push_drops_the_remote_commit_the_user_saw`, `a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit`, `a_rebuilt_branch_replaces_the_remote_tip_it_saw`, `a_branch_not_on_the_remote_is_created_when_expected_absent`)
-  [@test] ../../crates/sync-core/src/push_lease_test.rs (`an_expected_lease_is_the_remote_tip_the_caller_saw_whatever_was_recorded`)
+  [@test] ../../crates/sync-core/src/push_lease_test.rs (`an_expected_lease_is_the_remote_tip_the_caller_saw`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A remote branch that moved since the row's status (a newer commit, a branch created or deleted elsewhere) must not
   be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
@@ -169,7 +169,7 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   short id and age, then "and N more" past the ten listed.
   [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
-- A push the remote refuses while the lease holds (a hook, a protected branch) must be an error, nothing recorded.
+- A push the remote refuses while the lease holds (a hook, a protected branch) must be an error.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage), and its description on hover the last progress line of git, then what was sent so far and how fast,

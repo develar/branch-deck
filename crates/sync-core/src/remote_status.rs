@@ -77,7 +77,8 @@ fn walk_dropped(git_executor: &GitCommandExecutor, repository_path: &str, range:
   Ok((u32::try_from(lines.len()).unwrap_or(u32::MAX), dropped))
 }
 
-/// Compute remote status for a single local virtual branch.
+/// Compute remote status for a single local virtual branch against its remote-tracking branch of `remote` (the sync and
+/// the app compare with `origin`, `bd push --remote` with its remote).
 /// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix). `parent_ref` is the virtual
 /// branch a stacked branch is built on: its commits are the parent's, not unpushed commits of this branch.
 ///
@@ -87,20 +88,23 @@ fn walk_dropped(git_executor: &GitCommandExecutor, repository_path: &str, range:
 #[instrument(
   skip(git_executor),
   fields(
+    remote = %remote,
     branch_name = %branch_name,
     local_ref = %local_ref
   )
 )]
+#[expect(clippy::too_many_arguments, reason = "the refs and names of one branch status, each a plain string")]
 pub fn compute_remote_status_for_branch(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
+  remote: &str,
   local_ref: &str,
   branch_name: &str,
   my_email: Option<&str>,
   baseline_branch: &str,
   parent_ref: Option<&str>,
 ) -> Result<RemoteStatusUpdate> {
-  let remote_ref = format!("origin/{local_ref}");
+  let remote_ref = format!("{remote}/{local_ref}");
   let baseline_exclusion = format!("^{baseline_branch}");
   let parent_exclusion = parent_ref.map(|parent_ref| format!("^{parent_ref}"));
 
