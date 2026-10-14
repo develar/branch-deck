@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { PatronusMergeRequest, PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { patronusRequest } from "@/stores/patronus"
+import { createPatronusMergeRequest, patronusRequest } from "@/stores/patronus"
 
 export type ReviewRequirementState
   = | { status: "loading" }
@@ -59,13 +59,9 @@ export function usePatronusReviewRequirement(branchName: string, enabled: boolea
   const createMergeRequest = useCallback(async () => {
     setCreatingMergeRequest(true)
     try {
-      const params = { ...patronusRequest(), baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branchName, recheck: false }
-      const result = await commands.createPatronusMergeRequest(params)
-      if (result.status === "error") {
-        throw new Error(result.error.message)
-      }
+      const mergeRequest = await createPatronusMergeRequest(branchName)
       recheck()
-      return result.data
+      return mergeRequest
     }
     finally {
       setCreatingMergeRequest(false)

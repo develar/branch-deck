@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import { testBranch } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -121,6 +122,19 @@ describe("actions", () => {
     expect(isStartBlocked(robot({ status: "running" }), "fixed")).toBe(false)
     expect(isStartBlocked(robot({ status: "failure" }), "tip")).toBe(false)
     expect(isStartBlocked(undefined, "tip")).toBe(false)
+  })
+
+  it("starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why", () => {
+    const branch = testBranch("IJPL-1", null, { commits: [{ originalHash: "o1", hash: "tip", strippedSubject: "fix", message: "fix", author: "a", authorTime: 1, committerTime: 1 }] })
+    expect(canStartRobot(branch, undefined)).toEqual({ ok: true })
+    expect(canStartRobot(branch, robot({ status: "failure" }))).toEqual({ ok: true })
+    // a fix was committed since the robot started: a new one takes it
+    expect(canStartRobot(branch, robot({ status: "running", sourceRevision: "older" }))).toEqual({ ok: true })
+    expect(canStartRobot(branch, robot({ status: "running" }))).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
+    expect(canStartRobot(branch, robot({ status: "running", pushMode: "dryRun" }))).toEqual({ ok: false, reason: "A Dry Run of the last commit is running" })
+
+    const blocked = testBranch("login", "auth", { status: "Blocked" })
+    expect(canStartRobot(blocked, undefined)).toEqual({ ok: false, reason: "Blocked by auth: fix it first, then sync" })
   })
 
   it("offers a profile for the modes it allows; none listed allows any", () => {

@@ -481,6 +481,23 @@ export async function startPatronusRobot(
   return result.data
 }
 
+/**
+ * Opens a Space merge request of the pushed branch into the target branch, so the code owners approve it there; resolves
+ * to it, throws what Patronus said. The review checks of the branch ask again afterwards (the backend forgets them).
+ */
+export async function createPatronusMergeRequest(branchName: string): Promise<PatronusMergeRequest> {
+  const result = await commands.createPatronusMergeRequest({
+    ...patronusRequest(),
+    baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
+    branchName,
+    recheck: false,
+  })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  return result.data
+}
+
 async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot): Promise<PatronusRobot> {
   const result = await command({ ...patronusRequest(), robotId: robot.id })
   if (result.status === "error") {

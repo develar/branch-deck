@@ -3,6 +3,7 @@ import type { ComponentType } from "react"
 import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { InlineCode } from "@/components/shared/InlineCode"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -14,9 +15,8 @@ import { canCancelRobot, canRestartRobot, formatPushMode, getPatronusChipState, 
 import { runRobotAction } from "@/lib/patronus-actions"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
-import { useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
-import { openInline } from "@/stores/inline-row-action"
-import { cancelPatronusRobot, isPatronusAvailable, restartPatronusRobot, useBranchRobot, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranch, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
+import { cancelPatronusRobot, restartPatronusRobot, useBranchRobot, usePatronusAvailable, useRobotNeedsReview } from "@/stores/patronus"
 
 const icons: Readonly<Record<PatronusChipKind, ComponentType<{ className?: string }>>> = {
   running: ShieldEllipsisIcon,
@@ -86,6 +86,8 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
   const Icon = icons[chip.kind]
   const details = usePatronusRobotDetails(robot.id, robot.status, loadDetails)
   const remoteTip = useBranchRemoteTip(branchName)
+  const branch = useBranch(branchName)
+  const patronusAvailable = usePatronusAvailable()
   const mode = formatPushMode(robot.pushMode)
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="patronus-details">
@@ -173,12 +175,7 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
       )}
 
       <div className="flex flex-wrap gap-2">
-        {needsReview && isPatronusAvailable() && (
-          <Button variant="outline" size="xs" onClick={() => openInline("safe-push", branchName)}>
-            <ShieldCheckIcon data-icon="inline-start" />
-            Safe Push…
-          </Button>
-        )}
+        {needsReview && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {canRestartRobot(robot, branchName, remoteTip, needsReview) && (
           <Button variant="outline" size="xs" onClick={() => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)}>
             <RotateCcwIcon data-icon="inline-start" />

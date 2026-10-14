@@ -1,15 +1,11 @@
 import { CircleCheckIcon, ExternalLinkIcon, GitPullRequestCreateIcon, RefreshCwIcon } from "lucide-react"
-import { openUrl } from "@tauri-apps/plugin-opener"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import { notifyError } from "@/lib/errors"
 import { formatReviewerGroup } from "@/lib/patronus"
-
-function openMergeRequest(url: string): void {
-  openUrl(url).catch((error: unknown) => notifyError("Cannot open the merge request", error))
-}
+import { openMergeRequest } from "@/lib/patronus-merge-request"
 
 export interface PatronusReviewBlockProps {
   review: ReviewRequirement

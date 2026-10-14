@@ -111,6 +111,21 @@ test.describe("Archived Branches Table", () => {
     // Capture HTML snapshot of the archived branches card after deletion
     await captureHtmlSnapshot(card, "archived-branches-after-deletion")
   })
+
+  test("should open the menu of an archived row from its more actions button", async ({ page }) => {
+    const card = page.getByTestId("archived-branches-card")
+    await card.getByText("Archived Branches", { exact: true }).click()
+    await waitForCollapsibleCardExpanded(card)
+    const branchRow = page.locator("tr[data-branch-name=\"user-name/archived/2025-01-11/feature-partial\"]")
+
+    await branchRow.getByRole("button", { name: "More actions for feature-partial" }).click()
+    // the menu of the right-click
+    await expect(page.getByRole("menuitem", { name: "Copy Full Branch Name" })).toBeVisible()
+    await page.getByRole("menuitem", { name: /^Delete Archived Branch/ }).click()
+    await inlineDeleteConfirmation.waitForVisible(page)
+    // neither the button nor the menu toggles the row
+    await expect(branchRow).toHaveAttribute("data-state", "closed")
+  })
 })
 
 test.describe("Archived branch merged by a baseline commit", () => {

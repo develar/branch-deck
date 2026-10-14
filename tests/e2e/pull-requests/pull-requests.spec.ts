@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
-import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
+import { availablePullRequests, getOpenedUrls, GITHUB_REPOSITORY, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, switchBranchPreview } from "../helpers/review-status-helpers"
 
@@ -114,6 +114,41 @@ test.describe("Pull request chip", () => {
     await findBranchRow(page, "feature-auth").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toHaveCount(0)
+  })
+
+  test("should offer to create the pull request of a pushed branch in the push toast and the branch menu", async ({ page }) => {
+    await routePush(page, {})
+    // the baseline `origin/master` is `master` on the remote
+    const compareUrl = `https://github.com/${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}/compare/master...user-name/virtual/feature-auth?expand=1`
+    const row = findBranchRow(page, "feature-auth")
+
+    // not on the remote yet: GitHub has nothing to open a pull request of
+    await row.click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Create Pull Request" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+
+    await getPushButton(row).click()
+    const toast = page.locator("[data-slot=toast]", { hasText: "Branch feature-auth pushed successfully" })
+    await toast.getByRole("button", { name: "Create Pull Request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([compareUrl])
+
+    await row.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Create Pull Request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([compareUrl, compareUrl])
+  })
+
+  test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {
+    await routePush(page, {})
+    await getPushButton(findBranchRow(page, "JIRA-456")).click()
+    const toast = page.locator("[data-slot=toast]", { hasText: "Branch JIRA-456 pushed successfully" })
+    await toast.getByRole("button", { name: "Open Pull Request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
+
+    // it has one: nothing to create
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Create Pull Request" })).toHaveCount(0)
   })
 
   test("should show the pull request in the branch preview and open it with O", async ({ page }) => {

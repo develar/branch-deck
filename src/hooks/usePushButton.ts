@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import type { DroppedCommit } from "@/lib/bindings"
 import { getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import { blockingBranchOf, needsPush } from "@/lib/stack"
+import { formatBlockedReason, needsPush } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -30,8 +30,7 @@ export interface DroppedCommits {
 export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing: boolean, unpushedParent: string | null = null): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
-    const blocker = blockingBranchOf(branch)
-    return { text: "Push", color: "neutral", tooltip: blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`, dropped: null, disabled: true }
+    return { text: "Push", color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true }
   }
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null

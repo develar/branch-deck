@@ -1,17 +1,19 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FlaskConicalIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FlaskConicalIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
 import { pushStack } from "@/lib/git/push"
 import { copyText } from "@/lib/clipboard"
+import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
-import { stackPushOrder } from "@/lib/stack"
+import { formatBlockedReason, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { canCancelRobot, canRestartRobot, formatPushMode, isStartBlocked, openRobot } from "@/lib/patronus"
+import { canCancelRobot, canRestartRobot, canStartRobot, formatPushMode, openRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
+import { createBranchMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
@@ -21,8 +23,9 @@ import { getPullRequest } from "@/stores/pull-requests"
 
 /**
  * Context menu of an active branch row: copy actions, then rename (name an issue branch) and ungroup, then commit
- * actions (issue reference, amend, unapply), then history (squash fixups, the pull request), then Patronus (Safe Push,
- * Dry Run, the robot of the branch).
+ * actions (issue reference, amend, unapply), then history (squash fixups, open or create the pull request), then
+ * Patronus (Safe Push, Dry Run, Create Merge Request, the robot of the branch). The right-click on the row and the "⋯"
+ * of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
@@ -119,6 +122,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   if (openPullRequestItem !== null) {
     historyActions.push(openPullRequestItem)
   }
+  historyActions.push(...getCreatePullRequestItems(branch))
   const retargetCommand = isStacksEnabled() ? getRetargetCommand(branch) : null
   if (retargetCommand !== null) {
     historyActions.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
@@ -132,12 +136,16 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   return groups
 }
 
-/** Safe Push…, Dry Run…, then the restart, the cancel and the page of the branch's robot */
+/**
+ * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Merge Request…, then the restart, the cancel
+ * and the page of the branch's robot
+ */
 function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
-  const blocked = isStartBlocked(robot, branch.commits[0]?.hash) || branch.status === "Blocked"
+  const start = canStartRobot(branch, robot)
   const items: MenuItem[] = [
-    { label: "Safe Push…", icon: ShieldCheckIcon, disabled: blocked, onSelect: () => openInline("safe-push", branch.name) },
-    { label: "Dry Run…", icon: FlaskConicalIcon, disabled: blocked, onSelect: () => openInline("dry-run", branch.name) },
+    { label: "Safe Push…", icon: ShieldCheckIcon, disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
+    { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !start.ok, ...(!start.ok && { description: start.reason }), onSelect: () => openInline("dry-run", branch.name) },
+    getCreateMergeRequestItem(branch),
   ]
   if (robot !== undefined) {
     const mode = formatPushMode(robot.pushMode)
@@ -152,6 +160,27 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
     items.push(openRobotItem)
   }
   return items
+}
+
+/**
+ * "Create Merge Request…": the step of the Safe Push form on its own, so the code owners approve before a start; it
+ * pushes the branch first when the remote lacks its tip, which a blocked branch can't
+ */
+function getCreateMergeRequestItem(branch: Branch): MenuItem {
+  const blocked = branch.status === "Blocked"
+  return {
+    label: "Create Merge Request…",
+    icon: GitPullRequestCreateIcon,
+    disabled: blocked,
+    description: blocked ? formatBlockedReason(branch) : "Pushes the branch if needed and opens its Space merge request, for the code-owner approvals.",
+    onSelect: () => void createBranchMergeRequest(branch.name),
+  }
+}
+
+/** "Create Pull Request": the GitHub form of a pull request of the pushed branch into its base, while it has none */
+function getCreatePullRequestItems(branch: Branch): MenuItem[] {
+  const url = getNewPullRequestUrl(branch)
+  return url === null ? [] : [{ label: "Create Pull Request", icon: GitPullRequestCreateIcon, onSelect: () => openNewPullRequest(url) }]
 }
 
 /** The most branches "Stack On…" lists; the newest come first */

@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react"
 
-/** Context menu item; rendered by `ContextMenuItems`. */
+/** Menu item; rendered by `MenuItems` in a context menu (`ContextMenuItems`) or a button's menu (`DropdownMenuItems`). */
 export interface MenuItem {
   label: string
   icon?: LucideIcon
@@ -8,6 +8,8 @@ export interface MenuItem {
   /** Keyboard shortcut hints, e.g. `["meta", "c"]` */
   kbds?: string[]
   color?: "default" | "destructive"
+  /** Shown on hover beside the item: what it does, or why it is disabled */
+  description?: string
   /** Not called for an item with `children` */
   onSelect: () => void
   /** Makes the item a submenu */

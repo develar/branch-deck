@@ -11,6 +11,12 @@ export function blockingBranchOf(branch: Branch): string | null {
   return stack?.blockedBy?.parent ?? stack?.effectiveBase ?? stack?.declaredParent ?? null
 }
 
+/** Why a blocked branch can't be pushed nor given to Patronus: "Blocked by auth: fix it first, then sync" */
+export function formatBlockedReason(branch: Branch): string {
+  const blocker = blockingBranchOf(branch)
+  return blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`
+}
+
 /** What the store knows about a branch for `describePrefixChange` */
 export interface StackBranchInfo {
   /** The parent its commits declare */

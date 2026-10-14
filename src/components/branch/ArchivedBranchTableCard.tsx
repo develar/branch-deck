@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense } from "react"
+import type { ComponentType } from "react"
 import { ChevronDownIcon, Trash2Icon } from "lucide-react"
 import { cn } from "cn"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
@@ -10,6 +11,9 @@ import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { CopyButton } from "@/components/shared/CopyButton"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
+import { RowActions } from "@/components/shared/RowActions"
 import { Badge } from "@/components/ui/badge"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
@@ -94,7 +98,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
         processing={processing}
         className={cn(expanded && "bg-muted/50", branch.isLoadingCommits && "animate-pulse")}
         onToggle={toggle}
-        menu={<ContextMenuItems groups={getArchivedContextMenuItems(name)} />}
+        menu={<ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}
       >
         <BranchNameCell
           name={name}
@@ -112,7 +116,10 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           <ArchivedDateCell branch={branch} />
         </td>
         <td className="w-px px-4 py-4 whitespace-nowrap">
-          <CopyButton text={() => name} tooltip="Copy full branch name" label={`Copy full name of ${name}`} alwaysVisible />
+          <RowActions>
+            <CopyButton text={() => name} tooltip="Copy full branch name" label={`Copy full name of ${name}`} alwaysVisible />
+            <MoreActionsMenu name={getSimpleBranchName(name)} disabled={processing} menu={<ArchivedBranchMenuItems name={name} Items={DropdownMenuItems} />} />
+          </RowActions>
         </td>
       </BranchContextMenuRow>
 
@@ -146,6 +153,11 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
     </>
   )
 })
+
+/** The menu of an archived row, the same under the right-click (`ContextMenuItems`) and under "⋯" (`DropdownMenuItems`) */
+function ArchivedBranchMenuItems({ name, Items }: { name: string, Items: ComponentType<{ groups: MenuItemGroups }> }) {
+  return <Items groups={getArchivedContextMenuItems(name)} />
+}
 
 function getArchivedContextMenuItems(name: string): MenuItemGroups {
   return [
