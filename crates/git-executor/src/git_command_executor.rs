@@ -1,7 +1,7 @@
 use crate::git_info::GitInfo;
 use anyhow::{Result, anyhow};
 use std::io::{Read, Write};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Output, Stdio};
 use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
@@ -313,21 +313,10 @@ impl GitCommandExecutor {
   where
     F: FnMut(&[u8]) -> Result<()>,
   {
-    let mut child = self
-      .command(args, repository_path, &[])?
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped())
-      .spawn()
-      .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
-    let mut stdout = child.stdout.take().ok_or_else(|| anyhow!("git stdout is not piped"))?;
-    let mut stderr = child.stderr.take().ok_or_else(|| anyhow!("git stderr is not piped"))?;
+    let (mut child, mut stdout, stderr) = spawn_piped(self.command(args, repository_path, &[])?)?;
 
     let (read_result, stderr_bytes) = std::thread::scope(|scope| {
-      let stderr_reader = scope.spawn(move || {
-        let mut buffer = Vec::new();
-        let _ = stderr.read_to_end(&mut buffer);
-        buffer
-      });
+      let stderr_reader = scope.spawn(move || read_all(stderr));
 
       let mut buffer = [0u8; 8192];
       let read_result = loop {
@@ -374,22 +363,12 @@ impl GitCommandExecutor {
     )
   )]
   pub fn execute_command_with_progress(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)], on_line: &mut dyn FnMut(&str)) -> Result<String> {
-    let mut child = self
-      .command(args, repository_path, env_vars)?
-      .stdin(Stdio::null())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped())
-      .spawn()
-      .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
-    let mut stdout = child.stdout.take().ok_or_else(|| anyhow!("git stdout is not piped"))?;
-    let stderr = child.stderr.take().ok_or_else(|| anyhow!("git stderr is not piped"))?;
+    let mut command = self.command(args, repository_path, env_vars)?;
+    command.stdin(Stdio::null());
+    let (mut child, stdout, stderr) = spawn_piped(command)?;
 
     let (stdout_bytes, messages) = std::thread::scope(|scope| {
-      let stdout_reader = scope.spawn(move || {
-        let mut buffer = Vec::new();
-        let _ = stdout.read_to_end(&mut buffer);
-        buffer
-      });
+      let stdout_reader = scope.spawn(move || read_all(stdout));
       let messages = read_progress_lines(stderr, on_line);
       (stdout_reader.join().unwrap_or_default(), messages)
     });
@@ -417,6 +396,25 @@ impl GitCommandExecutor {
     let out = self.execute_command(&["rev-parse", &tree_ref], repository_path)?;
     Ok(out.trim().to_string())
   }
+}
+
+/// Spawns `command` with stdout and stderr piped, and takes both pipes
+fn spawn_piped(mut command: Command) -> Result<(Child, ChildStdout, ChildStderr)> {
+  let mut child = command
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
+  let stdout = child.stdout.take().ok_or_else(|| anyhow!("git stdout is not piped"))?;
+  let stderr = child.stderr.take().ok_or_else(|| anyhow!("git stderr is not piped"))?;
+  Ok((child, stdout, stderr))
+}
+
+/// Everything `reader` yields until EOF; a read error ends it early, the exit status of the command tells the failure
+fn read_all(mut reader: impl Read) -> Vec<u8> {
+  let mut buffer = Vec::new();
+  let _ = reader.read_to_end(&mut buffer);
+  buffer
 }
 
 /// Read git's stderr and pass each line to `on_line` as it arrives, trimmed (the sideband pads `remote:` lines with
