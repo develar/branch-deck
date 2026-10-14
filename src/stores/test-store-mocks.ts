@@ -9,3 +9,14 @@ export const repositoryMock = {
 export const repositorySettingsMock = { updateProject: () => {} }
 
 export const archivedBranchesMock = { updateFromArchivedNames: () => {}, updateFromIntegrationInfo: () => {}, clearNewlyArchived: () => {} }
+
+/** `@/stores/activity` for tests of the modules that record what they did: nothing is recorded */
+export const activityMock = {
+  UNDO_WINDOW_MS: 10_000,
+  recordActivity: () => null,
+  recordLanded: () => {},
+  recordPush: () => {},
+  recordRewrite: (_title: string, undo: () => Promise<void>) => () => void undo(),
+  recordRobot: () => {},
+  recordUpdate: () => {},
+}

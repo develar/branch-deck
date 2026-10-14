@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronRightIcon, PackageCheckIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
@@ -6,38 +6,46 @@ import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
-import { CommitSubject } from "@/components/commit/CommitSubject"
+import { CommitSubject, CommitSubjectLine } from "@/components/commit/CommitSubject"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { useWindowFocus } from "@/hooks/useWindowFocus"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { landedBranchName, landedCommitter, landedCountLabel, sharedCommitter } from "@/lib/landed"
-import { clearNewlyArchived } from "@/stores/archived-branches"
 import { useBaselineStatus } from "@/stores/branch-sync"
-import { dismissLanded, useLandedReport } from "@/stores/landed"
+import { dismissLanded, markLandedSeen, useLandedIsland } from "@/stores/landed"
 import { useSelectedProject } from "@/stores/repository"
 
 /**
  * The island of what landed in the baseline with an update (here or elsewhere), above the branches: a toast passes, the
- * news stays until it is dismissed. A row per branch with the count, the robot or pull request that merged it and the
- * committer (once in the header when every branch has the same one); it expands to the commits, each with the
- * baseline commit that carries it.
+ * news stays until the user has seen it, through the next sync at least 10 s later, or dismissed it; Activity keeps it.
+ * A row per branch with the count, the robot or pull request that merged it and the committer (once in the header when
+ * every branch has the same one); it expands to the commits, each with the baseline commit that carries it.
  */
 export function LandedCard() {
-  const report = useLandedReport()
+  const report = useLandedIsland()
   const repositoryPath = useSelectedProject()?.path
   const status = useBaselineStatus()
+  const landedAt = report.length === 0 ? 0 : Math.max(...report.map(branch => branch.landedAt))
+  // the user sees the island while the window has focus: a sync after that hides it
+  useEffect(() => {
+    if (repositoryPath !== undefined && landedAt !== 0) {
+      markLandedSeen(repositoryPath, landedAt)
+    }
+  }, [repositoryPath, landedAt])
+  useWindowFocus(() => {
+    if (repositoryPath !== undefined && landedAt !== 0) {
+      markLandedSeen(repositoryPath, landedAt)
+    }
+  })
   if (report.length === 0 || repositoryPath === undefined) {
     return null
   }
 
   const upstream = status?.update?.upstream ?? status?.baselineBranch ?? "the baseline"
-  const landedAt = Math.max(...report.map(branch => branch.landedAt))
   const committer = sharedCommitter(report)
-  const dismiss = () => {
-    clearNewlyArchived()
-    void dismissLanded(repositoryPath)
-  }
+  const dismiss = () => void dismissLanded(repositoryPath)
   return (
     <Card className="animate-in gap-0 divide-y divide-border py-0 duration-300 fade-in-0 slide-in-from-top-2" data-testid="landed-card">
       <div className="flex items-center justify-between gap-3 p-4 sm:px-6">
@@ -63,12 +71,20 @@ export function LandedCard() {
   )
 }
 
-function LandedBranchRow({ branch, showCommitter }: { branch: LandedBranch, showCommitter: boolean }) {
+export interface LandedBranchRowProps {
+  branch: LandedBranch
+  showCommitter: boolean
+  /** In a popover (Activity): the paddings of a list there, not of the island */
+  compact?: boolean
+}
+
+/** A branch of a landed report: the count, the review chips and the committer; it expands to the commits */
+export function LandedBranchRow({ branch, showCommitter, compact = false }: LandedBranchRowProps) {
   const [expanded, setExpanded] = useState(false)
   const committer = showCommitter ? landedCommitter(branch) : undefined
   return (
     <li data-testid="landed-branch" data-branch-name={branch.name ?? undefined}>
-      <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
+      <div className={cn("flex items-center gap-3", compact ? "px-3 py-2" : "px-4 py-2.5 sm:px-6")}>
         <button
           type="button"
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
@@ -88,20 +104,21 @@ function LandedBranchRow({ branch, showCommitter }: { branch: LandedBranch, show
         {committer !== undefined && <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{`by ${committer}`}</span>}
       </div>
       {expanded && (
-        <ul className="flex flex-col gap-1 bg-muted/50 py-2 pr-4 pl-12 sm:pr-6" data-testid="landed-commits">
-          {branch.commits.map(commit => <LandedCommitRow key={commit.id} commit={commit} />)}
+        <ul className={cn("flex flex-col gap-1 bg-muted/50 py-2", compact ? "pr-3 pl-9" : "pr-4 pl-12 sm:pr-6")} data-testid="landed-commits">
+          {branch.commits.map(commit => <LandedCommitRow key={commit.id} commit={commit} compact={compact} />)}
         </ul>
       )}
     </li>
   )
 }
 
-function LandedCommitRow({ commit }: { commit: LandedCommit }) {
+function LandedCommitRow({ commit, compact }: { commit: LandedCommit, compact: boolean }) {
   const upstream = commit.upstream
   return (
     <li className="group flex items-center gap-3 text-xs">
-      <span className="min-w-0 flex-1">
-        <CommitSubject subject={commit.subject} />
+      {/* a popover list has one line per commit */}
+      <span className={cn("min-w-0 flex-1", compact && "flex")}>
+        {compact ? <CommitSubjectLine subject={commit.subject} /> : <CommitSubject subject={commit.subject} />}
       </span>
       {upstream === null
         ? <span className="shrink-0 text-muted-foreground">squashed upstream</span>

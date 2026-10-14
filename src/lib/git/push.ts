@@ -8,6 +8,7 @@ import { formatPushMode, isPushIntoRobotRisky } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { stackPushOrder } from "@/lib/stack"
+import { recordPush } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchRobot, restartPatronusRobot } from "@/stores/patronus"
@@ -84,6 +85,7 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
     if (result.status === "ok") {
       const remoteStatus = toRemoteStatus(result.data.remoteStatus)
       setBranchRemoteStatus(branchName, remoteStatus)
+      recordPush(request.repositoryPath, branchName, branch.remoteStatus, result.data.type === "remoteMoved" ? remoteStatus : null)
       if (result.data.type === "remoteMoved") {
         showRemoteMovedToast(branchName, remoteStatus, restartRobot)
         return false

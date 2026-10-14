@@ -11,6 +11,11 @@ const ProjectMetadataSchema = z.object({
   /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
   lastFetchTime: z.number().optional(),
   lastBranchCount: z.number().optional(),
+  /**
+   * The Landed island hides the branches that landed up to this time (`landedAt`, Unix seconds): a sync hid them after
+   * the user had seen them. Their chips stay until Dismiss.
+   */
+  landedHiddenUntil: z.number().optional(),
   issueNavigationConfig: z.any().optional(), // TODO: create proper schema
 })
 

@@ -100,13 +100,14 @@ broadcast to all sub-windows.
   It registers a `StoreRegistration` (`src/stores/settings/sync-utils.ts`), so the sync layer never touches the zustand store directly.
 - Main window: `MainStoreSync` in `src/stores/settings/app-store.ts`. Writes from sub-windows are applied to the local store
   immediately, then saved in the same non-default form. Changes of unregistered keys only update the raw snapshot.
-  Stores with `isMainOnly` are not broadcast (no store uses it at the moment).
+  Stores with `isMainOnly` are not broadcast and are left out of the sub-window snapshot (`getStoreSnapshot`): the
+  Activity log (`src/stores/activity.ts`), which only the main window writes.
 - Sub-windows: `SubWindowStoreSync` in `src/stores/settings/sub-window-app-store.ts`. Request ids include the window label
   because every sub-window receives every `store-response`. A request without a response fails after 10 s.
 - Initialization: `initializeStoreHandlers()` is called at module level in `src/main.tsx`. It starts serving
   `store-set-request` in the main window and is a no-op in sub-windows.
-- Stores: `appSettings.ts`, `aiSettings.ts`, `conflictViewer.ts`, `repositorySettings.ts` in `src/stores/settings/`. They are
-  module-level singletons. Components read them with `useStore` selectors, non-React code with `getState()`.
+- Stores: `appSettings.ts`, `aiSettings.ts`, `conflictViewer.ts`, `repositorySettings.ts` in `src/stores/settings/`, and the
+  Activity log `src/stores/activity.ts`. They are module-level singletons. Components read them with `useStore` selectors, non-React code with `getState()`.
 
 ## Alternatives Considered
 

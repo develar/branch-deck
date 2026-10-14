@@ -69,6 +69,7 @@ vi.mock("@/stores/patronus", () => ({
 }))
 
 vi.mock("@/stores/pull-requests", () => ({ refreshPullRequestsAfterPush: async () => {} }))
+vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/repository", () => ({
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
 }))

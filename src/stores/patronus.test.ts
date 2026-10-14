@@ -78,6 +78,7 @@ vi.mock("@/stores/update-project", () => ({
 }))
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
+vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ branches: branches.current }) },
