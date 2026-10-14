@@ -178,14 +178,22 @@ test.describe("Stacked branches", () => {
     // the E2E server has no remote: answer the pushes and record their order
     const pushes = await routePush(page, {})
 
-    // not pushed yet: the parent goes first
-    await getPushButton(findBranchRow(page, "oauth")).hover()
-    await expect(page.getByText("Push login first: its commits aren't on the remote yet.")).toBeVisible()
+    // login isn't pushed yet: oauth may go alone, its description offers the stack; the row says what it is built on
+    const oauth = findBranchRow(page, "oauth")
+    await expect(oauth.getByTestId("stack-base")).toHaveText("on login")
+    await expect(findBranchRow(page, "auth").getByTestId("stack-base")).toHaveCount(0)
+    const button = getPushButton(oauth)
+    await expect(button).toHaveText("Create Remote (1)")
+    await expect(button).toBeEnabled()
+    await button.hover()
+    const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
+    await expect(alternative).toContainText("login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed.")
 
-    await openContextMenu(page, findBranchRow(page, "oauth"))
-    await clickContextMenuItem(page, "Push Stack (3 branches)")
+    await alternative.getByRole("button", { name: "Push Stack (3 branches)" }).click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
+    // the parents are on the remote: nothing to choose any more
+    await expect(oauth.getByTestId("stack-base")).toHaveCount(0)
     await expect(page.getByText("Pull request base: login")).toBeVisible()
     // the toasts of the stack pile up; hovering expands them
     const toast = page.locator("[data-slot=toast]", { hasText: "Pull request base: login" })

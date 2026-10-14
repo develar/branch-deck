@@ -18,6 +18,11 @@ targets:
   - ../../src/components/repository/LandedCard.tsx
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/branch/LandedChip.tsx
+  - ../../src/hooks/useLandedIn.ts
+  - ../../src/hooks/useStatusBadge.ts
+  - ../../src/hooks/usePushButton.ts
+  - ../../src/hooks/usePushSummary.ts
+  - ../../src/lib/push-summary.ts
   - ../../src/components/shared/CopyButton.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchCreator.tsx
@@ -126,6 +131,16 @@ by the next sync the same way.
   landed commit shows "in origin/master" after its subject; its popover says "Already in origin/master · the update
   removes the local copy" and has the row "Landed as".
   [@test] ../../src/lib/landed.test.ts (`says it in fewer words on the chip, "Landed" when the baseline has all of the branch`)
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+- A branch the fetched baseline has all of has nothing left to push: the update archives it. Its status reads
+  "landed" after an `info` dot, its push button keeps its label (`Create Remote (1)`) but is neutral, and both
+  descriptions say "Already in origin/master. Update to archive the branch."; it is not outgoing, so the indicator of
+  [Outgoing Commits](outgoing.spec.md#what-is-outgoing) leaves it out ("3 commits to push in 2 branches"). A part that
+  landed changes nothing of this: the branch still has commits to push.
+  [@test] ../../src/lib/landed.test.ts (`has nothing to push for a branch the fetched baseline has all of, before the update`)
+  [@test] ../../src/hooks/useStatusBadge.test.ts (`says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`is quiet for a branch the baseline has all of: the update archives it`)
+  [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 
 ### After the update

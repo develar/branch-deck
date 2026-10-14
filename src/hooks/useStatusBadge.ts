@@ -1,12 +1,18 @@
 import { useMemo } from "react"
+import { useLandedIn } from "@/hooks/useLandedIn"
+import { landedBranchDescription } from "@/lib/landed"
 import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import { blockingBranchOf } from "@/lib/stack"
 import type { StatusTexts } from "@/lib/remote-status"
 import type { Branch } from "@/stores/branch-sync"
 
-/** Status badge text, tooltip and color of a branch: sync progress, then errors, then remote status, then sync result. */
-export function getStatusBadge(branch: Branch): StatusTexts {
+/**
+ * Status badge text, tooltip and color of a branch: sync progress, then errors, then landed, then remote status, then
+ * sync result. `landedIn`: the baseline that has every commit of the branch before the update ("origin/master"), the
+ * branch is "landed" and has nothing to push; null otherwise.
+ */
+export function getStatusBadge(branch: Branch, landedIn: string | null = null): StatusTexts {
   if (branch.status === "Syncing") {
     return {
       text: `syncing ${branch.processedCount}/${branch.commitCount}…`,
@@ -28,6 +34,11 @@ export function getStatusBadge(branch: Branch): StatusTexts {
     return { text: blocker === null ? "blocked" : `blocked by ${blocker}`, tooltip: branch.statusText || "Blocked by its parent branch", color: "warning" }
   }
 
+  // the update archives a branch the baseline has all of: its push state no longer matters; `info` is the merged hue
+  if (landedIn !== null) {
+    return { text: "landed", tooltip: landedBranchDescription(landedIn), color: "info" }
+  }
+
   // remote status is the most actionable; it has the colour of the push button
   if (branch.remoteStatus != null) {
     return { ...buildRemoteStatusTexts(branch.remoteStatus), color: getPushColor(branch) ?? "neutral" }
@@ -44,5 +55,6 @@ export function getStatusBadge(branch: Branch): StatusTexts {
 }
 
 export function useStatusBadge(branch: Branch): StatusTexts {
-  return useMemo(() => getStatusBadge(branch), [branch])
+  const landedIn = useLandedIn(branch.name)
+  return useMemo(() => getStatusBadge(branch, landedIn), [branch, landedIn])
 }

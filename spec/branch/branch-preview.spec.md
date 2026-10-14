@@ -12,6 +12,8 @@ targets:
   - ../../src/hooks/useSpacePreviewHotkey.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/lib/git/push.ts
+  - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/stores/push-confirm.ts
 ---
 
 # Branch Preview
@@ -87,6 +89,11 @@ The arrows step through the branches of the table, and P pushes the shown branch
   everything is pushed.
 - The preview must stay open, and its status and last push time must follow the push result.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should push the branch with P`)
+- The push button in the footer is the push button of the row: it opens the same description on hover, also while it
+  is disabled. A push that drops remote commits asks first ([Outgoing Commits](../repository/outgoing.spec.md#push)):
+  P or a click opens that description with the dropped commits and a Force Push button, which pushes; P again pushes
+  nothing.
+  [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should ask before P force pushes over a commit the branch lacks`)
 - A branch with a conflict or a sync error must not offer the push.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the merge conflict above the commits`)
 
@@ -102,8 +109,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 - The commits are separated by `border-border` rules. The bodies use the 14/24px text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close` and a ghost `xs` button `P Push` on
-  the right. A table of one branch has no `↑ ↓` hint. While pushing, the button shows a spinner instead of the key and
-  the label of the row's push button, "Pushing 45%".
+  the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
+  pushing, the button shows a spinner instead of the key and the label of the row's push button, "Pushing 45%".
 - The preview is loaded on its first use.
 
 ## Testing / Local Run

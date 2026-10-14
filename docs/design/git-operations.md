@@ -523,7 +523,8 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   what the remote has now. A branch deleted on the remote fails the fetch: `ls-remote --exit-code` (2: no such ref)
   tells it from a failed connection, and its remote-tracking ref is deleted.
 - `push_branch` returns `PushOutcome::RemoteMoved` with the new remote status when the fetched head differs from the
-  expected one: the row turns into the push the remote now needs, and a toast offers it. When the fetched head is the
+  expected one: the row turns into the push the remote now needs, and a toast offers it (a push that drops the fetched
+  commits confirms in the row's push button first, as any such push does). When the fetched head is the
   expected one, the lease held and the remote refused for another reason (a hook, a protected branch): an error.
 
 #### Patronus review pre-check

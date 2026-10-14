@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
@@ -131,6 +131,25 @@ test.describe("Branch preview", () => {
     await expect(preview.getByTestId("branch-preview-last-push")).toHaveText(/^Pushed /)
     // nothing left to push
     await expect(preview.getByRole("button", { name: /Push/ })).toBeDisabled()
+    await expect(preview).toBeVisible()
+  })
+
+  test("should ask before P force pushes over a commit the branch lacks", async ({ page }) => {
+    const pushes = await routePush(page, {
+      // someone pushed a commit to the remote branch meanwhile
+      [BRANCH]: [{ unpushedCommits: ["j1"], commitsBehind: 1, remoteTip: "their-head", droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: 1704178800 }] }, {}],
+    })
+    const preview = await openPreviewOfHoveredBranch(page, BRANCH)
+    await page.keyboard.press("p")
+    await expect(preview.getByRole("button", { name: /Force Push \(1\)/ })).toBeEnabled()
+
+    // the footer's push button opens its description with what the push drops
+    await page.keyboard.press("p")
+    await expect(page.getByTestId("push-description")).toContainText("Fix login")
+    expect(pushes).toHaveLength(1)
+    await confirmForcePush(page, "Force Push (1)")
+
+    await expect.poll(() => pushes.map(push => push.expectedRemote)).toEqual([null, "their-head"])
     await expect(preview).toBeVisible()
   })
 

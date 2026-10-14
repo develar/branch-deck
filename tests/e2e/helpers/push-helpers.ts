@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import { expect } from "../fixtures/test-fixtures"
 
 export interface DroppedCommit {
   id: string
@@ -87,4 +88,17 @@ export async function routePush(page: Page, results: Record<string, PushResult |
     await route.fulfill({ json: pushOutcome(request.branchName, result) })
   })
   return requests
+}
+
+/**
+ * A push that drops remote commits asks first: the click on its button (the toast's action, P in the preview) opens its
+ * description with the dropped commits and a destructive Force Push button; this clicks that button, which pushes.
+ */
+export async function confirmForcePush(page: Page, label: string): Promise<void> {
+  // the description of another push may still be closing
+  const description = page.getByTestId("push-description").filter({ has: page.getByTestId("push-confirm") })
+  await expect(description.getByTestId("dropped-commits")).toBeVisible()
+  const confirm = description.getByTestId("push-confirm")
+  await expect(confirm).toHaveText(label)
+  await confirm.click()
 }

@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
-import { pushOutcome, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, pushOutcome, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -278,7 +278,9 @@ test.describe("Patronus actions", () => {
       const toast = await pushIntoMovedRemote(page, "Push Anyway")
       await expect(toast).not.toContainText("canceled")
 
+      // the push drops Ann's commit: it confirms in the row first
       await toast.getByRole("button", { name: "Force Push" }).click()
+      await confirmForcePush(page, "Force Push (3)")
 
       // the robot still runs: the same question, and Back pushes nothing
       const dialog = page.getByTestId("push-guard-dialog")
@@ -308,6 +310,7 @@ test.describe("Patronus actions", () => {
       expect(order).toEqual(["cancel"])
 
       await toast.getByRole("button", { name: "Force Push" }).click()
+      await confirmForcePush(page, "Force Push (3)")
 
       // canceled now: no question, and the restart takes the pushed commit
       await expect(page.getByText("Safe Push restarted")).toBeVisible()

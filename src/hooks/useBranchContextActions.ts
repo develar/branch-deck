@@ -5,7 +5,7 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
 import { pushStack } from "@/lib/git/push"
 import { copyText, getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
-import { stackPushOrder } from "@/lib/stack"
+import { formatPushStackLabel, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -176,7 +176,7 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits
   const pushOrder = stackPushOrder(branch.name, getBranch)
   if (pushOrder.length > 1) {
-    items.push({ label: `Push Stack (${pushOrder.length} branches)`, icon: UploadIcon, disabled: branch.status === "Blocked", onSelect: () => void pushStack(branch.name) })
+    items.push({ label: formatPushStackLabel(pushOrder.length), icon: UploadIcon, disabled: branch.status === "Blocked", onSelect: () => void pushStack(branch.name) })
   }
   return items
 }

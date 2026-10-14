@@ -292,10 +292,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/lib/git/push.test.ts (`restarts the canceled Safe Push on the pushed commit for any other push`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
-  ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. A robot
-  canceled for a push that did not happen must stay canceled until the toast's push, which restarts it on the pushed
-  commit; the toast says so ("The Safe Push is canceled: the push restarts it."). With nothing left to push it is
-  restarted at once.
+  ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. When it drops
+  the commits the remote has now, the toast's action first opens the confirm of the row's push button, and its Force
+  Push asks the question. A robot canceled for a push that did not happen must stay canceled until the toast's push,
+  which restarts it on the pushed commit; the toast says so ("The Safe Push is canceled: the push restarts it."). With
+  nothing left to push it is restarted at once.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask again before the push of the remote-moved toast`, `should restart a robot canceled for a push the remote refused once the toast pushes`)
 
 ### Branch preview

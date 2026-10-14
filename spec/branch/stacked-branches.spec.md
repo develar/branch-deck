@@ -33,6 +33,8 @@ targets:
   - ../../src/lib/push-summary.ts
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/StackBaseLabel.tsx
+  - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/components/branch/BranchRow.tsx
   - ../../src/lib/git/stacked-push-toast.tsx
 ---
 
@@ -152,8 +154,16 @@ renames branches.
   branch menu.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
-- The push button of a branch whose parent has unpushed work must say to push the parent first. "Push Stack" must push
-  the ancestors with unpushed work, root first, then the branch, and stop at a failure.
+- The push button of a branch whose parent has work for the remote must stay as it is (`Create Remote (1)`, enabled):
+  pushing the branch alone is legitimate. Its description must make the choice explicit: below the push's own lines,
+  after a rule, "login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits
+  until login is pushed." ("login has commits the remote lacks. … includes them until login is pushed." for a parent
+  on the remote), then a `Push Stack (3 branches)` button, named as in the branch menu. In this state only, the Status
+  cell shows the muted "on login" in its third column.
+  [@test] ../../src/hooks/usePushButton.test.ts (`offers Push Stack and says what a push of the branch alone does while the parent has work for the remote`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
+- "Push Stack" (in that description or the branch menu) must push the ancestors with unpushed work, root first, then
+  the branch, and stop at a failure.
   [@test] ../../src/lib/stack.test.ts (`pushes the ancestors that have work for the remote first, root first`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
 
@@ -196,7 +206,7 @@ renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
 - Where the tree isn't visible, a stacked branch must say what it is built on ("on auth"): the Outgoing overview and the
-  branch preview.
+  branch preview. The branch row says it only while the parent has work for the remote ([Pull requests](#pull-requests)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
 - A push of a stacked branch must count only its own commits as unpushed afterwards (`parentBranch`).
 

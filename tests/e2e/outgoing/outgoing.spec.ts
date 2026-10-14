@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import type { DroppedCommit } from "../helpers/push-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { confirmForcePush, routePush } from "../helpers/push-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 const BRANCH_COUNT = 7
@@ -147,8 +147,14 @@ test.describe("Force push", () => {
     const dropped = page.getByTestId("dropped-commits")
     await expect(dropped).toContainText("Fix login")
     await expect(dropped).toContainText("Ann · c0ffee01 · 3 hours ago")
+    // only the hover: no confirm before the click
+    await expect(page.getByTestId("push-confirm")).toHaveCount(0)
 
+    // it drops Ann's commit: the click asks first, the Force Push in the description pushes
     await forcePush.click()
+    await expect(forcePush).toHaveAttribute("aria-expanded", "true")
+    expect(requests).toHaveLength(1)
+    await confirmForcePush(page, "Force Push (1)")
 
     await expect.poll(() => requests.map(request => request.expectedRemote)).toEqual([null, "remote-head-1"])
     await expect(row.getByRole("button", { name: "Push", exact: true })).toBeDisabled()
@@ -177,11 +183,74 @@ test.describe("Force push", () => {
     await expect(row.getByRole("button", { name: "Force Push (3)" })).toBeEnabled()
     await expect(row).toContainText("3↓")
 
+    // the push drops the 3 commits: the toast opens the confirm of the row's push button
     await toast.getByRole("button", { name: "Force Push" }).click()
+    await expect(toast).toHaveCount(0)
+    expect(requests).toHaveLength(1)
+    await confirmForcePush(page, "Force Push (3)")
 
     await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
     expect(requests.map(request => request.expectedRemote)).toEqual([null, "moved-head"])
-    await expect(toast).toHaveCount(0)
+  })
+
+  test("should push a rebased branch at once: its force push drops nothing", async ({ page }) => {
+    const requests = await routePush(page, {
+      // the remote has the commits as they were before the rebase onto a newer baseline
+      "ABC-123": [{ unpushedCommits: ["a1"], fastForward: false }, {}],
+    })
+    const row = findBranchRow(page, "ABC-123")
+    await getPushButton(row).click()
+    const forcePush = row.getByRole("button", { name: "Force Push (1)" })
+    await expect(forcePush).toBeEnabled()
+
+    await forcePush.click()
+
+    await expect.poll(() => requests).toHaveLength(2)
+    await expect(page.getByTestId("push-confirm")).toHaveCount(0)
+  })
+})
+
+test.describe("Push button", () => {
+  test("should keep the colour of the push while its description is open", async ({ page }) => {
+    const button = getPushButton(findBranchRow(page, "JIRA-456"))
+    await expect(button).toHaveText("Create Remote (3)")
+    await button.hover()
+    await expect(page.getByTestId("push-description")).toBeVisible()
+    await expect(button).toHaveAttribute("aria-expanded", "true")
+
+    // the ghost variant turns an open trigger to the foreground; a push keeps its hue
+    const colours = () => button.evaluate((element) => {
+      const probe = document.createElement("span")
+      document.body.append(probe)
+      const colourOf = (className: string) => {
+        probe.className = className
+        return getComputedStyle(probe).color
+      }
+      const result = { button: getComputedStyle(element).color, primary: colourOf("text-primary"), foreground: colourOf("text-foreground") }
+      probe.remove()
+      return result
+    })
+    await expect.poll(async () => {
+      const { button, primary, foreground } = await colours()
+      return button === primary && button !== foreground
+    }).toBe(true)
+  })
+
+  test("should describe a disabled push on hover", async ({ page }) => {
+    await routePush(page, {})
+    const button = getPushButton(findBranchRow(page, "JIRA-456"))
+    await button.click()
+    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    await expect(button).toBeDisabled()
+    // the click opened the description: close it, then hover the disabled button
+    await page.keyboard.press("Escape")
+    const description = page.getByTestId("push-description")
+    await expect(description).toHaveCount(0)
+
+    await page.mouse.move(0, 0)
+    await button.hover()
+
+    await expect(description).toContainText("Everything is pushed.")
   })
 })
 
