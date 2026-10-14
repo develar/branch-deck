@@ -31,7 +31,8 @@ test.describe("Squash fixups", () => {
     await expandBranch(page, authRow)
     const fixup = fixupRow(getBranchCommitRow(page, "auth", "Add login form"), page)
     await fixup.getByTestId("fixup-marker").hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Squashes into “Add login form”")
+    // the "Collapse" tooltip of the expand button may still be closing
+    await expect(page.getByRole("tooltip").filter({ hasText: "Squashes into" })).toHaveText("Squashes into “Add login form”")
     await page.mouse.move(0, 0)
     const orphan = getBranchCommitRow(page, "auth", "Drop the session cookie")
     await expect(orphan.getByTestId("fixup-marker")).toHaveAttribute("data-target", "none")
