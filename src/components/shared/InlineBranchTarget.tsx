@@ -119,8 +119,7 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
       {isMoving && <InlineRowProgressBar />}
       <InlineInputDialog
         ref={dialogRef}
-        title="Move to Branch"
-        description="Move the selected commits to an existing or a new branch"
+        title={`Move ${commitCount} to a branch`}
         value={branchName}
         onValueChange={setBranchName}
         placeholder={`Branch for ${commitCount}: an existing or a new name`}

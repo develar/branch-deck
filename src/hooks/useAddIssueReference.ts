@@ -2,10 +2,14 @@ import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import type { Branch } from "@/stores/branch-sync"
 import { syncBranches } from "@/stores/branch-sync"
-import { withPostSubmit, withRowProcessing } from "@/stores/inline-row-action"
+import { withRowProcessing } from "@/stores/inline-row-action"
 import { getSelectedProject } from "@/stores/repository"
 
-async function runAddIssueReference(issueReference: string, branch: Branch): Promise<void> {
+/**
+ * Prefixes the branch commits with the issue reference while the inline form shows its progress, then re-syncs. A
+ * failure keeps the form with the typed reference.
+ */
+export async function addIssueReference(issueReference: string, branch: Branch): Promise<void> {
   const commits = branch.commits.map(commit => ({ hash: commit.originalHash, message: commit.message }))
   if (commits.length === 0) {
     toast.add({
@@ -46,6 +50,7 @@ async function runAddIssueReference(issueReference: string, branch: Branch): Pro
         title: `${branch.name}: Failed to Add Issue Reference`,
         description: error instanceof Error ? error.message : "Failed to add issue reference",
       }),
+      keepFormOnError: true,
     },
   )
 
@@ -53,11 +58,6 @@ async function runAddIssueReference(issueReference: string, branch: Branch): Pro
     // refresh without auto-expand or auto-scroll
     void syncBranches({ autoScroll: false, autoExpand: false })
   }
-}
-
-/** Closes the inline form immediately, then prefixes the branch commits with the issue reference and re-syncs. */
-export function addIssueReference(issueReference: string, branch: Branch): void {
-  withPostSubmit(() => runAddIssueReference(issueReference, branch))
 }
 
 const addIssueReferenceActions = { addIssueReference }

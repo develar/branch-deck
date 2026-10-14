@@ -1,11 +1,15 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the tree of stacked and issue branches, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the push button, hover and click; and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the tree of stacked and issue branches, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the push button, hover and click, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/components/shared/InlineForm.tsx
+  - ../../src/components/shared/InlineInputDialog.tsx
+  - ../../src/stores/inline-row-action.ts
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
@@ -62,8 +66,8 @@ parent's commits runs into the rule of its children.
 - What the chips say and when they refresh: [Pull Requests](pull-requests.spec.md), [Patronus](patronus.spec.md),
   [Landed Commits](../repository/landed-commits.spec.md).
 - The push labels, colours, descriptions and the push itself: [Outgoing Commits](../repository/outgoing.spec.md).
-- The menu items and the inline forms: [Move Commits](move-commits.spec.md), [Unapply](unapply.spec.md),
-  [Patronus](patronus.spec.md).
+- What each menu item and inline form does: [Move Commits](move-commits.spec.md), [Unapply](unapply.spec.md),
+  [Patronus](patronus.spec.md), [Squash Fixups](../commit/fixups.spec.md), [Amend Changes](../commit/amend.spec.md).
 - The order of the rows and the placement of stacked branches: [Stacked Branches](stacked-branches.spec.md).
 
 ## Requirements
@@ -172,6 +176,34 @@ parent's commits runs into the rule of its children.
   into view.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
 
+### Branch menu
+
+- The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", with stacked branches "Copy PR
+  Base" and "Copy Retarget Command"), the name ("Rename…" or "Name This Branch…", "Ungroup"), the stack, the commits
+  ("Add Issue Reference…", "Amend Changes…", "Unapply…"), the history ("Squash Fixups (N)…", "Open Pull Request") and
+  Patronus ("Safe Push…", "Dry Run…", "Restart Safe Push", "Cancel Safe Push", "Open in Patronus").
+- An item that opens a form must end with "…"; an item that acts at once must not.
+- "Open Pull Request" must show `O`, its key in the branch preview.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
+
+### Inline forms
+
+- A form opened from the menu must render in a row below the branch row, one form at a time, with a visible title
+  ("Rename auth") and, where it adds something, a muted description.
+- A form with an input must focus the input. A confirmation without one (Unapply, Ungroup, Safe Push, Dry Run) must
+  focus its button once the button is enabled, so Enter confirms. Escape cancels.
+  [@test] ../../tests/e2e/issue-reference.spec.ts (`should focus input when opened`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should confirm ungrouping a parent and list its children`)
+- While its action runs, the form must be a progress row that says what runs ("Adding ABC-123 to auth…"), and close
+  when the action is done. A failure of a form with an input (rename, issue reference, the archived delete) must show
+  the form again with the typed text, focused; the error is a toast.
+  [@test] ../../tests/e2e/issue-reference.spec.ts (`should add issue reference to branch via context menu`, `should keep the typed reference when adding it fails`)
+- Closing a form (Escape, Cancel, done) must give the focus back to the element that opened it, or to the row when a
+  menu item opened it or the opener is gone. The row is focusable, not a tab stop. A focus the user moved elsewhere
+  meanwhile stays.
+  [@test] ../../tests/e2e/issue-reference.spec.ts (`should cancel with Escape key`)
+
 ### Archived table
 
 - The archived table must have the columns Branch Name, Status, Integrated and Actions. The name shows the last
@@ -195,7 +227,8 @@ parent's commits runs into the rule of its children.
   dismissed.
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
-- The menu of an archived row must offer the copy items and "Delete Archived Branch", which asks for the branch name.
+- The menu of an archived row must offer the copy items and "Delete Archived Branch…" in the `destructive` colour,
+  which asks for the branch name; its Delete button is `destructive` too.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete archived branch via context menu`)
 
 ## User Experience
@@ -229,6 +262,15 @@ parent's commits runs into the rule of its children.
 - The copy button is a ghost `icon-xs` button, muted.
 - The push button is a ghost `xs` button with the upload icon, its text in the push colour (`ghostButtonColorClass`).
 
+### Inline forms
+
+- The form row is `bg-muted/50` with `bd-padding-content`. Its content is `flex max-w-3xl flex-col gap-4` (`gap-2` for
+  a form with one input), so it doesn't stretch across a wide window.
+- The title is `text-sm font-medium`, the description below it `text-sm text-muted-foreground`; the progress row keeps
+  the title for the screen reader only.
+- An input is `max-w-md`, followed by Cancel and the submit button (`xs`); the submit of a delete is `destructive`.
+- A focused row is `bg-muted` with an inset `ring-3 ring-ring/30` (`focus-visible`).
+
 ### Archived table
 
 - The status icon is `size-4`, the word `text-sm text-muted-foreground`. "New" is an `info` badge.
@@ -243,8 +285,9 @@ parent's commits runs into the rule of its children.
 
 - `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/stores/branch-sync.test.ts`, `src/lib/push-summary.test.ts`,
   `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
-- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/archived-branches` and the chip specs.
-  E2E reads the status text by `data-testid="branch-status"`, the tree rules by `nesting-rule`, the rail by
+- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/archived-branches`, the chip
+  specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a failure is a `page.route` of the command with
+  status 500). E2E reads the status text by `data-testid="branch-status"`, the tree rules by `nesting-rule`, the rail by
   `commit-rail` and the archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
 
 ## Open Questions / Risks

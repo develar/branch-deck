@@ -75,7 +75,7 @@ test.describe("Move commits", () => {
   test("should move a split commit back to its issue and a prefix commit to the unassigned commits", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
     await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
-    await clickContextMenuItem(page, "Move to Branch…")
+    await clickContextMenuItem(page, "Move to…")
     await submitInlineForm(inlineBranchCreator.getInput(page), "lexer")
     await verifyCommitCount(findBranchRow(page, "lexer"), "1 commit")
 

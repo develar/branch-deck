@@ -5,7 +5,7 @@ import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { renameBranch } from "@/hooks/useStackActions"
 import { getBranch, getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
-import { closeInline, withPostSubmit } from "@/stores/inline-row-action"
+import { closeInline, withRowProgress } from "@/stores/inline-row-action"
 
 /**
  * Renames a branch by moving all its commits to the new name; an issue branch gets an explicit prefix on every commit
@@ -39,24 +39,25 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
       validationColor={validationState.color ?? "primary"}
       validationTextClassName={validationState.textClass}
       canSubmit={isValid && !isUnchanged}
-      title={isIssueBranch ? `Name the Branch ${branchName}` : `Rename ${branchName}`}
-      description={`Rename form for the ${branchName} branch`}
+      title={isIssueBranch ? `Name the branch ${branchName}` : `Rename ${branchName}`}
       submitText={existing ? "Move" : (isIssueBranch ? "Name" : "Rename")}
       dataTestId="inline-rename-input"
       leadingIcon={<PencilIcon className="size-4 text-muted-foreground" />}
       helpText={helpText}
       onSubmit={() => {
         const target = sanitizedBranchName
-        withPostSubmit(async () => {
+        let processingMessage = isIssueBranch ? `Naming the branch ${target}…` : `Renaming ${branchName} to ${target}…`
+        if (existing) {
+          processingMessage = `Moving the commits of ${branchName} to ${target}…`
+        }
+        // a failure keeps the form with the typed name
+        void withRowProgress(branchName, async () => {
           if (stacks) {
-            await renameBranch(branchName, target)
-            return
+            return renameBranch(branchName, target)
           }
           const current = getBranch(branchName)
-          if (current !== undefined) {
-            await moveCommits(current.commits, target)
-          }
-        })
+          return current === undefined || await moveCommits(current.commits, target)
+        }, { processingMessage, keepFormOnFailure: true })
       }}
       onCancel={closeInline}
     />

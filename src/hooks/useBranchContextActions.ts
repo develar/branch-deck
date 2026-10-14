@@ -20,9 +20,10 @@ import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, isRobotNeedin
 import { getPullRequest } from "@/stores/pull-requests"
 
 /**
- * Context menu of an active branch row: copy actions, then rename (name an issue branch) and ungroup, then commit
- * actions (issue reference, amend, unapply), then history (squash fixups, the pull request), then Patronus (Safe Push,
- * Dry Run, the robot of the branch).
+ * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
+ * rename (name an issue branch) and ungroup, then commit actions (issue reference, amend, unapply), then history
+ * (squash fixups, the pull request), then Patronus (Safe Push, Dry Run, the robot of the branch). An item that opens a
+ * form ends with "…".
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
@@ -32,12 +33,17 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       icon: CopyIcon,
       onSelect: () => void copyText(getPullRequestBase(branch)),
     })
+    const retargetCommand = getRetargetCommand(branch)
+    if (retargetCommand !== null) {
+      groups[0]!.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
+    }
   }
 
   const pullRequest = getPullRequest(branch.name)
   const openPullRequestItem: MenuItem | null = pullRequest === undefined
     ? null
-    : { label: "Open Pull Request", icon: GitPullRequestIcon, onSelect: () => openPullRequest(pullRequest) }
+    // the key of the branch preview
+    : { label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
 
   const robot = getBranchRobot(branch.name)
   const openRobotItem: MenuItem | null = robot === undefined
@@ -77,13 +83,13 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const commitActions: MenuItem[] = [
     {
-      label: branch.allCommitsHaveIssueReferences ? "Add Issue Reference (all have)" : "Add Issue Reference",
+      label: branch.allCommitsHaveIssueReferences ? "Add Issue Reference (all have)" : "Add Issue Reference…",
       icon: TagIcon,
       disabled: branch.allCommitsHaveIssueReferences,
       onSelect: () => openInline("issue-reference", branch.name),
     },
     {
-      label: "Amend Changes",
+      label: "Amend Changes…",
       icon: PenLineIcon,
       onSelect: () => {
         // show the commits; the form loads the uncommitted changes when it opens
@@ -92,7 +98,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       },
     },
     {
-      label: "Unapply",
+      label: "Unapply…",
       icon: ArchiveXIcon,
       onSelect: () => {
         // show the commits that will be unapplied
@@ -107,7 +113,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {
     historyActions.push({
-      label: `Squash Fixups (${fixupCount})`,
+      label: `Squash Fixups (${fixupCount})…`,
       icon: CombineIcon,
       onSelect: () => {
         // the confirmation opens from the button above the commits
@@ -118,10 +124,6 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   if (openPullRequestItem !== null) {
     historyActions.push(openPullRequestItem)
-  }
-  const retargetCommand = isStacksEnabled() ? getRetargetCommand(branch) : null
-  if (retargetCommand !== null) {
-    historyActions.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
   }
   if (historyActions.length > 0) {
     groups.push(historyActions)

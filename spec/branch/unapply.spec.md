@@ -36,6 +36,11 @@ transaction. The working tree is never written, so the dropped content stays in 
 
 ## Requirements
 
+### Confirmation
+
+- "Unapply…" in the branch menu must expand the branch and open a confirmation below its row that says how many
+  commits leave HEAD. Its "Unapply Branch" button takes the focus, so Enter confirms; Escape cancels.
+
 ### Result
 
 - The commits of the branch must leave the current branch, and the commits after them must be replayed in order.

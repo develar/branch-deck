@@ -24,6 +24,7 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
+import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
 import { getPushButtonState, useUnpushedParent } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
@@ -36,7 +37,7 @@ import { transferLabel } from "@/lib/transfer-progress"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useBranchPushProgress, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
-import { openInline, useIsRowProcessing } from "@/stores/inline-row-action"
+import { useIsRowProcessing } from "@/stores/inline-row-action"
 import { getBranchRobot, useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -111,7 +112,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
       onKeyDown={handleKeyDown}
     >
       {branch !== undefined && (
-        <>
+        // the forms of the row opened from inside (the Patronus details) close the preview first
+        <ClosePreviewContext value={onClose}>
           <PreviewDialogHeader>
             <div className="flex min-w-0 items-center gap-2">
               <DialogTitle className="shrink-0 leading-5">
@@ -144,14 +146,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               </Button>
             )}
             {canStartRobot && (
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => {
-                  onClose()
-                  openInline("safe-push", branch.name)
-                }}
-              >
+              <Button variant="ghost" size="xs" onClick={() => openRowForm("safe-push", branch.name, onClose)}>
                 <ShieldCheckIcon data-icon="inline-start" />
                 Safe Push…
               </Button>
@@ -163,7 +158,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               </Button>
             )}
           </PreviewDialogFooter>
-        </>
+        </ClosePreviewContext>
       )}
     </PreviewDialogFrame>
   )

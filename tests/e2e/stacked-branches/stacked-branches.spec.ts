@@ -147,7 +147,9 @@ test.describe("Stacked branches", () => {
     const note = page.getByTestId("stack-children-note")
     await expect(note).toContainText("1 branch is stacked on login")
     await expect(note).toContainText("oauth will be blocked until login has commits again")
-    await page.getByRole("button", { name: "Ungroup" }).click()
+    // a confirmation focuses its button: Enter confirms
+    await expect(page.getByRole("button", { name: "Ungroup" })).toBeFocused()
+    await page.keyboard.press("Enter")
 
     await expect(findBranchRow(page, "oauth")).toContainText("blocked by login")
   })

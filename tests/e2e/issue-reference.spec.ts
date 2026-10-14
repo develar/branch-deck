@@ -28,7 +28,7 @@ test.describe("Issue Reference Feature", () => {
     await page.waitForSelector("text=Add Issue Reference")
 
     // Click the menu item
-    await clickContextMenuItem(page, "Add Issue Reference")
+    await clickContextMenuItem(page, "Add Issue Reference…")
 
     // The inline input should appear
     await inlineIssueReference.waitForVisible(page)
@@ -38,13 +38,12 @@ test.describe("Issue Reference Feature", () => {
     await testInputAutoFocus(input)
 
     // Type an issue reference and submit
+    const response = waitForApiResponse(page, "add_issue_reference_to_commits")
     await submitInlineForm(input, "GH-123")
 
-    // The inline input should disappear immediately after submission
+    // The progress row ("Adding GH-123 to test-branch…") replaces the input until the commits are rewritten
     await inlineIssueReference.waitForHidden(page)
-
-    // Now wait for the API call to complete (happens after form is hidden)
-    await waitForApiResponse(page, "add_issue_reference_to_commits")
+    await response
 
     // Wait for processing to complete if needed
     await waitForProcessingComplete(page, branchRow)
@@ -57,7 +56,7 @@ test.describe("Issue Reference Feature", () => {
     // Open inline input
     const branchRow = findBranchRow(page, "test-branch")
     await openContextMenu(page, branchRow)
-    await clickContextMenuItem(page, "Add Issue Reference")
+    await clickContextMenuItem(page, "Add Issue Reference…")
 
     await inlineIssueReference.waitForVisible(page)
     const input = inlineIssueReference.getInput(page)
@@ -83,16 +82,32 @@ test.describe("Issue Reference Feature", () => {
     await inlineIssueReference.waitForHidden(page)
   })
 
+  test("should keep the typed reference when adding it fails", async ({ page }) => {
+    await page.route("**/invoke/add_issue_reference_to_commits", route => route.fulfill({ status: 500, body: "The branch moved" }))
+    await openContextMenu(page, findBranchRow(page, "test-branch"))
+    await clickContextMenuItem(page, "Add Issue Reference…")
+
+    const input = inlineIssueReference.getInput(page)
+    await submitInlineForm(input, "GH-123")
+
+    await expect(page.locator("[data-slot=toast]", { hasText: "Failed to Add Issue Reference" })).toBeVisible()
+    // the form is back with the reference, to retry or to cancel
+    await expect(input).toHaveValue("GH-123")
+    await expect(input).toBeFocused()
+  })
+
   test("should cancel with Escape key", async ({ page }) => {
     // Open inline input
     const branchRow = findBranchRow(page, "test-branch")
     await openContextMenu(page, branchRow)
-    await clickContextMenuItem(page, "Add Issue Reference")
+    await clickContextMenuItem(page, "Add Issue Reference…")
 
     await inlineIssueReference.waitForVisible(page)
 
     const input = inlineIssueReference.getInput(page)
     await testEscapeKeyBehavior(page, inlineIssueReference.getForm(page), input, "TEST-789")
+    // the menu item that opened the form is gone: its row gets the focus back
+    await expect(branchRow).toBeFocused()
 
     // Branch row should not show processing state
     const isProcessing = await isBranchProcessing(branchRow)
@@ -103,7 +118,7 @@ test.describe("Issue Reference Feature", () => {
     // Open inline input
     const branchRow = findBranchRow(page, "test-branch")
     await openContextMenu(page, branchRow)
-    await clickContextMenuItem(page, "Add Issue Reference")
+    await clickContextMenuItem(page, "Add Issue Reference…")
 
     await inlineIssueReference.waitForVisible(page)
 
@@ -116,7 +131,7 @@ test.describe("Issue Reference Feature", () => {
     // This tests the auto-focus behavior that was fixed
     const branchRow = page.locator("[data-testid=\"branch-row\"]").first()
     await openContextMenu(page, branchRow)
-    await clickContextMenuItem(page, "Add Issue Reference")
+    await clickContextMenuItem(page, "Add Issue Reference…")
 
     // Input should be focused immediately
     await inlineIssueReference.waitForVisible(page)

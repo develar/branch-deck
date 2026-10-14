@@ -154,7 +154,7 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 - A click on the chip opens the pull request in the browser and does not toggle the row.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
 - The branch context menu has "Open Pull Request" in its history group when the branch has a pull request, also when the
-  branch can't be modified.
+  branch can't be modified; it shows `O`, the key of the branch preview.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
 
 ### Branch preview

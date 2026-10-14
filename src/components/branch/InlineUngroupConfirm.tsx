@@ -3,7 +3,7 @@ import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing, withPostSubmit } from "@/stores/inline-row-action"
+import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
 
 /** Confirms ungrouping a branch that other branches stack on: they keep naming it as their parent and are blocked */
@@ -15,18 +15,17 @@ export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
   return (
     <InlineForm
       title={`Ungroup ${branchName}`}
-      description="Remove the prefix of the branch's commits, which makes them unassigned"
+      description="Removes the prefix of its commits: they go back to their issue branch or to the unassigned commits."
       canSubmit={branch !== undefined && !processing}
       loading={processing}
       submitText="Ungroup"
       submitIcon={<UngroupIcon data-icon="inline-start" />}
+      focusSubmit
       onCancel={closeInline}
       onSubmit={() => {
-        withPostSubmit(async () => {
-          if (branch !== undefined) {
-            await moveCommits(branch.commits, null)
-          }
-        })
+        if (branch !== undefined) {
+          void withRowProgress(branchName, () => moveCommits(branch.commits, null), { processingMessage: `Ungrouping ${branchName}…`, keepFormOnFailure: true })
+        }
       }}
     >
       <Callout tone="warning">

@@ -14,8 +14,8 @@ export function InlineAmendChangesInput({ branchName }: { branchName: string }) 
 
   return (
     <InlineForm
-      title={`Amend Changes to ${branchName}`}
-      description={`Amend uncommitted changes to the tip commit of ${branchName} branch`}
+      title={`Amend changes to ${branchName}`}
+      description={`Amends the uncommitted changes to the last commit of ${branchName}.`}
       canSubmit={canAmend}
       loading={processing}
       submitText="Amend Changes"

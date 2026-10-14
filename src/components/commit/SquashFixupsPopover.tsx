@@ -12,6 +12,8 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
+import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
+import { useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { getSelectedProject } from "@/stores/repository"
 
 export interface SquashFixupsPopoverProps {
@@ -23,10 +25,12 @@ export interface SquashFixupsPopoverProps {
 /**
  * Confirmation of squashing the fixups of a list: each target with the fixups folded into it, then the fixups without a
  * target, which stay. The plan is read again when it opens, and the squash is refused if the branch moved since.
+ * The squash runs as the processing of the row's inline action (the popover stays open meanwhile), then closes it.
  */
 export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProps) {
   const [plan, setPlan] = useState<AutosquashPlan | null>(null)
-  const [isSquashing, setIsSquashing] = useState(false)
+  const key = branch ?? UNASSIGNED_SOURCE
+  const isSquashing = useIsRowProcessing(key)
   useEffect(() => {
     let cancelled = false
     void invokeCommand(() => commands.getAutosquashPlan({ repositoryPath: getSelectedProject()?.path ?? "" })).then((result) => {
@@ -56,10 +60,8 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
   }
 
   const fixups: ListFixups = getListFixups(plan, branch)
-  const squash = () => {
-    setIsSquashing(true)
-    void squashFixups(getAutosquashScope(branch), plan.head).then(() => onClose())
-  }
+  // closes the popover after a failure too: the plan it shows is stale
+  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), plan.head))
   return (
     <>
       <div className="flex flex-col gap-1">
@@ -88,7 +90,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
       )}
 
       <div className="flex justify-end gap-2">
-        <Button size="xs" variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button size="xs" variant="ghost" disabled={isSquashing} onClick={onClose}>Cancel</Button>
         <Button size="xs" disabled={fixups.count === 0 || isSquashing} onClick={squash} data-testid="squash-fixups-confirm">
           {isSquashing ? <Spinner data-icon="inline-start" /> : <CombineIcon data-icon="inline-start" />}
           Squash

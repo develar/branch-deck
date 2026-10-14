@@ -121,6 +121,15 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   `text-base` title, a body that alone scrolls, a footer of key hints and `xs` buttons. `width` is `sm` for a picker,
   `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Back`, `Esc Close`), not a
   button.
+- **A form below a row is an `InlineForm`** (`src/components/shared/InlineForm.tsx`, `InlineInputDialog` for one input):
+  - a visible `text-sm font-medium` title and, only where it adds something, a muted description;
+  - the content is at most `max-w-3xl`, an input `max-w-md`; Cancel and the submit are `xs` buttons, the submit of a
+    delete `destructive`;
+  - a confirmation without an input passes `focusSubmit`, so Enter confirms;
+  - the action runs through `withRowProcessing` (it toasts the outcome) or `withRowProgress` (the action toasts, e.g.
+    with Undo) in `src/stores/inline-row-action.ts`: the progress row while it runs, the form again with its input after
+    a failure of a form with an input (`keepFormOnError`, `keepFormOnFailure`);
+  - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
 - **Type sizes** come from the scale: `text-sm` for text, `text-xs` for meta lines, and `text-message`
   (`--text-message` in `src/index.css`, 13px on a 20px line) for commit messages. No arbitrary sizes (`text-[13px]`,
   `text-[10px]`).

@@ -30,7 +30,10 @@ interface BranchContextMenuRowProps {
   "children": ReactNode
 }
 
-/** Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click. */
+/**
+ * Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click.
+ * Focusable (not a tab stop): an inline form of the row gives the focus back to it when it closes.
+ */
 export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
@@ -43,7 +46,12 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             data-depth={depth > 0 ? depth : undefined}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
-            className={cn(group && "group", "cursor-pointer transition-all hover:bg-muted", className)}
+            tabIndex={-1}
+            className={cn(
+              group && "group",
+              "cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset",
+              className,
+            )}
             onClick={onToggle}
             {...dropProps}
           />

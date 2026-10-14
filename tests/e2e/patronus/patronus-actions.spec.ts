@@ -7,7 +7,7 @@ import { findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { pushOutcome, routePush } from "../helpers/push-helpers"
-import { hoverStatusChip } from "../helpers/review-status-helpers"
+import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -126,15 +126,15 @@ test.describe("Patronus actions", () => {
     const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...RUNNING, status: "canceling" }))
 
     let popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
-    await expect(popover.getByRole("button", { name: "Cancel" })).toHaveCount(0)
-    await popover.getByRole("button", { name: "Restart" }).click()
+    await expect(popover.getByRole("button", { name: "Cancel Safe Push" })).toHaveCount(0)
+    await popover.getByRole("button", { name: "Restart Safe Push" }).click()
     await expect(chip(page, "ABC-123")).toHaveText("Running")
     expect(restarts).toEqual([expect.objectContaining({ robotId: "failed-robot" })])
     await page.keyboard.press("Escape")
 
     popover = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
-    await expect(popover.getByRole("button", { name: "Restart" })).toHaveCount(0)
-    await popover.getByRole("button", { name: "Cancel" }).click()
+    await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
+    await popover.getByRole("button", { name: "Cancel Safe Push" }).click()
     await expect(chip(page, "JIRA-456")).toHaveText("Canceling")
     expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
   })
@@ -211,8 +211,21 @@ test.describe("Patronus actions", () => {
 
       const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
       await expect(popover.getByTestId("patronus-needs-review")).toBeVisible()
-      await expect(popover.getByRole("button", { name: "Restart" })).toHaveCount(0)
+      await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
       await popover.getByRole("button", { name: "Safe Push…" }).click()
+      await expect(page.getByTestId("patronus-start-form")).toBeVisible()
+    })
+
+    test("should close the branch preview for the Safe Push form of its Patronus section", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      await setupRobots(page, setupRepo, syncAndWaitForBranches, FAILED)
+      await expect(chip(page, "ABC-123")).toHaveText("Needs review")
+
+      const preview = await openBranchPreview(page, "ABC-123")
+      await preview.getByTestId("branch-preview-patronus").getByRole("button", { name: "Safe Push…" }).click()
+      // the form is below the row, behind the modal preview
+      await expect(preview).toHaveCount(0)
       await expect(page.getByTestId("patronus-start-form")).toBeVisible()
     })
   })

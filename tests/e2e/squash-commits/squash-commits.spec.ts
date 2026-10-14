@@ -53,7 +53,7 @@ test.describe("Squash commits", () => {
     await expandBranch(page, issueRow)
 
     await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
-    await expect(page.getByRole("menuitem", { name: "Move to Branch…" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Move to…" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: /Squash/ })).toHaveCount(0)
     await page.keyboard.press("Escape")
 
