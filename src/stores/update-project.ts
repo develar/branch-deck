@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { AppliedUpdate, FetchProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
+import type { AppliedUpdate, TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
@@ -15,7 +15,7 @@ export interface UpdateProjectState {
   /** The step of the running update; null when none runs */
   phase: UpdatePhase | null
   /** How far the fetch of the running update is; null before git reports a stage and after the fetch */
-  fetch: FetchProgress | null
+  fetch: TransferProgress | null
   /** A conflicting or blocked update to explain; null while the dialog is closed */
   refused: UpdateCheck | null
 }
@@ -30,7 +30,7 @@ export function useUpdatePhase(): UpdatePhase | null {
   return useStore(updateProjectStore, state => state.phase)
 }
 
-export function useFetchProgress(): FetchProgress | null {
+export function useFetchProgress(): TransferProgress | null {
   return useStore(updateProjectStore, state => state.fetch)
 }
 

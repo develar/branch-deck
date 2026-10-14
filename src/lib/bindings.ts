@@ -361,12 +361,12 @@ export type DownloadProgress = { type: "Started"; data: {
 	message: string,
 } };
 
-/**  How far a fetch is, for the Update button */
-export type FetchProgress = {
-	/**  The whole fetch, 0 to 100, never decreasing */
+/**  How far a fetch or a push is, for the button that runs it */
+export type TransferProgress = {
+	/**  The whole transfer, 0 to 100, never decreasing */
 	percent: number,
-	/**  Received so far, as git prints it, e.g. "5.79 MiB" */
-	received: string | null,
+	/**  Received (fetch) or sent (push) so far, as git prints it, e.g. "5.79 MiB" */
+	transferred: string | null,
 	/**  The transfer rate, as git prints it, e.g. "32.57 MiB/s" */
 	speed: string | null,
 	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
@@ -1060,7 +1060,7 @@ export type UpdatePhase = "fetching" | "checking" | "updating";
 export type UpdateProgress = {
 	phase: UpdatePhase,
 	/**  How far the fetch is; `None` until git reports a stage, and in the other phases */
-	fetch: FetchProgress | null,
+	fetch: TransferProgress | null,
 };
 
 export type UpdateProjectParams = {

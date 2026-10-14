@@ -3,14 +3,14 @@
 //! last fetched state, without the network, so the header can show whether an update would apply cleanly.
 
 use crate::baseline::detect_baseline_branch;
-use crate::fetch_progress::{FetchProgress, FetchProgressAnalyzer};
 use crate::remote_command::execute_remote_command_with_progress;
+use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
 use git_ops::update_branch::{AppliedUpdate, CheckPurpose, UpdateCheck, UpdateState, UpstreamRef, apply_update, check_update};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument};
 
@@ -77,16 +77,15 @@ pub fn resolve_baseline_upstream(git_executor: &GitCommandExecutor, repo_path: &
 /// Fetch only the baseline's remote branch into its tracking ref. Other tracking refs stay where they are, so the
 /// push lease of the virtual branches (`--force-with-lease`) still compares against what the last push saw.
 /// Returns the tip before the fetch if the fetch was a forced update (the upstream was force-pushed).
-/// `on_line` gets the `--progress` lines of stderr as they arrive.
-#[instrument(skip(git_executor, on_line))]
-pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstream: &BaselineUpstream, on_line: &mut dyn FnMut(&str)) -> Result<Option<String>> {
+/// `on_progress` gets how far the fetch is.
+#[instrument(skip(git_executor, on_progress))]
+pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstream: &BaselineUpstream, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<Option<String>> {
   let refspec = format!("+{}:{}", upstream.remote_ref, upstream.tracking_ref);
   let output = execute_remote_command_with_progress(
     git_executor,
     &[
       "fetch",
       "--porcelain",
-      "--progress",
       "--no-tags",
       "--no-write-fetch-head",
       "--no-recurse-submodules",
@@ -95,7 +94,7 @@ pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstre
       &refspec,
     ],
     repo_path,
-    on_line,
+    on_progress,
   )?;
   Ok(previous_tip_of_forced_update(&output, &upstream.tracking_ref))
 }
@@ -167,7 +166,7 @@ pub enum UpdatePhase {
 pub struct UpdateProgress {
   pub phase: UpdatePhase,
   /// How far the fetch is; `None` until git reports a stage, and in the other phases
-  pub fetch: Option<FetchProgress>,
+  pub fetch: Option<TransferProgress>,
 }
 
 impl From<UpdatePhase> for UpdateProgress {
@@ -175,10 +174,6 @@ impl From<UpdatePhase> for UpdateProgress {
     Self { phase, fetch: None }
   }
 }
-
-/// At most this often a fetch progress goes to the window; the end of a stage (`…, done.`) always goes out, so the last
-/// amount is shown even when a stage ends within the interval
-const FETCH_PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -203,28 +198,13 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
   get_current_branch(git_executor, repo_path)?;
 
   on_progress(UpdatePhase::Fetching.into());
-  let mut analyzer = FetchProgressAnalyzer::new();
-  let mut last_sent: Option<(Instant, FetchProgress)> = None;
-  let mut on_line = |line: &str| {
-    let Some(fetch) = analyzer.analyze(line) else {
-      return;
-    };
-    let due = match &last_sent {
-      None => true,
-      Some((at, sent)) => {
-        let changed = sent.percent != fetch.percent || sent.received != fetch.received;
-        changed && (at.elapsed() >= FETCH_PROGRESS_INTERVAL || fetch.line.ends_with(", done."))
-      }
-    };
-    if due {
-      on_progress(UpdateProgress {
-        phase: UpdatePhase::Fetching,
-        fetch: Some(fetch.clone()),
-      });
-      last_sent = Some((Instant::now(), fetch));
-    }
+  let mut on_fetch_progress = |fetch| {
+    on_progress(UpdateProgress {
+      phase: UpdatePhase::Fetching,
+      fetch: Some(fetch),
+    });
   };
-  let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_line).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
+  let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
   let fetched_at = unix_now();
 
   on_progress(UpdatePhase::Checking.into());

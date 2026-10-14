@@ -294,12 +294,17 @@ Details:
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
   and nothing for a ref that did not move. The fetch runs through `execute_remote_command_with_progress` (Key
   Decision 8).
-- **Fetch progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch runs
-  with `--progress`, as IDEA's does, and `execute_command_with_progress` passes each stderr line as it arrives (split
-  on `\r`, with which git overwrites a progress line, and `\n`). `FetchProgressAnalyzer`
-  (`crates/sync-core/src/fetch_progress.rs`) ports IDEA's `GitStandardProgressAnalyzer`: a share per stage, earlier
-  stages done. It is the one place that reads human output, and only for a label: an unknown line changes nothing. The
-  error of a failed fetch keeps the `\n` lines only, without the `\r` updates.
+- **Transfer progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch
+  runs with `--progress`, as IDEA's does: `execute_remote_command_with_progress` adds it after the subcommand, and
+  `execute_command_with_progress` passes each stderr line as it arrives (split on `\r`, with which git overwrites a
+  progress line, and `\n`). `TransferProgressAnalyzer` (`crates/sync-core/src/transfer_progress.rs`)
+  ports IDEA's `GitStandardProgressAnalyzer`: a share per stage, earlier stages done. A fetch receives (or unpacks)
+  where a push writes, both are the transfer stage; the `remote: ` prefix doesn't matter, since a fetch counts on the
+  server and a push resolves the deltas there. `TransferProgressReporter` throttles to one progress per 100 ms but
+  always sends the end of a stage, a stage at 100 %, which also covers the server's `Resolving deltas: 100% (2/2),
+  completed with 2 local objects.` that has no `, done.`. It is the one place that reads human output, and only for a
+  label: an unknown line changes nothing. The error of a failed command keeps the `\n` lines only, without the `\r`
+  updates.
 - **Force-pushed upstream.** After an upstream force-push, `HEAD ^U` also contains the commits the upstream dropped,
   and replaying them conflicts or brings them back. As `pull --rebase` does, they are excluded with the old tip from
   the forced fetch line and with the fork point from the tracking ref's reflog; the fork point also covers a forced

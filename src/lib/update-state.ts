@@ -1,4 +1,5 @@
-import type { FetchProgress, UpdateCheck, UpdatePhase, UpdateState } from "@/lib/bindings"
+import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateState } from "@/lib/bindings"
+import { transferLabel } from "@/lib/transfer-progress"
 
 /** How the Update button shows the state: muted, a success check, or a warning */
 export type UpdateTone = "muted" | "success" | "warning"
@@ -66,15 +67,15 @@ const PHASE_LABELS: Record<UpdatePhase, string> = {
 }
 
 /** The label of a running update, e.g. "Fetching 45%"; "Fetching…" until git reports a stage */
-export function updatePhaseLabel(phase: UpdatePhase, fetch: FetchProgress | null): string {
-  return phase === "fetching" && fetch !== null ? `Fetching ${fetch.percent}%` : PHASE_LABELS[phase]
+export function updatePhaseLabel(phase: UpdatePhase, fetch: TransferProgress | null): string {
+  return phase === "fetching" ? transferLabel("Fetching", fetch) : PHASE_LABELS[phase]
 }
 
 /**
  * The tooltip sentence of a running update: the last progress line of git once it reports a stage, else the step.
  * Never the state of the last check: before the first stage git connects and negotiates, which takes long on a big repo.
  */
-export function runningUpdateSummary(phase: UpdatePhase, fetch: FetchProgress | null, upstream: string): string {
+export function runningUpdateSummary(phase: UpdatePhase, fetch: TransferProgress | null, upstream: string): string {
   switch (phase) {
     case "fetching":
       return fetch?.line ?? `Fetching ${upstream}…`
@@ -83,12 +84,4 @@ export function runningUpdateSummary(phase: UpdatePhase, fetch: FetchProgress | 
     case "updating":
       return `Updating to ${upstream}…`
   }
-}
-
-/** What a fetch received so far and how fast, as git prints it, e.g. "5.79 MiB · 32.57 MiB/s"; null before git says */
-export function fetchTransfer(fetch: FetchProgress | null): string | null {
-  if (fetch?.received == null) {
-    return null
-  }
-  return fetch.speed === null ? fetch.received : `${fetch.received} · ${fetch.speed}`
 }

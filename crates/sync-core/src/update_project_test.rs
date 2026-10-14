@@ -654,5 +654,5 @@ fn fetch_reports_progress_until_the_last_stage_ends() {
   let last_stage_ended = last.line.starts_with("Receiving objects: 100% ") || last.line.starts_with("Resolving deltas: 100% ");
   assert!(last_stage_ended, "{fetch:?}");
   assert!(last.percent >= 95, "{fetch:?}");
-  assert!(last.received.as_deref().is_some_and(|it| it.ends_with("MiB")), "{fetch:?}");
+  assert!(last.transferred.as_deref().is_some_and(|it| it.ends_with("MiB")), "{fetch:?}");
 }

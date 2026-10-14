@@ -1,4 +1,5 @@
-use anyhow::Result;
+use crate::transfer_progress::{TransferProgress, TransferProgressReporter};
+use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 
 /// Config for every git command that talks to a remote (push, fetch).
@@ -38,7 +39,18 @@ pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args:
   git_executor.execute_command_accepting_with_env(&remote_args(args), repository_path, &REMOTE_ENV, ok_exit_codes)
 }
 
-/// `execute_remote_command` for a command run with `--progress`: `on_line` gets every stderr line as it arrives
-pub fn execute_remote_command_with_progress(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, on_line: &mut dyn FnMut(&str)) -> Result<String> {
-  git_executor.execute_command_with_progress(&remote_args(args), repository_path, &REMOTE_ENV, on_line)
+/// `execute_remote_command` with `--progress` (added after the subcommand): `on_progress` gets how far the transfer is
+/// as git reports it, throttled by `TransferProgressReporter`
+pub fn execute_remote_command_with_progress(
+  git_executor: &GitCommandExecutor,
+  args: &[&str],
+  repository_path: &str,
+  on_progress: &mut dyn FnMut(TransferProgress),
+) -> Result<String> {
+  let (subcommand, rest) = args.split_first().ok_or_else(|| anyhow!("No git subcommand to run"))?;
+  let mut progress_args = Vec::with_capacity(args.len() + 1);
+  progress_args.extend([*subcommand, "--progress"]);
+  progress_args.extend_from_slice(rest);
+  let mut reporter = TransferProgressReporter::new(on_progress);
+  git_executor.execute_command_with_progress(&remote_args(&progress_args), repository_path, &REMOTE_ENV, &mut |line| reporter.on_line(line))
 }

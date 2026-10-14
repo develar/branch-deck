@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { FetchProgress, UpdatePhase } from "@/lib/bindings"
+import type { TransferProgress, UpdatePhase } from "@/lib/bindings"
 import { isMac } from "@/lib/platform"
 import { formatRelativeTime } from "@/lib/time"
+import { transferAmount } from "@/lib/transfer-progress"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
-import { describeUpdateState, fetchTransfer, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
+import { describeUpdateState, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useSelectedProject } from "@/stores/repository"
@@ -54,7 +55,7 @@ function StateIcon({ tone, unknown }: { tone: UpdateTone, unknown: boolean }) {
 
 interface RunningUpdate {
   phase: UpdatePhase | null
-  fetch: FetchProgress | null
+  fetch: TransferProgress | null
 }
 
 /**
@@ -133,7 +134,7 @@ export function UpdateStateLine() {
 function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { status: BaselineStatus }) {
   const description = describeStatus(status)
   const fetchTime = useFetchTime(status)
-  const transfer = phase === "fetching" ? fetchTransfer(fetch) : null
+  const transfer = phase === "fetching" ? transferAmount(fetch) : null
   return (
     <div className="flex items-center justify-between gap-3" data-testid="update-state-line">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
