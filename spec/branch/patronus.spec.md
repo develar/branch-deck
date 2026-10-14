@@ -205,8 +205,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   without it, or without the plugin, nothing is said but the toast.
   [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
 - Fetch fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
-  the files (`fetch_baseline`). Meanwhile the Update button shows the fetch ("Fetching 45%"); then a sync checks the
-  update against the fetched baseline, without expanding or scrolling. A failed fetch is an error toast.
+  the files (`fetch_baseline`). Meanwhile the Update button of the robot's repository shows the fetch ("Fetching 45%"),
+  never the button of another repository selected meanwhile; then a sync of the robot's repository, if it is still the
+  selected one, checks the update against the fetched baseline, without expanding or scrolling. A failed fetch is an
+  error toast.
+  [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`fetch_moves_only_the_tracking_ref_of_the_baseline`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`local_baseline_has_nothing_to_fetch`)
 - Branch Deck never updates by itself: the update stays a click.

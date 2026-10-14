@@ -149,6 +149,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the running step in the tooltip, not the last state`)
+- The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
+  switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
+  repository; another repository can update meanwhile. An update applied in a repository that is no longer selected
+  doesn't sync the selected one.
+  [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
+  [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository`)
 - Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
   tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
