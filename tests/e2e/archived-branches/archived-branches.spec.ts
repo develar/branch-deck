@@ -126,7 +126,7 @@ test.describe("Archived branch merged by a baseline commit", () => {
     await waitForCollapsibleCardExpanded(card)
     const row = card.locator("tr[data-branch-name$=\"/feature-auth\"]")
     // a placeholder can't expand until the integration status came
-    await expect(row).toContainText("Merged · 1")
+    await expect(row.getByTestId("archived-branch-status")).toHaveAttribute("data-status", "merged")
     await expandBranch(page, row)
 
     const line = card.getByTestId("archived-branch-integration-commit")
