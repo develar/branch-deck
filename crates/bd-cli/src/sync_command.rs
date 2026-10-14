@@ -48,6 +48,8 @@ pub enum SyncState {
   Unchanged,
   Error,
   MergeConflict,
+  /// A stacked branch whose parent can't be built on: not rebuilt this sync
+  Blocked,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -237,6 +239,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
         BranchSyncStatus::Updated => SyncState::Updated,
         BranchSyncStatus::Unchanged => SyncState::Unchanged,
         BranchSyncStatus::Error => SyncState::Error,
+        BranchSyncStatus::Blocked => SyncState::Blocked,
         BranchSyncStatus::MergeConflict | BranchSyncStatus::AnalyzingConflict => SyncState::MergeConflict,
       };
       let (error, conflict) = match error {
@@ -246,7 +249,7 @@ fn summarize(context: &RepoContext, events: Vec<SyncEvent>) -> SyncOutput {
       };
       let reference = to_final_branch_name(&context.prefix, &name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
       SyncedBranch {
-        tip: (status != SyncState::MergeConflict && status != SyncState::Error)
+        tip: matches!(status, SyncState::Created | SyncState::Updated | SyncState::Unchanged)
           .then(|| tips.get(&name).map(|tip| short.get(tip).to_string()))
           .flatten(),
         reference,

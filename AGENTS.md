@@ -75,6 +75,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`spec/repository/update-project.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
+- **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
+  sync, blocked children (`spec/branch/stacked-branches.spec.md`).
 
 ## Development Rules
 

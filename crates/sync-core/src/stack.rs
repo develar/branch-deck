@@ -406,6 +406,37 @@ fn names_branch(name: &str, branch: &str) -> bool {
     .is_some_and(|rest| rest.is_empty() || rest.strip_prefix('-').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
 }
 
+/// A sentence on a stack problem, naming its commits by short id
+pub fn describe_problem(problem: &StackProblem) -> String {
+  let commits = |ids: &[String]| ids.iter().map(|id| short_id(id)).collect::<Vec<_>>().join(", ");
+  match problem {
+    StackProblem::ConflictingParents(parents) => {
+      let parents: Vec<String> = parents.iter().map(|declared| format!("{} ({})", declared.parent, commits(&declared.commits))).collect();
+      format!("Commits declare different parents: {}", parents.join(", "))
+    }
+    StackProblem::Cycle(branches) => format!("The parents form a cycle: {} -> {}", branches.join(" -> "), branches[0]),
+    StackProblem::SelfParent(ids) => format!("A prefix makes the branch its own parent: {}", commits(ids)),
+    StackProblem::LeafCollision(other) => format!("Branch {other} has the same name ignoring case"),
+    StackProblem::Syntax(ids) => format!("A prefix has an empty level: {}", commits(ids)),
+  }
+}
+
+/// A sentence on why a branch is blocked
+pub fn describe_block(block: &StackBlock) -> String {
+  let parent = &block.parent;
+  match block.reason {
+    BlockReason::Missing => format!("Blocked: parent {parent} has no commits"),
+    BlockReason::Unapplied => format!("Blocked: parent {parent} is unapplied"),
+    BlockReason::Error => format!("Blocked: parent {parent} failed"),
+    BlockReason::Conflict => format!("Blocked: parent {parent} has a merge conflict"),
+    BlockReason::Blocked => format!("Blocked: parent {parent} is blocked"),
+  }
+}
+
+fn short_id(id: &str) -> &str {
+  id.get(..8).unwrap_or(id)
+}
+
 #[cfg(test)]
 #[path = "stack_test.rs"]
 mod stack_test;

@@ -63,6 +63,13 @@ impl TreeIdCache {
     Ok(tree_id)
   }
 
+  /// Record the committer date of a commit whose date is already known, e.g. the head of a branch just built
+  pub fn insert_committer_timestamp(&self, commit_id: &str, timestamp: u32) {
+    if Self::is_cacheable_key(commit_id) {
+      self.committer_timestamps.insert(commit_id.to_string(), timestamp);
+    }
+  }
+
   /// Get the committer date (unix seconds) of a commit; the same git call also caches its tree
   #[instrument(skip(self, git_executor), fields(commit_id = %commit_id))]
   pub fn get_committer_timestamp(&self, git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<u32, CopyCommitError> {

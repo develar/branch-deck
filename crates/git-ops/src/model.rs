@@ -23,6 +23,8 @@ pub enum BranchSyncStatus {
   Error,
   MergeConflict,
   AnalyzingConflict,
+  /// Not rebuilt: the parent branch of a stacked branch can't be built on
+  Blocked,
 }
 
 /// Status of a commit synchronization.

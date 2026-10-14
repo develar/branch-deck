@@ -394,6 +394,10 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   (`for-each-ref refs/heads/<prefix>/`): the virtual tips decide reuse, and the unapplied and archived names give the
   state of a stack parent without commits. The branches return their mapping notes, and the sync writes them in one
   notes commit at the end; a note lost to a failed sync only costs a copy.
+- **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../spec/branch/stacked-branches.spec.md)).
+  Each branch is a build task, which publishes its head after its last `commit-tree`, and a finish task for the ref,
+  the status and the remote status. A child is spawned only once its parent's head is known, so no task holds a slot
+  of the process limit while it waits; ready branches start longest chain first.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
 `crates/git-ops/src/reword_commits.rs`, `crates/sync-core/src/reword_commit.rs`.

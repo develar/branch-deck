@@ -35,6 +35,8 @@ mod remote_command_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]
+mod test_commit;
+#[cfg(test)]
 mod unapply_branch_test;
 #[cfg(test)]
 mod uncommitted_changes_test;

@@ -197,7 +197,9 @@ export type BranchSuggestion = {
 };
 
 /**  Status of a branch synchronization operation. */
-export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict";
+export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict" | 
+/**  Not rebuilt: the parent branch of a stacked branch can't be built on */
+"Blocked";
 
 /**  Result of browsing for a repository */
 export type BrowseResult = {

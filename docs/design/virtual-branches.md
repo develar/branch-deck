@@ -1,7 +1,7 @@
 # Virtual Branches Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-13  
+**Updated:** 2026-10-14  
 **Tags:** [architecture, git, workflow]
 
 ## Problem
@@ -99,6 +99,17 @@ The explicit prefix is the only grouping state, so every regrouping is a message
 `move_commits_to_branch` (`crates/sync-core/src/move_commits.rs`) sets or removes the prefix of many commits in one
 rewrite. The UI uses it to move commits, split an issue, rename a branch and ungroup one; an undo restores the
 previous messages with `reword_commits`. See [Move Commits](../../spec/branch/move-commits.spec.md).
+
+### Stacked Branches
+
+With `git config branchdeck.stacks true`, a `/` in a prefix stacks branches: `(auth/login) Add form` belongs to `login`,
+whose virtual branch is built on `auth`'s (`crates/sync-core/src/stack.rs`). The ref is the leaf,
+`user/virtual/login`, so no level is a ref directory of another. The grouper records every declared edge with its
+commits; `StackForest` holds the declared parents, the problems (conflicting parents, cycles, `(a/a)`, leaves that
+differ in case, empty levels) and a parents-first order. `place_branches` decides where each branch goes: on its active
+parent, on the nearest active ancestor of an integrated parent, on the baseline, or nowhere (`blocked_by`). The sync
+sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. Without the setting a `/` is
+part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
 
 ### Implementation Notes
 

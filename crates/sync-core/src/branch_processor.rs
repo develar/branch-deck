@@ -7,6 +7,7 @@ use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, cr
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::ref_transaction::RefTransaction;
 use std::collections::HashMap;
+use sync_types::stack::BlockReason;
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, instrument, warn};
 
@@ -14,8 +15,6 @@ use tracing::{debug, instrument, warn};
 pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub repository_path: String,
   pub branch_prefix: String,
-  /// Commit the virtual branches are rebuilt on (parent of the oldest commit ahead of the baseline)
-  pub parent_commit_hash: String,
   pub baseline_branch: String,
   pub total_branches: usize,
   pub progress: P,
@@ -32,6 +31,33 @@ pub(crate) struct BranchJob {
   pub commits: Vec<Commit>,
   pub my_email: Option<String>,
   pub branch_idx: usize,
+  /// The commit the branch is built on: the base of the sync (the parent of the oldest commit ahead of the baseline),
+  /// or the new head of its parent branch
+  pub base_commit: String,
+}
+
+/// A branch whose commits are written; its ref, notes and remote status are not updated yet
+pub(crate) struct BuiltBranch {
+  /// The new tip, which the children of the branch are built on
+  pub head: String,
+  branch_name: String,
+  full_branch_name: String,
+  status: BranchSyncStatus,
+  /// `(original, new)` mappings of the created commits
+  notes: Vec<(String, String)>,
+  my_email: Option<String>,
+}
+
+impl BuiltBranch {
+  pub(crate) fn branch_name(&self) -> &str {
+    &self.branch_name
+  }
+}
+
+pub(crate) enum BuildOutcome {
+  Built(BuiltBranch),
+  /// A commit could not be copied (`Conflict` or `Error`); its events are sent and the branch is left as it was
+  Failed(BlockReason),
 }
 
 /// Result of processing a single commit
@@ -41,9 +67,21 @@ enum CommitProcessingResult {
     sync_status: CommitSyncStatus,
     mapping_info: Option<(String, String)>,
   },
-  BranchError,
+  BranchError(BlockReason),
 }
 
+/// Rebuilds one virtual branch and returns the `original -> new` mapping notes of the commits it created; the caller
+/// writes the notes. The sync runs the two steps as separate tasks.
+#[cfg(test)]
+pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<(String, String)>> {
+  match build_branch(ctx, job)? {
+    BuildOutcome::Built(built) => finish_branch(ctx, built),
+    BuildOutcome::Failed(_) => Ok(Vec::new()),
+  }
+}
+
+/// Copies the commits of a branch onto its base, reusing the existing ones that still fit, and returns the new head
+/// without moving the branch: `finish_branch` does that, off the critical path of the branches built on this one
 #[instrument(
   skip(ctx, job),
   fields(
@@ -53,19 +91,16 @@ enum CommitProcessingResult {
     commit_count = job.commits.len(),
   )
 )]
-/// Rebuilds one virtual branch and returns the `original -> new` mapping notes of the commits it created; the caller
-/// writes the notes of all branches at once
-pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<(String, String)>> {
+pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<BuildOutcome> {
   let BranchSyncContext {
     repository_path,
     branch_prefix,
-    parent_commit_hash,
-    baseline_branch,
     total_branches,
     progress,
     git_executor,
     tree_id_cache,
     existing_tips,
+    ..
   } = ctx;
   let total_branches = *total_branches;
   let BranchJob {
@@ -73,6 +108,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
     commits,
     my_email,
     branch_idx: current_branch_idx,
+    base_commit,
   } = job;
 
   let full_branch_name = to_final_branch_name(branch_prefix, &branch_name)?;
@@ -83,7 +119,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
 
   // If branch exists, get all its commits with their first parents in one call for efficient reuse checking
   let existing_virtual_commits = if let Some(existing_tip) = existing_tip {
-    match git_executor.execute_command(&["rev-list", "--parents", existing_tip, &format!("^{parent_commit_hash}")], repository_path) {
+    match git_executor.execute_command(&["rev-list", "--parents", existing_tip, &format!("^{base_commit}")], repository_path) {
       Ok(output) => {
         let commits: HashMap<String, String> = output
           .lines()
@@ -104,9 +140,9 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
     None
   };
 
-  let mut current_parent_hash = parent_commit_hash.clone();
+  let mut current_parent_hash = base_commit.clone();
   // a copy is never older than the commits below it, and its date depends only on the originals and the base
-  let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, parent_commit_hash)?;
+  let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, &base_commit)?;
   let mut last_commit_hash = String::new();
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<(String, String)> = Vec::new();
@@ -169,50 +205,71 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
         current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
       }
-      CommitProcessingResult::BranchError => {
+      CommitProcessingResult::BranchError(reason) => {
         // Error already handled and events sent by process_single_commit
-        return Ok(Vec::new());
+        return Ok(BuildOutcome::Failed(reason));
       }
     }
   }
+  // a child copies its first commit onto the head; its date is the one computed here, also for a reused head
+  tree_id_cache.insert_committer_timestamp(&last_commit_hash, committer_timestamp);
 
-  let branch_sync_status: BranchSyncStatus;
-  if is_existing_branch {
-    // every commit is reused, but commits at the end may have left the branch
-    if is_any_commit_changed || existing_tip != Some(&last_commit_hash) {
-      branch_sync_status = BranchSyncStatus::Updated;
-      debug!(name = %branch_name, "Branch was updated with new commits");
-    } else {
-      branch_sync_status = BranchSyncStatus::Unchanged;
-      debug!(name = %branch_name, "Branch is unchanged");
-    }
-  } else {
-    branch_sync_status = BranchSyncStatus::Created;
+  let status = if !is_existing_branch {
     debug!(name = %branch_name, "Branch was created");
-  }
+    BranchSyncStatus::Created
+  } else if is_any_commit_changed || existing_tip != Some(&last_commit_hash) {
+    // every commit may be reused, but commits at the end may have left the branch
+    debug!(name = %branch_name, "Branch was updated with new commits");
+    BranchSyncStatus::Updated
+  } else {
+    debug!(name = %branch_name, "Branch is unchanged");
+    BranchSyncStatus::Unchanged
+  };
+
+  Ok(BuildOutcome::Built(BuiltBranch {
+    head: last_commit_hash,
+    branch_name,
+    full_branch_name,
+    status,
+    notes: pending_notes,
+    my_email,
+  }))
+}
+
+/// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
+/// mapping notes of the created commits
+#[instrument(skip(ctx, built), fields(branch_name = %built.branch_name))]
+pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: BuiltBranch) -> Result<Vec<(String, String)>> {
+  let BuiltBranch {
+    head,
+    branch_name,
+    full_branch_name,
+    status,
+    notes,
+    my_email,
+  } = built;
+  let git_executor = &ctx.git_executor;
+  let repository_path = &ctx.repository_path;
 
   // only update the branch if it's new or changed
-  if branch_sync_status != BranchSyncStatus::Unchanged {
+  if status != BranchSyncStatus::Unchanged {
     RefTransaction::new()
-      .update(&format!("refs/heads/{full_branch_name}"), &last_commit_hash, None)
+      .update(&format!("refs/heads/{full_branch_name}"), &head, None)
       .commit(git_executor, repository_path, "sync")?;
   }
 
-  // Send branch status update event
-  debug!(name = %branch_name, status = ?branch_sync_status, "Sending final branch status");
-  let _ = progress.send(SyncEvent::BranchStatusUpdate {
+  debug!(name = %branch_name, status = ?status, "Sending final branch status");
+  let _ = ctx.progress.send(SyncEvent::BranchStatusUpdate {
     branch_name: branch_name.clone(),
-    status: branch_sync_status,
+    status,
     error: None,
   });
 
-  // Compute and emit remote status for this branch
-  let local_ref = full_branch_name.clone(); // e.g., "prefix/virtual/name"
-  if let Ok(remote_status) = compute_remote_status_for_branch(git_executor, repository_path, &local_ref, &branch_name, my_email.as_deref(), baseline_branch) {
-    let _ = progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
+  if let Ok(remote_status) = compute_remote_status_for_branch(git_executor, repository_path, &full_branch_name, &branch_name, my_email.as_deref(), &ctx.baseline_branch) {
+    let _ = ctx.progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }
 
-  Ok(pending_notes)
+  Ok(notes)
 }
 
 #[instrument(
@@ -273,9 +330,9 @@ fn process_single_commit<P: ProgressReporter>(
       }
 
       // Send branch completed event with appropriate error status
-      let status = match &branch_error {
-        BranchError::MergeConflict(_) => BranchSyncStatus::MergeConflict,
-        BranchError::Generic(_) => BranchSyncStatus::Error,
+      let (status, reason) = match &branch_error {
+        BranchError::MergeConflict(_) => (BranchSyncStatus::MergeConflict, BlockReason::Conflict),
+        BranchError::Generic(_) => (BranchSyncStatus::Error, BlockReason::Error),
       };
 
       let _ = progress.send(SyncEvent::BranchStatusUpdate {
@@ -284,7 +341,7 @@ fn process_single_commit<P: ProgressReporter>(
         error: Some(branch_error),
       });
 
-      Ok(CommitProcessingResult::BranchError)
+      Ok(CommitProcessingResult::BranchError(reason))
     }
     Err(CopyCommitError::Other(e)) => Err(e),
   }

@@ -58,7 +58,6 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
   let context = BranchSyncContext {
     repository_path: repo_path(test_repo).to_string(),
     branch_prefix: "test".to_string(),
-    parent_commit_hash: base.to_string(),
     baseline_branch: "master".to_string(),
     total_branches: 1,
     progress: TestReporter::new(),
@@ -71,6 +70,7 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
     commits: grouped_commits(test_repo, branch),
     my_email: None,
     branch_idx: 0,
+    base_commit: base.to_string(),
   };
   let notes = process_single_branch(&context, job).unwrap();
   write_commit_notes(test_repo.git_executor(), repo_path(test_repo), &notes).unwrap();

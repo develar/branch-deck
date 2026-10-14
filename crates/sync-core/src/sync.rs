@@ -1,8 +1,8 @@
 use crate::baseline::detect_baseline_branch;
-use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
+use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::issue_navigation::load_issue_navigation_config;
-use crate::stack::{empty_parent_states, place_branches, stacks_enabled};
+use crate::stack::{describe_block, describe_problem, empty_parent_states, place_branches, stacks_enabled};
 use crate::update_project::check_baseline_update;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
@@ -12,17 +12,16 @@ use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
-use git_ops::model::{BranchKind, strip_branch_namespace};
+use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace};
 use git_ops::notes::write_commit_notes;
 use indexmap::IndexMap;
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 use sync_types::issue_navigation::IssueNavigationConfig;
-use sync_types::stack::BranchStack;
+use sync_types::stack::{BlockReason, BranchStack, StackBlock};
 use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
-use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -298,48 +297,196 @@ fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, br
   )
 }
 
-/// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` at a time, then write the
-/// mapping notes of all of them in one notes commit. Returns the first failure, naming its branch.
+/// What a branch task of `process_branches` returns
+enum TaskOutput {
+  Built(String, Result<BuildOutcome>),
+  Finished(String, Result<Vec<(String, String)>>),
+}
+
+/// The branches of one sync and what they wait for, as `process_branches` schedules them
+struct Schedule {
+  /// Not started yet, by branch index
+  jobs: HashMap<usize, BranchJob>,
+  /// Branch -> the indexes of the branches built on its new head
+  children: HashMap<String, Vec<usize>>,
+  /// Branch index -> length of the longest chain of branches waiting on it, the branch included
+  chain_lengths: HashMap<usize, usize>,
+  /// Started first: the longest chain, then the oldest branch
+  ready: BinaryHeap<(usize, Reverse<usize>)>,
+}
+
+impl Schedule {
+  fn ready(&mut self, index: usize) {
+    self.ready.push((self.chain_lengths[&index], Reverse(index)));
+  }
+
+  /// The children of `branch`, with `head` as their base, are ready
+  fn release_children(&mut self, branch: &str, head: &str) {
+    for index in self.children.remove(branch).unwrap_or_default() {
+      if let Some(job) = self.jobs.get_mut(&index) {
+        head.clone_into(&mut job.base_commit);
+      }
+      self.ready(index);
+    }
+  }
+
+  /// The descendants of `branch` are not rebuilt; returns them with what blocks each one
+  fn block_descendants(&mut self, branch: &str, reason: BlockReason) -> Vec<(BranchJob, StackBlock)> {
+    let mut blocked = Vec::new();
+    let mut pending = vec![(branch.to_string(), reason)];
+    while let Some((parent, reason)) = pending.pop() {
+      for index in self.children.remove(&parent).unwrap_or_default() {
+        if let Some(job) = self.jobs.remove(&index) {
+          pending.push((job.branch_name.clone(), BlockReason::Blocked));
+          blocked.push((job, StackBlock { parent: parent.clone(), reason }));
+        }
+      }
+    }
+    blocked
+  }
+}
+
+/// Report a branch that is not rebuilt this sync: its status and its commits as blocked
+fn report_not_built(progress: &dyn ProgressReporter, job: &BranchJob, status: BranchSyncStatus, reason: String) {
+  let _ = progress.send(SyncEvent::CommitsBlocked {
+    branch_name: job.branch_name.clone(),
+    blocked_commit_hashes: job.commits.iter().map(|commit| commit.id.clone()).collect(),
+  });
+  let _ = progress.send(SyncEvent::BranchStatusUpdate {
+    branch_name: job.branch_name.clone(),
+    status,
+    error: Some(BranchError::Generic(reason)),
+  });
+}
+
+/// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` tasks at a time, then
+/// write the mapping notes of all of them in one notes commit. A stacked branch starts once its parent's head is
+/// written, built on that head; a branch waiting for its parent holds no permit. A parent that fails blocks its
+/// descendants. Returns the first failure, naming its branch.
 async fn process_branches<P: ProgressReporter + Clone + 'static>(
   context: BranchSyncContext<P>,
   branches: IndexMap<String, Vec<Commit>>,
   mut branch_emails: HashMap<String, Option<String>>,
+  base_commit: String,
+  stacks: Option<IndexMap<String, BranchStack>>,
 ) -> Result<()> {
   let context = Arc::new(context);
-  let semaphore = Arc::new(Semaphore::new(max_parallel_git_processes()));
-  let mut tasks = JoinSet::new();
+  let max_running = max_parallel_git_processes();
+  let mut schedule = Schedule {
+    jobs: HashMap::with_capacity(branches.len()),
+    children: HashMap::new(),
+    chain_lengths: HashMap::with_capacity(branches.len()),
+    ready: BinaryHeap::new(),
+  };
 
+  let mut waiting_on: HashMap<usize, String> = HashMap::new();
   for (branch_idx, (branch_name, commits)) in branches.into_iter().enumerate() {
-    let permit = semaphore.clone().acquire_owned().await?;
+    let stack = stacks.as_ref().and_then(|stacks| stacks.get(&branch_name));
     let job = BranchJob {
       my_email: branch_emails.remove(&branch_name).flatten(),
       branch_name,
       commits,
       branch_idx,
+      base_commit: base_commit.clone(),
     };
-    let context = context.clone();
-    tasks.spawn_blocking(move || {
-      let _permit = permit;
-      let branch_name = job.branch_name.clone();
-      (branch_name, process_single_branch(&context, job))
-    });
+    if let Some(stack) = stack {
+      if let Some(problem) = stack.problems.first() {
+        report_not_built(&context.progress, &job, BranchSyncStatus::Error, describe_problem(problem));
+        continue;
+      }
+      if let Some(block) = &stack.blocked_by {
+        report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(block));
+        continue;
+      }
+      if let Some(parent) = &stack.effective_base {
+        waiting_on.insert(branch_idx, parent.clone());
+        schedule.children.entry(parent.clone()).or_default().push(branch_idx);
+      }
+    }
+    schedule.jobs.insert(branch_idx, job);
   }
 
+  // the chain lengths, leaves first; a branch's children all come after it in the stack order
+  let index_of: HashMap<String, usize> = schedule.jobs.iter().map(|(index, job)| (job.branch_name.clone(), *index)).collect();
+  let mut by_depth: Vec<usize> = schedule.jobs.keys().copied().collect();
+  let depth = |mut index: usize| {
+    let mut depth = 0;
+    while let Some(parent) = waiting_on.get(&index).and_then(|parent| index_of.get(parent)) {
+      depth += 1;
+      index = *parent;
+    }
+    depth
+  };
+  by_depth.sort_by_key(|index| Reverse(depth(*index)));
+  for index in by_depth {
+    let length = 1
+      + schedule.children.get(&schedule.jobs[&index].branch_name).map_or(0, |children| {
+        children.iter().map(|child| schedule.chain_lengths.get(child).copied().unwrap_or(1)).max().unwrap_or(0)
+      });
+    schedule.chain_lengths.insert(index, length);
+  }
+  let roots: Vec<usize> = schedule.jobs.keys().copied().filter(|index| !waiting_on.contains_key(index)).collect();
+  for index in roots {
+    schedule.ready(index);
+  }
+
+  let mut tasks = JoinSet::new();
+  let mut to_finish: Vec<BuiltBranch> = Vec::new();
   let mut first_error = None;
   let mut notes = Vec::new();
-  while let Some(joined) = tasks.join_next().await {
-    match joined {
-      Ok((_, Ok(branch_notes))) => notes.extend(branch_notes),
-      Ok((branch_name, Err(e))) => {
-        // The error status has already been sent by process_single_branch
+  loop {
+    // builds first: branches wait for their parents' heads, not for their refs
+    while tasks.len() < max_running {
+      if let Some((_, Reverse(index))) = schedule.ready.pop() {
+        let Some(job) = schedule.jobs.remove(&index) else { continue };
+        let context = context.clone();
+        tasks.spawn_blocking(move || {
+          let branch_name = job.branch_name.clone();
+          TaskOutput::Built(branch_name, build_branch(&context, job))
+        });
+      } else if let Some(built) = to_finish.pop() {
+        let context = context.clone();
+        tasks.spawn_blocking(move || {
+          let branch_name = built.branch_name().to_string();
+          TaskOutput::Finished(branch_name, finish_branch(&context, built))
+        });
+      } else {
+        break;
+      }
+    }
+
+    let Some(joined) = tasks.join_next().await else { break };
+    let failed = match joined {
+      Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Built(built)))) => {
+        schedule.release_children(&branch_name, &built.head);
+        to_finish.push(built);
+        None
+      }
+      Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Failed(reason)))) => Some((branch_name, reason)),
+      Ok(TaskOutput::Built(branch_name, Err(e)) | TaskOutput::Finished(branch_name, Err(e))) => {
         error!(branch = %branch_name, error = ?e, "Branch processing failed");
         first_error.get_or_insert(e.context(format!("Failed to sync branch {branch_name}")));
+        Some((branch_name, BlockReason::Error))
+      }
+      Ok(TaskOutput::Finished(_, Ok(branch_notes))) => {
+        notes.extend(branch_notes);
+        None
       }
       Err(e) => {
         error!(error = %e, "Branch processing task failed");
         first_error.get_or_insert(anyhow!("Branch processing task failed: {e}"));
+        None
+      }
+    };
+    if let Some((branch_name, reason)) = failed {
+      for (job, block) in schedule.block_descendants(&branch_name, reason) {
+        report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(&block));
       }
     }
+  }
+  // a branch whose parent's task panicked is still waiting
+  for job in schedule.jobs.values() {
+    report_not_built(&context.progress, job, BranchSyncStatus::Blocked, "Blocked: the parent branch failed".to_string());
   }
 
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
@@ -375,7 +522,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     branch_refs,
-    stacks: _stacks,
+    stacks,
     update_check,
   } = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
@@ -420,7 +567,6 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
-      parent_commit_hash,
       baseline_branch,
       total_branches: branches.len(),
       progress,
@@ -428,7 +574,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       tree_id_cache: TreeIdCache::new(),
       existing_tips: virtual_tips(branch_refs, branch_prefix),
     };
-    process_branches(context, branches, branch_emails).await
+    process_branches(context, branches, branch_emails, parent_commit_hash, stacks).await
   };
 
   // join (not try_join) so a failure on one side doesn't orphan the other

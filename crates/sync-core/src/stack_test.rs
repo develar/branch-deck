@@ -1,7 +1,7 @@
 use crate::commit_grouper::CommitGrouper;
 use crate::stack::{StackForest, empty_parent_states, place_branches};
+use crate::test_commit::commit;
 use branch_integration::cache::CacheOps;
-use git_ops::commit_list::Commit;
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -9,25 +9,6 @@ use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationSta
 use sync_types::stack::{BlockReason, BranchStack, ParentState, StackBlock};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-
-fn commit(id: &str, subject: &str) -> Commit {
-  Commit {
-    id: id.to_string(),
-    stripped_subject: subject.to_string(),
-    message: subject.to_string(),
-    author_name: "Test Author".to_string(),
-    author_email: "test@example.com".to_string(),
-    author_timestamp: 1_234_567_890,
-    committer_timestamp: 1_234_567_890,
-    author_timezone: String::new(),
-    committer_timezone: String::new(),
-    subject: subject.to_string(),
-    parent_id: None,
-    tree_id: "tree".to_string(),
-    note: None,
-    mapped_commit_id: None,
-  }
-}
 
 fn forest(subjects: &[&str]) -> StackForest {
   let mut grouper = CommitGrouper::new_with_stacks(true);

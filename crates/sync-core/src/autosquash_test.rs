@@ -2,30 +2,11 @@ use crate::autosquash::{
   AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedFixup, PlannedGroup, SquashFixupsParams, SquashFixupsResult, build_fixup_message, get_autosquash_plan_core,
   plan_autosquash, squash_fixup_commits_core,
 };
+use crate::test_commit::commit;
 use git_ops::commit_list::Commit;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-
-fn commit(id: &str, message: &str) -> Commit {
-  let subject = message.split('\n').next().unwrap().to_string();
-  Commit {
-    id: id.to_string(),
-    stripped_subject: subject.clone(),
-    message: message.to_string(),
-    author_name: "Test Author".to_string(),
-    author_email: "test@example.com".to_string(),
-    author_timestamp: 1_234_567_890,
-    committer_timestamp: 1_234_567_890,
-    author_timezone: String::new(),
-    committer_timezone: String::new(),
-    subject,
-    parent_id: None,
-    tree_id: "tree".to_string(),
-    note: None,
-    mapped_commit_id: None,
-  }
-}
 
 /// Commits with the ids `c0`, `c1`, … oldest first
 fn commits(messages: &[&str]) -> Vec<Commit> {
