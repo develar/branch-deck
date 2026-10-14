@@ -4,6 +4,8 @@
 
 use anyhow::{Result, anyhow};
 use branch_integration::cache::{NOTES_REF, deserialize_from_cache};
+use branch_integration::detector::{PendingBranch, detect_pending_branches};
+use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use indexmap::{IndexMap, IndexSet};
@@ -342,16 +344,38 @@ pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String,
   placed
 }
 
+/// How integration detection runs for a declared ancestor whose virtual branch still exists but whose commits left
+/// HEAD: the sync archives that branch, so it is detected before the branches are placed
+#[derive(Debug, Clone, Copy)]
+pub struct PendingDetection<'a> {
+  pub baseline_branch: &'a str,
+  pub strategy: DetectionStrategy,
+  /// Write the results as detection notes (a sync); a read-only command only detects
+  pub cache: bool,
+}
+
+/// The detection of a read-only command (`bd status`, `bd check`): the strategy of a sync, without writing notes
+pub fn read_only_detection(baseline_branch: &str) -> PendingDetection<'_> {
+  PendingDetection {
+    baseline_branch,
+    strategy: get_detection_strategy(),
+    cache: false,
+  }
+}
+
 /// How the declared ancestors without commits stand: `Unapplied` with an unapplied branch of that name, `Integrated`
-/// when the newest archived branch of that name is integrated (by its detection note), else `Missing`. `branch_refs`
-/// maps the full names of the branches under the prefix to their tips. At most one git process, only for ancestors with
-/// an archived branch.
+/// when its branch is integrated, else `Missing`. The branch is the virtual branch of that name, which this sync
+/// archives, else the newest archived one; it is integrated by its detection note, and a virtual branch without a note
+/// is detected now (`detection`). `branch_refs` maps the full names of the branches under the prefix to their tips. At
+/// most one git process for the notes, only for ancestors with such a branch, plus the detection of a virtual branch
+/// without a note.
 pub fn empty_parent_states(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   branch_prefix: &str,
   branch_refs: &HashMap<String, String>,
   forest: &StackForest,
+  detection: PendingDetection<'_>,
 ) -> Result<HashMap<String, ParentState>> {
   let empty: Vec<&str> = forest.nodes.iter().filter(|(_, node)| !node.has_commits).map(|(name, _)| name.as_str()).collect();
   let mut states = HashMap::with_capacity(empty.len());
@@ -360,40 +384,71 @@ pub fn empty_parent_states(
   }
 
   let archive_namespace = format!("{}/archived/", branch_prefix.trim_end_matches('/'));
-  // ancestor -> (date, tip) of its newest archived branch
-  let mut newest_archived: HashMap<&str, (&str, &str)> = HashMap::new();
+  // ancestor -> (date, full name, tip) of its newest archived branch
+  let mut newest_archived: HashMap<&str, (&str, &str, &str)> = HashMap::new();
+  // ancestor -> (full name, tip) of its virtual branch
+  let mut pending: HashMap<&str, (&str, &str)> = HashMap::new();
   for (full_name, tip) in branch_refs {
     if let Some(name) = strip_branch_namespace(full_name, branch_prefix, BranchKind::Unapplied) {
       if let Some(parent) = empty.iter().find(|parent| names_branch(name, parent)) {
         states.insert((*parent).to_string(), ParentState::Unapplied);
       }
+    } else if let Some(name) = strip_branch_namespace(full_name, branch_prefix, BranchKind::Virtual) {
+      if let Some(parent) = empty.iter().find(|parent| **parent == name) {
+        pending.insert(parent, (full_name, tip));
+      }
     } else if let Some((date, name)) = full_name.strip_prefix(&archive_namespace).and_then(|rest| rest.split_once('/'))
       && let Some(parent) = empty.iter().find(|parent| names_branch(name, parent))
-      && newest_archived.get(parent).is_none_or(|(newest_date, _)| *newest_date < date)
+      // the full name orders the archives of one day (`auth`, `auth-1`) the same way on every run
+      && newest_archived.get(parent).is_none_or(|(newest_date, newest_name, _)| (*newest_date, *newest_name) < (date, full_name.as_str()))
     {
-      newest_archived.insert(parent, (date, tip));
+      newest_archived.insert(parent, (date, full_name, tip));
     }
   }
-  newest_archived.retain(|parent, _| !states.contains_key(*parent));
+  // the virtual branch is newer than any archived one of the name
+  let tips: HashMap<&str, &str> = newest_archived
+    .into_iter()
+    .map(|(parent, (_, _, tip))| (parent, tip))
+    .chain(pending.iter().map(|(parent, (_, tip))| (*parent, *tip)))
+    .filter(|(parent, _)| !states.contains_key(*parent))
+    .collect();
+  if tips.is_empty() {
+    return Ok(states);
+  }
 
-  if !newest_archived.is_empty() {
-    let mut input = String::with_capacity(newest_archived.len() * 41);
-    for (_, tip) in newest_archived.values() {
-      input.push_str(tip);
-      input.push('\n');
+  let mut input = String::with_capacity(tips.len() * 41);
+  for tip in tips.values() {
+    input.push_str(tip);
+    input.push('\n');
+  }
+  let notes_arg = format!("--notes={NOTES_REF}");
+  let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%s%x1f%N%x1e", &notes_arg], repo_path, &input)?;
+  // tip -> (subject, the status of its note)
+  let mut noted: HashMap<&str, (&str, Option<BranchIntegrationStatus>)> = HashMap::new();
+  for record in output.split('\u{1e}') {
+    let mut fields = record.trim_start().splitn(3, '\u{1f}');
+    if let (Some(tip), Some(subject), Some(note)) = (fields.next(), fields.next(), fields.next()) {
+      noted.insert(tip, (subject, deserialize_from_cache(note.trim()).ok().map(|info| info.status)));
     }
-    let notes_arg = format!("--notes={NOTES_REF}");
-    let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg], repo_path, &input)?;
-    let integrated_tips: HashSet<&str> = output
-      .split('\u{1e}')
-      .filter_map(|record| record.trim().split_once('\u{1f}'))
-      .filter(|(_, note)| deserialize_from_cache(note.trim()).is_ok_and(|info| matches!(info.status, BranchIntegrationStatus::Integrated { .. })))
-      .map(|(tip, _)| tip)
-      .collect();
-    for (parent, (_, tip)) in newest_archived {
-      if integrated_tips.contains(tip) {
-        states.insert(parent.to_string(), ParentState::Integrated);
-      }
+  }
+
+  let undetected: Vec<PendingBranch<'_>> = pending
+    .values()
+    .filter_map(|(full_name, tip)| match noted.get(tip) {
+      Some((_, Some(_))) => None,
+      noted => Some(PendingBranch {
+        branch: full_name,
+        tip,
+        subject: noted.map_or("", |(subject, _)| subject),
+      }),
+    })
+    .collect();
+  let detected = detect_pending_branches(git_executor, repo_path, detection.baseline_branch, detection.strategy, &undetected, detection.cache)?;
+
+  for (parent, tip) in tips {
+    let status = noted.get(tip).and_then(|(_, status)| status.as_ref()).or_else(|| detected.get(tip));
+    if matches!(status, Some(BranchIntegrationStatus::Integrated { .. })) {
+      states.insert(parent.to_string(), ParentState::Integrated);
     }
   }
   Ok(states)

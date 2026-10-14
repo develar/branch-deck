@@ -8,7 +8,7 @@ use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::grouping::branch_tips;
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, regroup_commits_core};
-use crate::stack::{empty_parent_states, place_branches};
+use crate::stack::{empty_parent_states, place_branches, read_only_detection};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list};
@@ -103,7 +103,10 @@ pub fn check_plan(
     branch_tips(git_executor, repository_path, branch_prefix)?
   };
   let placements = match &forest {
-    Some(forest) => Some(place_branches(forest, &empty_parent_states(git_executor, repository_path, branch_prefix, &tips, forest)?)),
+    Some(forest) => Some(place_branches(
+      forest,
+      &empty_parent_states(git_executor, repository_path, branch_prefix, &tips, forest, read_only_detection(&baseline_branch))?,
+    )),
     None => None,
   };
   let order: Vec<String> = forest.as_ref().map_or_else(|| branches.keys().cloned().collect(), |forest| forest.order.clone());

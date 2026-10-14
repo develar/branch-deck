@@ -10,6 +10,8 @@ targets:
   - ../../crates/sync-core/src/autosquash.rs
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/branch-integration/src/detector.rs
+  - ../../crates/sync-core/src/grouping.rs
+  - ../../crates/sync-core/src/check.rs
   - ../../crates/sync-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/stores/branch-sync.ts
@@ -96,9 +98,16 @@ renames branches.
   every parent commit on the main branch (`childPrecedesParent`).
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`builds_each_branch_on_its_parent`)
   [@test] ../../crates/sync-core/src/stack_test.rs (`a_child_is_built_on_its_active_parent`)
-- A parent without commits must be `Unapplied` with an unapplied branch of its name, `Integrated` when the detection
-  note of its newest archived branch says so, else `Missing`.
+- A parent without commits must be `Unapplied` with an unapplied branch of its name, `Integrated` when its branch is
+  integrated, else `Missing`. Its branch is its virtual branch, which the sync is about to archive, else its newest
+  archived branch; a detection note says whether it is integrated.
   [@test] ../../crates/sync-core/src/stack_test.rs (`reads_the_state_of_parents_without_commits_from_their_branches`)
+- A virtual branch of a parent without commits and without a note must be detected before the branches are placed, so
+  the first sync after the parent's merge already moves the child. The sync writes the note, and its archiving reports
+  the parent from it; `bd status` and `bd check` detect without writing.
+  [@test] ../../crates/sync-core/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
+  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
+  [@test] ../../crates/bd-cli/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
 - An integrated parent must move the child to its nearest active ancestor, or the baseline, with `prBaseChanged`.
   [@test] ../../crates/sync-core/src/stack_test.rs (`an_integrated_parent_moves_the_child_to_the_nearest_active_ancestor`)
 - A missing or unapplied parent, a parent with a problem and a blocked parent must block the child: the `Blocked`
@@ -198,8 +207,8 @@ renames branches.
 
 ## Open Questions / Risks
 
-- An integrated parent is recognized only once its archived branch has a detection note, so the first sync after the
-  parent's merge blocks the child (`Missing`); the next one moves it.
+- A parent integrated by a squash merge is `Missing` under the default rebase detection, so its child stays blocked
+  until the user restacks it.
 
 ## References
 

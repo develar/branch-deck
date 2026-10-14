@@ -260,3 +260,26 @@ fn stacks_in_status() {
   let (_, commits) = run_in(&repo, &["commits"]);
   assert_eq!(commits["commits"][1]["group"], json!("login"));
 }
+
+#[test_log::test]
+fn a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  write(&repo, "auth.rs", "auth\n");
+  let auth = commit_all(&repo, "(auth) Add auth", 1_700_000_000);
+  // the last sync built `auth`; then upstream took its change, and the update dropped the commit
+  git(&repo, &["update-ref", &format!("refs/heads/{PREFIX}/virtual/auth"), &auth]);
+  git(&repo, &["reset", "-q", "--hard", "origin/master"]);
+  write(&repo, "auth.rs", "auth\n");
+  let upstream = commit_all(&repo, "Add auth", 1_700_000_100);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &upstream]);
+  write(&repo, "login.rs", "login\n");
+  commit_all(&repo, "(auth/login) Add login", 1_700_000_200);
+
+  let (exit_code, output) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let login = &output["branches"][0];
+  assert_eq!((&login["name"], &login["parent_state"]), (&json!("login"), &json!("integrated")));
+  assert_eq!((login.get("effective_base"), login.get("blocked_by")), (None, None));
+  assert_eq!(git(&repo, &["notes", "--ref", "branch-deck/detection", "list"]), "", "status writes no note");
+}

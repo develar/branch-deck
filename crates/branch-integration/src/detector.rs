@@ -269,24 +269,93 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
     }
   }
 
-  let caches_to_write = detect_in_parallel(git_executor, repo_path, baseline_branch, config.strategy, config.progress, jobs, &commit_subjects)?;
+  let detected = detect_in_parallel(git_executor, repo_path, baseline_branch, config.strategy, Some(config.progress), jobs, &commit_subjects)?;
 
   // Write all caches sequentially to avoid notes ref races
-  write_caches(git_executor, repo_path, &caches_to_write)
+  write_caches(git_executor, repo_path, &cacheable(detected))
 }
 
-/// Run fresh detection for `jobs` on a bounded pool of scoped threads, sending each result as soon as it is known.
-/// Returns `(tip, info)` pairs to cache.
+/// A branch to detect before a sync archives it: the virtual branch of a stacked parent whose commits left HEAD
+pub struct PendingBranch<'a> {
+  /// The branch name without `refs/heads/`
+  pub branch: &'a str,
+  pub tip: &'a str,
+  /// The subject of the tip, for the summary of an issue-named branch
+  pub subject: &'a str,
+}
+
+/// Detect `branches` now, as the archiving of the sync would right after: a stacked branch is placed by whether its
+/// parent is integrated, before the parent is archived (spec/branch/stacked-branches.spec.md). Sends no events. With
+/// `cache`, the results are written as detection notes by the rule of a sync (a stacked branch only when `Integrated`),
+/// so the archived branch is reported from its note; without, nothing is written. Returns the status per tip; a branch
+/// whose detection fails is left out.
+#[instrument(skip(git, branches), fields(count = branches.len()))]
+pub fn detect_pending_branches(
+  git: &GitCommandExecutor,
+  repo: &str,
+  baseline: &str,
+  strategy: DetectionStrategy,
+  branches: &[PendingBranch<'_>],
+  cache: bool,
+) -> Result<HashMap<String, BranchIntegrationStatus>> {
+  if branches.is_empty() {
+    return Ok(HashMap::new());
+  }
+  let merged: HashSet<String> = if matches!(strategy, DetectionStrategy::Merge | DetectionStrategy::All) {
+    let mut args = vec![format!("--merged={baseline}"), "--format=%(refname:lstrip=2)".to_string()];
+    args.extend(branches.iter().map(|branch| format!("refs/heads/{}", branch.branch)));
+    let args: Vec<&str> = std::iter::once("for-each-ref").chain(args.iter().map(String::as_str)).collect();
+    git.execute_command_lines(&args, repo)?.into_iter().collect()
+  } else {
+    HashSet::new()
+  };
+  let tips: Vec<&str> = branches.iter().map(|branch| branch.tip).collect();
+  let mut stack_bases = read_stack_bases(git, repo, &tips);
+  let jobs = branches
+    .iter()
+    .map(|branch| DetectionJob {
+      branch: branch.branch.to_string(),
+      tip: branch.tip.to_string(),
+      is_merged: merged.contains(branch.branch),
+      stack_base: stack_bases.remove(branch.tip),
+    })
+    .collect();
+  let subjects: HashMap<String, String> = branches.iter().map(|branch| (branch.tip.to_string(), branch.subject.to_string())).collect();
+
+  let detected = detect_in_parallel(git, repo, baseline, strategy, None, jobs, &subjects)?;
+  let statuses = detected.iter().map(|result| (result.tip.clone(), result.info.status.clone())).collect();
+  if cache {
+    write_caches(git, repo, &cacheable(detected))?;
+  }
+  Ok(statuses)
+}
+
+/// The result of a fresh detection
+struct Detected {
+  tip: String,
+  info: BranchIntegrationInfo,
+  /// A stacked branch's result depends on more than its tip (its parent may still be integrated), so only a final
+  /// `Integrated` is cached
+  cacheable: bool,
+}
+
+/// The `(tip, info)` pairs to cache
+fn cacheable(detected: Vec<Detected>) -> Vec<(String, BranchIntegrationInfo)> {
+  detected.into_iter().filter(|result| result.cacheable).map(|result| (result.tip, result.info)).collect()
+}
+
+/// Run fresh detection for `jobs` on a bounded pool of scoped threads, sending each result to `progress` as soon as it is
+/// known.
 #[instrument(skip_all, fields(job_count = jobs.len()))]
 fn detect_in_parallel(
   git: &GitCommandExecutor,
   repo: &str,
   baseline: &str,
   strategy: DetectionStrategy,
-  progress: &dyn ProgressReporter,
+  progress: Option<&dyn ProgressReporter>,
   jobs: Vec<DetectionJob>,
   commit_subjects: &HashMap<String, String>,
-) -> Result<Vec<(String, BranchIntegrationInfo)>> {
+) -> Result<Vec<Detected>> {
   if jobs.is_empty() {
     return Ok(Vec::new());
   }
@@ -313,13 +382,11 @@ fn detect_in_parallel(
         status,
       };
       // Send unified event immediately as each branch completes detection
-      progress.send(SyncEvent::BranchIntegrationDetected { info: info.clone() })?;
-      // a stacked branch's result depends on more than its tip (its parent may still be integrated), so only a final
-      // `Integrated` is cached
-      if job.stack_base.is_some() && !matches!(info.status, BranchIntegrationStatus::Integrated { .. }) {
-        continue;
+      if let Some(progress) = progress {
+        progress.send(SyncEvent::BranchIntegrationDetected { info: info.clone() })?;
       }
-      results.lock().unwrap_or_else(PoisonError::into_inner).push((job.tip, info));
+      let cacheable = job.stack_base.is_none() || matches!(info.status, BranchIntegrationStatus::Integrated { .. });
+      results.lock().unwrap_or_else(PoisonError::into_inner).push(Detected { tip: job.tip, info, cacheable });
     }
   };
 

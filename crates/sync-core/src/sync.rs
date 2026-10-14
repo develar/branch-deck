@@ -2,7 +2,7 @@ use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::issue_navigation::load_issue_navigation_config;
-use crate::stack::{describe_block, describe_problem, empty_parent_states, place_branches, stacks_enabled};
+use crate::stack::{PendingDetection, describe_block, describe_problem, empty_parent_states, place_branches, stacks_enabled};
 use crate::update_project::check_baseline_update;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
@@ -206,6 +206,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   repository_path: &str,
   branch_prefix: &str,
   issue_config: IssueConfigSource,
+  detection_strategy: DetectionStrategy,
   progress: &P,
 ) -> Result<PreparedSync> {
   // Use cached issue config if available (including a cached "none"), otherwise load it
@@ -264,7 +265,12 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
   let stacks = match forest {
     Some(forest) => {
-      let empty_parents = empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, &forest)?;
+      let detection = PendingDetection {
+        baseline_branch: &baseline_branch,
+        strategy: detection_strategy,
+        cache: true,
+      };
+      let empty_parents = empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, &forest, detection)?;
       Some(place_branches(&forest, &empty_parents))
     }
     None => None,
@@ -537,7 +543,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let repository_path = repository_path.to_string();
     let branch_prefix = branch_prefix.to_string();
     let progress = progress.clone();
-    move || prepare_sync(&git_executor, &repository_path, &branch_prefix, issue_config, &progress)
+    move || prepare_sync(&git_executor, &repository_path, &branch_prefix, issue_config, detection_strategy, &progress)
   })
   .await
   .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;

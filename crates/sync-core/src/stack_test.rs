@@ -1,7 +1,8 @@
 use crate::commit_grouper::CommitGrouper;
-use crate::stack::{StackForest, empty_parent_states, place_branches};
+use crate::stack::{PendingDetection, StackForest, empty_parent_states, place_branches, read_only_detection};
 use crate::test_commit::commit;
-use branch_integration::cache::CacheOps;
+use branch_integration::cache::{CacheOps, NOTES_REF};
+use branch_integration::strategy::DetectionStrategy;
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -102,6 +103,9 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
   test_repo.create_branch_at("test/archived/2026-01-01/cache", &base).unwrap();
   test_repo.create_branch_at("test/archived/2026-01-02/cache", &cache_tip).unwrap();
   test_repo.create_branch_at("test/archived/2026-01-02/docs", &docs_tip).unwrap();
+  // an old integrated archive of `old`, whose newer branch, still virtual, is not integrated
+  test_repo.create_branch_at("test/archived/2026-01-01/old", &cache_tip).unwrap();
+  test_repo.create_branch_at("test/virtual/old", &docs_tip).unwrap();
   let status = |integrated| {
     if integrated {
       BranchIntegrationStatus::Integrated {
@@ -137,12 +141,48 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
     .filter_map(|line| line.split_once(' '))
     .map(|(name, tip)| (name.to_string(), tip.to_string()))
     .collect();
-  let forest = forest(&["(auth/a) A", "(cache/b) B", "(docs/c) C", "(gone/d) D"]);
+  let forest = forest(&["(auth/a) A", "(cache/b) B", "(docs/c) C", "(gone/d) D", "(old/e) E"]);
 
-  let states = empty_parent_states(git_executor, repo_path, "test", &branch_refs, &forest).unwrap();
+  let states = empty_parent_states(git_executor, repo_path, "test", &branch_refs, &forest, read_only_detection("HEAD")).unwrap();
 
   assert_eq!(states.get("auth"), Some(&ParentState::Unapplied));
   assert_eq!(states.get("cache"), Some(&ParentState::Integrated));
   assert_eq!(states.get("docs"), None);
   assert_eq!(states.get("gone"), None);
+  assert_eq!(states.get("old"), None, "the virtual branch is newer than any archive");
+}
+
+#[test]
+fn a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement() {
+  let test_repo = TestRepo::new();
+  let repo_path = test_repo.path().to_str().unwrap();
+  let git_executor = test_repo.git_executor();
+  let base = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  // the baseline has the change of `auth` in another commit, not the change of `cache`
+  let baseline = test_repo.create_commit("Add auth upstream", "auth.rs", "// auth");
+  test_repo.create_branch_at("baseline", &baseline).unwrap();
+  test_repo.reset_hard(&base).unwrap();
+  let integrated = test_repo.create_commit("Add auth", "auth.rs", "// auth");
+  test_repo.create_branch_at("test/virtual/auth", &integrated).unwrap();
+  test_repo.reset_hard(&base).unwrap();
+  let local = test_repo.create_commit("Add cache", "cache.rs", "// cache");
+  test_repo.create_branch_at("test/virtual/cache", &local).unwrap();
+  let branch_refs = HashMap::from([("test/virtual/auth".to_string(), integrated.clone()), ("test/virtual/cache".to_string(), local.clone())]);
+  let forest = forest(&["(auth/a) A", "(cache/b) B"]);
+  let notes = || test_repo.list_notes_with_ref(NOTES_REF).unwrap_or_default();
+
+  let detect = |cache| PendingDetection {
+    baseline_branch: "baseline",
+    strategy: DetectionStrategy::Rebase,
+    cache,
+  };
+  let states = empty_parent_states(git_executor, repo_path, "test", &branch_refs, &forest, detect(false)).unwrap();
+  assert_eq!((states.get("auth"), states.get("cache")), (Some(&ParentState::Integrated), None));
+  assert!(notes().is_empty(), "a read-only command writes no note");
+
+  let states = empty_parent_states(git_executor, repo_path, "test", &branch_refs, &forest, detect(true)).unwrap();
+  assert_eq!((states.get("auth"), states.get("cache")), (Some(&ParentState::Integrated), None));
+  let notes = notes();
+  assert!(notes.iter().any(|line| line.ends_with(&integrated)), "{notes:?}");
+  assert!(notes.iter().any(|line| line.ends_with(&local)), "a root branch caches any result");
 }

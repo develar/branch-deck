@@ -71,8 +71,8 @@ commands are already reserved.
 
 Prints HEAD, the baseline (`detect_baseline_branch`), the prefix, the branches and the unassigned commits. It groups
 the commits the same way a sync does (`sync_core::grouping`, the first phase of a sync without its events). It does no
-integration detection, no update check and no network access. It runs about ten short git processes, with one `log`
-for all the commits.
+integration detection (except for a stacked parent whose commits left HEAD, below), no update check and no network
+access. It runs about ten short git processes, with one `log` for all the commits.
 
 ```json
 {"schema":1,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},
@@ -89,8 +89,9 @@ for all the commits.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
-  - `parent`, the parent its commits declare, and `parent_state`: `active` (it has commits), `integrated` (its archived
-    branch is integrated: the branch goes on the nearest active ancestor), `unapplied` or `missing`;
+  - `parent`, the parent its commits declare, and `parent_state`: `active` (it has commits), `integrated` (its branch
+    is integrated: the branch goes on the nearest active ancestor), `unapplied` or `missing`. A parent whose commits
+    left HEAD since the last sync is detected now, as the next sync detects it, without writing the detection note;
   - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}`;
   - `problems` (`{message, commits}`): conflicting parents, a cycle, a self parent, a case collision, an empty level.
 

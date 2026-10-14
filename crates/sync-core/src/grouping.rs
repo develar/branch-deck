@@ -1,6 +1,6 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
-use crate::stack::{StackForest, empty_parent_states, place_branches, stacks_enabled};
+use crate::stack::{StackForest, empty_parent_states, place_branches, read_only_detection, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -32,8 +32,9 @@ pub struct BranchGrouping {
 
 /// Group the commits ahead of the baseline by prefix or issue key: the first phase of a sync without its events, two
 /// to five git processes (the stack setting, baseline detection and one `log`), with stacked branches two more for
-/// placing them (the branches under `branch_prefix` and the detection notes of archived parents). No integration
-/// detection, no update check, no network
+/// placing them (the branches under `branch_prefix` and the detection notes of parents without commits). Integration
+/// detection runs only for a parent whose virtual branch the next sync archives, and writes no note. No update check,
+/// no network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
@@ -61,7 +62,7 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
       let branch_refs = branch_tips(git_executor, repository_path, branch_prefix)?;
       Some(place_branches(
         forest,
-        &empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, forest)?,
+        &empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, forest, read_only_detection(&baseline_branch))?,
       ))
     }
     _ => None,

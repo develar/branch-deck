@@ -6,6 +6,7 @@ use branch_integration::strategy::DetectionStrategy;
 use pretty_assertions::assert_eq;
 use sync_types::SyncEvent;
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
+use sync_types::stack::ParentState;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -84,4 +85,32 @@ async fn an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_i
     info.status
   );
   assert!(!local_repo.list_notes_with_ref(NOTES_REF).unwrap_or_default().iter().any(|line| line.ends_with(&login)));
+}
+
+#[test(tokio::test)]
+async fn the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline() {
+  let (upstream_repo, local_repo, git_executor) = setup_test_repos();
+  let (auth, _) = stacked_clone(&local_repo, &git_executor).await;
+
+  // upstream takes auth's change; the update drops auth's commit, so only login's is left
+  upstream_repo.create_commit("Add auth", "auth.rs", "// auth");
+  local_repo.fetch_prune("origin").unwrap();
+  local_repo.reset_hard("origin/master").unwrap();
+  local_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  let events = sync_user_branches(&git_executor, &local_repo, DetectionStrategy::All).await.unwrap().get_events();
+
+  let stack = events
+    .iter()
+    .find_map(|event| match event {
+      SyncEvent::BranchesGrouped { branches, .. } => branches.iter().find(|branch| branch.name == "login").and_then(|branch| branch.stack.clone()),
+      _ => None,
+    })
+    .expect("login is grouped with its stack");
+  assert_eq!(stack.parent_state, Some(ParentState::Integrated));
+  assert_eq!((stack.effective_base, stack.blocked_by, stack.pr_base_changed), (None, None, true));
+  assert_eq!(local_repo.rev_parse("user/virtual/login~1").unwrap(), local_repo.rev_parse("origin/master").unwrap());
+
+  // detected once, before the placement; the archiving reports it from the note
+  assert!(matches!(archived_info(&events, "auth").status, BranchIntegrationStatus::Integrated { .. }));
+  assert!(local_repo.list_notes_with_ref(NOTES_REF).unwrap().iter().any(|line| line.ends_with(&auth)));
 }
