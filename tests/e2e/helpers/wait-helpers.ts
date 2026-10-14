@@ -16,6 +16,22 @@ export async function waitForProcessingComplete(page: Page, element: Locator): P
 }
 
 /**
+ * Holds every call of a Tauri command (e.g. `sync_branches`) in the mock until the returned function releases them, to
+ * check the page while the command runs
+ */
+export async function holdCommand(page: Page, command: string): Promise<() => void> {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/invoke/${command}`, async (route) => {
+    await held
+    await route.continue()
+  })
+  return release
+}
+
+/**
  * Wait for a specific API response
  */
 export async function waitForApiResponse(

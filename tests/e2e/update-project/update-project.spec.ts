@@ -4,6 +4,7 @@ import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt and added docs/guide.md; already fetched.
@@ -17,6 +18,8 @@ function refusedDialog(page: Page): Locator {
 }
 
 async function expectTooltip(page: Page, text: string | RegExp): Promise<void> {
+  // a click on the button closed its tooltip, which opens again on the next hover (the button stays in place)
+  await page.mouse.move(0, 0)
   await updateButton(page).hover()
   await expect(page.getByTestId("update-project-tooltip")).toContainText(text)
   await page.mouse.move(0, 0)
@@ -42,14 +45,7 @@ test.describe("Update Project", () => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     // hold the update in its fetch: the mock forwards no progress, as before git reports the first stage
-    let releaseUpdate!: () => void
-    const updateHeld = new Promise<void>((resolve) => {
-      releaseUpdate = resolve
-    })
-    await page.route("**/invoke/update_project", async (route) => {
-      await updateHeld
-      await route.continue()
-    })
+    const releaseUpdate = await holdCommand(page, "update_project")
     const button = updateButton(page)
     await button.click()
     await expect(button).toHaveText("Fetching…")
@@ -71,6 +67,9 @@ test.describe("Update Project", () => {
     await page.getByTestId("outgoing-indicator").hover()
     const line = page.getByTestId("outgoing-popover").getByTestId("update-state-line")
     await expect(line).toContainText("Incoming from origin/master: rebases cleanly")
+    // the icon of the button: a clean update without landed commits is the check
+    await expect(line.getByTestId("update-state-icon")).toBeVisible()
+    await expect(line.getByTestId("update-state-icon")).not.toHaveAttribute("data-landing")
 
     await line.getByTestId("update-state-line-button").click()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
