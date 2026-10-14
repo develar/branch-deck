@@ -1,8 +1,8 @@
 use crate::commit_grouper::parse_subject;
-use crate::reword_commit::reword_messages;
+use crate::reword_commit::reword_read_commits;
 use anyhow::{Result, anyhow, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_utils::get_commits_info;
+use git_ops::commit_utils::{find_commit, get_commits_info};
 use git_ops::model::sanitize_branch_name;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -53,7 +53,7 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   // (request id, previous message, new message)
   let mut rewrites = Vec::with_capacity(ids.len());
   for id in ids {
-    let commit = commits.values().find(|commit| commit.id.starts_with(id)).ok_or_else(|| anyhow!("Commit {id} not found"))?;
+    let commit = find_commit(&commits, id).ok_or_else(|| anyhow!("Commit {id} not found"))?;
     let previous_message = commit.message.trim_end().to_string();
     let new_message = with_branch_prefix(&previous_message, target);
     if new_message != previous_message {
@@ -61,9 +61,10 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
     }
   }
 
-  let new_ids = reword_messages(
+  let new_ids = reword_read_commits(
     git_executor,
     &params.repository_path,
+    &commits,
     rewrites.iter().map(|(id, _, new_message)| (*id, new_message.as_str())),
   )?;
   let moved: Vec<MovedCommit> = rewrites

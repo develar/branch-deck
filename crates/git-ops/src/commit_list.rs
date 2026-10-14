@@ -52,13 +52,8 @@ pub fn get_commit_list_with_handler<F>(git_executor: &GitCommandExecutor, repo_p
 where
   F: FnMut(Commit) -> Result<()>,
 {
-  // Check if we're on the baseline branch itself (for local repos without remotes)
-  let current_branch = git_executor.execute_command(&["--no-pager", "rev-parse", "--abbrev-ref", "HEAD"], repo_path)?;
-  let current_branch = current_branch.trim();
-
-  // If we're on the baseline branch and it's a local branch (no remote prefix),
-  // get all commits except the first one
-  let range = if current_branch == baseline_branch && !baseline_branch.contains('/') {
+  // On the local baseline branch itself, get all commits except the first one
+  let range = if is_on_local_baseline(git_executor, repo_path, baseline_branch)? {
     // Get the first commit (root commit)
     let root_commit = git_executor.execute_command(&["--no-pager", "rev-list", "--max-parents=0", "HEAD"], repo_path)?;
     let root_commit = root_commit.trim();
@@ -108,8 +103,18 @@ where
   // Process any remaining data in buffer
   handle_record(&buffer)?;
 
-  debug!(commits_count = commit_count, branch = %baseline_branch, current_branch = %current_branch, range = %range, "streamed commits ahead of baseline");
+  debug!(commits_count = commit_count, branch = %baseline_branch, range = %range, "streamed commits ahead of baseline");
   Ok(())
+}
+
+/// Whether HEAD is the baseline branch itself and that is a local branch (no remote prefix), as in a repository
+/// without remotes: then every commit counts as ahead of the baseline
+pub fn is_on_local_baseline(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<bool> {
+  if baseline_branch.contains('/') {
+    return Ok(false);
+  }
+  let current_branch = git_executor.execute_command(&["--no-pager", "rev-parse", "--abbrev-ref", "HEAD"], repo_path)?;
+  Ok(current_branch == baseline_branch)
 }
 
 /// Separator between commit records in the `git log` output (`%x1e`)
@@ -157,8 +162,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
       (None, None)
     } else {
       let trimmed = note_content.trim();
-      let mapped_id = trimmed.strip_prefix(crate::notes::PREFIX).map(|stripped| stripped.trim().to_string());
-      (Some(trimmed.to_string()), mapped_id)
+      (Some(trimmed.to_string()), crate::notes::mapped_commit_id(trimmed).map(str::to_string))
     }
   } else {
     (None, None)

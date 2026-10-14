@@ -1,3 +1,5 @@
+use crate::baseline::detect_baseline_branch;
+use crate::reword_commit::keeps_virtual_commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
@@ -79,6 +81,7 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
     };
     rewrites.push(RewordCommitParams {
       commit_id: commit.hash,
+      keeps_virtual_commit: keeps_virtual_commit(trimmed_message, &new_message),
       new_message,
     });
   }
@@ -94,7 +97,8 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
   }
 
   // Reword commits using plumbing commands
-  match reword_commits_batch(git_executor, &params.repository_path, rewrites) {
+  let baseline_branch = detect_baseline_branch(git_executor, &params.repository_path, "master").map_err(|e| format!("Failed to add issue reference: {e}"))?;
+  match reword_commits_batch(git_executor, &params.repository_path, &baseline_branch, rewrites) {
     Ok(mapping) => {
       info!(
         "Successfully added issue reference '{}' to {} commits (skipped {})",

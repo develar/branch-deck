@@ -1,5 +1,7 @@
 use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
 use crate::commit_grouper::CommitGrouper;
+use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
+use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -126,4 +128,92 @@ async fn a_rebuild_without_notes_writes_the_same_commits() {
   sync(&test_repo).await;
   assert_eq!(virtual_commits(&test_repo, "auth"), auth);
   assert_eq!(virtual_commits(&test_repo, "cache"), cache);
+}
+
+#[tokio::test]
+async fn assigning_an_older_commit_reuses_every_virtual_commit() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  let unassigned = test_repo.create_commit("Fix typo", "typo.txt", "typo");
+  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
+  test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+
+  sync(&test_repo).await;
+  let auth = virtual_commits(&test_repo, "auth");
+  let cache = virtual_commits(&test_repo, "cache");
+
+  // recreates every commit after it
+  let params = MoveCommitsParams {
+    repository_path: repo_path(&test_repo).to_string(),
+    commit_ids: vec![unassigned],
+    target_branch: Some("docs".to_string()),
+  };
+  move_commits_to_branch_core(test_repo.git_executor(), &params).unwrap();
+
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged, CommitSyncStatus::Unchanged]);
+  assert_eq!(statuses["cache"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(statuses["docs"], [CommitSyncStatus::Created]);
+  assert_eq!(virtual_commits(&test_repo, "auth"), auth);
+  assert_eq!(virtual_commits(&test_repo, "cache"), cache);
+}
+
+#[tokio::test]
+async fn moving_a_commit_to_another_branch_copies_it_there() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
+  let logout = test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+
+  sync(&test_repo).await;
+  let auth = virtual_commits(&test_repo, "auth");
+  let cache = virtual_commits(&test_repo, "cache");
+
+  // only the prefix changes: the note moves with the commit, but its virtual commit is in another branch
+  let params = MoveCommitsParams {
+    repository_path: repo_path(&test_repo).to_string(),
+    commit_ids: vec![logout],
+    target_branch: Some("cache".to_string()),
+  };
+  move_commits_to_branch_core(test_repo.git_executor(), &params).unwrap();
+
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(statuses["cache"], [CommitSyncStatus::Unchanged, CommitSyncStatus::Created]);
+  assert_eq!(virtual_commits(&test_repo, "auth"), auth[..1]);
+  let moved = virtual_commits(&test_repo, "cache");
+  assert_eq!(moved[0], cache[0]);
+  assert_eq!(test_repo.log(&["-1", "--format=%s", &moved[1]]).unwrap(), "Add logout");
+  assert!(test_repo.get_files_in_commit(&moved[1]).unwrap().contains(&"logout.rs".to_string()));
+}
+
+#[tokio::test]
+async fn a_reworded_body_recopies_the_commit() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  let login = test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
+
+  sync(&test_repo).await;
+  let cache = virtual_commits(&test_repo, "cache");
+
+  let request = RewordCommitsRequest {
+    repository_path: repo_path(&test_repo).to_string(),
+    rewrites: vec![CommitRewrite {
+      commit_id: login,
+      message: "(auth) Add login\n\nWith a remember-me box.".to_string(),
+    }],
+  };
+  reword_commits_core(test_repo.git_executor(), &request).unwrap();
+
+  let statuses = sync(&test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Created]);
+  assert_eq!(statuses["cache"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(virtual_commits(&test_repo, "cache"), cache);
+  assert_eq!(
+    test_repo.log(&["-1", "--format=%B", "test/virtual/auth"]).unwrap().trim_end(),
+    "Add login\n\nWith a remember-me box."
+  );
 }

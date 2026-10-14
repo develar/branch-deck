@@ -97,6 +97,13 @@ pub fn branch_name_of(subject: &str) -> Option<String> {
   branch_of(&parse_subject(subject))
 }
 
+/// The subject of the commit's virtual branch commit: an explicit prefix (and the autosquash marker before it) is
+/// stripped, an issue-based or unassigned subject stays as is
+pub fn stripped_subject(subject: &str) -> &str {
+  let parsed = parse_subject(subject);
+  if parsed.prefix.is_some() { parsed.rest } else { subject }
+}
+
 fn branch_of(parsed: &ParsedSubject<'_>) -> Option<String> {
   match parsed.prefix {
     Some(prefix) => Some(sanitize_branch_name(prefix.trim())),
@@ -142,7 +149,7 @@ impl CommitGrouper {
       self.unassigned_commits.push(commit);
       return;
     };
-    // an explicit prefix is stripped; an issue-based subject stays as is
+    // an explicit prefix is stripped (`stripped_subject`); an issue-based subject stays as is
     if parsed.prefix.is_some() {
       commit.stripped_subject = parsed.rest.to_string();
     }

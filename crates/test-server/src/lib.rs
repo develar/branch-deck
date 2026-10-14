@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sync_core::baseline::detect_baseline_branch;
 use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -406,8 +407,11 @@ pub async fn reword_commit(
   let rewrites = vec![RewordCommitParams {
     commit_id: request.commit_id.clone(),
     new_message: request.message,
+    // a rebase in a terminal doesn't keep the mapping notes of the commits it rewords
+    keeps_virtual_commit: false,
   }];
-  match reword_commits_batch(&state.git_executor, &path, rewrites) {
+  let baseline_branch = detect_baseline_branch(&state.git_executor, &path, "master").map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+  match reword_commits_batch(&state.git_executor, &path, &baseline_branch, rewrites) {
     Ok(mapping) => Ok(Json(serde_json::json!({ "newCommitId": mapping.get(&request.commit_id) }))),
     Err(e) => {
       tracing::error!("Failed to reword commit {}: {}", request.commit_id, e);

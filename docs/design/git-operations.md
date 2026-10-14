@@ -120,15 +120,19 @@ All git runs through `GitCommandExecutor`:
 
 Only messages change, so every tree stays the same and the index and the working tree are already correct.
 
-1. Read the first-parent history (`rev-list --first-parent HEAD`). Every reworded commit must be on it; the oldest
-   one starts the range.
+1. Read the first-parent history ahead of the baseline with its mapping notes
+   (`log --first-parent --format=%H%x1f%N HEAD ^<baseline>`; the whole history on a local baseline branch, as the
+   commit list does). Every reworded commit must be on it, or the reword is refused; the oldest one starts the range.
 2. Read the commits of the range as raw objects with one `cat-file --batch`.
 3. Write the new commits in one `fast-import --date-format=raw --signed-commits=strip` stream:
    - each commit copies its `author` and `committer` lines and its `encoding`;
    - an unchanged message keeps its bytes; a new one ends with a newline, like `commit-tree -m`;
    - the tree is set with `M 040000 <tree> ""`;
    - commits are chained by marks on a temporary ref `refs/branch-deck/tmp/<pid>-<time>-<n>`;
-   - `get-mark` prints the new ids.
+   - `get-mark` prints the new ids;
+   - a notes commit carries the mapping notes to the new commits (`N inline :<mark>`). A reworded commit keeps its
+     note only when its virtual commit stays the same: the subject without the grouping prefix and the body did not
+     change, as in a move. Without this, every move or reword would rebuild every virtual branch after it.
 4. Run one transaction that moves the branch with CAS and deletes the temporary ref.
 
 `fast-import` objects become readable only when its stream ends, so it suits batches whose commits are all known up
@@ -433,7 +437,7 @@ recovery hint (`git reset -q`).
 
 | Operation | Before | After |
 |---|---|---|
-| Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `rev-list` + 1 `cat-file` + 1 `fast-import` + 1 `update-ref`, plus the guard |
+| Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `log` (bounded by the baseline) + 1 `cat-file` + 1 `fast-import` (notes included) + 1 `update-ref`, plus the guard and the baseline detection |
 | Drop k commits from a range of n | up to n `merge-tree` + n `commit-tree` + `reset` | at most k `replay` + 1 `update-ref` + 1 `read-tree` |
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |

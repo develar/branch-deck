@@ -1,6 +1,7 @@
 use super::commit_utils::{get_commit_info, get_commits_info};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
+use std::fmt::Write;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -69,4 +70,52 @@ fn test_get_commit_info_resolves_revision() {
   assert_eq!(info.id, commit);
   assert_eq!(info.subject, "Only commit");
   assert_eq!(info.parent_id, None);
+}
+
+#[test]
+fn test_get_commits_info_many_ids() {
+  let test_repo = TestRepo::new();
+  let git_executor = &GitCommandExecutor::new();
+  let repo_path = test_repo.path().to_str().unwrap();
+
+  // more ids than fit on a Windows command line; fast-import writes the commits in one go
+  let count = 1500;
+  let mut stream = String::new();
+  for i in 1..=count {
+    let message = format!("Commit {i}\n");
+    let content = format!("{i}\n");
+    let from = if i > 1 { format!("from :{}\n", i - 1) } else { String::new() };
+    writeln!(
+      stream,
+      "commit refs/heads/many\nmark :{i}\ncommitter Test User <test@example.com> {} +0000\ndata {}\n{message}{from}M 644 inline file.txt\ndata {}\n{content}",
+      1_700_000_000 + i,
+      message.len(),
+      content.len()
+    )
+    .unwrap();
+  }
+  git_executor.execute_command_with_input(&["fast-import", "--quiet"], repo_path, &stream).unwrap();
+  let ids = git_executor.execute_command_lines(&["rev-list", "many"], repo_path).unwrap();
+  assert_eq!(ids.len(), count);
+
+  let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+  let result = get_commits_info(git_executor, repo_path, &id_refs).unwrap();
+
+  assert_eq!(result.len(), count);
+  let newest = &result[&ids[0]];
+  assert_eq!(newest.subject, format!("Commit {count}"));
+  assert_eq!(newest.parent_id.as_deref(), Some(ids[1].as_str()));
+  assert_eq!(result[&ids[count - 1]].subject, "Commit 1");
+}
+
+#[test]
+fn test_get_commits_info_refuses_options() {
+  let test_repo = TestRepo::new();
+  let git_executor = &GitCommandExecutor::new();
+  let repo_path = test_repo.path().to_str().unwrap();
+  test_repo.create_commit("Only commit", "file.txt", "content");
+
+  for id in ["--all", "^HEAD", "HEAD HEAD~1", ""] {
+    assert!(get_commits_info(git_executor, repo_path, &[id]).is_err(), "{id:?}");
+  }
 }

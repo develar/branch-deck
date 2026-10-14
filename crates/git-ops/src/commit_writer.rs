@@ -137,9 +137,23 @@ fn push_data(stream: &mut Vec<u8>, data: &[u8]) {
   stream.push(b'\n');
 }
 
+/// Notes for commits of a `write_commits_with_notes` batch, written to `notes_ref` in the same run
+#[derive(Debug)]
+pub struct NotesOfWritten<'a> {
+  pub notes_ref: &'a str,
+  /// `(index of the commit in the batch, note content)`
+  pub notes: Vec<(usize, String)>,
+}
+
 /// Write `commits` with one `git fast-import` run and return their ids
-#[instrument(skip(git_executor, commits), fields(count = commits.len()))]
 pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>]) -> Result<WrittenCommits> {
+  write_commits_with_notes(git_executor, repo_path, commits, None)
+}
+
+/// `write_commits` that also attaches notes to the new commits, in one notes commit of the same `fast-import` run.
+/// The notes ref moves even if the caller later abandons the commits; a note on an unreachable commit is harmless.
+#[instrument(skip(git_executor, commits, notes), fields(count = commits.len()))]
+pub fn write_commits_with_notes(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>], notes: Option<&NotesOfWritten<'_>>) -> Result<WrittenCommits> {
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(commits.len() * 256);
   for (index, commit) in commits.iter().enumerate() {
@@ -164,6 +178,14 @@ pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits
     }
     // a tree at the empty path replaces the whole tree of the commit
     stream.extend_from_slice(format!("M 040000 {} \"\"\n\nget-mark :{}\n", commit.tree, index + 1).as_bytes());
+  }
+  if let Some(notes) = notes.filter(|notes| !notes.notes.is_empty()) {
+    if let Some((index, _)) = notes.notes.iter().find(|(index, _)| *index >= commits.len()) {
+      return Err(anyhow!("note for commit {index} of a batch of {}", commits.len()));
+    }
+    let committer = current_committer(git_executor, repo_path)?;
+    let targets = notes.notes.iter().map(|(index, content)| (format!(":{}", index + 1), content.as_str()));
+    push_notes_commit(&mut stream, git_executor, repo_path, notes.notes_ref, &committer, targets);
   }
   stream.extend_from_slice(b"done\n");
 
@@ -192,20 +214,41 @@ pub fn write_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref
   }
   let committer = current_committer(git_executor, repo_path)?;
   let mut stream = Vec::with_capacity(notes.len() * 128);
+  push_notes_commit(
+    &mut stream,
+    git_executor,
+    repo_path,
+    notes_ref,
+    &committer,
+    notes.iter().map(|(target, content)| (target.as_str(), content.as_str())),
+  );
+  stream.extend_from_slice(b"done\n");
+  git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done"], repo_path, &stream)?;
+  Ok(())
+}
+
+/// Append a notes commit on `notes_ref` that adds or overwrites a note per `(target, content)`; a target is a commit id
+/// or a mark of the same stream. Like `git notes add`, each note is stored with a trailing newline.
+fn push_notes_commit<'a, T: AsRef<str>>(
+  stream: &mut Vec<u8>,
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  notes_ref: &str,
+  committer: &str,
+  notes: impl Iterator<Item = (T, &'a str)>,
+) {
   stream.extend_from_slice(format!("commit {notes_ref}\ncommitter {committer}\n").as_bytes());
-  push_data(&mut stream, b"Notes added by Branch Deck\n");
+  push_data(stream, b"Notes added by Branch Deck\n");
   if git_executor.ref_exists(repo_path, notes_ref) {
     stream.extend_from_slice(format!("from {notes_ref}^0\n").as_bytes());
   }
   for (target, content) in notes {
-    stream.extend_from_slice(format!("N inline {target}\n").as_bytes());
-    let mut data = content.clone().into_bytes();
+    stream.extend_from_slice(format!("N inline {}\n", target.as_ref()).as_bytes());
+    let mut data = content.as_bytes().to_vec();
     if !data.ends_with(b"\n") {
       data.push(b'\n');
     }
-    push_data(&mut stream, &data);
+    push_data(stream, &data);
   }
-  stream.extend_from_slice(b"\ndone\n");
-  git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done"], repo_path, &stream)?;
-  Ok(())
+  stream.push(b'\n');
 }

@@ -1,6 +1,9 @@
+use crate::baseline::detect_baseline_branch;
+use crate::commit_grouper::stripped_subject;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_utils::get_commits_info;
+use git_ops::commit_list::Commit;
+use git_ops::commit_utils::{find_commit, get_commits_info};
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -49,53 +52,70 @@ pub(crate) fn reword_messages<'a>(
   repository_path: &str,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<HashMap<String, String>> {
+  let rewrites: Vec<(&str, &str)> = rewrites.into_iter().collect();
+  let ids: Vec<&str> = rewrites.iter().map(|(id, _)| *id).collect();
+  let commits = get_commits_info(git_executor, repository_path, &ids)?;
+  reword_read_commits(git_executor, repository_path, &commits, rewrites)
+}
+
+/// `reword_messages` for commits the caller already read with `get_commits_info`
+pub(crate) fn reword_read_commits<'a>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  commits: &HashMap<String, Commit>,
+  rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<HashMap<String, String>> {
   let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
   if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
     return Err(anyhow!("The commit message must start with a subject line"));
   }
 
-  let ids: Vec<&str> = rewrites.iter().map(|(id, _)| *id).collect();
-  let commits = get_commits_info(git_executor, repository_path, &ids)?;
-  // (request id, full id, the new message if it changes)
+  // (request id, full id)
   let mut resolved = Vec::with_capacity(rewrites.len());
+  let mut params = Vec::new();
   for (id, message) in rewrites {
     // keyed by the full hash; the request may use a short one
-    let commit = commits
-      .values()
-      .find(|commit| commit.id.starts_with(id))
-      .ok_or_else(|| anyhow!("Commit {} not found", short_hash(id)))?;
-    let new_message = (normalize_message(&commit.message) != message).then_some(message);
-    resolved.push((id, commit.id.clone(), new_message));
+    let commit = find_commit(commits, id).ok_or_else(|| anyhow!("Commit {} not found", short_hash(id)))?;
+    if normalize_message(&commit.message) != message {
+      params.push(RewordCommitParams {
+        commit_id: commit.id.clone(),
+        keeps_virtual_commit: keeps_virtual_commit(&commit.message, &message),
+        new_message: message,
+      });
+    }
+    resolved.push((id, commit.id.clone()));
   }
 
-  // `reword_commits_batch` refuses a commit that is no longer on the current branch
-  let params: Vec<RewordCommitParams> = resolved
-    .iter()
-    .filter_map(|(_, full_id, new_message)| {
-      new_message.as_ref().map(|new_message| RewordCommitParams {
-        commit_id: full_id.clone(),
-        new_message: new_message.clone(),
-      })
-    })
-    .collect();
-
   let reworded_count = params.len();
-  // also maps the commits recreated on top of a reworded one, unchanged messages included
+  // also maps the commits recreated on top of a reworded one, unchanged messages included;
+  // `reword_commits_batch` refuses a commit that is no longer on the current branch
   let mapping = if params.is_empty() {
     HashMap::new()
   } else {
-    reword_commits_batch(git_executor, repository_path, params)?
+    let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+    reword_commits_batch(git_executor, repository_path, &baseline_branch, params)?
   };
   info!(reworded_count, "Reworded commits");
   Ok(
     resolved
       .into_iter()
-      .map(|(id, full_id, _)| {
+      .map(|(id, full_id)| {
         let new_id = mapping.get(&full_id).cloned().unwrap_or(full_id);
         (id.to_string(), new_id)
       })
       .collect(),
   )
+}
+
+/// Whether the virtual branch commit of a commit stays the same when its message changes from `old` to `new`: the
+/// subject without its grouping prefix and the body are the same, so a move to another branch keeps it
+pub(crate) fn keeps_virtual_commit(old: &str, new: &str) -> bool {
+  fn virtual_message(message: &str) -> (&str, &str) {
+    let message = message.trim();
+    let (subject, body) = message.split_once('\n').unwrap_or((message, ""));
+    (stripped_subject(subject), body)
+  }
+  virtual_message(old) == virtual_message(new)
 }
 
 /// LF line endings, no trailing whitespace on a line, no blank lines at the start or the end (as `git commit` cleans up)
