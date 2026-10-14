@@ -364,6 +364,26 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
 `crates/git-ops/src/reword_commits.rs`, `crates/sync-core/src/reword_commit.rs`.
 
+#### Object cache
+
+`bd commits` and `bd status --stats` read the changes of each commit (files, statuses, line counts and the `-U0` hunk
+ranges) from a disk cache before they run git, and run one `log --no-walk=unsorted --stdin -z --raw -p -U0` only for
+the commits it misses.
+- **Safe without invalidation.** Keys are object ids, and an object never changes: the changes of a commit against
+  its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`) are the same forever. Entries are
+  only evicted, never stale. The value format is versioned in the database name (`commit_diff.v1`); opening drops
+  older versions.
+- **Shared by processes.** The cache is one LMDB environment (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
+  by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
+  wait. Within a process there is one environment per directory, as LMDB requires.
+- **Never in the way.** The map size (1 GiB) caps it; a full map is cleared and the write retried. Any error is a miss,
+  never a failed command, and `--no-cache` bypasses it. The cache holds only derived data: no ref, index or working
+  tree is read or written through it.
+- `commit_tree` (commit → tree) and `merge_result` ((base, commit, target) trees → result tree or conflict files) exist
+  as APIs for sync and `bd check`; nothing writes them yet.
+
+Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
+
 ### Index policy
 
 When a rewrite changes HEAD's tree, the index has to follow. Otherwise `git status` shows the rewrite reversed as
@@ -476,11 +496,12 @@ recovery hint (`git reset -q`).
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
   `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
-  `crates/sync-core/src/update_project.rs`
+  `crates/sync-core/src/update_project.rs`, `crates/object-cache/src/cache.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
   [Squash Fixups](../../spec/commit/fixups.spec.md),
-  [Unapply](../../spec/branch/unapply.spec.md), [Update Project](../../spec/repository/update-project.spec.md)
+  [Unapply](../../spec/branch/unapply.spec.md), [Update Project](../../spec/repository/update-project.spec.md),
+  [Agent CLI](../../spec/cli/agent-cli.spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),
   [Async Patterns](async-patterns.md)
 - Git manuals: `git help replay`, `git help fast-import`, `git help merge-tree`, `git help read-tree` (two-way merge,

@@ -12,7 +12,8 @@ change things (`check`, `group`, `sync`, `describe`, `push`) come later.
 
 It is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked as `bd`, the CLI
 runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or plugin is created.
-The code is in `crates/bd-cli`. Windows needs a console sidecar and is not supported yet.
+The code is in `crates/bd-cli`; the requirements are in the [Agent CLI spec](../../spec/cli/agent-cli.spec.md). Windows
+needs a console sidecar and is not supported yet.
 
 ## Invocation
 
