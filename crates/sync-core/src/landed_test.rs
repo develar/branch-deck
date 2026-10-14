@@ -2,7 +2,7 @@ use crate::landed::{dismiss_landed, read_report, record_sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::check_baseline_update;
 use crate::update_project::update_project_test::{Setup, git, path, setup, update};
-use git_ops::update_branch::UpdateState;
+use git_ops::update_branch::{UpdateKind, UpdateState};
 use pretty_assertions::assert_eq;
 use std::fs;
 use sync_test_utils::TestReporter;
@@ -92,19 +92,77 @@ fn part_of_a_branch_landed() {
   assert_eq!(landing(&clone), vec![format!("auth: Add login -> {landed} | 1 stay")]);
 }
 
+/// Commit with an author and committer time; commits made within one second share a key otherwise
+fn commit_at(repo: &TestRepo, message: &str, file: &str, content: &str, time: i64) -> String {
+  repo.create_commit_with_timestamp(message, file, content, Some(time))
+}
+
+/// `IJPL-1 Add login` and its fixup locally; upstream the robot's commit with the fixup folded in, returned
+fn push_with_a_fixup(upstream: &TestRepo, clone: &TestRepo) -> String {
+  let login = commit_at(clone, "IJPL-1 Add login", "login.txt", "login\n", 1_700_000_100);
+  commit_at(clone, "fixup! IJPL-1 Add login", "login.txt", "login fixed\n", 1_700_000_200);
+  land_as(upstream, clone, &login, "IJPL-1 Add login", &[("login.txt", "login fixed\n")])
+}
+
+/// The landing of a check that must be a clean rebase
+fn clean_landing(repo: &TestRepo) -> Vec<String> {
+  let check = check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap();
+  assert_eq!(check.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  describe(&check.landing)
+}
+
+// An issue branch keeps the subjects as they are, so its fixups are pushed with the marker and a robot that
+// autosquashes folds them into the target: the target alone adds other content than the upstream has, and a plain
+// replay conflicts, as `git rebase` does
 #[test]
 fn fixups_folded_upstream_landed_with_their_target() {
   let Setup { upstream, clone } = setup();
-  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  clone.create_commit("fixup! (auth) Add login", "login.txt", "login fixed\n");
-  // Safe Push autosquashes: one commit with the message and the author time of the target
-  let landed = land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login fixed\n")]);
+  let landed = push_with_a_fixup(&upstream, &clone);
+  commit_at(&clone, "(ui) Add button", "button.txt", "button\n", 1_700_000_300);
   git(&clone, &["fetch", "origin"]);
 
-  assert_eq!(landing(&clone), vec![format!("auth: Add login -> {landed}, fixup! Add login -> {landed} | 0 stay")]);
-  // the target alone adds the file with other content than the upstream has: the replay conflicts, as `git rebase` does
+  let expected = vec![format!("IJPL-1: IJPL-1 Add login -> {landed}, fixup! IJPL-1 Add login -> {landed} | 0 stay")];
+  assert_eq!(clean_landing(&clone), expected);
+
+  let result = update(&clone).unwrap();
+  assert_eq!(describe(&result.landed), expected);
+  assert_eq!(git(&clone, &["log", "--format=%s", "-3"]), "(ui) Add button\nIJPL-1 Add login\nInitial");
+  assert_eq!(fs::read_to_string(clone.path().join("login.txt")).unwrap(), "login fixed\n");
+}
+
+#[test]
+fn fixup_made_after_the_push_stays_local() {
+  let Setup { upstream, clone } = setup();
+  let landed = push_with_a_fixup(&upstream, &clone);
+  // after the Safe Push started
+  commit_at(&clone, "fixup! IJPL-1 Add login", "login.txt", "login fixed\nmore\n", 1_700_000_300);
+  git(&clone, &["fetch", "origin"]);
+
+  assert_eq!(
+    clean_landing(&clone),
+    vec![format!("IJPL-1: IJPL-1 Add login -> {landed}, fixup! IJPL-1 Add login -> {landed} | 1 stay")]
+  );
+
+  update(&clone).unwrap();
+  assert_eq!(git(&clone, &["log", "--format=%s", "-2"]), "fixup! IJPL-1 Add login\nIJPL-1 Add login");
+  assert_eq!(fs::read_to_string(clone.path().join("login.txt")).unwrap(), "login fixed\nmore\n");
+}
+
+#[test]
+fn commit_amended_after_the_push_is_never_left_out() {
+  let Setup { upstream, clone } = setup();
+  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
+  // an amend keeps the author time and the subject
+  fs::write(clone.path().join("login.txt"), "login\nextra\n").unwrap();
+  git(&clone, &["commit", "-q", "-a", "--amend", "--no-edit"]);
+  let head = clone.head();
+  git(&clone, &["fetch", "origin"]);
+
   let check = check_baseline_update(clone.git_executor(), path(&clone), "origin/master").unwrap().unwrap().check;
   assert!(matches!(check.state, UpdateState::Conflict { .. }), "{:?}", check.state);
+  assert!(update(&clone).unwrap().applied.is_none());
+  assert_eq!(clone.head(), head, "nothing changed, the amend is kept");
 }
 
 #[test]

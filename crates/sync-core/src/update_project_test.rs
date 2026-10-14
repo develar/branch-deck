@@ -1,6 +1,6 @@
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::{UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, check_baseline_update, previous_tip_of_forced_update, update_project_core};
-use git_ops::update_branch::{CheckPurpose, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update};
+use git_ops::update_branch::{CheckPurpose, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update, no_landed_candidates};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -385,7 +385,7 @@ fn rolls_back_when_a_file_changes_between_the_check_and_the_update() {
   let Setup { upstream: _upstream, clone } = fetched_rebase();
   let head = clone.head();
 
-  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply).unwrap();
+  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
   assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   write(&clone, "shared.txt", "edited meanwhile\n");
 
@@ -403,12 +403,12 @@ fn preview_check_cannot_be_applied() {
   let Setup { upstream: _upstream, clone } = fetched_rebase();
   let upstream_ref = ORIGIN_MASTER;
 
-  let plan = check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview).unwrap();
+  let plan = check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview, &no_landed_candidates).unwrap();
   assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   assert!(apply_update(clone.git_executor(), path(&clone), &plan).is_err());
   // the same state writes the same commits: no new objects on every sync
   let objects = git(&clone, &["count-objects"]);
-  check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview).unwrap();
+  check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview, &no_landed_candidates).unwrap();
   assert_eq!(git(&clone, &["count-objects"]), objects);
 }
 

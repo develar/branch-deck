@@ -335,6 +335,14 @@ Details:
   transaction and the update reports "Files changed during the update; nothing was changed".
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
+  **Landed commits left out.** When the replay conflicts, the check asks sync-core for sets of landed local commits
+  (`LandedCandidates`): those with a counterpart upstream with their fixups, then those alone. Each set is left out as a
+  drop does, one `replay` per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. The result counts
+  only if `merge-tree --merge-base=<base> <result> H` gives the result's tree: merging every local change into it
+  changes nothing, so nothing local is lost (an amend after the push, a fixup made after it). A robot that autosquashes
+  pushes the target with its fixups folded in; the target alone then adds other content than the upstream has, and a
+  plain replay conflicts. Tried only after a conflict, so a clean update costs nothing more.
+
   Which commits landed, and where, takes three read-only `log` processes after the check (the preview's are cached
   with its replay): the local commits (`HEAD ^U ^<previous tips>`), the ones that stay (`N ^U`) and the upstream
   commits since the merge base by the authors of the local commits (`--fixed-strings --author=<email>`, so a monorepo

@@ -46,8 +46,6 @@ by the next sync the same way.
 
 - No count of the upstream's commits; only the user's own landed commits are named.
 - No notification of its own: the moment a robot merges is the Patronus toast (`spec/branch/patronus.spec.md`).
-- Update Project does not drop key-matched commits that the replay keeps: a commit whose upstream version differs
-  (folded fixups, edits in review) still replays, and may conflict.
 
 ## Requirements
 
@@ -59,8 +57,10 @@ by the next sync the same way.
   [@test] ../../crates/sync-core/src/landed_test.rs (`same_author_and_time_with_another_subject_is_not_landed`)
 - The commits are grouped by branch, unassigned ones apart, each branch with the commits that stay local.
   [@test] ../../crates/sync-core/src/landed_test.rs (`part_of_a_branch_landed`)
-- A fixup whose target landed landed with it.
+- A fixup whose target landed landed with it once the replay drops it; without a replay (a conflict) only key matches
+  count, so a fixup made after the push is never reported as landed.
   [@test] ../../crates/sync-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
+  [@test] ../../crates/sync-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
 - Where the replay onto the upstream is known, a commit it drops landed even without a counterpart (squashed upstream,
   no baseline commit).
   [@test] ../../crates/sync-core/src/landed_test.rs (`branch_squashed_upstream_landed_without_an_upstream_commit`)
@@ -68,6 +68,18 @@ by the next sync the same way.
   [@test] ../../crates/sync-core/src/landed_test.rs (`landed_commits_are_reported_while_the_update_conflicts`)
 - Detection costs three read-only `log` processes; the check inside a sync reuses them for an unchanged state, and a
   failure never fails the check or the update.
+
+### Update
+
+- When the replay conflicts, the check replays again without the commits with a counterpart together with their
+  fixups, then without those commits alone, as a drop does (a run of kept commits per replay). A result counts only if
+  it keeps every local change: `merge-tree --merge-base=<merge base> <result> HEAD` gives the result's tree. So a robot
+  that folded the fixups into their target no longer makes the update conflict, while a commit amended after the push,
+  or a fixup made after it, is never left out; the update then conflicts as before.
+  [@test] ../../crates/sync-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
+  [@test] ../../crates/sync-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
+  [@test] ../../crates/sync-core/src/landed_test.rs (`commit_amended_after_the_push_is_never_left_out`)
+- The preview of every sync and the update make the same decision, so the header shows such an update as clean.
 
 ### Report
 
@@ -129,9 +141,11 @@ by the next sync the same way.
 
 ## Open Questions / Risks
 
-- A Safe Push that autosquashes fixups makes the local update conflict (the target alone differs from the upstream
-  commit), as `git pull --rebase` does; the landing is still reported. Dropping key-matched commits before the replay
-  would avoid it but loses a local amend made after the push started.
+- A fixup of a prefix branch is pushed without its marker (the virtual commit takes the subject without the `(prefix)`
+  and the marker before it), so a robot can't fold it: it lands as a commit of its own and matches by key. Only the
+  fixups of an issue or unassigned branch keep the marker and are folded.
+- Leaving the landed commits out is tried only when the plain replay conflicts, and the no-loss proof is strict: an
+  upstream commit that changed the landed lines again after the robot makes it fail, and the update conflicts.
 - Two commits of one author in the same second with the same subject are one key.
 - The shared-element move of a row into the island (`ViewTransition`) is not done: the rows change on a later sync
   event than the report, and zustand updates are not transitions.

@@ -111,7 +111,9 @@ The header shows whether an update would apply cleanly, from a check that every 
 - Uncommitted, staged and untracked changes on paths the update doesn't change must survive byte for byte, the staged
   version staged.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_and_staged_files_on_untouched_paths_survive_byte_identical`)
-- A local commit whose changes are already upstream is dropped and reported, not an error.
+- A local commit whose changes are already upstream is dropped and reported, not an error. When the replay conflicts
+  because a robot folded fixups into their target, the landed commits are left out if nothing local is lost
+  ([Landed Commits](landed-commits.spec.md)).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`commit_already_upstream_is_dropped_and_reported`)
 - Conflict and blocked are results: the branch, the index, the working tree and the reflog stay as they were.
 - Up to date must write no reflog entry.

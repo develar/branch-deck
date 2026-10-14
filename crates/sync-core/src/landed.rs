@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
-use git_ops::update_branch::UpdateCheck;
+use git_ops::update_branch::{LandedScope, UpdateCheck};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -60,6 +60,7 @@ impl Key {
     Self {
       email: email.to_string(),
       time,
+      // the subject of the virtual branch commit, as it was pushed
       subject: stripped_subject(&subject_of(message)).trim().to_string(),
     }
   }
@@ -144,6 +145,68 @@ fn read_local(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String
   output.split('\x1e').map(str::trim).filter(|record| !record.is_empty()).map(parse_single_commit).collect()
 }
 
+/// The upstream commits since `base` by the authors of the `local` commits: one `log`, the authors as fixed strings, so a
+/// monorepo upstream stays small
+fn read_upstream(git_executor: &GitCommandExecutor, repo_path: &str, local: &[Commit], base: &str, upstream_head: &str) -> Result<Vec<KeyedCommit>> {
+  let emails: BTreeSet<&str> = local.iter().map(|c| c.author_email.as_str()).filter(|email| !email.is_empty()).collect();
+  let mut filters = vec!["--fixed-strings".to_string()];
+  filters.extend(emails.iter().map(|email| format!("--author=<{email}>")));
+  read_keyed(git_executor, repo_path, &[format!("{base}..{upstream_head}")], &filters)
+}
+
+/// The upstream commit of each key; the newest when two share one
+fn by_key(upstream: &[KeyedCommit]) -> HashMap<&Key, &UpstreamCommit> {
+  let mut by_key = HashMap::with_capacity(upstream.len());
+  for commit in upstream {
+    by_key.entry(&commit.key).or_insert(&commit.upstream);
+  }
+  by_key
+}
+
+/// Fixup id -> the id of its target, with git's autosquash rules
+fn fixup_targets(local: &[Commit], stacks: bool) -> HashMap<String, String> {
+  plan_autosquash(String::new(), local, stacks)
+    .groups
+    .into_iter()
+    .flat_map(|group| {
+      let target = group.target;
+      group.folded.into_iter().map(move |fixup| (fixup.commit_id, target.clone()))
+    })
+    .collect()
+}
+
+/// For a replay that conflicts (`LandedCandidates`): the local commits with a counterpart upstream together with the
+/// fixups of those, then the ones with a counterpart alone, each oldest first. A robot that autosquashes pushed the
+/// target with its fixups folded in, so the target alone adds other content than the upstream has; a fixup made after
+/// the push makes the first set lose its change, and the second set is tried.
+pub fn landed_candidates(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, stacks: bool) -> Result<Vec<Vec<String>>> {
+  let mut revs = vec![scope.head.to_string(), format!("^{}", scope.upstream_head)];
+  revs.extend(scope.excluded.iter().map(|rev| format!("^{rev}")));
+  let local = read_local(git_executor, repo_path, &revs)?;
+  if local.is_empty() {
+    return Ok(Vec::new());
+  }
+  let upstream = read_upstream(git_executor, repo_path, &local, scope.base, scope.upstream_head)?;
+  let by_key = by_key(&upstream);
+  let matched: HashSet<&str> = local
+    .iter()
+    .filter(|commit| by_key.contains_key(&Key::new(&commit.author_email, commit.author_timestamp, &commit.message)))
+    .map(|commit| commit.id.as_str())
+    .collect();
+  if matched.is_empty() {
+    return Ok(Vec::new());
+  }
+  let target_of = fixup_targets(&local, stacks);
+  let with_fixups: Vec<String> = local
+    .iter()
+    .filter(|commit| matched.contains(commit.id.as_str()) || target_of.get(&commit.id).is_some_and(|target| matched.contains(target.as_str())))
+    .map(|commit| commit.id.clone())
+    .collect();
+  let alone: Vec<String> = local.iter().filter(|commit| matched.contains(commit.id.as_str())).map(|commit| commit.id.clone()).collect();
+  debug!(with_fixups = with_fixups.len(), alone = alone.len(), "landed candidates");
+  Ok(if with_fixups.len() == alone.len() { vec![alone] } else { vec![with_fixups, alone] })
+}
+
 /// The local commits of the query that landed, grouped by branch in the order of their oldest commit. Three `git log`
 /// processes: the local commits, the ones that stay, and the upstream commits since the merge base by the authors of
 /// the local commits.
@@ -156,19 +219,12 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   let remaining = query.remaining.map(|revs| read_keyed(git_executor, repo_path, revs, &[])).transpose()?;
   let remaining_keys: Option<HashSet<&Key>> = remaining.as_ref().map(|commits| commits.iter().map(|c| &c.key).collect());
 
-  let emails: BTreeSet<&str> = local.iter().map(|c| c.author_email.as_str()).filter(|email| !email.is_empty()).collect();
-  // fixed strings, any of the authors
-  let mut filters = vec!["--fixed-strings".to_string()];
-  filters.extend(emails.iter().map(|email| format!("--author=<{email}>")));
-  let upstream = read_keyed(git_executor, repo_path, &[format!("{}..{}", query.base, query.upstream_head)], &filters)?;
-  let mut by_key: HashMap<&Key, &UpstreamCommit> = HashMap::with_capacity(upstream.len());
-  for commit in &upstream {
-    by_key.entry(&commit.key).or_insert(&commit.upstream);
-  }
+  let upstream = read_upstream(git_executor, repo_path, &local, query.base, query.upstream_head)?;
+  let by_key = by_key(&upstream);
 
   // id -> the upstream commit, `None` when it landed in another form
   let mut landed: HashMap<&str, Option<UpstreamCommit>> = HashMap::new();
-  // neither stays nor has a counterpart: gone (when the remaining commits are known) or still local
+  // gone without a counterpart
   let mut unmatched: Vec<&Commit> = Vec::new();
   for commit in &local {
     let key = Key::new(&commit.author_email, commit.author_timestamp, &commit.message);
@@ -179,21 +235,17 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
       Some(upstream) => {
         landed.insert(&commit.id, Some((*upstream).clone()));
       }
-      None => unmatched.push(commit),
+      // a commit that stays without a counterpart did not land; with the remaining commits unknown, nothing is gone
+      None if remaining_keys.is_some() => unmatched.push(commit),
+      None => {}
     }
   }
   if !unmatched.is_empty() {
     // a fixup folded upstream (Safe Push autosquashes) landed with its target
-    let plan = plan_autosquash(String::new(), &local, query.stacks);
-    let target_of: HashMap<&str, &str> = plan
-      .groups
-      .iter()
-      .flat_map(|group| group.folded.iter().map(move |fixup| (fixup.commit_id.as_str(), group.target.as_str())))
-      .collect();
-    let gone_is_landed = query.gone_is_landed && remaining_keys.is_some();
+    let target_of = fixup_targets(&local, query.stacks);
     for commit in unmatched {
-      let target_upstream = target_of.get(commit.id.as_str()).and_then(|target| landed.get(target)).cloned().flatten();
-      if target_upstream.is_some() || gone_is_landed {
+      let target_upstream = target_of.get(commit.id.as_str()).and_then(|target| landed.get(target.as_str())).cloned().flatten();
+      if target_upstream.is_some() || query.gone_is_landed {
         landed.insert(&commit.id, target_upstream);
       }
     }

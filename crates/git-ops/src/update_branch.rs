@@ -5,7 +5,7 @@
 
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::{ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
-use crate::rewrite_plan::replay_range_with_env;
+use crate::rewrite_plan::{merge_trees, replay_range_with_env};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -118,6 +118,25 @@ pub enum CheckPurpose {
   Apply,
 }
 
+/// What a check knows when it asks which local commits the upstream may already have
+#[derive(Debug, Clone, Copy)]
+pub struct LandedScope<'a> {
+  pub head: &'a str,
+  pub upstream_head: &'a str,
+  pub base: &'a str,
+  /// The revisions excluded from the local commits besides the upstream (previous upstream tips)
+  pub excluded: &'a [String],
+}
+
+/// Asked when the replay conflicts: sets of local commits (each oldest first) that the upstream may already have, in the
+/// order to try leaving them out of the replay. A set is left out only if the result provably keeps every local change.
+pub type LandedCandidates<'a> = &'a dyn Fn(LandedScope<'_>) -> Result<Vec<Vec<String>>>;
+
+/// `LandedCandidates` for a check that leaves nothing out
+pub fn no_landed_candidates(_scope: LandedScope<'_>) -> Result<Vec<Vec<String>>> {
+  Ok(Vec::new())
+}
+
 /// A fixed committer date for preview replays
 const PREVIEW_COMMITTER_DATE: [(&str, &str); 1] = [("GIT_COMMITTER_DATE", "@0 +0000")];
 
@@ -156,8 +175,11 @@ impl UpdatePlan {
 /// The local commits are `HEAD ^upstream ^<previous tips>`: the previous tips are the tip before a forced fetch and the
 /// fork point from the tracking ref's reflog, so commits that a force-push removed upstream are not replayed back, as
 /// with `git pull --rebase`.
-#[instrument(skip(git_executor))]
-pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, purpose: CheckPurpose) -> Result<UpdatePlan> {
+#[instrument(skip(git_executor, candidates))]
+///
+/// A replay that conflicts is tried again without the commits `candidates` names, e.g. those a Safe Push robot pushed
+/// with their fixups folded in: the target alone then adds other content than the upstream has.
+pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, purpose: CheckPurpose, candidates: LandedCandidates<'_>) -> Result<UpdatePlan> {
   ensure_no_operation_in_progress(git_executor, repo_path)?;
   let branch = get_current_branch(git_executor, repo_path)?;
   let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{}^{{commit}}", upstream.tracking_ref)], repo_path)?;
@@ -205,11 +227,11 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
           debug!("update check: the replay of this state is cached");
           outcome
         }
-        None => replay_outcome(git_executor, repo_path, &plan, kind, purpose)?,
+        None => replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates)?,
       };
       (outcome, probe)
     }
-    CheckPurpose::Apply => (replay_outcome(git_executor, repo_path, &plan, kind, purpose)?, LocalProbe::default()),
+    CheckPurpose::Apply => (replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates)?, LocalProbe::default()),
   };
 
   let (new_head, changed, blocked) = match &outcome {
@@ -262,7 +284,14 @@ enum ReplayOutcome {
 }
 
 /// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes
-fn replay_outcome(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan, kind: UpdateKind, purpose: CheckPurpose) -> Result<ReplayOutcome> {
+fn replay_outcome(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  plan: &UpdatePlan,
+  kind: UpdateKind,
+  purpose: CheckPurpose,
+  candidates: LandedCandidates<'_>,
+) -> Result<ReplayOutcome> {
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
@@ -278,7 +307,11 @@ fn replay_outcome(git_executor: &GitCommandExecutor, repo_path: &str, plan: &Upd
         CheckPurpose::Preview => &PREVIEW_COMMITTER_DATE,
         CheckPurpose::Apply => &[],
       };
-      let Some(new_head) = replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? else {
+      let replayed = match replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? {
+        Some(new_head) => Some(new_head),
+        None => replay_without_landed(git_executor, repo_path, plan, &revs, env, candidates)?,
+      };
+      let Some(new_head) = replayed else {
         let files = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
         let (commits, upstream_commits) = conflict_commits(git_executor, repo_path, &revs, base, upstream_head, &files)?;
         debug!(files = files.len(), commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
@@ -289,6 +322,90 @@ fn replay_outcome(git_executor: &GitCommandExecutor, repo_path: &str, plan: &Upd
   };
   let changed = changed_paths(git_executor, repo_path, head, &new_head)?;
   Ok(ReplayOutcome::Applies { new_head, changed })
+}
+
+/// For a replay that conflicts: replay again without a set of local commits that the upstream already has, trying the
+/// sets of `candidates` in order. A result counts only if it keeps every local change: merging all local commits
+/// (merge base to HEAD) into it changes nothing. So a commit amended after it was pushed, or a fixup made after, is
+/// never lost; its set fails and the update conflicts as before. `None` when no set gives such a result.
+fn replay_without_landed(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  plan: &UpdatePlan,
+  local_revs: &[&str],
+  env: &[(&str, &str)],
+  candidates: LandedCandidates<'_>,
+) -> Result<Option<String>> {
+  let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
+  let attempts = candidates(LandedScope {
+    head,
+    upstream_head,
+    base,
+    excluded: &plan.excluded,
+  })?;
+  if attempts.iter().all(Vec::is_empty) {
+    return Ok(None);
+  }
+  let mut args = vec!["rev-list", "--reverse"];
+  args.extend_from_slice(local_revs);
+  args.push("--");
+  let local = git_executor.execute_command_lines(&args, repo_path)?;
+  for dropped in attempts.iter().filter(|dropped| !dropped.is_empty()) {
+    let Some(new_head) = replay_skipping(git_executor, repo_path, upstream_head, local_revs, &local, dropped, env)? else {
+      continue;
+    };
+    let new_tree = git_executor.execute_command(&["rev-parse", &format!("{new_head}^{{tree}}")], repo_path)?;
+    if merge_trees(git_executor, repo_path, base, &new_head, head)?.as_deref() == Some(new_tree.as_str()) {
+      info!(dropped = dropped.len(), "the update leaves out local commits the upstream already has");
+      return Ok(Some(new_head));
+    }
+    debug!(dropped = dropped.len(), "leaving the landed commits out loses a local change");
+  }
+  Ok(None)
+}
+
+/// Replay the `local` commits (oldest first, `local_revs`) onto `onto` without `dropped`: each run of kept commits
+/// between two dropped ones is replayed onto the result of the previous run, as a drop does. `None` on a conflict or if
+/// a dropped commit is not a local one.
+fn replay_skipping(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  onto: &str,
+  local_revs: &[&str],
+  local: &[String],
+  dropped: &[String],
+  env: &[(&str, &str)],
+) -> Result<Option<String>> {
+  let mut positions = Vec::with_capacity(dropped.len());
+  for id in dropped {
+    let Some(position) = local.iter().position(|it| it == id) else { return Ok(None) };
+    positions.push(position);
+  }
+  positions.sort_unstable();
+  positions.dedup();
+
+  let mut tip = onto.to_string();
+  // the kept run before each dropped commit, then the one after the last
+  let mut previous: Option<usize> = None;
+  for end in positions.iter().copied().map(Some).chain([None]) {
+    let first = previous.map_or(0, |p| p + 1);
+    let last = end.unwrap_or(local.len());
+    if first < last {
+      let to = end.map_or_else(|| local_revs[0].to_string(), |end| format!("{}^", local[end]));
+      let mut revs = vec![to];
+      match previous {
+        Some(p) => revs.push(format!("^{}", local[p])),
+        None => revs.extend(local_revs[1..].iter().map(|rev| (*rev).to_string())),
+      }
+      let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
+      let Some(new_tip) = replay_range_with_env(git_executor, repo_path, &tip, &revs, env)? else {
+        return Ok(None);
+      };
+      tip = new_tip;
+    }
+    previous = end;
+  }
+  Ok(Some(tip))
 }
 
 /// Identifies a replay: the same HEAD, upstream and excluded tips replay to the same result
