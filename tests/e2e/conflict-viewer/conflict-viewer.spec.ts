@@ -130,7 +130,7 @@ test.describe("Conflict Viewer Feature", () => {
 
       const preview = page.getByTestId("commit-preview")
       await expect(preview).toHaveCount(1)
-      await expect(preview.getByRole("heading")).toHaveText("Add UserService")
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Add UserService")
       await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 2")
       // a missing commit is not on the current branch: its message is read-only
       await expect(preview.getByRole("button", { name: /Edit/ })).toHaveCount(0)

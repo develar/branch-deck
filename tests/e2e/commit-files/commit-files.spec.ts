@@ -85,7 +85,7 @@ testWithIssueLinks.describe("Commit files", () => {
     // the next commit shows its own files, collapsed
     await preview.getByTestId("commit-preview-body").focus()
     await page.keyboard.press("ArrowDown")
-    await expect(preview.getByRole("heading")).toHaveText("Fix database connection pool timeout")
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
     await expect(files.getByTestId("file-line-counts")).toHaveText("+2 −0")
     await expect(files).not.toContainText("size: 50")
   })

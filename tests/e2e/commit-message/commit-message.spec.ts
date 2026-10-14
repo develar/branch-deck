@@ -39,7 +39,7 @@ test.describe("Commit message", () => {
     await toggle.click()
     const preview = getPreview(page)
     await expect(preview).toBeVisible()
-    await expect(preview.getByRole("heading")).toHaveText(SUBJECT)
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText(SUBJECT)
     const body = preview.getByTestId("commit-message-body")
     await expect(body).toBeVisible()
     await expectPreviewFocused(preview)
@@ -82,7 +82,7 @@ test.describe("Commit message", () => {
     await page.keyboard.press("Space")
 
     const preview = getPreview(page)
-    const title = preview.getByRole("heading")
+    const title = preview.getByRole("heading", { level: 2 })
     const position = preview.getByTestId("commit-preview-position")
     await expect(title).toHaveText(SUBJECT)
     await expect(position).toHaveText("1 / 3")
@@ -112,7 +112,7 @@ test.describe("Commit message", () => {
     await page.mouse.move(0, 0)
     await page.keyboard.press("Space")
     const preview = getPreview(page)
-    await expect(preview.getByRole("heading")).toHaveText("Emergency fix for CRITICAL-111")
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Emergency fix for CRITICAL-111")
     await expectPreviewFocused(preview)
 
     await page.keyboard.press("ArrowDown")
@@ -167,7 +167,7 @@ test.describe("Commit message", () => {
     // auto-sync on focus replaces the commit objects while the preview is open
     await syncOnWindowFocus(page)
 
-    await expect(preview.getByRole("heading")).toHaveText("perf db: increase pool size to 50")
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 50")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
     await page.keyboard.press("ArrowDown")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("3 / 3")
@@ -223,7 +223,7 @@ test.describe("Commit message", () => {
       await page.keyboard.press("ControlOrMeta+Enter")
 
       await expect(editor).toHaveCount(0)
-      await expect(preview.getByRole("heading")).toHaveText("perf db: increase pool size to 64")
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 64")
       await expect(preview.getByTestId("commit-message-body")).toHaveText("The load test saturated 50 connections.")
       await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
       await expectPreviewFocused(preview)
@@ -238,7 +238,7 @@ test.describe("Commit message", () => {
 
       await page.keyboard.press("Escape")
       await expect(editor).toHaveCount(0)
-      await expect(preview.getByRole("heading")).toHaveText(PERF_SUBJECT)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
       await expectPreviewFocused(preview)
 
       await page.keyboard.press("Escape")
