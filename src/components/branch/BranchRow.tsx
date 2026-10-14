@@ -12,6 +12,7 @@ import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { useListFixups } from "@/hooks/useSquashFixups"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
@@ -45,6 +46,7 @@ export interface BranchRowProps {
 export const BranchRow = memo(function BranchRow({ name, nested = false, showIssueKey = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
+  const { count: fixupCount } = useListFixups(name)
   // commits dragged from another list move here
   const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
 
@@ -93,6 +95,7 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
           name={name}
           nested={nested}
           issueKey={showIssueKey ? branch.issueKey : null}
+          fixupCount={fixupCount}
           summary={branch.summary}
           expanded={expanded}
           canExpand={branch.commitCount > 0 || branch.hasError}

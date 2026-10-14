@@ -2,8 +2,10 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { BranchError, BranchOrigin, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
+import type { AutosquashPlan, BranchError, BranchOrigin, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { invokeCommand } from "@/lib/command"
+import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
 import { getLoadingPromise, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
@@ -83,6 +85,8 @@ export interface BranchSyncState {
    */
   pushingBranches: Readonly<Record<string, true>>
   unassignedCommits: Commit[]
+  /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
+  autosquashPlan: AutosquashPlan | null
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -94,6 +98,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   branches: {},
   pushingBranches: {},
   unassignedCommits: [],
+  autosquashPlan: null,
 }))
 
 // ---- hooks ----
@@ -191,6 +196,14 @@ export function useIsBranchPushing(name: string): boolean {
 
 export function useUnassignedCommits(): Commit[] {
   return useStore(branchSyncStore, state => state.unassignedCommits)
+}
+
+export function useAutosquashPlan(): AutosquashPlan | null {
+  return useStore(branchSyncStore, state => state.autosquashPlan)
+}
+
+export function getAutosquashPlan(): AutosquashPlan | null {
+  return branchSyncStore.getState().autosquashPlan
 }
 
 export function getBranch(name: string): Branch | undefined {
@@ -324,6 +337,7 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
       })
     }
     branchSyncStore.setState({ hasCompletedSync: true })
+    void loadAutosquashPlan(vcsRequest.repositoryPath)
   }
   catch (error) {
     branchSyncStore.setState({ syncError: (error instanceof Error ? error.message : String(error)) || "Failed to sync branches" })
@@ -332,6 +346,34 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
   finally {
     branchSyncStore.setState({ isSyncing: false })
   }
+}
+
+function isFixupCommit(commit: Commit): boolean {
+  return parseSubject(getSubjectLine(commit.message)).autosquash !== ""
+}
+
+let autosquashPlanRequest = 0
+
+/** Loads the plan only if a commit is a fixup: most syncs find none and need no extra git process. */
+async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
+  const request = ++autosquashPlanRequest
+  const { branches, unassignedCommits } = branchSyncStore.getState()
+  const hasFixups = unassignedCommits.some(isFixupCommit) || Object.values(branches).some(branch => branch.commits.some(isFixupCommit))
+  if (!hasFixups) {
+    branchSyncStore.setState({ autosquashPlan: null })
+    return
+  }
+  const result = await invokeCommand(() => commands.getAutosquashPlan({ repositoryPath }))
+  // a later sync started its own request
+  if (request !== autosquashPlanRequest) {
+    return
+  }
+  if (result.status === "error") {
+    console.error("Failed to load the autosquash plan:", result.error)
+    branchSyncStore.setState({ autosquashPlan: null })
+    return
+  }
+  branchSyncStore.setState({ autosquashPlan: result.data })
 }
 
 function handleSyncEvent(event: SyncEvent, options?: SyncOptions): void {

@@ -15,8 +15,10 @@ import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
+import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
+import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
+import { useAutosquashPlan } from "@/stores/branch-sync"
 
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
 
@@ -300,8 +302,11 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
 function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, isAmendTarget, onOpenPreview }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
-  const subject = getCommitSubject(commit)
-  const hasBody = hasCommitMessageBody(subject, commit.message)
+  // a fixup shows its markers apart, with where it goes
+  const autosquash = parseSubject(getSubjectLine(commit.message)).autosquash
+  const fullSubject = getCommitSubject(commit)
+  const subject = autosquash === "" ? fullSubject : fullSubject.slice(parseSubject(fullSubject).autosquash.length)
+  const hasBody = hasCommitMessageBody(fullSubject, commit.message)
 
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
 
@@ -315,6 +320,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         authorTime={commit.authorTime}
         committerTime={commit.committerTime}
         fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
+        subjectPrefix={autosquash !== "" && <FixupMarker marker={autosquash.trim()} commitId={hash} />}
         subjectAddon={(
           <>
             {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
@@ -354,5 +360,26 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         </div>
       )}
     </div>
+  )
+}
+
+/** The autosquash markers of a fixup commit (`fixup!`), with its target in the tooltip; muted like a subject prefix */
+function FixupMarker({ marker, commitId }: { marker: string, commitId: string }) {
+  const plan = useAutosquashPlan()
+  const target = getFixupTarget(plan, commitId)
+  const markerProps = {
+    "data-testid": "fixup-marker",
+    "data-target": target === undefined ? undefined : (target === null ? "none" : target.target),
+    "className": cn("shrink-0 font-mono text-xs", target === null ? "text-warning" : "text-muted-foreground"),
+  }
+  const description = describeFixupTarget(target)
+  if (description === null) {
+    return <span {...markerProps}>{marker}</span>
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span {...markerProps} />}>{marker}</TooltipTrigger>
+      <TooltipContent>{description}</TooltipContent>
+    </Tooltip>
   )
 }

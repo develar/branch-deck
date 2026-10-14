@@ -263,6 +263,27 @@ pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params
     .map_err(|e| command_failed("restore the branch head", &e))
 }
 
+pub async fn get_autosquash_plan(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::autosquash::GetAutosquashPlanParams>,
+) -> Result<Json<sync_core::autosquash::AutosquashPlan>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::autosquash::get_autosquash_plan_core(&state.git_executor, &params.repository_path)
+    .map(Json)
+    .map_err(|e| command_failed("get the autosquash plan", &e))
+}
+
+/// Fails with the error message as the body, see `move_commits_to_branch`
+pub async fn squash_fixup_commits(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::autosquash::SquashFixupsParams>,
+) -> Result<Json<sync_core::autosquash::SquashFixupsResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::autosquash::squash_fixup_commits_core(&state.git_executor, &params)
+    .map(Json)
+    .map_err(|e| command_failed("squash fixup commits", &e))
+}
+
 fn command_failed(operation: &str, e: &anyhow::Error) -> (StatusCode, String) {
   tracing::error!("Failed to {operation}: {e:#}");
   (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))

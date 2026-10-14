@@ -20,6 +20,7 @@ use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
+use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
@@ -55,6 +56,8 @@ pub fn run() {
     reword_commits,
     squash_commits,
     restore_branch_head,
+    get_autosquash_plan,
+    squash_fixup_commits,
     amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,

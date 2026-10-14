@@ -44,10 +44,14 @@ pub struct GroupedCommits {
   pub branch_emails: HashMap<String, Option<String>>,
 }
 
+/// Git's autosquash markers; each needs the space, `fixup!X` is an ordinary subject (`git help rebase`, `--autosquash`)
+pub const AUTOSQUASH_MARKERS: [&str; 3] = ["fixup! ", "squash! ", "amend! "];
+
 /// A commit subject split into the parts that decide its group
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsedSubject<'a> {
-  /// A git autosquash marker (`fixup!`, `squash!`, `amend!`) with the whitespace after it, or empty
+  /// The leading git autosquash markers (`fixup! `, `squash! `, `amend! `, repeated as in `fixup! fixup! X`) with the
+  /// whitespace after them, or empty
   pub autosquash: &'a str,
   /// The unsanitized text of a leading non-empty `(prefix)`
   pub prefix: Option<&'a str>,
@@ -58,10 +62,7 @@ pub struct ParsedSubject<'a> {
 /// Splits a subject the way the grouper reads it: an explicit `(prefix)` at the start (after an autosquash marker,
 /// so `fixup! (feat) X` stays in `feat`) names the branch; otherwise the rest may still carry an issue key.
 pub fn parse_subject(subject: &str) -> ParsedSubject<'_> {
-  let body = ["fixup!", "squash!", "amend!"]
-    .iter()
-    .find_map(|marker| subject.strip_prefix(marker))
-    .map_or(subject, str::trim_start);
+  let body = strip_autosquash_markers(subject);
   let autosquash = &subject[..subject.len() - body.len()];
   if body.starts_with('(')
     && let Some(close_paren_pos) = body.find(')')
@@ -77,6 +78,29 @@ pub fn parse_subject(subject: &str) -> ParsedSubject<'_> {
     autosquash,
     prefix: None,
     rest: body,
+  }
+}
+
+/// The subject after all leading autosquash markers, as git reads the target of `fixup! squash! X`: each marker and
+/// the whitespace after it are skipped
+fn strip_autosquash_markers(subject: &str) -> &str {
+  let mut rest = subject;
+  while let Some(stripped) = AUTOSQUASH_MARKERS.iter().find_map(|marker| rest.strip_prefix(marker)) {
+    rest = stripped.trim_start();
+  }
+  rest
+}
+
+/// The virtual branch a commit with this subject is grouped into: its sanitized `(prefix)`, else the issue key of the
+/// subject; `None` for an unassigned commit
+pub fn branch_name_of(subject: &str) -> Option<String> {
+  branch_of(&parse_subject(subject))
+}
+
+fn branch_of(parsed: &ParsedSubject<'_>) -> Option<String> {
+  match parsed.prefix {
+    Some(prefix) => Some(sanitize_branch_name(prefix.trim())),
+    None => find_issue_number(parsed.rest).map(str::to_owned),
   }
 }
 
@@ -114,27 +138,15 @@ impl CommitGrouper {
     self.commit_count += 1;
 
     let parsed = parse_subject(&commit.subject);
-    if let Some(prefix) = parsed.prefix {
-      // Sanitize the prefix to make it a valid Git branch name
-      let branch_name = sanitize_branch_name(prefix.trim());
+    let Some(branch_name) = branch_of(&parsed) else {
+      self.unassigned_commits.push(commit);
+      return;
+    };
+    // an explicit prefix is stripped; an issue-based subject stays as is
+    if parsed.prefix.is_some() {
       commit.stripped_subject = parsed.rest.to_string();
-      self.branch_data.entry(branch_name).or_insert_with(BranchData::new).add_commit(commit);
-      return;
     }
-
-    // If no explicit parentheses prefix, look for issue number pattern in the subject line
-    // Manual parsing for issue pattern (e.g., JIRA-123, ABC-4567)
-    if let Some(issue_number) = find_issue_number(parsed.rest) {
-      // For issue-based grouping, we don't strip anything
-      // The subject remains as-is
-
-      // Add commit to unified branch data structure
-      self.branch_data.entry(issue_number.to_owned()).or_insert_with(BranchData::new).add_commit(commit);
-      return;
-    }
-
-    // If no prefix found, add to unassigned commits
-    self.unassigned_commits.push(commit);
+    self.branch_data.entry(branch_name).or_insert_with(BranchData::new).add_commit(commit);
   }
 
   pub fn finish(self) -> GroupedCommits {

@@ -1,6 +1,7 @@
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
+import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { UnassignedCommitsHelpPopover } from "@/components/unassigned/UnassignedCommitsHelpPopover"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
@@ -41,6 +42,7 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
             <>
               {/* the selection's actions live in the card header, next to what they act on */}
               <CommitSelectionActions moveList={moveList} />
+              <SquashFixupsButton branch={null} />
               <UnassignedCommitsHelpPopover />
             </>
           )}

@@ -3,17 +3,21 @@ import type { KeyboardEvent } from "react"
 import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon } from "lucide-react"
 import { getCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { squashFixupInto } from "@/hooks/useSquashFixups"
 import { useRowSelection } from "@/hooks/useRowSelection"
 import type { RowSelection } from "@/hooks/useRowSelection"
+import { getDisplaySubject, getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
-import { findIssueKey, getCommitHash, parseSubject } from "@/lib/commit"
+import { findIssueKey, getCommitHash, getSubjectLine, parseSubject } from "@/lib/commit"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
-import { getMoveTargets } from "@/stores/branch-sync"
+import { getAutosquashPlan, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 
 /** Branches listed in the "Move to" submenu */
 const MAX_MENU_TARGETS = 8
+/** Characters of the target subject in "Squash into …" */
+const MAX_MENU_SUBJECT = 40
 
 export interface CommitMoveListOptions<T extends Commit> {
   commits: readonly T[]
@@ -42,8 +46,13 @@ export interface CommitMoveList<T extends Commit> {
   onDragCommits: (commits: readonly T[]) => void
 }
 
+/** Whether `CommitSelectionActions` shows anything: commits are selected and the "Move to…" form is closed */
+export function hasSelectionActions<T extends Commit>({ selection, isTargetOpen }: CommitMoveList<T>): boolean {
+  return selection.selectedCount > 0 && !isTargetOpen
+}
+
 function hasExplicitPrefix(commit: Commit): boolean {
-  return parseSubject(commit.message.trimStart().split("\n", 1)[0]!).prefix !== null
+  return parseSubject(getSubjectLine(commit.message)).prefix !== null
 }
 
 /**
@@ -61,6 +70,17 @@ export function getRemovePrefixLabel(commits: readonly Commit[]): string | null 
   }
   const [key] = keys
   return key == null ? "Move to Unassigned" : `Move Back to ${key}`
+}
+
+/** "Squash into “Add login”" for a fixup commit with a target */
+function getSquashIntoItems(commit: Commit): MenuItem[] {
+  const target = getFixupTarget(getAutosquashPlan(), commit.originalHash)
+  if (target == null) {
+    return []
+  }
+  const subject = getDisplaySubject(target.targetSubject)
+  const label = subject.length > MAX_MENU_SUBJECT ? `${subject.slice(0, MAX_MENU_SUBJECT - 1)}…` : subject
+  return [{ label: `Squash into “${label}”`, icon: CombineIcon, onSelect: () => void squashFixupInto(commit.originalHash) }]
 }
 
 export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
@@ -168,7 +188,7 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
     }
     const squashItems: MenuItem[] = isMultiple
       ? [{ label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => openSquash(menuCommits) }]
-      : []
+      : getSquashIntoItems(menuCommits[0]!)
     return [moveItems, squashItems, getCommitCopyMenuItems(menuCommits)]
   }
 

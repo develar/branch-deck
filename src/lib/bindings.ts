@@ -44,6 +44,13 @@ export const commands = {
 	squashCommits: (params: SquashCommitsParams) => typedError<SquashCommitsResult, CommandError>(__TAURI_INVOKE("squash_commits", { params })),
 	/**  Undoes a squash: moves the current branch back to its previous commit, if it was not moved since */
 	restoreBranchHead: (params: RestoreBranchHeadParams) => typedError<null, CommandError>(__TAURI_INVOKE("restore_branch_head", { params })),
+	/**  The `fixup!`, `squash!` and `amend!` commits ahead of the baseline, grouped by the commit each one is squashed into */
+	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, CommandError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
+	/**
+	 *  Squashes fixup commits into their targets in one history rewrite that keeps HEAD's tree; the index and the working
+	 *  tree are not touched.
+	 */
+	squashFixupCommits: (params: SquashFixupsParams) => typedError<SquashFixupsResult, CommandError>(__TAURI_INVOKE("squash_fixup_commits", { params })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
@@ -92,6 +99,23 @@ export type AmendUncommittedToBranchParams = {
 	originalCommitId: string,
 	files: string[],
 };
+
+/**  What squashing the fixups of a range does, with the HEAD it was computed for */
+export type AutosquashPlan = {
+	head: string,
+	/**  Ordered by the target, oldest first */
+	groups: PlannedGroup[],
+	orphans: OrphanFixup[],
+};
+
+/**  Which planned groups a squash takes */
+export type AutosquashScope = { type: "all" } | 
+/**  The fixups whose target is grouped into this virtual branch */
+{ type: "branch"; value: string } | 
+/**  The fixups whose target is unassigned */
+{ type: "unassigned" } | 
+/**  Only this fixup commit, into its target */
+{ type: "fixup"; value: string };
 
 /**  Branch operation errors. */
 export type BranchError = ({ Generic: string }) & { MergeConflict?: never } | ({ MergeConflict: MergeConflictInfo }) & { Generic?: never };
@@ -254,6 +278,19 @@ export type FileInfo = {
 	content: string,
 };
 
+/**  How a commit is squashed into its target; the first marker of the subject decides (`fixup! squash! X` is a fixup) */
+export type FixupKind = 
+/**  `fixup!`: the target keeps its message */
+"Fixup" | 
+/**  `squash!`: the body of the squash commit is appended to the target's message */
+"Squash" | 
+/**  `amend!`: the body of the amend commit replaces the target's message */
+"Amend";
+
+export type GetAutosquashPlanParams = {
+	repositoryPath: string,
+};
+
 export type GetBranchPrefixParams = {
 	repositoryPath: string,
 };
@@ -373,6 +410,30 @@ export type OpenSubWindowParams = {
 	storeCache: string,
 };
 
+/**  A fixup without a target among the older commits of the range: it is not squashed */
+export type OrphanFixup = {
+	commitId: string,
+	subject: string,
+	/**  The virtual branch the fixup itself is grouped into; `None` if it is unassigned */
+	branch: string | null,
+};
+
+/**  A commit folded into its target */
+export type PlannedFixup = {
+	commitId: string,
+	subject: string,
+	kind: FixupKind,
+};
+
+/**  The fixups of one target, oldest first */
+export type PlannedGroup = {
+	target: string,
+	targetSubject: string,
+	/**  The virtual branch the target is grouped into; `None` for an unassigned target */
+	branch: string | null,
+	folded: PlannedFixup[],
+};
+
 export type PushBranchParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -426,6 +487,30 @@ export type SquashCommitsResult = {
 	newHead: string,
 	previousHead: string,
 	squashedCount: number,
+};
+
+export type SquashFixupsParams = {
+	repositoryPath: string,
+	/**  HEAD of the plan the user confirmed; the squash is refused if the branch moved since */
+	expectedHead: string,
+	scope: AutosquashScope,
+};
+
+export type SquashFixupsResult = {
+	/**  One entry per target, oldest first */
+	squashed: SquashedTarget[],
+	/**  Number of fixup commits folded into their targets */
+	squashedCount: number,
+	/**  Fixups of the scope left as they are: no target in this range */
+	orphans: OrphanFixup[],
+	/**  HEAD after the squash and before it, for an undo */
+	newHead: string,
+	previousHead: string,
+};
+
+export type SquashedTarget = {
+	target: string,
+	newId: string,
 };
 
 /**  Parameters for requesting branch name suggestions */

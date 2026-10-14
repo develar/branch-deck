@@ -3,6 +3,7 @@ import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { LinkedText } from "@/components/commit/LinkedText"
+import { formatFixupCount } from "@/lib/autosquash"
 import { getSimpleBranchName } from "@/lib/branch"
 import { splitSubjectPrefix } from "@/lib/commit"
 
@@ -17,10 +18,12 @@ export interface BranchNameCellProps {
   nested?: boolean
   /** The issue of the branch, shown as a chip next to the name */
   issueKey?: string | null
+  /** Fixup commits to squash into commits of the branch */
+  fixupCount?: number
   onToggleExpanded: () => void
 }
 
-export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, nested = false, issueKey = null, onToggleExpanded }: BranchNameCellProps) {
+export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, nested = false, issueKey = null, fixupCount = 0, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   return (
     <td className={cn("w-full max-w-0 py-4", nested ? "pr-6 pl-9" : "px-6")}>
@@ -44,6 +47,7 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
         {/* an issue key in the name is a link, but the name keeps the foreground colour */}
         <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" linkClassName="text-foreground hover:underline" />
         {issueKey !== null && <BranchIssueBadge issueKey={issueKey} />}
+        {fixupCount > 0 && <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">{formatFixupCount(fixupCount)}</Badge>}
         {summary && <BranchSummary summary={summary} />}
       </div>
     </td>

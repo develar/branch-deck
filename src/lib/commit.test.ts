@@ -67,7 +67,7 @@ describe("groupFor", () => {
     ["(---test---) Update", "test"],
     ["(feature-auth)", "feature-auth"],
     ["fixup! (feat) Fix", "feat"],
-    ["fixup!(feat) Fix", "feat"],
+    ["fixup! squash!  (feat) Fix", "feat"],
     ["((nested)) m", "(nested"],
     ["(feature) ABC-123 Fix", "feature"],
   ])("groups %j into the prefix branch %j", (message, branch) => {
@@ -86,7 +86,7 @@ describe("groupFor", () => {
     expect(groupFor(message)).toEqual(branch === null ? null : { branch, origin: "issue" })
   })
 
-  it.each(["Add login", "feat(auth): add login", "Fix bug (critical)", "Fix JIRA-456", "abc-123 Fix", "ABC123-456 Fix", "ABC-12x Fix", "feat!: ABC-1 Fix", "Add login\n(feature-auth) in the body", "Add login\nABC-1 in the body", "fixup! Regular message", "()"])("returns null for %j", (message) => {
+  it.each(["Add login", "feat(auth): add login", "Fix bug (critical)", "Fix JIRA-456", "abc-123 Fix", "ABC123-456 Fix", "ABC-12x Fix", "feat!: ABC-1 Fix", "Add login\n(feature-auth) in the body", "Add login\nABC-1 in the body", "fixup! Regular message", "fixup!(feat) Fix", "()"])("returns null for %j", (message) => {
     expect(groupFor(message)).toBeNull()
   })
 })

@@ -78,21 +78,38 @@ export interface CommitGroup {
   origin: "prefix" | "issue"
 }
 
-const AUTOSQUASH_MARKERS = ["fixup!", "squash!", "amend!"]
+// git's autosquash markers need the space: `fixup!X` is an ordinary subject
+const AUTOSQUASH_MARKERS = ["fixup! ", "squash! ", "amend! "]
+
+/** The subject after its leading autosquash markers, each with the whitespace after it (`fixup! squash! X` → `X`) */
+function stripAutosquashMarkers(subject: string): string {
+  let rest = subject
+  for (;;) {
+    const marker = AUTOSQUASH_MARKERS.find(it => rest.startsWith(it))
+    if (marker === undefined) {
+      return rest
+    }
+    rest = rest.slice(marker.length).trimStart()
+  }
+}
 
 /**
- * Splits a subject like the backend `parse_subject`: a git autosquash marker, then a non-empty `(prefix)` at the
+ * Splits a subject like the backend `parse_subject`: the git autosquash markers, then a non-empty `(prefix)` at the
  * very start (unsanitized), then the rest.
  */
 export function parseSubject(subject: string): { autosquash: string, prefix: string | null, rest: string } {
-  const marker = AUTOSQUASH_MARKERS.find(it => subject.startsWith(it))
-  const body = marker === undefined ? subject : subject.slice(marker.length).trimStart()
+  const body = stripAutosquashMarkers(subject)
   const autosquash = subject.slice(0, subject.length - body.length)
   const closeParen = body.startsWith("(") ? body.indexOf(")") : -1
   if (closeParen > 1) {
     return { autosquash, prefix: body.slice(1, closeParen), rest: body.slice(closeParen + 1).trimStart() }
   }
   return { autosquash, prefix: null, rest: body }
+}
+
+/** The first line of a message */
+export function getSubjectLine(message: string): string {
+  return message.trimStart().split("\n", 1)[0]!
 }
 
 // as `find_issue_range`: an optional `[category]`, an optional `type(scope):`, then `ABC-123` at a word boundary
@@ -115,8 +132,7 @@ export function sanitizeBranchName(name: string): string {
 
 /** The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. */
 export function groupFor(message: string): CommitGroup | null {
-  const subject = message.trimStart().split("\n", 1)[0]!
-  const { prefix, rest } = parseSubject(subject)
+  const { prefix, rest } = parseSubject(getSubjectLine(message))
   if (prefix !== null) {
     return { branch: sanitizeBranchName(prefix.trim()), origin: "prefix" }
   }

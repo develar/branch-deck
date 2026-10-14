@@ -3,7 +3,7 @@ import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import type { MergeConflictInfo } from "@/lib/bindings"
 
-export type InlineActionType = "issue-reference" | "rename" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply"
+export type InlineActionType = "issue-reference" | "rename" | "delete-archived" | "amend-changes" | "amend-conflict" | "unapply" | "squash-fixups"
 
 export interface ActiveInline {
   type: InlineActionType

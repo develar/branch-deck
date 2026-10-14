@@ -6,6 +6,7 @@ import { CommitList } from "@/components/commit/CommitList"
 import type { CommitListProps } from "@/components/commit/CommitList"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import type { CommitMoveList } from "@/hooks/useCommitMoveList"
+import { hasSelectionActions } from "@/hooks/useCommitMoveList"
 import type { Commit } from "@/lib/bindings"
 import { endCommitDrag } from "@/stores/commit-move"
 
@@ -87,8 +88,8 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
  * prefix); nothing without a selection.
  */
 export function CommitSelectionActions<T extends Commit>({ moveList, className }: { moveList: CommitMoveList<T>, className?: string }) {
-  const { selection, isTargetOpen, removePrefixLabel } = moveList
-  if (selection.selectedCount === 0 || isTargetOpen) {
+  const { selection, removePrefixLabel } = moveList
+  if (!hasSelectionActions(moveList)) {
     return null
   }
   return (

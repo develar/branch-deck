@@ -29,7 +29,7 @@ export async function squashCommits(commits: readonly Commit[], message: string)
 }
 
 /** Moves the branch back to the commit before the squash: the squash kept the files, so nothing else changes. */
-async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string): Promise<void> {
+export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string): Promise<void> {
   const result = await invokeCommand(() => commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }))
   if (result.status !== "ok") {
     notifyError("Failed to Undo the Squash", result.error)

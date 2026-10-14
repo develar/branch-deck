@@ -1,14 +1,16 @@
-import { ArchiveXIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { getListFixups } from "@/lib/autosquash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import type { Branch } from "@/stores/branch-sync"
+import { getAutosquashPlan } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 
 /**
  * Context menu of an active branch row: copy actions, then rename (name an issue branch) and ungroup, then commit
- * actions (issue reference, amend, unapply).
+ * actions (issue reference, amend, unapply), then history (squash fixups).
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
@@ -62,6 +64,21 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     },
   ]
   groups.push(commitActions)
+
+  const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
+  if (fixupCount > 0) {
+    groups.push([
+      {
+        label: `Squash Fixups (${fixupCount})`,
+        icon: CombineIcon,
+        onSelect: () => {
+          // the confirmation opens from the button above the commits
+          setExpanded(branch.name, true)
+          openInline("squash-fixups", branch.name)
+        },
+      },
+    ])
+  }
   return groups
 }
 

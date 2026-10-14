@@ -1,5 +1,5 @@
 import type { Commit } from "@/lib/bindings"
-import { parseSubject } from "@/lib/commit"
+import { findIssueKey, parseSubject } from "@/lib/commit"
 import type { RemoteStatus, SyncedCommit } from "@/stores/branch-sync"
 
 /** The message without trailing whitespace on a line and without blank lines at the start or the end */
@@ -7,16 +7,22 @@ function cleanUp(message: string): string {
   return message.split("\n").map(line => line.trimEnd()).join("\n").replace(/^\n+|\n+$/g, "")
 }
 
-/** The message with the autosquash marker and the `(prefix)` of its subject removed */
+/**
+ * The message without what groups it: the autosquash markers and the `(prefix)` of its subject, or the issue key the
+ * subject starts with if it is grouped by that key (`ABC-1: Add tokens` → `Add tokens`)
+ */
 function withoutMarkers(message: string): string {
   const newline = message.indexOf("\n")
   const subject = newline === -1 ? message : message.slice(0, newline)
-  return parseSubject(subject).rest + (newline === -1 ? "" : message.slice(newline))
+  const { prefix, rest } = parseSubject(subject)
+  const issueKey = prefix === null ? findIssueKey(rest) : null
+  const text = issueKey !== null && rest.startsWith(issueKey) ? rest.slice(issueKey.length).replace(/^[\s:]+/, "") : rest
+  return text + (newline === -1 ? "" : message.slice(newline))
 }
 
 /**
  * The initial message of commits squashed together, given oldest first: the oldest message as is (its subject keeps
- * the branch), then the others as paragraphs, without their autosquash marker and `(prefix)`. A message already
+ * the branch), then the others as paragraphs, without their autosquash markers and `(prefix)` or leading issue key. A message already
  * included, like `fixup! Add login` after `Add login`, is left out.
  */
 export function buildSquashMessage(messages: readonly string[]): string {

@@ -22,8 +22,15 @@ describe("buildSquashMessage", () => {
     expect(buildSquashMessage(["\nAdd a  \n\n", "\n\nAdd b\n"])).toBe("Add a\n\nAdd b")
   })
 
-  it("keeps the issue key of a newer subject", () => {
+  it("keeps the issue key of a newer subject grouped by its prefix", () => {
     expect(buildSquashMessage(["ABC-1: Add parser", "(lexer) ABC-1: Add lexer"])).toBe("ABC-1: Add parser\n\nABC-1: Add lexer")
+  })
+
+  it("removes the issue key a newer subject is grouped by", () => {
+    expect(buildSquashMessage(["ABC-123: Add parser", "ABC-123: Add tokens\n\nFor the lexer", "ABC-123 Fix the parser", "fixup! ABC-123: Add parser"]))
+      .toBe("ABC-123: Add parser\n\nAdd tokens\n\nFor the lexer\n\nFix the parser")
+    // a key after a `[category]` or a `type:` stays
+    expect(buildSquashMessage(["ABC-1: Add a", "fix: ABC-1 Add b"])).toBe("ABC-1: Add a\n\nfix: ABC-1 Add b")
   })
 })
 

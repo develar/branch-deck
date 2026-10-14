@@ -29,7 +29,8 @@ test.describe("Squash commits", () => {
     await expect(dialog.getByTestId("squash-commits").locator("li")).toHaveText([/Add parser/, /Add tokens/])
     const editor = dialog.getByTestId("squash-message-editor")
     await expect(editor).toBeFocused()
-    await expect(editor).toHaveValue("ABC-123: Add parser\n\nABC-123: Add tokens")
+    // the newer subject loses the issue key it is grouped by, as a prefix would be removed
+    await expect(editor).toHaveValue("ABC-123: Add parser\n\nAdd tokens")
     await expect(dialog).toContainText("The first line is the subject")
 
     await page.keyboard.press("ControlOrMeta+Enter")
@@ -63,7 +64,7 @@ test.describe("Squash commits", () => {
 
     const dialog = squashDialog(page)
     const editor = dialog.getByTestId("squash-message-editor")
-    await expect(editor).toHaveValue("ABC-123: Add parser\n\nABC-123: Add lexer\n\nABC-123: Add tokens")
+    await expect(editor).toHaveValue("ABC-123: Add parser\n\nAdd lexer\n\nAdd tokens")
     // a new prefix moves the squashed commit to another branch
     await editor.fill("(parser) ABC-123: Add the parser")
     await expect(dialog.getByTestId("commit-prefix-change")).toHaveText("Squashing moves the commit to the branch parser")

@@ -201,6 +201,33 @@ the branch moved since, or if the two trees differ; equal trees mean the index a
 
 Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/sync-core/src/squash.rs`.
 
+#### Squash fixups
+
+`fixup!`, `squash!` and `amend!` commits are squashed into their targets as `git rebase --autosquash` would, but as
+one squash rewrite with a group per target. The plan (`plan_autosquash`) is pure, over the commits ahead of the
+baseline, oldest first, and follows git's `todo_list_rearrange_squash`:
+
+1. A subject is a fixup if it starts with `fixup! `, `squash! ` or `amend! `; the space is required. All leading
+   markers are stripped (`fixup! squash! X` targets `X`); the first one gives the kind. The grouper strips them the same
+   way, so `fixup! (auth) X` stays in `auth`.
+2. The target is the oldest older commit that matches, in this order: the exact subject; a hash prefix of 4 or more hex
+   digits that matches one commit of the range; the subject without the `(prefix)`, the prefixes agreeing if the fixup
+   has one (Branch Deck's addition: `fixup! X` finds `(auth) X`); a subject, or a subject without the `(prefix)`,
+   starting with the text. Fixups are never matched by subject.
+3. A fixup of a fixup (by hash) goes to the final target. Anything unmatched, a newer target included, is an orphan:
+   reported, not squashed.
+
+Messages: a group of fixups only keeps the target's message and encoding (`SquashMessage::Target`). A `squash!` appends
+its body, an `amend!` replaces the message with its body, as UTF-8 text; if an involved commit has another encoding
+(one `cat-file --batch` for those), the squash is refused.
+
+`squash_fixup_commits_core` plans again, refuses if HEAD is not the confirmed one, and takes the groups of the scope:
+the target's branch (grouper rules), the unassigned targets, or one fixup. The branch moves with
+`branch-deck: squash fixups`; Undo is the squash undo.
+
+Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
+`branch_name_of`).
+
 #### Virtual branch sync
 
 Virtual branches never touch HEAD, the index or the working tree.
@@ -296,6 +323,7 @@ recovery hint (`git reset -q`).
 | Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `rev-list` + 1 `cat-file` + 1 `fast-import` + 1 `update-ref`, plus the guard |
 | Drop k commits from a range of n | up to n `merge-tree` + n `commit-tree` + `reset` | at most k `replay` + 1 `update-ref` + 1 `read-tree` |
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
+| Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per branch |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
@@ -318,9 +346,11 @@ recovery hint (`git reset -q`).
   `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`,
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
-  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`
+  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
+  `crates/sync-core/src/autosquash.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
+  [Squash Fixups](../../spec/commit/fixups.spec.md),
   [Unapply](../../spec/branch/unapply.spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),
   [Async Patterns](async-patterns.md)

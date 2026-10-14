@@ -35,7 +35,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
 
 ## Non-goals
 
-- Squashing `fixup!`, `squash!` and `amend!` commits into their targets automatically (a separate feature).
+- Squashing `fixup!`, `squash!` and `amend!` commits into their targets automatically ([Squash Fixups](fixups.spec.md)).
 - Reordering commits or resolving conflicts between the squashed commits and the commits in between.
 - Squashing commits of different lists in one step.
 
@@ -81,8 +81,9 @@ tree and the index are not touched, and an undo is a move of the branch back.
 
 - The header must say "Squash N commits", name the target and list the commits with their short hashes.
 - The message must be prefilled with the oldest commit's message, then the message of each newer commit as a paragraph,
-  without its autosquash marker and `(prefix)`. A message already included (e.g. `fixup! X` after `X`) is left out.
-  [@test] ../../src/lib/squash-message.test.ts (`keeps the oldest message and appends the others as paragraphs without their prefix`, `removes the autosquash marker and leaves out a message already included`, `cleans up trailing whitespace and blank lines`, `keeps the issue key of a newer subject`)
+  without its autosquash markers and `(prefix)`, or without the issue key it starts with if it is grouped by that key
+  (`ABC-1: Add tokens` becomes `Add tokens`). A message already included (e.g. `fixup! X` after `X`) is left out.
+  [@test] ../../src/lib/squash-message.test.ts (`keeps the oldest message and appends the others as paragraphs without their prefix`, `removes the autosquash marker and leaves out a message already included`, `cleans up trailing whitespace and blank lines`, `keeps the issue key of a newer subject grouped by its prefix`, `removes the issue key a newer subject is grouped by`)
 - The footer must warn when the edited subject moves the squashed commit to another branch.
   [@test] ../../tests/e2e/squash-commits/squash-commits.spec.ts (`should offer squash in the context menu of two or more commits and cancel with Escape`)
 - The footer must warn "N squashed commits are already pushed; the next push replaces them" when the branch exists on
@@ -122,5 +123,6 @@ tree and the index are not touched, and an undo is a move of the branch back.
 ## References
 
 - [Git Operations](../../docs/design/git-operations.md)
+- [Squash Fixups](fixups.spec.md)
 - [Move Commits](../branch/move-commits.spec.md)
 - [Commit Row](commit-row.spec.md)

@@ -455,24 +455,24 @@ fn test_autosquash_commits_edge_cases() {
 
   // Test various spacing scenarios
   grouper.add_commit(create_test_commit("1", "(feature) Add feature"));
-  grouper.add_commit(create_test_commit("2", "fixup!(feature) Add feature")); // No space after prefix
-  grouper.add_commit(create_test_commit("3", "fixup!  (feature) Add feature")); // Multiple spaces after prefix
+  // git requires the space after the marker: "fixup!(feature)" is an ordinary subject without a prefix
+  grouper.add_commit(create_test_commit("2", "fixup!(feature) Add feature"));
+  grouper.add_commit(create_test_commit("3", "fixup!  (feature) Add feature")); // Multiple spaces after the marker
+  grouper.add_commit(create_test_commit("4", "fixup! squash! (feature) Add feature")); // Repeated markers
 
   // Test autosquash commits without any recognizable prefix in the base message
-  grouper.add_commit(create_test_commit("4", "fixup! Regular commit message"));
+  grouper.add_commit(create_test_commit("5", "fixup! Regular commit message"));
 
   let GroupedCommits {
     branches: grouped, unassigned, ..
   } = grouper.finish();
 
-  // Commits 1, 2, 3 should be grouped under "feature"
-  assert!(grouped.contains_key("feature"));
-  let feature_commits = grouped.get("feature").unwrap();
-  assert_eq!(feature_commits.len(), 3, "feature should have 3 commits");
+  let feature_ids: Vec<&str> = grouped.get("feature").unwrap().iter().map(|commit| commit.id.as_str()).collect();
+  assert_eq!(feature_ids, ["1", "3", "4"]);
 
-  // Commit 4 should be unassigned (no prefix in base message)
-  assert_eq!(unassigned.len(), 1, "Should have 1 unassigned commit");
-  assert_eq!(unassigned[0].id, "4");
+  // Commits 2 and 5 should be unassigned (no prefix in base message)
+  let unassigned_ids: Vec<&str> = unassigned.iter().map(|commit| commit.id.as_str()).collect();
+  assert_eq!(unassigned_ids, ["2", "5"]);
 }
 
 #[test]

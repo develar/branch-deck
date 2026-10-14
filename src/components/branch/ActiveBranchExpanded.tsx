@@ -1,6 +1,8 @@
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
-import { useCommitMoveList } from "@/hooks/useCommitMoveList"
+import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
+import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
+import { useListFixups } from "@/hooks/useSquashFixups"
 import type { Branch } from "@/stores/branch-sync"
 
 export interface ActiveBranchExpandedProps {
@@ -30,9 +32,15 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false }: Act
 /** The commits of the branch; select them to move them to another branch (or drag them onto one). */
 function BranchCommitList({ branch, highlightTipCommit }: { branch: Branch, highlightTipCommit: boolean }) {
   const moveList = useCommitMoveList({ commits: branch.commits, sourceBranch: branch.name })
+  const { count: fixupCount } = useListFixups(branch.name)
   return (
     <div className="flex flex-col gap-2">
-      <CommitSelectionActions moveList={moveList} className="justify-end px-4 sm:px-6" />
+      {(hasSelectionActions(moveList) || fixupCount > 0) && (
+        <div className="flex items-center justify-end gap-2 px-4 sm:px-6">
+          <CommitSelectionActions moveList={moveList} />
+          <SquashFixupsButton branch={branch.name} />
+        </div>
+      )}
       <MovableCommitList moveList={moveList} commits={branch.commits} variant="status" showFileCount={false} highlightTipCommit={highlightTipCommit} editable />
     </div>
   )

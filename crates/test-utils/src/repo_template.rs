@@ -321,6 +321,26 @@ pub mod templates {
       .commit_with_timestamp("Refactor build script", &[("build.js", "export function build() {}")], Some(1704126600))
   }
 
+  /// Fixup commits: of a branch commit (`auth`), a `squash!` without a prefix of another branch's commit (`docs`), one
+  /// without a target in the range, and an unassigned one of an unassigned commit
+  pub fn fixups() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("fixups")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Login\n")], Some(1704117600))
+      .commit_with_timestamp("(auth) Add login form", &[("login.js", "export function login() {}\n")], Some(1704119400))
+      .commit_with_timestamp("(docs) Write the guide", &[("guide.md", "# Guide\n")], Some(1704121200))
+      .commit_with_timestamp("Add build script", &[("build.js", "export function build() {}\n")], Some(1704123000))
+      .commit_with_timestamp("fixup! (auth) Add login form", &[("login.js", "export function login(user) {}\n")], Some(1704124800))
+      .commit_with_timestamp("squash! Write the guide\n\nCover the setup", &[("guide.md", "# Guide\n\n## Setup\n")], Some(1704126600))
+      .commit_with_timestamp(
+        "fixup! (auth) Drop the session cookie",
+        &[("session.js", "export const session = null\n")],
+        Some(1704128400),
+      )
+      .commit_with_timestamp("fixup! Add build script", &[("build.js", "export function build(target) {}\n")], Some(1704130200))
+  }
+
   /// Repository with issue navigation configuration for testing issue links
   pub fn issue_links() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
