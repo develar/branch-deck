@@ -47,7 +47,7 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
     const text = "not pushed"
     if (commitsAhead > 0) {
       const tooltip = my > 0
-        ? `You have ${plural(my, "of your commit", "of your commits")} not on remote (${commitsAhead} total). Push to create the remote branch.`
+        ? `You have ${my} of your commits not on remote (${commitsAhead} total). Push to create the remote branch.`
         : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes). Push to create the remote branch.`
       return { text, tooltip: addPushTime(tooltip) }
     }
@@ -57,7 +57,7 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
   // diverged (both ahead and behind)
   if (commitsAhead > 0 && commitsBehind > 0) {
     const tooltip = my > 0
-      ? `You have ${plural(my, "of your commit", "of your commits")} not on remote (${commitsAhead} total).\nRemote includes ${plural(commitsBehind, "commit", "commits")} ${remoteDiffText}.`
+      ? `You have ${my} of your commits not on remote (${commitsAhead} total).\nRemote includes ${plural(commitsBehind, "commit", "commits")} ${remoteDiffText}.`
       : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes).\nRemote includes ${plural(commitsBehind, "commit", "commits")} ${remoteDiffText}.`
     return { text: `${my} (${commitsAhead})↑ · ${commitsBehind}↓`, tooltip: addPushTime(tooltip) }
   }
@@ -65,7 +65,7 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
   // ahead only
   if (commitsAhead > 0) {
     const ahead = my > 0
-      ? `You have ${plural(my, "of your commit", "of your commits")} not on remote (${commitsAhead} total).`
+      ? `You have ${my} of your commits not on remote (${commitsAhead} total).`
       : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes).`
     const tooltip = fastForward ? ahead : `${ahead}\n${rebasedText}`
     return { text: `${my} (${commitsAhead})↑`, tooltip: addPushTime(tooltip) }
