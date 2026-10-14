@@ -2,7 +2,7 @@
   <div class="group/card-header @container/card-header grid auto-rows-min items-start gap-1.5 rounded-t-[min(var(--radius-4xl),24px)] px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing) border-b" data-slot="card-header">
     <div class="flex items-center gap-2">
       <svg aria-hidden="true" class="lucide lucide-git-branch size-5 text-primary" />
-      <h3 class="text-lg font-semibold">
+      <h3 class="text-base font-semibold">
         Welcome to Branch Deck
       </h3>
     </div>
@@ -12,10 +12,10 @@
       You're almost ready: configure your branch prefix to start managing your branches.
     </p>
     <div class="flex flex-col gap-3">
-      <div class="flex gap-3">
+      <div class="flex gap-3" data-testid="welcome-step">
         <div class="mt-0.5 shrink-0">
-          <div class="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-            2
+          <div class="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
+            1
           </div>
         </div>
         <div class="flex flex-1 flex-col gap-1">
