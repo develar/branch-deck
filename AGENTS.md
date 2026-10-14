@@ -11,6 +11,7 @@ See `package.json` for the full list of scripts.
 pnpm install              # Install dependencies
 pnpm run tauri dev        # Run the full Tauri app (frontend + backend)
 pnpm dev                  # Run only the Vite frontend (port 1420)
+pnpm install-app          # Unsigned release build of the .app, copied to /Applications (macOS)
 
 # Testing
 pnpm test                 # Run all tests (Rust and E2E)
