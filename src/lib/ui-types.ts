@@ -43,3 +43,21 @@ export function ghostButtonColorClass(color: UIColor): string {
       return "text-muted-foreground"
   }
 }
+
+/** Colour of the dot before a routine status text */
+export function statusDotClassName(color: UIColor): string {
+  switch (color) {
+    case "primary":
+      return "bg-primary"
+    case "success":
+      return "bg-success"
+    case "info":
+      return "bg-info"
+    case "warning":
+      return "bg-warning"
+    case "error":
+      return "bg-destructive"
+    default:
+      return "bg-muted-foreground/50"
+  }
+}

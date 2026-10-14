@@ -2,8 +2,7 @@ import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useStatusBadge } from "@/hooks/useStatusBadge"
-import type { UIColor } from "@/lib/ui-types"
-import { subtleBadgeVariant } from "@/lib/ui-types"
+import { statusDotClassName, subtleBadgeVariant } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
 /**
@@ -25,7 +24,7 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
             ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate lowercase" />
             : <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground" />}
         >
-          {!exceptional && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClassName(status.color))} />}
+          {!exceptional && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
           {exceptional ? status.text : <span className="truncate lowercase">{status.text}</span>}
         </PopoverTrigger>
         <PopoverContent className="w-auto max-w-sm px-3 py-2 text-sm leading-snug break-words whitespace-pre-line">
@@ -34,17 +33,4 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
       </Popover>
     </div>
   )
-}
-
-function dotClassName(color: UIColor): string {
-  switch (color) {
-    case "primary":
-      return "bg-primary"
-    case "success":
-      return "bg-success"
-    case "info":
-      return "bg-info"
-    default:
-      return "bg-muted-foreground/50"
-  }
 }

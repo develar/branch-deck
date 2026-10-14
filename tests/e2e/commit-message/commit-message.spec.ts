@@ -1,10 +1,9 @@
 // @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
-import { test, expect } from "../fixtures/test-fixtures"
+import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { enableAutoSyncOnFocus, syncOnWindowFocus } from "../helpers/sync-helpers"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
@@ -29,15 +28,6 @@ async function expectPreviewFocused(preview: Locator) {
 }
 
 test.describe("Commit message", () => {
-  let repo: TestRepositoryBuilder
-
-  test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    repo = await setupRepo("issue_links")
-    await syncAndWaitForBranches()
-    // the unassigned commits card can render after the branches and push the commit list down
-    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-  })
-
   test("should open the full message in a preview and reflow it into paragraphs, lists and code", async ({ page }) => {
     const { commitRow, toggle } = await findCommitRow(page)
     // rows don't render the body
@@ -182,7 +172,7 @@ test.describe("Commit message", () => {
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("3 / 3")
   })
 
-  test("should close the preview when a sync removes its commit", async ({ page }) => {
+  test("should close the preview when a sync removes its commit", async ({ page, issueLinksRepo: repo }) => {
     await enableAutoSyncOnFocus(page)
     const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
     const hash = await unassignedRow.getAttribute("data-row-id")
@@ -254,7 +244,7 @@ test.describe("Commit message", () => {
       await expect(preview).toHaveCount(0)
     })
 
-    test("should keep the edit open with an error when the commit changed meanwhile", async ({ page }) => {
+    test("should keep the edit open with an error when the commit changed meanwhile", async ({ page, issueLinksRepo: repo }) => {
       const { preview, editor } = await editPerfCommit(page)
       const hash = await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).getAttribute("data-row-id")
       const draft = `(${BRANCH}) perf db: increase pool size to 64`

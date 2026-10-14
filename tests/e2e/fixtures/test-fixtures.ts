@@ -1,5 +1,6 @@
 import { test as base } from "./base-test"
 import type { Page } from "@playwright/test"
+import { expect } from "@playwright/test"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { setupTestRepository, cleanupTestRepository } from "../helpers/common-setup"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -133,6 +134,20 @@ export const test = base.extend<{
 })
 
 export { expect } from "@playwright/test"
+
+/**
+ * Test fixture for the `issue_links` repository, synced before every test (the fixture is automatic); a test that
+ * changes the repository behind the app's back asks for `issueLinksRepo`
+ */
+export const testWithIssueLinks = test.extend<{ issueLinksRepo: TestRepositoryBuilder }>({
+  issueLinksRepo: [async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    // the unassigned commits card can render after the branches and push the commit list down
+    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+    await use(repo)
+  }, { auto: true }],
+})
 
 /**
  * Test fixture for tests that need unassigned commits

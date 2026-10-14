@@ -4,6 +4,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/component
 
 interface BranchContextMenuRowProps {
   "name": string
+  /** Rendered as `data-row-id`: the row opens a preview on Space (`useSpacePreviewHotkey`) */
+  "rowId"?: string
   "expanded": boolean
   /** an inline action is running on the row: the menu is disabled */
   "processing": boolean
@@ -27,7 +29,7 @@ interface BranchContextMenuRowProps {
 }
 
 /** Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click. */
-export function BranchContextMenuRow({ name, expanded, processing, group = false, className, "data-testid": testId, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -35,6 +37,7 @@ export function BranchContextMenuRow({ name, expanded, processing, group = false
           <tr
             data-testid={testId}
             data-branch-name={name}
+            data-row-id={rowId}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
             className={cn(group && "group", "cursor-pointer transition-all hover:bg-muted", className)}

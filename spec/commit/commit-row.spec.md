@@ -9,7 +9,9 @@ targets:
   - ../../src/components/commit/CommitMetadata.tsx
   - ../../src/components/commit/CommitMessage.tsx
   - ../../src/components/commit/CommitPreviewDialog.tsx
-  - ../../src/hooks/useCommitPreviewHotkey.ts
+  - ../../src/components/shared/PreviewDialogFrame.tsx
+  - ../../src/hooks/useSpacePreviewHotkey.ts
+  - ../../src/lib/preview-keys.ts
   - ../../src/hooks/useRewordCommit.ts
   - ../../crates/sync-core/src/reword_commit.rs
   - ../../crates/git-ops/src/reword_commits.rs

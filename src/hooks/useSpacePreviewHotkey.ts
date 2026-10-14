@@ -32,14 +32,18 @@ function ownsSpace(target: EventTarget | null): boolean {
   return target.closest(SPACE_OWNERS) !== null || (!pointerMovedSinceFocus && target.matches("button, a, [role=button]"))
 }
 
+/** Marks the tables that open a preview on Space, so the innermost one owns the focus inside it */
+const PREVIEW_TABLE_ATTRIBUTE = "data-space-preview"
+
 /**
- * Space opens the commit preview, as Quick Look does: for the commit row under the pointer, otherwise for
- * `getFallbackId()` (the last clicked row) while the table has the focus.
+ * Space opens a preview, as Quick Look does: for the row (`tr[data-row-id]`) under the pointer, otherwise for
+ * `getFallbackId()` (the last clicked row) while the focus is in the table.
  *
- * Every commit list registers its own listener; a list acts only for its own rows, and for the innermost hovered row,
- * so a list nested in a conflict view does not open a second preview.
+ * Every table registers its own listener; a table acts only for its own rows, for the innermost hovered row and for
+ * the focus that no nested preview table holds, so the branch table and a commit list nested in it (or a commit list
+ * nested in a conflict view) never open two previews.
  */
-export function useCommitPreviewHotkey(
+export function useSpacePreviewHotkey(
   tableRef: RefObject<HTMLTableElement | null>,
   getFallbackId: () => string | null,
   open: (id: string) => void,
@@ -47,6 +51,8 @@ export function useCommitPreviewHotkey(
   const latestRef = useRef({ getFallbackId, open })
   useEffect(() => {
     latestRef.current = { getFallbackId, open }
+    // on every render: the table may mount after the hook (a card that renders nothing while empty)
+    tableRef.current?.setAttribute(PREVIEW_TABLE_ATTRIBUTE, "")
   })
 
   useEffect(() => {
@@ -66,7 +72,7 @@ export function useCommitPreviewHotkey(
       if (hoveredRow !== undefined) {
         id = hoveredRow.closest("table") === table ? hoveredRow.dataset.rowId ?? null : null
       }
-      else if (table.contains(document.activeElement)) {
+      else if (document.activeElement?.closest(`table[${PREVIEW_TABLE_ATTRIBUTE}]`) === table) {
         id = latestRef.current.getFallbackId()
       }
 

@@ -43,19 +43,24 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
         )}
         {/* an issue key in the name is a link, but the name keeps the foreground colour */}
         <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" linkClassName="text-foreground hover:underline" />
-        {issueKey !== null && (
-          <Badge variant="outline" className="shrink-0" data-testid="branch-issue-key">
-            <LinkedText text={issueKey} linkClassName="text-muted-foreground hover:underline" />
-          </Badge>
-        )}
+        {issueKey !== null && <BranchIssueBadge issueKey={issueKey} />}
         {summary && <BranchSummary summary={summary} />}
       </div>
     </td>
   )
 }
 
+/** The issue of a branch as a chip next to its name. */
+export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
+  return (
+    <Badge variant="outline" className="shrink-0" data-testid="branch-issue-key">
+      <LinkedText text={issueKey} linkClassName="text-muted-foreground hover:underline" />
+    </Badge>
+  )
+}
+
 /** Latest commit subject of the branch; a conventional-commit prefix is dimmed as in the commit rows. */
-function BranchSummary({ summary }: { summary: string }) {
+export function BranchSummary({ summary }: { summary: string }) {
   const { prefix, text } = splitSubjectPrefix(summary)
   return (
     <span className="truncate text-xs text-muted-foreground">

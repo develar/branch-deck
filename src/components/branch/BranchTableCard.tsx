@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { lazy, Suspense, useCallback, useRef, useState } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
@@ -8,10 +8,13 @@ import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
+import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import type { CommitDrag } from "@/stores/commit-move"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 import { syncBranches, useBranchTableRows } from "@/stores/branch-sync"
+
+const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
 
 /** Drop target key that no list has, so commits from every list can be dropped on the "new branch" zone */
 const NEW_BRANCH_TARGET = "\u0000new-branch"
@@ -19,10 +22,36 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 /**
  * Table of active virtual branches, the branches of an issue nested under it. Subscribes to the row list only; each
  * row subscribes to its own branch.
+ * Space (over a branch row, or on the last toggled row of the focused table) opens the branch preview.
  */
 export function BranchTableCard() {
   const rows = useBranchTableRows()
-  const { expandedKeys, toggleExpanded, setExpanded } = useRowExpansion()
+  const { expandedKeys, toggleExpanded: toggleRowExpanded, setExpanded } = useRowExpansion()
+
+  // the fallback of Space while the table has the focus
+  const lastToggledRef = useRef<string | null>(null)
+  const toggleExpanded = useCallback((name: string) => {
+    lastToggledRef.current = name
+    toggleRowExpanded(name)
+  }, [toggleRowExpanded])
+
+  // the preview follows the branch by name across a sync; a branch gone (renamed, merged) closes it
+  const [previewName, setPreviewName] = useState<string | null>(null)
+  // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
+  const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
+  const branchNames = rows.filter(row => !row.startsWith("i:")).map(row => row.slice(2))
+  if (previewName !== null && !branchNames.includes(previewName)) {
+    setPreviewName(null)
+  }
+  const openPreview = useCallback((name: string) => {
+    // an open context menu keeps its keys
+    if (document.querySelector("[role=menu]") === null) {
+      setPreviewName(name)
+      setIsPreviewLoaded(true)
+    }
+  }, [])
+  const tableRef = useRef<HTMLTableElement>(null)
+  useSpacePreviewHotkey(tableRef, () => lastToggledRef.current, openPreview)
 
   // "Sync" menu item
   useTauriListen("sync-branches", () => {
@@ -37,7 +66,8 @@ export function BranchTableCard() {
     <Card className="gap-0 py-0">
       <NewBranchDropZone />
       <div className="overflow-x-auto">
-        <table className="w-full">
+        {/* focusable, so a click on a row gives it the focus that Space falls back on */}
+        <table ref={tableRef} tabIndex={-1} className="w-full outline-none">
           <thead className="border-b border-border bg-muted/50">
             <tr>
               <TableHeader>Branch Name</TableHeader>
@@ -68,6 +98,11 @@ export function BranchTableCard() {
           </tbody>
         </table>
       </div>
+      {isPreviewLoaded && (
+        <Suspense fallback={null}>
+          <BranchPreviewDialog names={branchNames} name={previewName} onNameChange={setPreviewName} onClose={() => setPreviewName(null)} />
+        </Suspense>
+      )}
     </Card>
   )
 }

@@ -70,6 +70,7 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
       <BranchContextMenuRow
         data-testid="branch-row"
         name={name}
+        rowId={name}
         expanded={expanded}
         processing={processing}
         group
