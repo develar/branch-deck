@@ -146,6 +146,8 @@ writes anything:
    duplicates and ids both in a branch and in `unassign` are refused.
 3. Move every fixup of a moved target along (`plan_autosquash`); a plan that separates a fixup from its target is
    refused.
+   A commit without a prefix that goes to the branch of its own issue key keeps its message: it is grouped there
+   already.
 4. Group every subject ahead of the baseline with the new prefixes in memory (`CommitGrouper::new_with_stacks`) and
    compare the stack forest with the current one: a problem the plan introduces (a cycle, conflicting parents, a
    self parent, a leaf collision) refuses the plan; a problem that already existed is reported.

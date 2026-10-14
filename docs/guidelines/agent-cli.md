@@ -213,6 +213,8 @@ Moves commits between branches by their subject prefixes, in one message-only hi
 
 - A path is a branch name, or `parent/leaf` with stacked branches on (`git config branchdeck.stacks true`). Ids may
   be abbreviated. `unassign` removes the prefix: the commit falls back to its issue branch or becomes unassigned.
+- A commit without a prefix that the plan puts into the branch of its own issue key keeps its subject: it is in that
+  branch already. So the current grouping as a plan rewrites nothing.
 - Before anything is written, the plan is applied in memory to every subject ahead of the baseline and validated:
   - unknown ids and ids not ahead of the baseline are `not_ahead_of_baseline`;
   - duplicate ids, ids both in a branch and in `unassign`, invalid names, a fixup sent away from its target and a

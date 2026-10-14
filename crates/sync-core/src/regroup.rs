@@ -20,6 +20,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 use sync_types::stack::StackProblem;
+use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
 
 /// Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids]}`
@@ -458,6 +459,8 @@ fn apply_in_memory(snapshot: &Snapshot, assignment: Assignment) -> Result<Regrou
     .commits
     .iter()
     .map(|commit| match targets.get(&commit.id) {
+      // the commit is in the branch of its own issue key already: a prefix would only repeat the key
+      Some(Some(path)) if is_own_issue_branch(&commit.subject, path) => commit.clone(),
       Some(target) => {
         let message = with_branch_prefix(&commit.message, target.as_deref());
         let mut regrouped = commit.clone();
@@ -540,6 +543,12 @@ fn apply_in_memory(snapshot: &Snapshot, assignment: Assignment) -> Result<Regrou
     forest,
     kept_problems,
   })
+}
+
+/// Whether a subject without a prefix carries the issue key `path`, the branch the grouper puts it into without a prefix
+fn is_own_issue_branch(subject: &str, path: &str) -> bool {
+  let parsed = parse_subject(subject);
+  parsed.prefix.is_none() && find_issue_number(parsed.rest) == Some(path)
 }
 
 /// What makes two problems the same problem, whatever commits declare it

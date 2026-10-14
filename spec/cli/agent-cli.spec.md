@@ -159,6 +159,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   prefixes of all its commits in one message-only rewrite; ids may be abbreviated.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
+- A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so the
+  current grouping as a plan rewrites no commit.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`the_current_grouping_as_a_plan_rewrites_nothing`)
 - The plan must be validated against every subject ahead of the baseline before anything is written: unknown ids and
   ids not ahead of the baseline are `not_ahead_of_baseline`; duplicate or contradicting ids, a malformed plan, invalid
   names, a fixup separated from its target and a stack problem the plan introduces are `invalid_plan`, with the
