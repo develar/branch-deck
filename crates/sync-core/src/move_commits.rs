@@ -1,10 +1,10 @@
 use crate::commit_grouper::parse_subject;
-use crate::reword_commit::reword_read_commits;
-use anyhow::{Result, anyhow, ensure};
+use crate::regroup::{RegroupOptions, RegroupPlan, RegroupedCommit, regroup_commits_core};
+use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_utils::{find_commit, get_commits_info};
 use git_ops::model::sanitize_branch_name;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use tracing::{info, instrument};
 
 #[derive(Debug, Deserialize)]
@@ -34,12 +34,14 @@ pub struct MovedCommit {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MoveCommitsResult {
-  /// The commits whose message changed, in request order; a commit already in the target branch is not listed
+  /// The commits whose message changed, in request order, then the fixups that moved with them; a commit already in
+  /// the target branch is not listed
   pub moved: Vec<MovedCommit>,
 }
 
-/// Moves commits to another branch by setting the `(branch)` prefix of their subjects, replacing an existing one.
-/// One history rewrite for all commits; the next sync rebuilds the virtual branches.
+/// Moves commits to another branch by setting the `(branch)` prefix of their subjects, replacing an existing one: a
+/// `regroup_commits_core` plan of one branch (or of `unassign`), so their fixups move along. One history rewrite for all
+/// commits; the next sync rebuilds the virtual branches.
 #[instrument(skip(git_executor, params), fields(count = params.commit_ids.len(), target = ?params.target_branch))]
 pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &MoveCommitsParams) -> Result<MoveCommitsResult> {
   let target = params.target_branch.as_deref();
@@ -48,31 +50,45 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   }
   ensure!(!params.commit_ids.is_empty(), "No commits to move");
 
-  let ids: Vec<&str> = params.commit_ids.iter().map(String::as_str).collect();
-  let commits = get_commits_info(git_executor, &params.repository_path, &ids)?;
-  // (request id, previous message, new message)
-  let mut rewrites = Vec::with_capacity(ids.len());
-  for id in ids {
-    let commit = find_commit(&commits, id).ok_or_else(|| anyhow!("Commit {id} not found"))?;
-    let previous_message = commit.message.trim_end().to_string();
-    let new_message = with_branch_prefix(&previous_message, target);
-    if new_message != previous_message {
-      rewrites.push((id, previous_message, new_message));
-    }
-  }
+  let plan = match target {
+    Some(target) => RegroupPlan {
+      branches: BTreeMap::from([(target.to_string(), params.commit_ids.clone())]),
+      unassign: Vec::new(),
+    },
+    None => RegroupPlan {
+      branches: BTreeMap::new(),
+      unassign: params.commit_ids.clone(),
+    },
+  };
+  let outcome = regroup_commits_core(git_executor, &params.repository_path, &plan, &RegroupOptions::default())?;
 
-  let new_ids = reword_read_commits(
-    git_executor,
-    &params.repository_path,
-    &commits,
-    rewrites.iter().map(|(id, _, new_message)| (*id, new_message.as_str())),
-  )?;
-  let moved: Vec<MovedCommit> = rewrites
-    .into_iter()
-    .map(|(id, previous_message, _)| MovedCommit {
+  // the requested commits in request order, then the fixups that followed them
+  let changed = |commit: &&RegroupedCommit| commit.changed;
+  let requested: Vec<(&str, &RegroupedCommit)> = params
+    .commit_ids
+    .iter()
+    .filter_map(|id| {
+      outcome
+        .commits
+        .iter()
+        .filter(changed)
+        .find(|commit| commit.id.starts_with(id.as_str()))
+        .map(|commit| (id.as_str(), commit))
+    })
+    .collect();
+  let followed = outcome
+    .commits
+    .iter()
+    .filter(changed)
+    .filter(|commit| !requested.iter().any(|(_, requested)| requested.id == commit.id));
+  let moved: Vec<MovedCommit> = requested
+    .iter()
+    .map(|(id, commit)| (*id, *commit))
+    .chain(followed.map(|commit| (commit.id.as_str(), commit)))
+    .map(|(id, commit)| MovedCommit {
       old_id: id.to_string(),
-      new_id: new_ids.get(id).cloned().unwrap_or_else(|| id.to_string()),
-      previous_message,
+      new_id: commit.new_id.clone(),
+      previous_message: commit.previous_message.clone(),
     })
     .collect();
   info!(moved = moved.len(), "Moved commits");

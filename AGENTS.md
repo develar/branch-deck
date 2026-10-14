@@ -105,6 +105,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction.
+- **Repository lock**: rewrites that regroup commits (`regroup.rs`) hold `$GIT_COMMON_DIR/branch-deck.lock`
+  (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
 - **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
   HEAD not detached, no merges in the range (refuse, no rebase fallback).
 - **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:

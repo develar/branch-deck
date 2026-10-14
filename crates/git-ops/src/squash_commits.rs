@@ -107,14 +107,14 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
   prepare_plan(git_executor, repo_path, history, &plan, checks)
 }
 
-/// Undo a rewrite that kept HEAD's tree (squash): move the checked out branch from `expected_head` back to
-/// `previous_head` in one CAS transaction. Refused if the branch moved since, or if the trees differ: then the index
-/// and the working tree would no longer match HEAD.
+/// Undo a rewrite that kept HEAD's tree (a squash, a reword or a regroup): move the checked out branch from
+/// `expected_head` back to `previous_head` in one CAS transaction, with `operation` as the reflog message. Refused if
+/// the branch moved since, or if the trees differ: then the index and the working tree would no longer match HEAD.
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head(git_executor: &GitCommandExecutor, repo_path: &str, expected_head: &str, previous_head: &str, operation: &str) -> Result<(), CopyCommitError> {
   let target = check_rewrite_range(git_executor, repo_path, &[previous_head]).map_err(|e| refusal(format!("{e:#}")))?;
   if target.head != expected_head {
-    return Err(refusal(format!("Branch {} changed after the squash, it can't be undone", target.branch)));
+    return Err(refusal(format!("Branch {} changed after the rewrite, it can't be undone", target.branch)));
   }
 
   let trees = git_executor.execute_command_lines(&["rev-parse", &format!("{expected_head}^{{tree}}"), &format!("{previous_head}^{{tree}}")], repo_path)?;

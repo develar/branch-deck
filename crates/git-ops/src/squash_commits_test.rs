@@ -272,7 +272,7 @@ fn undo_is_refused_when_the_branch_moved() -> Result<()> {
   let later = repo.create_commit("Later", "c.txt", "c");
 
   let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash").expect_err("the branch moved");
-  assert!(error.to_string().contains("changed after the squash"), "{error}");
+  assert!(error.to_string().contains("changed after the rewrite"), "{error}");
   assert_eq!(repo.head(), later);
 
   // another tree: the index and the working tree would no longer match

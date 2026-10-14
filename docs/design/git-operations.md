@@ -134,6 +134,36 @@ Only messages change, so every tree stays the same and the index and the working
 `fast-import` objects become readable only when its stream ends, so it suits batches whose commits are all known up
 front. Code: `crates/git-ops/src/reword_commits.rs`, `crates/git-ops/src/commit_writer.rs`.
 
+#### Regroup, rename, restack
+
+A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [ids]}`), a branch rename and a restack
+all set the `(prefix)` of commits, so they are one reword. `regroup_commits_core` decides the messages before it
+writes anything:
+
+1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
+   stack setting and the commits ahead of the baseline (one `log`). An `expect_head` that isn't HEAD is `head_moved`.
+2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
+   duplicates and ids both in a branch and in `unassign` are refused.
+3. Move every fixup of a moved target along (`plan_autosquash`); a plan that separates a fixup from its target is
+   refused.
+4. Group every subject ahead of the baseline with the new prefixes in memory (`CommitGrouper::new_with_stacks`) and
+   compare the stack forest with the current one: a problem the plan introduces (a cycle, conflicting parents, a
+   self parent, a leaf collision) refuses the plan; a problem that already existed is reported.
+5. Reword the changed commits in one `fast-import` (`reword_commits_batch_at`): the history must still start at the
+   HEAD of step 1, and the ref transaction's CAS uses it too.
+
+A rename replaces the old level in every prefix path (children included) and gives an issue branch's commits a
+prefix; a restack sets `(parent/leaf)` or `(leaf)` on all commits of the branch. The undo token is
+`{previous_head, new_head}`: `restore_branch_head` moves the branch back with CAS, which is valid because a message
+rewrite keeps HEAD's tree.
+
+**Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
+share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
+the app and parallel `bd` processes. A dry run reads only and takes no lock. Sync doesn't take it yet.
+
+Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/move_commits.rs`,
+`crates/sync-core/src/repository_lock.rs`.
+
 #### Amend
 
 The user selects files in the uncommitted changes. They go into commit X, which may be HEAD, an older commit or the
@@ -496,7 +526,8 @@ recovery hint (`git reset -q`).
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
   `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
-  `crates/sync-core/src/update_project.rs`, `crates/object-cache/src/cache.rs`
+  `crates/sync-core/src/update_project.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
+  `crates/object-cache/src/cache.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
   [Squash Fixups](../../spec/commit/fixups.spec.md),

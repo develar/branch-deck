@@ -102,6 +102,6 @@ fn undo_restores_the_previous_head_and_refuses_after_a_new_commit() {
   let result = squash(&test_repo, &[&a, &b], "Add a and b").unwrap();
   let later = test_repo.create_commit("Later", "c.txt", "c");
   let error = undo(&result).expect_err("the branch moved");
-  assert!(format!("{error:#}").contains("changed after the squash"), "{error:#}");
+  assert!(format!("{error:#}").contains("changed after the rewrite"), "{error:#}");
   assert_eq!(test_repo.head(), later);
 }

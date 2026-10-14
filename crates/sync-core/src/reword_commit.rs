@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use git_ops::commit_utils::{find_commit, get_commits_info};
-use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
+use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, instrument};
@@ -65,6 +65,18 @@ pub(crate) fn reword_read_commits<'a>(
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<HashMap<String, String>> {
+  reword_read_commits_at(git_executor, repository_path, commits, rewrites, None).map(|(requested, _)| requested)
+}
+
+/// `reword_read_commits` for messages computed from the history at `expected_head` (`reword_commits_batch_at`).
+/// Also returns old -> new full id of every recreated commit, the ones after the oldest reworded one included
+pub(crate) fn reword_read_commits_at<'a>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  commits: &HashMap<String, Commit>,
+  rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
+  expected_head: Option<&str>,
+) -> Result<(HashMap<String, String>, HashMap<String, String>)> {
   let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
   if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
     return Err(anyhow!("The commit message must start with a subject line"));
@@ -93,18 +105,17 @@ pub(crate) fn reword_read_commits<'a>(
     HashMap::new()
   } else {
     let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
-    reword_commits_batch(git_executor, repository_path, &baseline_branch, params)?
+    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head)?
   };
   info!(reworded_count, "Reworded commits");
-  Ok(
-    resolved
-      .into_iter()
-      .map(|(id, full_id)| {
-        let new_id = mapping.get(&full_id).cloned().unwrap_or(full_id);
-        (id.to_string(), new_id)
-      })
-      .collect(),
-  )
+  let requested = resolved
+    .into_iter()
+    .map(|(id, full_id)| {
+      let new_id = mapping.get(&full_id).cloned().unwrap_or(full_id);
+      (id.to_string(), new_id)
+    })
+    .collect();
+  Ok((requested, mapping))
 }
 
 /// Whether the virtual branch commit of a commit stays the same when its message changes from `old` to `new`: the

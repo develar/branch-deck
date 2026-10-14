@@ -210,3 +210,21 @@ fn moves_many_commits_in_one_rewrite() {
   assert!(start.elapsed().as_secs() < 6, "Batch move took too long: {:?}", start.elapsed());
   assert_eq!(test_repo.get_commit_messages(1), ["(batch-test) Commit number 10"]);
 }
+
+#[test]
+fn moves_the_fixups_with_their_target() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  let target = test_repo.create_commit("(api) Fix login", "login.rs", "fix");
+  test_repo.create_commit("Unrelated", "other.rs", "other");
+  test_repo.create_commit("fixup! (api) Fix login", "login.rs", "fix again");
+
+  let result = move_to(&test_repo, &[&target], Some("auth")).unwrap();
+
+  assert_eq!(test_repo.get_commit_messages(3), ["fixup! (auth) Fix login", "Unrelated", "(auth) Fix login"]);
+  // the requested commit first, then the fixup that followed it; both can be undone
+  assert_eq!(result.moved.len(), 2);
+  assert_eq!(result.moved[0].old_id, target);
+  assert_eq!(result.moved[1].previous_message, "fixup! (api) Fix login");
+  assert_eq!(result.moved[1].new_id, test_repo.head());
+}

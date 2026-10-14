@@ -4,6 +4,8 @@ description: Requirements for moving commits between branches by their explicit 
 style: plain-1
 targets:
   - ../../crates/sync-core/src/move_commits.rs
+  - ../../crates/sync-core/src/regroup.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/sync-core/src/reword_commit.rs
   - ../../crates/sync-core/src/commit_grouper.rs
   - ../../crates/sync-core/src/sync.rs
@@ -55,6 +57,13 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 - A move without a target must remove the explicit prefix: the commit goes back to its issue branch, or to the
   unassigned commits.
 - An autosquash marker must stay in front: `fixup! (a) X` becomes `fixup! (b) X`.
+- The fixups of a moved commit must move with it, and be listed after the requested commits for the undo.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`moves_the_fixups_with_their_target`)
+- A move is a regroup plan: it must be validated against every subject ahead of the baseline before anything is
+  written, and with stacked branches on, refused if it introduces a stack problem.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `fixups_follow_their_targets`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
+- Rewrites must hold the repository lock, so the app and the agent CLI don't rewrite the branch at the same time.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`)
 - A commit already in the target branch must not be rewritten.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.

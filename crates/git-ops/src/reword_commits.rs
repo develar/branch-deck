@@ -2,7 +2,7 @@ use crate::commit_list::is_on_local_baseline;
 use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, read_raw_commits, write_commits_with_notes};
 use crate::notes::{PREFIX, mapped_commit_id, notes_ref};
 use crate::ref_transaction::RefTransaction;
-use crate::rewrite_guard::{check_rewrite, ensure_no_operation_in_progress, get_current_branch};
+use crate::rewrite_guard::{HeadMoved, check_rewrite, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::short_id;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -28,8 +28,20 @@ pub struct RewordCommitParams {
 /// Fails while a rebase, merge, cherry-pick or revert is in progress, if a commit is not on the first-parent history of
 /// the current branch ahead of `baseline_branch`, if the range has a merge commit, and if the branch moved while the
 /// new commits were created.
-#[instrument(skip(git_executor, rewrites), fields(count = rewrites.len()))]
 pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
+  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None)
+}
+
+/// `reword_commits_batch` for a rewrite computed from the history at `expected_head`: fails with `HeadMoved` (as the
+/// source of the `anyhow` error) if HEAD is another commit when the history is read or when the branch moves
+#[instrument(skip(git_executor, rewrites), fields(count = rewrites.len()))]
+pub fn reword_commits_batch_at(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  baseline_branch: &str,
+  rewrites: Vec<RewordCommitParams>,
+  expected_head: Option<&str>,
+) -> Result<HashMap<String, String>> {
   if rewrites.is_empty() {
     return Ok(HashMap::new());
   }
@@ -40,6 +52,16 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
 
   // newest first; each commit's first parent is the next entry
   let history = read_history(git_executor, repo_path, baseline_branch)?;
+  if let (Some(expected), Some((head, _))) = (expected_head, history.commits.first())
+    && head != expected
+  {
+    let branch = get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string());
+    return Err(anyhow::Error::new(HeadMoved {
+      branch,
+      expected: expected.to_string(),
+      actual: head.clone(),
+    }));
+  }
   let positions: HashMap<&str, usize> = history.commits.iter().enumerate().map(|(index, (id, _))| (id.as_str(), index)).collect();
   let mut oldest_index = 0;
   for commit_id in rewrite_map.keys() {
@@ -110,6 +132,14 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
   // a commit made meanwhile (e.g. in a terminal) is not dropped: the update fails instead
   if let Err(e) = transaction.commit(git_executor, repo_path, &format!("reword {} commits", rewrite_map.len())) {
     written.discard(git_executor, repo_path);
+    if let Some(expected) = expected_head {
+      let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
+      return Err(anyhow::Error::new(HeadMoved {
+        branch: target.branch,
+        expected: expected.to_string(),
+        actual,
+      }));
+    }
     return Err(anyhow!("Branch {} changed while rewording, sync and try again: {e:#}", target.branch));
   }
 
