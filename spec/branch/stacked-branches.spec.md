@@ -150,8 +150,8 @@ renames branches.
   [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`)
 - After a push, the toast must name the base and offer to copy `gh pr create --base … --head …`. An open pull request
   whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or the branch was
-  restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the
-  branch menu.
+  restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the copy
+  group of the branch menu.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose parent has work for the remote must stay as it is (`Create Remote (1)`, enabled):

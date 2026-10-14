@@ -107,17 +107,17 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   ]
   return (
     <InlineForm
-      title={`${modeName} ${branchName}`}
-      description={explanation}
+      title={`${modeName} of ${branchName}`}
+      description={<span data-testid="patronus-start-explanation">{explanation}</span>}
       dataTestId="patronus-start-form"
       canSubmit={canStart}
       loading={processing || isPushing}
       submitText={needsPush ? `Push and Start ${modeName}` : `Start ${modeName}`}
       submitIcon={mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
+      focusSubmit
       onCancel={closeInline}
       onSubmit={() => void start()}
     >
-      <p className="text-sm" data-testid="patronus-start-explanation">{explanation}</p>
       {state.status === "loading" && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />

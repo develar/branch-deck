@@ -24,6 +24,7 @@ targets:
   - ../../src/hooks/usePatronusReviewRequirement.ts
   - ../../src/hooks/usePatronusRobotDetails.ts
   - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/useOpenRowForm.ts
   - ../../src/lib/git/push.ts
   - ../../src/stores/push-guard.ts
   - ../../src/components/branch/StatusChip.tsx
@@ -191,13 +192,16 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 - The branch menu has "Safe Push…" and "Dry Run…" in a Patronus group when the repository is on Space (Patronus
   answered), disabled while a robot runs on the commit the branch is at (Patronus would refuse it). The preview footer
-  has "Safe Push…": it closes the preview and opens the form of the row.
-- The form below the row says what happens: "Patronus rebases auth onto master, runs the checks and pushes it into
-  master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks, without pushing into
-  master.". It offers the merge profiles of the target branch that allow the mode (the emergency ones never), "No
-  profile" and, by default, the profile of the last robot of the branch; nothing is remembered by Branch Deck. The
-  profiles are `GET /robot-start-supported`, cached for 10 minutes (an error for 1). A target branch Patronus does not
-  protect can't be started.
+  has "Safe Push…": it closes the preview and opens the form of the row; so does "Safe Push…" of the robot details
+  inside the preview (its Patronus section, the chip popover of its meta line), one helper (`openRowForm`) for both.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push form of its Patronus section`)
+- The form below the row ("Safe Push of auth") says what happens: "Patronus rebases auth onto master, runs the checks
+  and pushes it into master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks,
+  without pushing into master.". It offers the merge profiles of the target branch that allow the mode (the emergency
+  ones never), "No profile" and, by default, the profile of the last robot of the branch; nothing is remembered by
+  Branch Deck. The profiles are `GET /robot-start-supported`, cached for 10 minutes (an error for 1). A target branch
+  Patronus does not protect can't be started. Its start button takes the focus once the profiles are loaded, so Enter
+  starts.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_leave_out_the_emergency_profiles_and_default_to_the_profile_of_the_last_robot`)
   [@test] ../../src/lib/patronus.test.ts (`offers a profile for the modes it allows; none listed allows any`)
@@ -286,6 +290,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   failed for missing approvals. A Safe Push of a
   temporary ref (IDE, CLI) is not restarted from here: it would test its old commit. The restart is a new robot.
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
+- The popover buttons and the menu items name the mode of the robot: "Restart Safe Push", "Cancel Safe Push" ("Restart
+  Dry Run"); a bare "Cancel" in a popover reads like closing it.
   [@test] ../../src/lib/patronus.test.ts (`restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit`)
   [@test] ../../src/lib/patronus.test.ts (`cancels a running robot only`)
   [@test] ../../crates/patronus/src/actions_test.rs (`restart_answers_the_new_robot_and_cancel_the_canceling_one`)

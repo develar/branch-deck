@@ -83,8 +83,8 @@ test.describe("Archived Branches Table", () => {
     // Right-click to open context menu
     await openContextMenu(page, branchRow)
 
-    // Click "Delete Archived Branch" from context menu
-    await clickContextMenuItem(page, "Delete Archived Branch")
+    // Click "Delete Archived Branch…" from the context menu
+    await clickContextMenuItem(page, "Delete Archived Branch…")
 
     // Verify the inline delete confirmation input appears
     await inlineDeleteConfirmation.waitForVisible(page)

@@ -16,11 +16,11 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
   return (
     <InlineForm
       title={`Unapply ${branchName}`}
-      description="Remove virtual branch commits from HEAD and move branch to unapplied state"
       canSubmit={canUnapply}
       loading={processing}
       submitText="Unapply Branch"
       submitIcon={<ArchiveXIcon data-icon="inline-start" />}
+      focusSubmit
       onCancel={closeInline}
       onSubmit={() => {
         if (branch !== undefined) {

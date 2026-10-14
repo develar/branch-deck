@@ -91,10 +91,11 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   [@test] ../../src/lib/autosquash.test.ts (`names the target of a fixup, or none for an orphan`)
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
 - "Squash N Fixups" (ghost `xs`) appears above the commits of an expanded branch and in the unassigned card header. The
-  branch menu has "Squash Fixups (N)" in a "History" group, which expands the branch and opens the confirmation.
+  branch menu has "Squash Fixups (N)…" in a "History" group, which expands the branch and opens the confirmation.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - The confirmation popover reads the plan again and lists each target with its fixups, then the orphans under
-  "Won't be squashed: no target in this range"; Squash runs it, Cancel or Escape closes it.
+  "Won't be squashed: no target in this range"; Squash runs it, Cancel, Escape or a click outside closes it. Nothing
+  closes it while the squash runs (as the squash dialog): it closes when the squash is done or failed.
 - The menu of a fixup commit with a target offers "Squash into “X”", which squashes that fixup only.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - Success shows "Squashed N fixups" with Undo, as for a squash of selected commits.

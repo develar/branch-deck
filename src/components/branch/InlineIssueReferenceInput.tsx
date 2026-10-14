@@ -25,15 +25,14 @@ export function InlineIssueReferenceInput({ branchName }: { branchName: string }
       validationColor={errorMessage ? "error" : "primary"}
       validationTextClassName={errorMessage ? "text-destructive" : ""}
       canSubmit={isValid}
-      title={`Add Issue Reference to ${branchName}`}
-      description={`Add issue reference form for ${branchName} branch`}
+      title={`Add an issue reference to ${branchName}`}
       submitText="Add"
       dataTestId="inline-issue-input"
       leadingIcon={<TagIcon className="size-4 text-muted-foreground" />}
       helpText="The issue reference will be added after the branch prefix in commit messages."
       onSubmit={() => {
         if (branch !== undefined) {
-          addIssueReference(issueReference, branch)
+          void addIssueReference(issueReference, branch)
         }
       }}
       onCancel={closeInline}

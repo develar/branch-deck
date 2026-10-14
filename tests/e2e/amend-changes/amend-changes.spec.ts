@@ -15,7 +15,7 @@ async function openAmendDialog(page: Page, branchName: string): Promise<Locator>
   await openContextMenu(page, branchRow)
   // the menu item only shows once the commits are loaded
   await page.waitForSelector("text=Amend Changes")
-  await clickContextMenuItem(page, "Amend Changes")
+  await clickContextMenuItem(page, "Amend Changes…")
 
   await page.waitForSelector("[data-testid=\"uncommitted-changes-card\"]", { timeout: 10000 })
   return branchRow
@@ -38,7 +38,7 @@ test.describe("Amend Changes Feature", () => {
 
     // Verify the dialog title
     const dialogTitle = await page.textContent("h1, h2, [role=\"heading\"]")
-    expect(dialogTitle).toContain("Amend Changes to feature-auth")
+    expect(dialogTitle).toContain("Amend changes to feature-auth")
 
     // Verify the dialog appears with uncommitted changes loaded
     // Wait for the Amend Changes button to be enabled (indicates data is loaded)
@@ -122,7 +122,7 @@ test.describe("Amend Changes Feature", () => {
     await expect(badge).toHaveCount(0)
 
     await openContextMenu(page, branchRow)
-    await clickContextMenuItem(page, "Amend Changes")
+    await clickContextMenuItem(page, "Amend Changes…")
     await page.waitForSelector("[data-testid=\"uncommitted-changes-card\"]")
     await expect(badge).toBeVisible()
 

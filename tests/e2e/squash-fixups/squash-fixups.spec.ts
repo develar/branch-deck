@@ -61,7 +61,7 @@ test.describe("Squash fixups", () => {
 
     // the branch menu expands the branch and opens the confirmation there
     await openContextMenu(page, findBranchRow(page, "docs"))
-    await clickContextMenuItem(page, "Squash Fixups (1)")
+    await clickContextMenuItem(page, "Squash Fixups (1)…")
     const confirm = popover(page)
     await expect(confirm.getByTestId("squash-fixups-groups").locator("li")).toHaveText(["Write the guidesquash!Write the guide"])
     await confirm.getByTestId("squash-fixups-confirm").click()

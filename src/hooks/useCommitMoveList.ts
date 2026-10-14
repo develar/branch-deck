@@ -164,7 +164,8 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
     const isMultiple = menuCommits.length > 1
     const moveItems: MenuItem[] = [
       {
-        label: isMultiple ? `Move ${menuCommits.length} Commits to Branch…` : "Move to Branch…",
+        // the label of the selection button
+        label: "Move to…",
         icon: FolderInputIcon,
         kbds: ["m"],
         onSelect: () => openTarget(menuCommits),

@@ -16,6 +16,8 @@ targets:
   - ../../src/components/commit/MovableCommitList.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
   - ../../src/components/branch/InlineRenameBranchInput.tsx
+  - ../../src/components/branch/InlineUngroupConfirm.tsx
+  - ../../src/stores/inline-row-action.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
@@ -26,7 +28,7 @@ targets:
 # Move Commits
 
 Status: Implemented
-Date: 2026-10-13
+Date: 2026-10-14
 
 ## Summary
 
@@ -92,17 +94,21 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 
 ### Context menus
 
-- The commit menu must offer "Move to Branch…", a "Move to Existing" submenu with the branches and "New Branch…",
-  and "Move Back to ABC-123", "Move to Unassigned" or "Remove Prefix" for commits with an explicit prefix.
+- The commit menu must offer "Move to…" with the key `M` (the label of the selection button, for one commit or many),
+  a "Move to Existing" submenu with the branches and "New Branch…", and "Move Back to ABC-123", "Move to Unassigned" or
+  "Remove Prefix" for commits with an explicit prefix.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`, `should move a split commit back to its issue and a prefix commit to the unassigned commits`)
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
 - The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch. Both move all
   commits of the branch to the new name; an existing name merges the branches.
 - The branch menu of a prefix branch must offer "Ungroup", which removes the prefix of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
+- While a rename or an ungroup runs, its form must show the progress row ("Renaming docs to documentation…"); it closes
+  when the commits moved. A failure must keep the form with the typed name (the error is a toast).
 - With [stacked branches](stacked-branches.spec.md) on, Rename must rename the branch in the prefixes of the branches
   stacked on it too (`rename_branch`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
-  branch that others stack on must confirm and name them: they are blocked until it has commits again.
+  branch that others stack on must confirm and name them: they are blocked until it has commits again. The
+  confirmation focuses its button, so Enter confirms.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
 
 ### Drag and drop

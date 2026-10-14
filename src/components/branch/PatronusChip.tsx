@@ -8,6 +8,7 @@ import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { PatronusChipKind } from "@/lib/patronus"
+import { useOpenRowForm } from "@/hooks/useOpenRowForm"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { pushBranch } from "@/lib/git/push"
@@ -16,7 +17,6 @@ import { runRobotAction } from "@/lib/patronus-actions"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
-import { openInline } from "@/stores/inline-row-action"
 import { cancelPatronusRobot, isPatronusAvailable, restartPatronusRobot, useBranchRobot, useRobotNeedsReview } from "@/stores/patronus"
 
 const icons: Readonly<Record<PatronusChipKind, ComponentType<{ className?: string }>>> = {
@@ -92,6 +92,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const restart = getRobotRestartAction(robot, branchName, localTip, remote, needsReview)
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
   const mode = formatPushMode(robot.pushMode)
+  const openForm = useOpenRowForm()
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="patronus-details">
       <div className="flex flex-col gap-1">
@@ -168,15 +169,17 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
 
       <div className="flex flex-wrap gap-2">
         {needsReview && isPatronusAvailable() && (
-          <Button variant="outline" size="xs" onClick={() => openInline("safe-push", branchName)}>
+          // the form is below the row: an open branch preview closes first
+          <Button variant="outline" size="xs" onClick={() => openForm("safe-push", branchName)}>
             <ShieldCheckIcon data-icon="inline-start" />
             Safe Push…
           </Button>
         )}
+        {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
         {restart === "restart" && (
           <Button variant="outline" size="xs" onClick={() => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)}>
             <RotateCcwIcon data-icon="inline-start" />
-            Restart
+            {`Restart ${mode}`}
           </Button>
         )}
         {restart === "pushAndRestart" && (
@@ -189,7 +192,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {canCancelRobot(robot) && (
           <Button variant="outline" size="xs" onClick={() => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`)}>
             <ShieldOffIcon data-icon="inline-start" />
-            Cancel
+            {`Cancel ${mode}`}
           </Button>
         )}
         <Button variant="outline" size="xs" onClick={() => openRobot(robot)}>

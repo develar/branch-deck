@@ -16,7 +16,8 @@ const SquashFixupsPopover = lazy(() => loadSquashFixupsPopover().then(it => ({ d
 export function SquashFixupsButton({ branch }: { branch: string | null }) {
   const { count } = useListFixups(branch)
   const key = branch ?? UNASSIGNED_SOURCE
-  const open = useActiveInlineForRow(key)?.type === "squash-fixups"
+  const activeInline = useActiveInlineForRow(key)
+  const open = activeInline?.type === "squash-fixups"
   if (count === 0) {
     return null
   }
@@ -29,7 +30,8 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
         if (nextOpen) {
           openInline("squash-fixups", key)
         }
-        else if (open) {
+        // nothing closes it while the squash runs (as the squash dialog): the squash closes it
+        else if (open && !activeInline.processing) {
           closeInline()
         }
       }}

@@ -6,7 +6,7 @@ import { getSimpleBranchName } from "@/lib/branch"
 export interface InlineDeleteConfirmationInputProps {
   branchName: string
   title: string
-  description: string
+  description?: string
   onSubmit: () => void
   onCancel: () => void
 }
@@ -30,6 +30,7 @@ export function InlineDeleteConfirmationInput({ branchName, title, description, 
       title={title}
       description={description}
       submitText="Delete"
+      submitVariant="destructive"
       dataTestId="inline-delete-input"
       leadingIcon={<Trash2Icon className="size-4 text-muted-foreground" />}
       helpText="This action will permanently delete the archived branch. This cannot be undone."

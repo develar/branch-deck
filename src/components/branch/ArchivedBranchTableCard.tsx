@@ -125,8 +125,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
                 <InlineDeleteConfirmationInput
                   key={`delete-archived:${name}`}
                   branchName={name}
-                  title={`Delete archived branch ${name}`}
-                  description="Type the branch name to confirm deletion"
+                  title={`Delete the archived branch ${name}`}
                   onSubmit={() => void confirmDelete(name)}
                   onCancel={closeInline}
                 />
@@ -150,7 +149,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 function getArchivedContextMenuItems(name: string): MenuItemGroups {
   return [
     getBranchCopyMenuItems(name, true),
-    [{ label: "Delete Archived Branch", icon: Trash2Icon, onSelect: () => openInline("delete-archived", name) }],
+    [{ label: "Delete Archived Branch…", icon: Trash2Icon, color: "destructive", onSelect: () => openInline("delete-archived", name) }],
   ]
 }
 
@@ -166,8 +165,11 @@ async function confirmDelete(branchName: string): Promise<void> {
       return true
     },
     {
+      processingMessage: `Deleting ${getSimpleBranchName(branchName)}…`,
       success: () => ({ title: "Archived branch deleted", description: `${getSimpleBranchName(branchName)} was deleted` }),
       error: error => ({ title: "Failed to delete archived branch", description: error instanceof Error ? error.message : String(error) }),
+      // the typed name stays
+      keepFormOnError: true,
     },
   )
 

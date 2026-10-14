@@ -19,6 +19,8 @@ export interface InlineInputDialogProps {
   cancelText?: string
   submitText?: string
   submitIcon?: ReactNode
+  /** `destructive` for a submit that deletes */
+  submitVariant?: "default" | "destructive"
   canSubmit?: boolean
   loading?: boolean
   onSubmit: () => void
@@ -44,7 +46,10 @@ export interface InlineInputDialogProps {
   afterControls?: ReactNode
 }
 
-/** Inline form with a single text input and inline Cancel/Submit buttons; Enter submits, Escape cancels. */
+/**
+ * Inline form with a single text input (`max-w-md`, a name or a key is short) and inline Cancel/Submit buttons; Enter
+ * submits, Escape cancels.
+ */
 export function InlineInputDialog({
   ref,
   title,
@@ -53,6 +58,7 @@ export function InlineInputDialog({
   cancelText = "Cancel",
   submitText = "Submit",
   submitIcon,
+  submitVariant = "default",
   canSubmit = true,
   loading = false,
   onSubmit,
@@ -92,14 +98,14 @@ export function InlineInputDialog({
       title={title}
       description={description}
       dataTestId={dataTestId}
-      contentClassName="flex flex-col gap-2"
+      contentClassName="flex max-w-3xl flex-col gap-2"
       showActions={false}
       onCancel={onCancel}
       onSubmit={handleSubmit}
       autoFocusRef={input === undefined ? inputRef : undefined}
     >
       <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+        <div className="relative max-w-md flex-1">
           {input ?? (
             <InputGroup className={cn("bg-background", validationColor === "error" && "border-destructive has-[[data-slot=input-group-control]:focus-visible]:border-destructive has-[[data-slot=input-group-control]:focus-visible]:ring-destructive/20")}>
               {leadingIcon && <InputGroupAddon>{leadingIcon}</InputGroupAddon>}
@@ -128,7 +134,7 @@ export function InlineInputDialog({
 
         <div className="flex items-center gap-2">
           <Button size="xs" variant="ghost" onClick={onCancel}>{cancelText}</Button>
-          <Button size="xs" disabled={!canSubmit || loading} aria-busy={loading || undefined} onClick={handleSubmit}>
+          <Button size="xs" variant={submitVariant} disabled={!canSubmit || loading} aria-busy={loading || undefined} onClick={handleSubmit}>
             {loading ? <Spinner data-icon="inline-start" /> : submitIcon}
             {submitText}
           </Button>
