@@ -8,7 +8,7 @@ const { calls, robots, toasts, stores } = vi.hoisted(() => ({
   /** What reached the backend, Patronus and the browser, in order */
   calls: [] as string[],
   robots: { running: undefined as PatronusRobot | undefined },
-  toasts: [] as { description?: unknown, actionProps?: { children: string, onClick: () => void } }[],
+  toasts: [] as { title?: string, description?: unknown, actionProps?: { children: string, onClick: () => void } }[],
   stores: {
     /** The remote status of each branch after its push, as the store keeps it */
     remoteStatuses: {} as Record<string, unknown>,
@@ -138,7 +138,7 @@ describe("the toast of a push", () => {
   it("offers to create the pull request of a branch without one, into the baseline", async () => {
     expect(await pushBranch("auth")).toBe(true)
     const toast = toasts.at(-1)!
-    expect(toast.description).toBe("Branch auth pushed successfully")
+    expect(toast.title).toBe("Pushed auth")
     expect(toast.actionProps?.children).toBe("Create Pull Request")
     toast.actionProps!.onClick()
     await vi.waitFor(() => expect(calls).toEqual(["push auth", "open https://github.com/JetBrains/ultimate/compare/master...user/virtual/auth?expand=1"]))

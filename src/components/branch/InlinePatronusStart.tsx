@@ -7,10 +7,12 @@ import { InlineForm } from "@/components/shared/InlineForm"
 import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { PatronusPushMode, PatronusStartOptions } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
 import { allowsPushMode, formatPushMode, isStartBlocked } from "@/lib/patronus"
+import { announceRobot } from "@/lib/patronus-actions"
 import { branchSyncStore, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing, withRowProcessing } from "@/stores/inline-row-action"
+import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { getBranchRobot, patronusRequest, startPatronusRobot, useBranchRobot } from "@/stores/patronus"
 
 /** The Select value of "no profile": Patronus runs the default checks of the target branch */
@@ -87,11 +89,18 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     if (!(await pushIfNeeded())) {
       return
     }
-    await withRowProcessing(branchName, () => startPatronusRobot(branchName, mode, profile === NO_PROFILE ? null : profile, mergeRequest), {
-      processingMessage: `Starting the ${modeName}…`,
-      success: started => ({ title: `${modeName} started`, description: started.name }),
-      error: error => ({ title: `Cannot start the ${modeName}`, description: error instanceof Error ? error.message : String(error) }),
-    })
+    const profileId = profile === NO_PROFILE ? null : profile
+    const profileName = profiles.find(it => it.id === profileId)?.name ?? null
+    await withRowProgress(branchName, async () => {
+      try {
+        announceRobot(`${modeName} started`, await startPatronusRobot(branchName, mode, profileId, mergeRequest), profileName)
+        return true
+      }
+      catch (error) {
+        notifyError(`Cannot start the ${modeName}`, error)
+        return false
+      }
+    }, { processingMessage: `Starting the ${modeName}…` })
   }
 
   const target = options?.targetBranch ?? "the baseline"

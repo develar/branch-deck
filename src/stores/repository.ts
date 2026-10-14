@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { commands } from "@/lib/bindings"
-import { getErrorDetails, logError, notifyInternalError } from "@/lib/errors"
+import { getErrorDetails, notifyError } from "@/lib/errors"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
 import { appSettingsStore, useAppSettings } from "@/stores/settings/appSettings"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -119,6 +119,8 @@ export function selectProject(project: ProjectMetadata, preValidated: PathValida
   // existingIndex === 0: already selected
 }
 
+const BROWSE_FAILURE = "Cannot browse for a repository"
+
 export async function browseRepository(): Promise<void> {
   try {
     const result = await commands.browseRepository()
@@ -136,12 +138,13 @@ export async function browseRepository(): Promise<void> {
     }
     else {
       // internal error (Result::Err from Rust)
-      notifyInternalError(result.error, "Browse repository")
-      setPathValidation({ valid: false, error: `Internal error: ${result.error.message}` })
+      notifyError(BROWSE_FAILURE, result.error)
+      setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: result.error.message })
     }
   }
   catch (error) {
-    handleInternalErrorWithPathValidation(error, "Browse repository")
+    notifyError(BROWSE_FAILURE, error)
+    setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: getErrorDetails(error) })
   }
 }
 
@@ -219,16 +222,6 @@ async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> 
       repositoryStore.setState({ isLoadingBranchPrefix: false })
     }
   }
-}
-
-function handleInternalErrorWithPathValidation(error: unknown, context: string): void {
-  notifyInternalError(error, context)
-
-  const title = `Internal error: ${context} failed`
-  const errorDetails = getErrorDetails(error)
-  logError(title, error, errorDetails)
-
-  setPathValidation({ valid: false, error: title, errorDetails })
 }
 
 // ---- initialization ----

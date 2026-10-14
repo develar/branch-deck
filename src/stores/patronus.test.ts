@@ -45,10 +45,11 @@ vi.mock("@/lib/bindings", () => ({
 
 const { notices } = vi.hoisted(() => ({
   notices: {
-    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void } }[],
+    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void }, data?: { kind: string, openRobot: () => void } }[],
     notifications: [] as { title: string, body: string }[],
     permissionRequests: 0,
     fetches: [] as string[],
+    opened: [] as string[],
   },
 }))
 
@@ -74,6 +75,12 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
 vi.mock("@/stores/update-project", () => ({
   runFetchBaseline: async (repositoryPath: string) => {
     notices.fetches.push(repositoryPath)
+  },
+}))
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: async (url: string) => {
+    notices.opened.push(url)
   },
 }))
 
@@ -125,6 +132,7 @@ beforeEach(() => {
   notices.notifications = []
   notices.permissionRequests = 0
   notices.fetches = []
+  notices.opened = []
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
   setBranches("auth")
@@ -252,13 +260,15 @@ describe("polling", () => {
 })
 
 describe("merges", () => {
-  it("tells once in a toast with Fetch when a running robot of a branch merged", async () => {
+  it("tells once in a toast with Fetch and the robot page when a running robot of a branch merged", async () => {
     patronus.list = available(robot())
     await refreshPatronus("sync")
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["auth merged into master", "Safe Push", "Fetch"]])
+    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.kind])).toEqual([["auth merged into master", "Safe Push", "Fetch", "robot"]])
     expect(notices.notifications).toEqual([])
+    notices.toasts[0]?.data?.openRobot()
+    expect(notices.opened).toEqual(["u"])
     notices.toasts[0]?.actionProps?.onClick()
     expect(notices.fetches).toEqual(["/repo"])
 

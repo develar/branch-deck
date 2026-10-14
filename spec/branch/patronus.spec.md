@@ -41,6 +41,8 @@ targets:
   - ../../src/stores/update-project.ts
   - ../../crates/sync-core/src/baseline_fetch.rs
   - ../../src-tauri/src/commands/fetch_baseline.rs
+  - ../../src/lib/patronus-actions.ts
+  - ../../src/components/ui/toast.tsx
 ---
 
 # Patronus
@@ -233,6 +235,12 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
   branch. The robot shows at once and is polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
+- A started robot is a `success` toast "Safe Push started" ("Dry Run started") that names the branch, the target and
+  the profile, never the ref the robot runs on ("auth → master · profile Large Scale Change", `describeRobot`), with
+  "Open in Patronus" (the robot page), for 10 s; Activity records it in the same words. A failed start is an error
+  toast "Cannot start the Safe Push" with what Patronus said.
+  [@test] ../../src/lib/patronus.test.ts (`describes a robot by its branch and target, with the profile it was started with`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
 - A start is never repeated by itself, not even right after the push: Patronus fetches the pushed branch while it
   handles the start.
@@ -245,9 +253,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/lib/patronus.test.ts (`finds a running or canceling robot that succeeded, not a dry run and not a robot first seen finished`)
   [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
-  of a temporary ref) with the push mode ("Safe Push") and the action Fetch, for 10 s.
+  of a temporary ref) with the push mode ("Safe Push"), for 10 s. Its actions are below the text (the `robot` body of
+  the toast): Fetch, the primary one, then "Open in Patronus", which opens the robot page and leaves the toast for
+  Fetch.
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch when a running robot of a branch merged`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch and the robot page when a running robot of a branch merged`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and fetch the baseline on request`)
 - In the background, an OS notification says it at once ("auth merged into master", "Safe Push · Fetch and update to
   pick it up"); the toast shows on the next focus. The permission is asked on the first notification, never at start;
@@ -299,8 +309,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   of the branch runs; a failed push creates nothing), creates the merge request into the target branch
   (`POST /space/merge-requests`, as the form's "Create Space Merge Request") and opens it in the browser. While Patronus
   answers, a loading toast says "Creating a merge request of auth…"; then a `success` toast "Created merge request
-  IJ-CR-8" offers "Open merge request". A failure is an error toast. A blocked branch can't (it can't be pushed): the
-  item is disabled with the reason on hover.
+  IJ-CR-8 for auth" offers "Open Merge Request". A failure is the error toast "Cannot create the Space merge request". A
+  blocked branch can't (it can't be pushed): the item is disabled with the reason on hover.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should create a merge request from the branch menu, pushing the branch first`)
 - A robot that failed for missing approvals (its problems are read once per session, for the failed robots of the
   branches) is "Needs review" in `warning`; its popover says how to go on and offers "Safe Push…" instead of Restart
@@ -321,6 +331,10 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/lib/patronus.test.ts (`restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit`)
   [@test] ../../src/lib/patronus.test.ts (`cancels a running robot only`)
   [@test] ../../crates/patronus/src/actions_test.rs (`restart_answers_the_new_robot_and_cancel_the_canceling_one`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
+- A restart is the toast "Safe Push restarted", a cancel "Safe Push is canceling", each naming the branch and the
+  target ("auth → master") with "Open in Patronus" (the new robot's page for a restart), as a start does; Activity
+  records them in the same words. A failure is "Cannot restart the Safe Push" / "Cannot cancel the Safe Push".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
 - Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks, the popover
   offers "Push and Restart" instead of Restart: the push of the row (asking first as any push,

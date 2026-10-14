@@ -122,8 +122,12 @@ test.describe("Update Project", () => {
     await expect(commits.locator("li")).toHaveText([/Add login/, /Change line 2/])
     await expect(commits.locator("li").nth(1).getByLabel("Changes a likely conflicting file")).toBeVisible()
 
-    await dialog.getByTestId("copy-agent-prompt").click()
-    await expect(page.getByText("Prompt copied")).toBeVisible()
+    const copy = dialog.getByTestId("copy-agent-prompt")
+    await copy.click()
+    // the button says it in place, no toast
+    await expect(copy).toHaveText("Copied")
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
+    await expect(copy).toHaveText("Copy Prompt for Agent")
     const prompt = await readClipboard(page)
     expect(prompt).toContain("Rebase the branch `master` of the Git repository at ")
     expect(prompt).toMatch(/- src\/app.txt\n {2}- changed by my [0-9a-f]{8}\n {2}- changed upstream by [0-9a-f]{8} Change line 2 upstream \(Dana Lee, authored 2024-01-01, in origin\/master since 2024-01-02\)/)

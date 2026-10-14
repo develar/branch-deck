@@ -91,7 +91,7 @@ export async function runUpdateProject(): Promise<void> {
     }
     const result = await invokeCommand(() => commands.updateProject({ repositoryPath }, progress))
     if (result.status !== "ok") {
-      notifyError("Failed to Update the Project", result.error)
+      notifyError("Cannot update the project", result.error)
       return
     }
 
@@ -143,7 +143,7 @@ export async function runFetchBaseline(repositoryPath: string): Promise<void> {
     }
     const result = await invokeCommand(() => commands.fetchBaseline({ repositoryPath }, progress))
     if (result.status !== "ok") {
-      notifyError("Failed to Fetch the Baseline", result.error)
+      notifyError("Cannot fetch the baseline", result.error)
       return
     }
     updateProject(repositoryPath, { lastFetchTime: Date.now() })

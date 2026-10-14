@@ -35,11 +35,6 @@ export function notifyError(title: string, error: unknown): void {
   })
 }
 
-export function notifyInternalError(error: unknown, context?: string): void {
-  const title = context ? `Internal Error: ${context}` : "Internal Error"
-  notifyError(title, error)
-}
-
 export function logError(title: string, error: unknown, description: string | null = null): void {
   console.error(title, error)
   logErrorToBackend(title, { keyValues: { error: description ?? getErrorDetails(error) } })

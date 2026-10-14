@@ -8,6 +8,7 @@ import { Callout } from "@/components/shared/Callout"
 import { useIsDark } from "@/hooks/useIsDark"
 import { commands } from "@/lib/bindings"
 import type { FileDiff, UncommittedFileChange } from "@/lib/bindings"
+import { getErrorDetails } from "@/lib/errors"
 import { subtleBadgeVariant } from "@/lib/ui-types"
 import type { UIColor } from "@/lib/ui-types"
 import { vcsRequestFactory } from "@/stores/repository"
@@ -49,7 +50,7 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
       console.error("Failed to load file content:", error)
       // a failed load is retried on the next expand
       requestedRef.current.delete(filePath)
-      setDiffState(filePath, { kind: "error", message: `Failed to load content: ${String(error)}` })
+      setDiffState(filePath, { kind: "error", message: `Cannot load the file: ${getErrorDetails(error)}` })
     }
   }
 

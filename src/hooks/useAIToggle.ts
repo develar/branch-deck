@@ -1,11 +1,7 @@
-import { toast } from "@/components/ui/toast"
-import { getErrorDetails } from "@/lib/errors"
+import { notifyError } from "@/lib/errors"
 import { cancelDownload, clearAIError, modelStore, useModelStore } from "@/stores/model"
 import { aiSettingsStore, setAiMode, useAISettings } from "@/stores/settings/aiSettings"
 import type { AIMode } from "@/stores/settings/aiSettings"
-
-/** Stable toast id to prevent duplicate notifications */
-const ERROR_TOAST_ID = "ai-mode-error"
 
 /**
  * Changes the AI mode. Disabling while the model downloads only cancels the download:
@@ -23,13 +19,7 @@ export async function changeAIMode(value: AIMode): Promise<void> {
     clearAIError()
   }
   catch (error) {
-    toast.close(ERROR_TOAST_ID)
-    toast.add({
-      id: ERROR_TOAST_ID,
-      type: "error",
-      title: "Error",
-      description: error instanceof Error ? error.message : getErrorDetails(error) || "Failed to change AI settings",
-    })
+    notifyError(value === "disabled" ? "Cannot disable AI" : "Cannot enable AI", error)
   }
 }
 

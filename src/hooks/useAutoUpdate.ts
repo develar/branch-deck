@@ -4,7 +4,7 @@ import { toast } from "@/components/ui/toast"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { commands } from "@/lib/bindings"
 import type { UpdateInfo } from "@/lib/bindings"
-import { getErrorDetails, logError } from "@/lib/errors"
+import { logError, notifyError } from "@/lib/errors"
 
 const UPDATE_AVAILABLE_TOAST_ID = "update-available"
 // wait a bit after app startup to avoid interfering with the initial load
@@ -16,9 +16,10 @@ let isStartupCheckScheduled = false
 /**
  * Checks for updates and reports the result with toasts.
  * An available update is already downloaded by the check command, so the toast offers to install it right away.
- * Without `showNoUpdateToast` (silent startup check), only an available update is reported.
+ * Without `showNoUpdateToast` (silent startup check), only an available update is reported; a failure is only logged.
  */
 export async function checkForUpdates(showNoUpdateToast = false): Promise<void> {
+  let failure: unknown
   try {
     const result = await commands.checkForUpdates()
     if (result.status === "ok") {
@@ -28,23 +29,22 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
       else if (showNoUpdateToast) {
         toast.add({
           type: "success",
-          title: "You're up to date",
-          description: `${await getName()} ${result.data.current_version} is currently the newest version available.`,
+          title: `${await getName()} is up to date`,
+          description: `${result.data.current_version} is the newest version.`,
         })
       }
+      return
     }
-    else {
-      logError("Failed to check for updates", result.error)
-      if (showNoUpdateToast) {
-        showUpdateErrorToast()
-      }
-    }
+    failure = result.error
   }
   catch (error) {
-    logError("Failed to check for updates", error)
-    if (showNoUpdateToast) {
-      showUpdateErrorToast()
-    }
+    failure = error
+  }
+  if (showNoUpdateToast) {
+    notifyError("Cannot check for updates", failure)
+  }
+  else {
+    logError("Cannot check for updates", failure)
   }
 }
 
@@ -59,20 +59,12 @@ function showUpdateAvailableToast(updateInfo: UpdateInfo): void {
     // stays until the user acts; the close button means "later"
     timeout: 0,
     actionProps: {
-      children: "Install now and restart",
+      children: "Install and Restart",
       onClick: () => {
         toast.close(UPDATE_AVAILABLE_TOAST_ID)
         void installUpdateNow()
       },
     },
-  })
-}
-
-function showUpdateErrorToast(message = "Could not check for updates. Please try again later."): void {
-  toast.add({
-    type: "error",
-    title: "Update check failed",
-    description: message,
   })
 }
 
@@ -90,12 +82,7 @@ async function installUpdateNow(): Promise<void> {
   }
 
   if (failure !== null) {
-    logError("Failed to install update", failure)
-    toast.add({
-      type: "error",
-      title: "Update failed",
-      description: `Failed to install the update (${getErrorDetails(failure)}).`,
-    })
+    notifyError("Cannot install the update", failure)
   }
 }
 

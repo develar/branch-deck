@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
 
 export interface DroppedCommit {
@@ -101,4 +101,22 @@ export async function confirmForcePush(page: Page, label: string): Promise<void>
   const confirm = description.getByTestId("push-confirm")
   await expect(confirm).toHaveText(label)
   await confirm.click()
+}
+
+/**
+ * The toast of a push of `branchName`, by its title: "Pushed feature-auth", or "Force pushed feature-auth" (the words
+ * of its Activity entry)
+ */
+export function pushedToast(page: Page, branchName: string): Locator {
+  const name = branchName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return page.locator("[data-slot=toast]").filter({ has: page.locator("[data-slot=toast-title]", { hasText: new RegExp(`^(Force p|P)ushed ${name}$`) }) })
+}
+
+/** Waits for the toast of a push of `branchName`; with `description`, its detail ("3 commits · created the remote branch") */
+export async function expectPushedToast(page: Page, branchName: string, description?: string): Promise<void> {
+  const toast = pushedToast(page, branchName)
+  await expect(toast).toBeVisible()
+  if (description !== undefined) {
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText(description)
+  }
 }

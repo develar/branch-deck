@@ -1,8 +1,9 @@
-import { toast } from "@/components/ui/toast"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { commands } from "@/lib/bindings"
 import type { AgentCliInstall } from "@/lib/bindings"
+import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
+import { showToast } from "@/lib/toast-message"
 
 /** The toast text of an install: where agents find bd, and how to run it in a terminal when it is not on PATH */
 export function describeInstall({ bd, on_path, skills }: AgentCliInstall): string {
@@ -17,10 +18,12 @@ export function describeInstall({ bd, on_path, skills }: AgentCliInstall): strin
 async function installAgentCli(): Promise<void> {
   const result = await commands.installAgentCli()
   if (result.status === "error") {
-    notifyError("Can't install the agent CLI", result.error)
+    notifyError("Cannot install the Agent CLI", result.error)
     return
   }
-  toast.add({ type: "success", title: "Agent CLI installed", description: describeInstall(result.data) })
+  const { bd } = result.data
+  // the installed command is what the toast is about: its path goes into a terminal or a PATH entry
+  showToast({ title: "Agent CLI installed", description: describeInstall(result.data), action: { children: "Copy Path", onClick: () => void copyText(bd) } })
 }
 
 /** Main window: the "Install Agent CLI…" menu item, `bd install` (docs/guidelines/agent-cli.md) */

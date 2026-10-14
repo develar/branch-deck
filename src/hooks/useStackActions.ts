@@ -52,7 +52,7 @@ async function runStackOperation(
 async function undoIssueGroups(issueGroups: IssueGroupsMove): Promise<boolean> {
   const result = await invokeCommand(() => commands.undoIssueGroups({ repositoryPath: getSelectedProject()?.path ?? "", issueGroups }))
   if (result.status !== "ok") {
-    notifyError("Failed to Undo the Rename", result.error)
+    notifyError("Cannot move the issue groups back", result.error)
     return false
   }
   return true
@@ -62,7 +62,7 @@ async function undoIssueGroups(issueGroups: IssueGroupsMove): Promise<boolean> {
 export function restackBranch(branchName: string, parent: string | null): Promise<boolean> {
   return runStackOperation(
     () => commands.restackBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, parent }),
-    parent === null ? `Failed to Unstack ${branchName}` : `Failed to Stack ${branchName} on ${parent}`,
+    parent === null ? `Cannot unstack ${branchName}` : `Cannot stack ${branchName} on ${parent}`,
     count => parent === null ? `Unstacked ${branchName} (${count})` : `Stacked ${branchName} on ${parent} (${count})`,
     branchName,
   )
@@ -72,7 +72,7 @@ export function restackBranch(branchName: string, parent: string | null): Promis
 export function renameBranch(branchName: string, newName: string): Promise<boolean> {
   return runStackOperation(
     () => commands.renameBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, newName }),
-    `Failed to Rename ${branchName}`,
+    `Cannot rename ${branchName}`,
     count => `Renamed ${branchName} to ${newName} (${count})`,
     newName,
   )

@@ -18,7 +18,7 @@ export async function squashCommits(commits: readonly Commit[], message: string)
     message,
   }))
   if (result.status !== "ok") {
-    notifyError("Failed to Squash Commits", result.error)
+    notifyError("Cannot squash the commits", result.error)
     return false
   }
 
@@ -32,7 +32,7 @@ export async function squashCommits(commits: readonly Commit[], message: string)
 export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string): Promise<void> {
   const result = await invokeCommand(() => commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }))
   if (result.status !== "ok") {
-    notifyError("Failed to Undo the Squash", result.error)
+    notifyError("Cannot undo the squash", result.error)
     return
   }
   await syncBranches({ autoScroll: false, autoExpand: false })

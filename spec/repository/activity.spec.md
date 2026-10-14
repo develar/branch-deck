@@ -14,6 +14,7 @@ targets:
   - ../../src/lib/landed.ts
   - ../../src/lib/git/push.ts
   - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/push-summary.ts
   - ../../src/stores/patronus.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/landed.ts
@@ -49,13 +50,15 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 ### Recording
 
 - Every event that toasts in the main window is recorded for its repository, the selected one by default, in the words
-  of its toast; toasts are unchanged. A sub-window records nothing: it neither owns nor receives the log.
+  of its toast: the toast and the entry take their title and description from one function (`describePush`,
+  `describeRobot`, `appliedUpdateToast`). A sub-window records nothing: it neither owns nor receives the log.
   [@test] ../../src/stores/activity.test.ts (`keeps the log of each repository apart, newest first`, `records nothing without a repository`)
-- A push: "Pushed feature-auth" / "3 commits", "4 commits · new on the remote"; a force push "Force pushed ABC-123" /
-  "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the rebased
-  copies"; a remote that moved since its status says so, nothing pushed. The words come from the remote status the push
-  was made against.
-  [@test] ../../src/stores/activity.test.ts (`says what the push did from the status it was made against`, `keeps the remote commits a force push dropped`)
+- A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
+  ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the
+  rebased copies"; a remote that moved since its status says so, nothing pushed. The words come from the remote status
+  the push was made against.
+  [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
+  [@test] ../../src/stores/activity.test.ts (`keeps the remote commits a force push dropped`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record the pushes with the remote commits a force push dropped, and show the branch`)
 - An update: applied, with the toast's words ("Updated master: rebased 1 commit onto origin/master", or what landed
   first, with the report); refused, "Didn't update master" / "Conflicts in 1 file: src/app.txt. Nothing was changed.";
@@ -65,8 +68,9 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 - A landed report is recorded once: by the update that brought it, or by the sync after an update made elsewhere (the
   commits no entry has yet, "Found by a sync").
   [@test] ../../src/stores/activity.test.ts (`records a landed report once, whether the update or the sync after one brings it`)
-- A Patronus robot started, restarted, canceled ("Safe Push started" / "auth → master") or merged ("auth merged into
-  master" / "Safe Push"), with "Open in Patronus".
+- A Patronus robot started ("Safe Push started" / "auth → master · profile Large Scale Change"), restarted, canceled
+  ("Safe Push is canceling" / "auth → master") or merged ("auth merged into master" / "Safe Push"), with "Open in
+  Patronus".
   [@test] ../../src/stores/activity.test.ts (`records a robot with its page`)
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack), and every error toast
   (`notifyError`, with its reason).
@@ -118,7 +122,7 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/stores/activity.test.ts`.
+- `pnpm test:unit`: `src/stores/activity.test.ts`, `src/lib/push-summary.test.ts` (the words of a push).
 - `pnpm e2e`: `tests/e2e/activity/activity.spec.ts` with the templates `issue_links` (pushes through `routePush`, a
   squash), `behind_upstream`, `update_conflict` and `landed_upstream`.
 

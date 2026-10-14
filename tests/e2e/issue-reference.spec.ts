@@ -90,7 +90,7 @@ test.describe("Issue Reference Feature", () => {
     const input = inlineIssueReference.getInput(page)
     await submitInlineForm(input, "GH-123")
 
-    await expect(page.locator("[data-slot=toast]", { hasText: "Failed to Add Issue Reference" })).toBeVisible()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot add GH-123 to test-branch" })).toBeVisible()
     // the form is back with the reference, to retry or to cancel
     await expect(input).toHaveValue("GH-123")
     await expect(input).toBeFocused()

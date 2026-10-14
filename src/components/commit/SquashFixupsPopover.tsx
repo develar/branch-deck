@@ -41,7 +41,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
         setPlan(result.data)
       }
       else {
-        notifyError("Failed to List Fixups", result.error)
+        notifyError("Cannot list the fixups", result.error)
         onClose()
       }
     })

@@ -255,7 +255,7 @@ test.describe("Commit message", () => {
       await repo.reword(hash!, `(${BRANCH}) ${PERF_SUBJECT} connections`)
       await page.keyboard.press("ControlOrMeta+Enter")
 
-      await expect(page.getByText("Failed to Edit the Commit Message")).toBeVisible()
+      await expect(page.getByText("Cannot edit the commit message")).toBeVisible()
       await expect(page.getByText(/is no longer on the current branch, sync and try again/)).toBeVisible()
       await expect(editor).toHaveValue(draft)
       await expect(editor).toBeEnabled()

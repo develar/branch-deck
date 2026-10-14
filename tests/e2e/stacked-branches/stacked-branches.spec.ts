@@ -5,7 +5,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, g
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { pushedToast, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
 /** `name@depth` of the branch rows in display order */
@@ -196,9 +196,10 @@ test.describe("Stacked branches", () => {
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
     // the parents are on the remote: nothing to choose any more
     await expect(oauth.getByTestId("stack-base")).toHaveCount(0)
-    await expect(page.getByText("Pull request base: login")).toBeVisible()
+    // the toast says what the push did, as Activity does, then the base
+    const toast = pushedToast(page, "oauth")
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch · pull request base: login")
     // the toasts of the stack pile up; hovering expands them
-    const toast = page.locator("[data-slot=toast]", { hasText: "Pull request base: login" })
     await toast.hover()
     await toast.getByRole("button", { name: "Copy gh pr create" }).click()
     expect(await readClipboard(page)).toBe("gh pr create --base user-name/virtual/login --head user-name/virtual/oauth")

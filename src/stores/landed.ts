@@ -58,7 +58,7 @@ export async function dismissLanded(repositoryPath: string): Promise<void> {
   landedStore.setState(state => state.repositoryPath === repositoryPath ? { landed: empty, seenAt: null } : state)
   const result = await invokeCommand(() => commands.dismissLanded(repositoryPath))
   if (result.status !== "ok") {
-    notifyError("Failed to Dismiss the Landed Commits", result.error)
+    notifyError("Cannot dismiss the landed commits", result.error)
   }
 }
 

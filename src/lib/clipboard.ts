@@ -10,7 +10,7 @@ export async function copyText(text: string): Promise<boolean> {
     return true
   }
   catch (error) {
-    notifyError("Copy Failed", error)
+    notifyError("Cannot copy to the clipboard", error)
     return false
   }
 }

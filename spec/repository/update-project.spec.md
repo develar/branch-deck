@@ -154,7 +154,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   - clean: a `success` check, tooltip "Rebases cleanly onto origin/master" ("Fast-forwards to origin/master");
   - conflict: a `warning` icon, tooltip "Conflicts in N files: …" (at most three names);
   - blocked: a `warning` icon, tooltip "Your uncommitted changes in … overlap origin/master";
-  - a failed check: muted with a question mark, tooltip "Can't check the update: <reason>".
+  - a failed check: muted with a question mark, tooltip "Cannot check the update: <reason>".
   [@test] ../../src/lib/update-state.test.ts (`names the state, never a count of upstream commits`)
   [@test] ../../src/lib/update-state.test.ts (`names at most three files`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
@@ -236,8 +236,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
-- The primary button "Copy Prompt for Agent" copies a prompt and confirms with the toast "Prompt copied". Both cases
-  offer it: an overlap of uncommitted changes with the upstream needs the same merge as a conflict.
+- The primary button "Copy Prompt for Agent" copies a prompt and confirms in place: it says "Copied" (`CopyCheckIcon`)
+  for a moment, as a copy button does, and no toast covers the dialog. Both cases offer it: an overlap of uncommitted
+  changes with the upstream needs the same merge as a conflict.
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - The conflict prompt must contain the repository path, the branch, the upstream with the ids of HEAD, the upstream
   and the merge base and the fetch time, the local commits oldest first, the likely conflicting files, the rules (keep
   every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push, stash untracked changes

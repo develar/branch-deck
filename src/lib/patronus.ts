@@ -146,6 +146,15 @@ export function formatMergedRobotTitle(robot: PatronusRobot): string {
 }
 
 /**
+ * What a started, restarted or canceling robot tests, as its toast and Activity say it: "IJPL-1 → master · profile
+ * Large Scale Change". The virtual branch (the subject for a robot of a temporary ref), never the ref the robot runs on.
+ */
+export function describeRobot(robot: PatronusRobot, profileName: string | null = null): string {
+  const target = `${robot.branchName ?? robot.name} → ${robot.targetBranch}`
+  return profileName === null ? target : `${target} · profile ${profileName}`
+}
+
+/**
  * A quiet hint why robots are not shown, null when they are (or the repository is not on Space, which needs no hint).
  * Never a toast: Patronus status is an extra.
  */

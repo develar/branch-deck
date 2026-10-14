@@ -178,8 +178,8 @@ async function confirmDelete(branchName: string): Promise<void> {
     },
     {
       processingMessage: `Deleting ${getSimpleBranchName(branchName)}…`,
-      success: () => ({ title: "Archived branch deleted", description: `${getSimpleBranchName(branchName)} was deleted` }),
-      error: error => ({ title: "Failed to delete archived branch", description: error instanceof Error ? error.message : String(error) }),
+      success: () => ({ title: `Deleted the archived branch ${getSimpleBranchName(branchName)}` }),
+      errorTitle: () => `Cannot delete the archived branch ${getSimpleBranchName(branchName)}`,
       // the typed name stays
       keepFormOnError: true,
     },

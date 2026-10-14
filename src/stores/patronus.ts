@@ -12,6 +12,7 @@ import {
   formatPushMode,
   isPushingRobot,
   isRobotActive,
+  openRobot,
 } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
@@ -184,15 +185,15 @@ let pendingMergeToasts: { key: string, robot: PatronusRobot }[] = []
 let notificationsAllowed: boolean | null = null
 
 /**
- * A robot merged a branch: a toast with Fetch, so the header learns that an update brings the branch in. While the
- * window is not focused, an OS notification says it at once, and the toast waits for the focus.
+ * A robot merged a branch: a toast with Fetch, so the header learns that an update brings the branch in, and "Open in
+ * Patronus". While the window is not focused, an OS notification says it at once, and the toast waits for the focus.
  */
 function announceMerge(key: string, robot: PatronusRobot): void {
   if (announcedMerges.has(robot.id)) {
     return
   }
   announcedMerges.add(robot.id)
-  recordRobot(formatMergedRobotTitle(robot), robot, true, key.split("\n")[0])
+  recordRobot(formatMergedRobotTitle(robot), formatPushMode(robot.pushMode), robot, key.split("\n")[0])
   if (windowFocused) {
     showMergeToast(key, robot)
     return
@@ -215,6 +216,8 @@ function showMergeToast(key: string, robot: PatronusRobot): void {
         void runFetchBaseline(repositoryPath)
       },
     },
+    // Fetch is the primary action, the robot page the second one
+    data: { kind: "robot", openRobot: () => openRobot(robot) },
   })
 }
 
@@ -460,7 +463,7 @@ export function upsertPatronusRobot(robot: PatronusRobot): void {
 /**
  * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
  * its tip), with the merge request whose approvals its review check counts. Resolves to the robot, now
- * polled while it runs; throws what Patronus said.
+ * polled while it runs; throws what Patronus said. The caller announces it (`announceRobot`, with the profile name).
  */
 export async function startPatronusRobot(
   branchName: string,
@@ -480,7 +483,6 @@ export async function startPatronusRobot(
     throw new Error(result.error.message)
   }
   upsertPatronusRobot(result.data)
-  recordRobot(`${formatPushMode(mode)} started`, result.data)
   return result.data
 }
 

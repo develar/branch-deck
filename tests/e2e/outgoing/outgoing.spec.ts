@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import type { DroppedCommit } from "../helpers/push-helpers"
-import { confirmForcePush, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 const BRANCH_COUNT = 7
@@ -72,7 +72,7 @@ test.describe("Outgoing indicator", () => {
     const popover = await openOverview(page)
 
     await getOverviewRow(popover, "JIRA-456").getByRole("button", { name: "Create Remote" }).click()
-    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    await expectPushedToast(page, "JIRA-456", "3 commits · created the remote branch")
     // pushed: gone from the overview, the popover stays open
     await expect(getOverviewRow(popover, "JIRA-456")).toHaveCount(0)
     await expect(popover.getByRole("heading")).toHaveText(`${TOTAL - 3} commits to push in ${BRANCH_COUNT - 1} branches`)
@@ -117,7 +117,7 @@ test.describe("Push progress", () => {
     await expect(progress).not.toContainText("1.23 MiB · 2.40 MiB/s")
 
     release()
-    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    await expectPushedToast(page, "JIRA-456")
     await expect(button).not.toHaveAttribute("aria-busy")
     await expect(button).toHaveText("Push")
   })
@@ -178,7 +178,7 @@ test.describe("Force push", () => {
 
     const toast = page.locator("[data-slot=toast]", { hasText: "JIRA-456 changed on the remote" })
     await expect(toast).toContainText("3 commits you don't have (by Ann and Bob). Nothing was pushed.")
-    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toHaveCount(0)
+    await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
     // the row shows the fetched remote: a force push that drops the 3 commits
     await expect(row.getByRole("button", { name: "Force Push (3)" })).toBeEnabled()
     await expect(row).toContainText("3↓")
@@ -189,7 +189,7 @@ test.describe("Force push", () => {
     expect(requests).toHaveLength(1)
     await confirmForcePush(page, "Force Push (3)")
 
-    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    await expectPushedToast(page, "JIRA-456")
     expect(requests.map(request => request.expectedRemote)).toEqual([null, "moved-head"])
   })
 
@@ -240,7 +240,7 @@ test.describe("Push button", () => {
     await routePush(page, {})
     const button = getPushButton(findBranchRow(page, "JIRA-456"))
     await button.click()
-    await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
+    await expectPushedToast(page, "JIRA-456")
     await expect(button).toBeDisabled()
     // the click opened the description: close it, then hover the disabled button
     await page.keyboard.press("Escape")
@@ -264,7 +264,7 @@ baseTest.describe("Outgoing indicator without outgoing commits", () => {
 
     await getPushButton(findBranchRow(page, "test-branch")).click()
 
-    await expect(page.getByText("Branch test-branch pushed successfully")).toBeVisible()
+    await expectPushedToast(page, "test-branch")
     await expect(indicator).toHaveCount(0)
   })
 })

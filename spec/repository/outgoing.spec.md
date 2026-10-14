@@ -24,6 +24,7 @@ targets:
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../src/lib/git/push.ts
+  - ../../src/lib/toast-message.ts
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../src/lib/transfer-progress.ts
   - ../../src/stores/commit-move.ts
@@ -188,6 +189,13 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   [@test] ../../src/lib/remote-status.test.ts (`says what the remote has that the branch lacks, and by whom`, `says that everything is pushed in one sentence, and when it was pushed`, `says that the push creates a branch not on the remote`)
   [@test] ../../src/hooks/usePushButton.test.ts (`says that everything is pushed, and when, for an up to date branch`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
+- A push that went through is a `success` toast in the words of its [Activity](activity.spec.md) entry, from the
+  remote status the push was made against (`describePush`): "Pushed JIRA-456" / "3 commits · created the remote
+  branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies" or "1 commit ·
+  dropped 1 remote commit"; with the pull request action ([Pull Requests](../branch/pull-requests.spec.md)) it stays
+  10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason.
+  [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
 - A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
   branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.

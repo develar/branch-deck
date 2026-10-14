@@ -21,7 +21,7 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
     targetBranch,
   }))
   if (result.status !== "ok") {
-    notifyError(targetBranch === null ? "Failed to Remove the Prefix" : `Failed to Move Commits to ${targetBranch}`, result.error)
+    notifyError(targetBranch === null ? "Cannot remove the prefix" : `Cannot move the commits to ${targetBranch}`, result.error)
     return false
   }
 
@@ -47,7 +47,7 @@ export async function undoMove(moved: readonly MovedCommit[]): Promise<void> {
     rewrites: moved.map(it => ({ commitId: it.newId, message: it.previousMessage })),
   }))
   if (result.status !== "ok") {
-    notifyError("Failed to Undo the Move", result.error)
+    notifyError("Cannot undo the move", result.error)
     return
   }
   requestReveal(null)

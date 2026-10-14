@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import type { MergeConflictInfo, UncommittedChangesResult } from "@/lib/bindings"
+import { fileCount } from "@/lib/update-state"
 import type { Branch } from "@/stores/branch-sync"
 import { syncBranches } from "@/stores/branch-sync"
 import { openInline, withRowProcessing } from "@/stores/inline-row-action"
@@ -35,13 +36,14 @@ class AmendConflictError extends Error {
 export async function amendChanges(branch: Branch, diffData: UncommittedChangesResult | null): Promise<void> {
   // the tip commit is the first one (newest, after .rev() in the backend)
   const tipCommit = branch.commits[0]
+  // nothing to do: not an error
   if (tipCommit === undefined) {
-    toast.add({ type: "error", title: `${branch.name}: No Commits Found`, description: "Branch has no commits to amend changes to" })
+    toast.add({ type: "info", title: "No commit to amend into", description: `${branch.name} has no commits.` })
     return
   }
 
-  if (!diffData?.files) {
-    toast.add({ type: "error", title: `${branch.name}: No Files to Amend`, description: "No uncommitted changes found to amend" })
+  if (!diffData?.files || diffData.files.length === 0) {
+    toast.add({ type: "info", title: "No changes to amend", description: "The working tree has no uncommitted changes." })
     return
   }
 
@@ -69,20 +71,15 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
     },
     {
       processingMessage: `Amending changes to ${branch.name}…`,
-      success: ({ amendedCommitId, rebasedToCommit }) => ({
-        title: `${branch.name}: Changes Amended`,
-        description: `Amended commit ${amendedCommitId.slice(0, 8)} → ${rebasedToCommit.slice(0, 8)}`,
-        duration: 5000,
-      }),
-      error: (error) => {
+      // the description is the amended commit
+      success: () => ({ title: `Amended ${fileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject }),
+      errorTitle: (error) => {
         if (error instanceof AmendConflictError) {
+          // the conflict viewer below the row says it
           openInline("amend-conflict", branch.name, error.conflict)
-          return { title: "Conflict detected", description: "Opening conflict resolver…" }
+          return null
         }
-        return {
-          title: `${branch.name}: Failed to Amend Changes`,
-          description: error instanceof Error ? error.message : "Failed to amend uncommitted changes",
-        }
+        return `Cannot amend ${branch.name}`
       },
     },
   )

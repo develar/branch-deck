@@ -1,3 +1,4 @@
+import { formatCommitCount } from "@/lib/commit"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
@@ -48,6 +49,41 @@ export function getPushHue(commitsBehind: number): PushHue {
  */
 export function dropsRemoteCommits(remoteStatus: Pick<RemoteStatus, "commitsBehind">): boolean {
   return getPushHue(remoteStatus.commitsBehind) === "warning"
+}
+
+/** What a push did, as its toast and its Activity entry say it */
+export interface PushNews {
+  /** "Pushed feature-auth", "Force pushed feature-auth" */
+  title: string
+  /** "3 commits · created the remote branch", "1 commit · dropped 2 remote commits" */
+  description?: string
+  /** The push dropped remote commits the branch lacked */
+  warning?: true
+}
+
+/** What a push did, from the remote status it was made against (`null`: not loaded, nothing to say but the push) */
+export function describePush(branchName: string, before: RemoteStatus | null): PushNews {
+  const action = before === null ? null : getPushAction({ remoteStatus: before })
+  if (before === null || action === null || action === "upToDate") {
+    return { title: `Pushed ${branchName}` }
+  }
+  // a force push may only drop remote commits
+  const parts = before.commitsAhead === 0 ? [] : [formatCommitCount(before.commitsAhead)]
+  if (action === "create") {
+    return { title: `Pushed ${branchName}`, description: [...parts, "created the remote branch"].join(" · ") }
+  }
+  if (action === "push") {
+    return { title: `Pushed ${branchName}`, description: parts[0] }
+  }
+  const behind = before.commitsBehind
+  if (behind === 0) {
+    return { title: `Force pushed ${branchName}`, description: [...parts, "replaced the rebased copies"].join(" · ") }
+  }
+  return {
+    title: `Force pushed ${branchName}`,
+    description: [...parts, `dropped ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}`].join(" · "),
+    warning: true,
+  }
 }
 
 /**

@@ -61,7 +61,7 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, on
       url: "/missing-commits",
       title: branchName ? `Missing commits · ${branchName}` : "Missing commits",
       data,
-    }).catch((error: unknown) => notifyError("Failed to open window", error))
+    }).catch((error: unknown) => notifyError("Cannot open the missing commits", error))
   }
 
   return (

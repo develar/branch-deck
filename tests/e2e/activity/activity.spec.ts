@@ -50,7 +50,7 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(popover.getByTestId("activity-day").getByRole("heading")).toHaveText("Today")
     // newest first
     await expect(popover.getByTestId("activity-title")).toHaveText(["Force pushed ABC-123", "Pushed ABC-123"])
-    await expect(activityEntry(popover, "Pushed ABC-123").getByTestId("activity-description")).toHaveText("4 commits · new on the remote")
+    await expect(activityEntry(popover, "Pushed ABC-123").getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
     const forced = activityEntry(popover, "Force pushed ABC-123")
     await expect(forced).toHaveAttribute("data-kind", "push")
     await expect(forced.getByTestId("activity-description")).toHaveText("1 commit · dropped 1 remote commit")
