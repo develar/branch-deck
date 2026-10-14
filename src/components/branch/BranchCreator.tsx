@@ -78,7 +78,7 @@ export function BranchCreator() {
 
       {errorTitle && !isSyncing
         ? (
-            <Alert variant="destructive" className="border-transparent bg-destructive/10" data-testid="error-alert">
+            <Alert variant="destructive" data-testid="error-alert">
               <CircleXIcon />
               <AlertTitle>{errorTitle}</AlertTitle>
               {pathValidation.errorDetails && <AlertDescription>{pathValidation.errorDetails}</AlertDescription>}

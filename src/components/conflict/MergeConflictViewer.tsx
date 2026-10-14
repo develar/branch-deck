@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { FileDiffIcon, GitMergeIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
+import { Callout } from "@/components/shared/Callout"
 import { getConflictMarkerCommits } from "@/components/conflict/conflict-marker-commits"
 import { ConflictingFileListCard } from "@/components/conflict/ConflictingFileListCard"
 import { ConflictResolutionHint } from "@/components/conflict/ConflictResolutionHint"
@@ -29,11 +30,7 @@ export function MergeConflictViewer({ conflict, branchName }: MergeConflictViewe
           Cherry-pick conflict detected
         </p>
 
-        <div className="flex flex-col gap-1 rounded-lg bg-warning/5 px-4 py-3 text-sm text-muted-foreground ring-1 ring-warning/30">
-          <p className="flex items-center gap-2 font-medium text-foreground">
-            <FileDiffIcon className="size-4 text-warning" />
-            {`${missingCommitCount} missing ${missingCommitCount === 1 ? "commit" : "commits"} modified the conflicting files`}
-          </p>
+        <Callout tone="warning" icon={FileDiffIcon} title={`${missingCommitCount} missing ${missingCommitCount === 1 ? "commit" : "commits"} modified the conflicting files`}>
           <p>
             {"Common ancestor "}
             <CommitHashPopover
@@ -45,7 +42,7 @@ export function MergeConflictViewer({ conflict, branchName }: MergeConflictViewe
             />
             {`: ${analysis.divergenceSummary.commitsAheadInSource} commits behind the source, ${analysis.divergenceSummary.commitsAheadInTarget} behind the target`}
           </p>
-        </div>
+        </Callout>
 
         <ConflictResolutionHint />
       </Card>

@@ -113,7 +113,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       <p className="text-sm" data-testid="patronus-start-explanation">{explanation}</p>
       {state.status === "loading" && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-3.5" />
+          <Spinner className="size-4" />
           Asking Patronus for the merge profiles…
         </p>
       )}

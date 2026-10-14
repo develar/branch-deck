@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from "react"
 import { cn } from "cn"
+import { InlineCode } from "@/components/shared/InlineCode"
 import { splitCodeAtBreaks, splitInlineCode } from "@/lib/inline-code"
 import type { InlineSegment } from "@/lib/inline-code"
 import { parseTextSegments, useIssuePatterns } from "@/lib/issue-links"
@@ -24,7 +25,7 @@ export function LinkedText({ text, className, detectCode = false, linkClassName 
     // code first: a path or identifier that contains an issue key stays one code token
     return splitInlineCode(text).map((segment, index) => (
       <Fragment key={index}>
-        {segment.type === "code" ? <InlineCode segment={segment} /> : renderLinks(segment.content, patterns, linkClassName)}
+        {segment.type === "code" ? <CodeSegment segment={segment} /> : renderLinks(segment.content, patterns, linkClassName)}
       </Fragment>
     ))
   }, [text, patterns, detectCode, linkClassName])
@@ -54,23 +55,17 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
     : <span key={index}>{segment.content}</span>)
 }
 
-function InlineCode({ segment }: { segment: InlineSegment }) {
+/** A backtick span is a chip; a detected identifier or path only gets the monospace font */
+function CodeSegment({ segment }: { segment: InlineSegment }) {
   const parts = splitCodeAtBreaks(segment.content)
   return (
-    <code
-      data-slot="inline-code"
-      data-explicit={segment.explicit ? "" : undefined}
-      className={cn(
-        "font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]",
-        segment.explicit && "rounded-sm bg-muted px-1",
-      )}
-    >
+    <InlineCode plain={!segment.explicit} data-explicit={segment.explicit ? "" : undefined}>
       {parts.map((part, index) => (
         <Fragment key={index}>
           {index > 0 && <wbr />}
           {part}
         </Fragment>
       ))}
-    </code>
+    </InlineCode>
   )
 }

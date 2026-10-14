@@ -6,6 +6,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 
 export interface CollapsibleCardProps {
   "header": ReactNode
+  /** Controls next to the header, outside its toggle button (a `HelpPopover`) */
+  "actions"?: ReactNode
   "children": ReactNode
   "defaultOpen"?: boolean
   "data-testid"?: string
@@ -16,7 +18,7 @@ export interface CollapsibleCardProps {
  * `data-state="open|closed"` is set explicitly on the root and the body (Base UI emits `data-open`/`data-closed`).
  * Inside the header, `group-data-[state=open]:` targets the open state.
  */
-export function CollapsibleCard({ header, children, defaultOpen = false, "data-testid": testId }: CollapsibleCardProps) {
+export function CollapsibleCard({ header, actions, children, defaultOpen = false, "data-testid": testId }: CollapsibleCardProps) {
   const [open, setOpen] = useState(defaultOpen)
   const state = open ? "open" : "closed"
 
@@ -28,10 +30,11 @@ export function CollapsibleCard({ header, children, defaultOpen = false, "data-t
       data-testid={testId}
       render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border")} />}
     >
-      <div className="p-4 sm:px-6">
-        <CollapsibleTrigger data-state={state} className="group w-full cursor-pointer text-left">
+      <div className="flex items-center gap-3 p-4 sm:px-6">
+        <CollapsibleTrigger data-state={state} className="group min-w-0 flex-1 cursor-pointer rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
           {header}
         </CollapsibleTrigger>
+        {actions}
       </div>
 
       {open && (

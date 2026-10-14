@@ -1,10 +1,10 @@
 import { useRef, useState } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
 import { DiffModeEnum, DiffView } from "@git-diff-view/react"
-import { CircleAlertIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
+import { Callout } from "@/components/shared/Callout"
 import { useIsDark } from "@/hooks/useIsDark"
 import { commands } from "@/lib/bindings"
 import type { FileDiff, UncommittedFileChange } from "@/lib/bindings"
@@ -83,19 +83,14 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
               />
               <AccordionPrimitive.Panel className="border-t border-border">
                 {state?.kind === "loading" && (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="flex items-center gap-3">
-                      <Spinner className="text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Loading file content...</span>
-                    </div>
-                  </div>
+                  <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Spinner className="size-4" />
+                    Loading file content…
+                  </p>
                 )}
                 {state?.kind === "error" && (
                   <div className="p-4">
-                    <div className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-4">
-                      <CircleAlertIcon className="size-4 text-destructive" />
-                      <span className="text-sm text-destructive">{state.message}</span>
-                    </div>
+                    <Callout tone="destructive" title={state.message} />
                   </div>
                 )}
                 {state?.kind === "loaded" && (

@@ -79,10 +79,7 @@ export function GitDiffMergeView({ conflicts, conflictInfo }: GitDiffMergeViewPr
             </AccordionPrimitive.Root>
           )
         : (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <GitMergeIcon className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No conflicts to display</p>
-            </div>
+            <p className="text-sm text-muted-foreground">No conflicts to display</p>
           )}
     </div>
   )

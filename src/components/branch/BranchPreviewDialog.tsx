@@ -224,7 +224,7 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
   }
 
   return (
-    <Alert variant="destructive" data-testid="branch-preview-conflict" className="border-transparent bg-destructive/10">
+    <Alert variant="destructive" data-testid="branch-preview-conflict">
       <TriangleAlertIcon />
       {genericError === undefined
         ? (

@@ -198,7 +198,7 @@ test.describe("Patronus actions", () => {
 
       await getPushButton(findBranchRow(page, "JIRA-456")).click()
       await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-      await dialog.getByRole("button", { name: "Back" }).click()
+      await page.keyboard.press("Escape")
       await expect(dialog).toBeHidden()
       expect(pushes).toHaveLength(0)
       expect(statuses).toHaveLength(1)
@@ -252,7 +252,7 @@ test.describe("Patronus actions", () => {
       // the robot still runs: the same question, and Back pushes nothing
       const dialog = page.getByTestId("push-guard-dialog")
       await expect(dialog).toContainText("Safe Push of JIRA-456 is running")
-      await dialog.getByRole("button", { name: "Back" }).click()
+      await page.keyboard.press("Escape")
       await expect(dialog).toBeHidden()
       expect(pushes.map(push => push.expectedRemote)).toEqual([null])
       expect(statuses).toHaveLength(2)

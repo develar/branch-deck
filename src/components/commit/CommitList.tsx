@@ -1,10 +1,10 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
-import { LoaderCircleIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitMessageButton } from "@/components/commit/CommitMessage"
@@ -328,7 +328,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
             <LandedCommitMarker commitId={hash} />
             {status === "Pending" && (
               <Badge variant="secondary">
-                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+                <Spinner data-icon="inline-start" />
                 Pending
               </Badge>
             )}
@@ -353,7 +353,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
                 </Suspense>
               )
             : error.Generic && (
-              <Alert variant="destructive" className="border-transparent bg-destructive/10 py-2">
+              <Alert variant="destructive" className="py-2">
                 <AlertDescription>
                   <p className="text-xs">{error.Generic}</p>
                 </AlertDescription>

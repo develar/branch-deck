@@ -266,7 +266,7 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 - Patronus tests the commit it took at the start and fails a Safe Push whose branch changed meanwhile ("branch was
   modified"). Every push of the branch (the row, the overview, the preview, `P`) whose Safe Push runs on the branch reads
   the status of the robot first (`GET /robots/{id}/status`, one row); still running, a dialog asks: "Cancel, Push and
-  Restart" (cancel, push, restart on the pushed commit), "Push Anyway" or "Back" (Escape). A dry run is not affected
+  Restart" (cancel, push, restart on the pushed commit, the focused button), "Push Anyway" or back (`Esc Back`). A dry run is not affected
   and asks nothing; a robot that finished meanwhile asks nothing.
   [@test] ../../src/lib/patronus.test.ts (`guards a push into the branch of a running Safe Push, not of a dry run`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)

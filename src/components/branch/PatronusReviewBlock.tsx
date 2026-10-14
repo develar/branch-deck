@@ -1,7 +1,8 @@
-import { CircleCheckIcon, ExternalLinkIcon, GitPullRequestCreateIcon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react"
+import { CircleCheckIcon, ExternalLinkIcon, GitPullRequestCreateIcon, RefreshCwIcon } from "lucide-react"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import { notifyError } from "@/lib/errors"
 import { formatReviewerGroup } from "@/lib/patronus"
@@ -26,7 +27,7 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
   if (state.status === "loading") {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-review" data-state="loading">
-        <Spinner className="size-3.5" />
+        <Spinner className="size-4" />
         Checking the code-owner review…
       </p>
     )
@@ -50,47 +51,46 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
   }
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-warning/20 bg-warning/10 p-3" data-testid="patronus-review" data-state="required">
-      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
-      <div className="flex min-w-0 flex-col gap-2 text-sm">
-        <p className="font-medium text-warning">
-          {mergeRequest === null ? "Needs review by the code owners" : `Waiting for approval in ${mergeRequest.reviewKey}`}
-        </p>
-        <ul className="flex flex-col gap-0.5" data-testid="patronus-review-groups">
-          {requirement.groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}
-        </ul>
-        <p className="text-muted-foreground">A Safe Push fails without these approvals.</p>
-        <div className="flex flex-wrap gap-2">
-          {mergeRequest === null
-            ? (
-                <Button
-                  variant="outline"
-                  size="xs"
-                  disabled={review.isCreatingMergeRequest}
-                  onClick={() => {
-                    void onCreateMergeRequest().then((url) => {
-                      if (url !== null) {
-                        openMergeRequest(url)
-                      }
-                    }, (error: unknown) => notifyError("Cannot create the merge request", error))
-                  }}
-                >
-                  {review.isCreatingMergeRequest ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-                  Create Merge Request
-                </Button>
-              )
-            : (
-                <Button variant="outline" size="xs" onClick={() => openMergeRequest(mergeRequest.url)}>
-                  <ExternalLinkIcon data-icon="inline-start" />
-                  {`Open ${mergeRequest.reviewKey}`}
-                </Button>
-              )}
-          <Button variant="ghost" size="xs" onClick={review.recheck}>
-            <RefreshCwIcon data-icon="inline-start" />
-            Recheck
-          </Button>
-        </div>
+    <Callout
+      tone="warning"
+      title={mergeRequest === null ? "Needs review by the code owners" : `Waiting for approval in ${mergeRequest.reviewKey}`}
+      data-testid="patronus-review"
+      data-state="required"
+    >
+      <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
+        {requirement.groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}
+      </ul>
+      <p>A Safe Push fails without these approvals.</p>
+      <div className="flex flex-wrap gap-2">
+        {mergeRequest === null
+          ? (
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={review.isCreatingMergeRequest}
+                onClick={() => {
+                  void onCreateMergeRequest().then((url) => {
+                    if (url !== null) {
+                      openMergeRequest(url)
+                    }
+                  }, (error: unknown) => notifyError("Cannot create the merge request", error))
+                }}
+              >
+                {review.isCreatingMergeRequest ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
+                Create Merge Request
+              </Button>
+            )
+          : (
+              <Button variant="outline" size="xs" onClick={() => openMergeRequest(mergeRequest.url)}>
+                <ExternalLinkIcon data-icon="inline-start" />
+                {`Open ${mergeRequest.reviewKey}`}
+              </Button>
+            )}
+        <Button variant="ghost" size="xs" onClick={review.recheck}>
+          <RefreshCwIcon data-icon="inline-start" />
+          Recheck
+        </Button>
       </div>
-    </div>
+    </Callout>
   )
 }

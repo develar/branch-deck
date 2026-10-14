@@ -1,13 +1,24 @@
 import { useEffect } from "react"
 import type { ComponentProps, KeyboardEvent, ReactNode, RefObject } from "react"
+import { cn } from "cn"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
+
+/** `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files */
+export type PreviewDialogWidth = "sm" | "md" | "lg"
+
+const widthClasses: Record<PreviewDialogWidth, string> = {
+  sm: "sm:max-w-xs",
+  md: "sm:max-w-lg",
+  lg: "sm:max-w-[min(56rem,calc(100%-4rem))]",
+}
 
 export interface PreviewDialogFrameProps {
   "open": boolean
   "onOpenChange": ComponentProps<typeof Dialog>["onOpenChange"]
   /** Focused when the dialog opens: the body, so PageUp/PageDown scroll it */
   "initialFocus": RefObject<HTMLElement | null>
+  "width"?: PreviewDialogWidth
   "onKeyDown"?: (event: KeyboardEvent<HTMLDivElement>) => void
   "data-testid"?: string
   /** `PreviewDialogHeader`, `PreviewDialogBody` and `PreviewDialogFooter`, in this order */
@@ -20,13 +31,13 @@ export interface PreviewDialogFrameProps {
  *
  * Keep it mounted while closed: Base UI moves the focus into a dialog (and back) only when `open` changes.
  */
-export function PreviewDialogFrame({ open, onOpenChange, initialFocus, onKeyDown, "data-testid": testId, children }: PreviewDialogFrameProps) {
+export function PreviewDialogFrame({ open, onOpenChange, initialFocus, width = "lg", onKeyDown, "data-testid": testId, children }: PreviewDialogFrameProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={testId}
         initialFocus={initialFocus}
-        className="max-h-[min(80vh,48rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 sm:max-w-[min(56rem,calc(100%-4rem))]"
+        className={cn("max-h-[min(80vh,48rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0", widthClasses[width])}
         onKeyDown={onKeyDown}
       >
         {children}
@@ -45,16 +56,16 @@ export function PreviewDialogHeader({ children }: { children: ReactNode }) {
 }
 
 export interface PreviewDialogBodyProps {
-  "ref": RefObject<HTMLDivElement | null>
+  "ref"?: RefObject<HTMLDivElement | null>
   /** The shown item: a newly shown item starts at the top */
-  "itemKey": string
+  "itemKey"?: string
   "data-testid"?: string
   "children": ReactNode
 }
 
 export function PreviewDialogBody({ ref, itemKey, "data-testid": testId, children }: PreviewDialogBodyProps) {
   useEffect(() => {
-    ref.current?.scrollTo({ top: 0 })
+    ref?.current?.scrollTo({ top: 0 })
   }, [ref, itemKey])
 
   return (
@@ -65,11 +76,11 @@ export function PreviewDialogBody({ ref, itemKey, "data-testid": testId, childre
 }
 
 /** `start` on the left (the position or a hint), the key hints and the actions (`children`) on the right. */
-export function PreviewDialogFooter({ start, children }: { start: ReactNode, children: ReactNode }) {
+export function PreviewDialogFooter({ start, children }: { start?: ReactNode, children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground">
       {start}
-      <div className="flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-3">
         {children}
       </div>
     </div>

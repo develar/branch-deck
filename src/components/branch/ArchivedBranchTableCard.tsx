@@ -45,14 +45,10 @@ export function ArchivedBranchTableCard() {
           itemSingular="branch"
           itemPlural="branches"
           badgeColor="neutral"
-          actions={(
-            <>
-              <ArchivedBranchesHelpPopover />
-              <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
-            </>
-          )}
+          actions={<ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />}
         />
       )}
+      actions={<ArchivedBranchesHelpPopover />}
     >
       <table className="w-full">
         <thead className="border-b border-border bg-muted/50">

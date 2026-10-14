@@ -156,7 +156,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt
   the files. `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3
   API and pnpm dlx resolves zod 4.
-- **Locally customised ui files**: `alert`, `badge`, `button`, `popover`, `tooltip`, `toast` in `src/components/ui/` carry
+- **Locally customised ui files**: `alert`, `badge`, `button`, `popover`, `spinner`, `tooltip`, `toast` in `src/components/ui/` carry
   a `// local customisation: …` header naming the edits. After `add --overwrite` (e.g. a style switch), re-apply them;
   `git diff HEAD -- src/components/ui` shows what was lost.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.

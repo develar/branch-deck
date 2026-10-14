@@ -4,6 +4,7 @@ import { CircleHelpIcon, GitBranchIcon, TerminalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp"
+import { InlineCode } from "@/components/shared/InlineCode"
 
 interface WelcomeCardProps {
   hasRepository: boolean
@@ -45,11 +46,11 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
                 <p className="text-sm text-muted-foreground">
                   Set a default prefix for your branches to keep them organized. For example:
                   {" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">username/</code>
+                  <InlineCode>username/</InlineCode>
                 </p>
                 <div className="flex items-center gap-2 text-sm">
                   <TerminalIcon className="size-3.5 text-muted-foreground" />
-                  <code className="rounded bg-muted px-2 py-1 text-xs">git config --global branchdeck.branchPrefix "your-prefix"</code>
+                  <InlineCode className="py-0.5">git config --global branchdeck.branchPrefix "your-prefix"</InlineCode>
                   <Button variant="link" size="xs" onClick={() => setHelpOpen(true)}>
                     <CircleHelpIcon data-icon="inline-start" />
                     View guide
