@@ -307,7 +307,11 @@ Details:
 - **Conflict.** `replay` reports a conflict only by its exit code. The files come from `merge-tree --write-tree
   --name-only -z --no-messages U H` (`<tree>\0<file>\0…`, exit 1). If only the replay of single commits conflicts, they
   are the paths both `diff-tree B U` and `diff-tree B H` change. The commits are `log --reverse HEAD ^U ^<previous
-  tips>`. The result names both, with H, U and B, for the dialog and the agent prompt; nothing has changed.
+  tips>`. Two more `log --reverse --no-merges --no-renames --name-only -z -- <files>` runs, with
+  `GIT_LITERAL_PATHSPECS=1`, tell which commits change the files: one over the local range, one over `B..U` with
+  `--max-count=50` (a monorepo upstream has thousands). At most 50 files go on the command line, which Windows limits
+  to 32K characters. The result names the files, the commits and the upstream commits with their authors, with H, U and
+  B, for the dialog and the agent prompt; nothing has changed.
 - **Dirty working tree.** Two-way `read-tree -m -u` updates a path only where `H` and `N` differ, and only if the index
   and the working tree still match `H` there. Uncommitted or staged changes on any other path stay byte for byte. A
   dirty or staged path that the update changes, an untracked file where it adds one, or an untracked file inside a

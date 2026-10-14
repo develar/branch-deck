@@ -630,13 +630,14 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         fs::write(full, content)?;
         Ok(())
       };
-      let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| -> Result<()> {
+      let commit_as = |author: &str, message: &str, files: &[(&str, &str)], timestamp: i64| -> Result<()> {
         for (path, content) in files {
           write(path, content)?;
           git(&["add", "--", path], None)?;
         }
-        git(&["commit", "-q", "-m", message], Some(timestamp))
+        git(&["commit", "-q", &format!("--author={author}"), "-m", message], Some(timestamp))
       };
+      let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| commit_as("Test User <test@example.com>", message, files, timestamp);
 
       git(&["init", "-q", "--initial-branch=master"], None)?;
       disable_background_maintenance(output_path);
@@ -661,7 +662,13 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
       // upstream commits, pushed by URL so the tracking ref stays until the fetch below
       git(&["checkout", "-q", "--detach"], None)?;
-      commit("Change line 2 upstream", &[(UPDATE_APP_FILE, "line 1\nline 2 upstream\nline 3\n")], 1704121200)?;
+      // another author, as on a shared upstream
+      commit_as(
+        "Dana Lee <dana@example.com>",
+        "Change line 2 upstream",
+        &[(UPDATE_APP_FILE, "line 1\nline 2 upstream\nline 3\n")],
+        1704121200,
+      )?;
       commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704121500)?;
       git(&["push", "-q", ".git/upstream.git", "HEAD:refs/heads/master"], None)?;
       git(&["checkout", "-q", "master"], None)?;

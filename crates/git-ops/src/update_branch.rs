@@ -27,13 +27,18 @@ pub enum UpdateKind {
   Rebase,
 }
 
-/// A local commit that would be replayed
+/// A commit of a conflicting update: a local one that would be replayed, or an upstream one
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCommit {
   pub id: String,
   pub subject: String,
+  pub author: String,
+  /// Author time, Unix seconds
+  pub time: u32,
+  /// The likely conflicting files that the commit changes; empty for most commits
+  pub files: Vec<String>,
 }
 
 /// Whether the branch can be updated, relative to the last fetch of the upstream
@@ -51,6 +56,10 @@ pub enum UpdateState {
     files: Vec<String>,
     /// The local commits, oldest first
     commits: Vec<UpdateCommit>,
+    /// The upstream commits that changed the likely conflicting files, oldest first, at most the newest
+    /// `MAX_UPSTREAM_COMMITS`
+    #[serde(rename = "upstreamCommits")]
+    upstream_commits: Vec<UpdateCommit>,
   },
   /// Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed
   Blocked { paths: Vec<String> },
@@ -188,10 +197,11 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
   };
 
   let (new_head, changed, blocked) = match &outcome {
-    ReplayOutcome::Conflict { files, commits } => {
+    ReplayOutcome::Conflict { files, commits, upstream_commits } => {
       plan.check.state = UpdateState::Conflict {
         files: files.clone(),
         commits: commits.clone(),
+        upstream_commits: upstream_commits.clone(),
       };
       (None, &[][..], Vec::new())
     }
@@ -223,8 +233,15 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
 /// The part of a check that depends only on the commits: the replay and the paths it changes
 #[derive(Debug, Clone)]
 enum ReplayOutcome {
-  Conflict { files: Vec<String>, commits: Vec<UpdateCommit> },
-  Applies { new_head: String, changed: Vec<ChangedPath> },
+  Conflict {
+    files: Vec<String>,
+    commits: Vec<UpdateCommit>,
+    upstream_commits: Vec<UpdateCommit>,
+  },
+  Applies {
+    new_head: String,
+    changed: Vec<ChangedPath>,
+  },
 }
 
 /// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes
@@ -246,9 +263,9 @@ fn replay_outcome(git_executor: &GitCommandExecutor, repo_path: &str, plan: &Upd
       };
       let Some(new_head) = replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? else {
         let files = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
-        let commits = local_commits(git_executor, repo_path, &revs)?;
-        debug!(files = files.len(), commits = commits.len(), "update conflicts");
-        return Ok(ReplayOutcome::Conflict { files, commits });
+        let (commits, upstream_commits) = conflict_commits(git_executor, repo_path, &revs, base, upstream_head, &files)?;
+        debug!(files = files.len(), commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
+        return Ok(ReplayOutcome::Conflict { files, commits, upstream_commits });
       };
       new_head
     }
@@ -450,24 +467,90 @@ fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &
   Ok(files)
 }
 
-/// The commits of `revs`, oldest first
+/// The upstream commits listed for the likely conflicting files: a monorepo upstream can have thousands
+const MAX_UPSTREAM_COMMITS: usize = 50;
+
+/// The likely conflicting files that get commits attributed: each is a pathspec on the command line, and Windows limits
+/// it to 32K characters
+const MAX_ATTRIBUTED_FILES: usize = 50;
+
+/// `\x01` starts a commit, NUL ends a field; `%s` holds neither
+const COMMIT_FORMAT: &str = "--format=%x01%H%x00%an%x00%at%x00%s";
+
+/// The local commits of `revs`, oldest first, and the upstream commits since `base` that changed the likely conflicting
+/// `files`; each commit lists the files of `files` it changes
+fn conflict_commits(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  revs: &[&str],
+  base: &str,
+  upstream_head: &str,
+  files: &[String],
+) -> Result<(Vec<UpdateCommit>, Vec<UpdateCommit>)> {
+  let mut commits = local_commits(git_executor, repo_path, revs)?;
+  if files.is_empty() {
+    return Ok((commits, Vec::new()));
+  }
+  let mut touching: HashMap<String, Vec<String>> = commits_touching(git_executor, repo_path, revs, files, None)?
+    .into_iter()
+    .map(|commit| (commit.id, commit.files))
+    .collect();
+  for commit in &mut commits {
+    if let Some(files) = touching.remove(&commit.id) {
+      commit.files = files;
+    }
+  }
+  let upstream_range = format!("{base}..{upstream_head}");
+  let upstream_commits = commits_touching(git_executor, repo_path, &[&upstream_range], files, Some(MAX_UPSTREAM_COMMITS))?;
+  Ok((commits, upstream_commits))
+}
+
+/// The commits of `revs`, oldest first, without files
 fn local_commits(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str]) -> Result<Vec<UpdateCommit>> {
-  let mut args = vec!["log", "--reverse", "--format=%H %s"];
+  let mut args = vec!["log", "--reverse", "-z", COMMIT_FORMAT];
   args.extend_from_slice(revs);
   args.push("--");
-  let lines = git_executor.execute_command_lines(&args, repo_path)?;
-  Ok(
-    lines
-      .into_iter()
-      .map(|line| {
-        let (id, subject) = line.split_once(' ').unwrap_or((&line, ""));
-        UpdateCommit {
-          id: id.to_string(),
-          subject: subject.to_string(),
-        }
-      })
-      .collect(),
-  )
+  let output = git_executor.execute_command(&args, repo_path)?;
+  Ok(parse_commits(&output))
+}
+
+/// The non-merge commits of `revs` that change any of `files` (the first `MAX_ATTRIBUTED_FILES`), oldest first, each
+/// with the files of the list it changes; the newest `limit` only, if given
+fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str], files: &[String], limit: Option<usize>) -> Result<Vec<UpdateCommit>> {
+  let max_count = limit.map(|limit| format!("--max-count={limit}"));
+  let mut args = vec!["log", "--reverse", "--no-merges", "--no-renames", "--name-only", "-z", COMMIT_FORMAT];
+  args.extend(max_count.as_deref());
+  args.extend_from_slice(revs);
+  args.push("--");
+  args.extend(files.iter().take(MAX_ATTRIBUTED_FILES).map(String::as_str));
+  // the paths are names, not globs
+  let output = git_executor.execute_command_with_env(&args, repo_path, &[("GIT_LITERAL_PATHSPECS", "1")])?;
+  Ok(parse_commits(&output))
+}
+
+/// `\x01<id>\0<author>\0<time>\0<subject>\0`, then with `--name-only` a newline and `<file>\0` per file, per commit
+fn parse_commits(output: &str) -> Vec<UpdateCommit> {
+  output
+    .split('\x01')
+    .filter(|record| !record.is_empty())
+    .map(|record| {
+      let mut fields = record.split('\0');
+      let mut next = || fields.next().unwrap_or_default().to_string();
+      let (id, author, time, subject) = (next(), next(), next(), next());
+      let files = fields
+        .map(|file| file.trim_start_matches('\n'))
+        .filter(|file| !file.is_empty())
+        .map(str::to_string)
+        .collect();
+      UpdateCommit {
+        id,
+        subject,
+        author,
+        time: time.parse().unwrap_or_default(),
+        files,
+      }
+    })
+    .collect()
 }
 
 /// A path that differs between two trees, with its side in the old tree

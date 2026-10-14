@@ -851,10 +851,15 @@ export type UpdateCheck = {
 	fetchedAt: number | null,
 };
 
-/**  A local commit that would be replayed */
+/**  A commit of a conflicting update: a local one that would be replayed, or an upstream one */
 export type UpdateCommit = {
 	id: string,
 	subject: string,
+	author: string,
+	/**  Author time, Unix seconds */
+	time: number,
+	/**  The likely conflicting files that the commit changes; empty for most commits */
+	files: string[],
 };
 
 export type UpdateInfo = {
@@ -904,7 +909,12 @@ export type UpdateState =
 /**  The files that likely conflict */
 files: string[]; 
 /**  The local commits, oldest first */
-commits: UpdateCommit[] } | 
+commits: UpdateCommit[]; 
+/**
+ *  The upstream commits that changed the likely conflicting files, oldest first, at most the newest
+ *  `MAX_UPSTREAM_COMMITS`
+ */
+upstreamCommits: UpdateCommit[] } | 
 /**  Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed */
 { status: "blocked"; paths: string[] };
 

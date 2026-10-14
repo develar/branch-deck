@@ -1,6 +1,6 @@
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::{UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, check_baseline_update, previous_tip_of_forced_update, update_project_core};
-use git_ops::update_branch::{CheckPurpose, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update};
+use git_ops::update_branch::{CheckPurpose, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -264,28 +264,33 @@ fn touched_only_file_passes_thanks_to_the_refresh() {
 #[test]
 fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
   let Setup { upstream, clone } = setup();
-  let first = clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  let second = clone.create_commit("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n");
-  upstream.create_commit("Upstream change", "shared.txt", "one\nupstream two\nthree\n");
+  let first = clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(1_700_000_100));
+  let second = clone.create_commit_with_timestamp("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n", Some(1_700_000_200));
+  upstream.create_commit("Upstream other", "other.txt", "upstream other\n");
+  git(&upstream, &["config", "user.name", "Dana Lee"]);
+  let upstream_change = upstream.create_commit_with_timestamp("Upstream change", "shared.txt", "one\nupstream two\nthree\n", Some(1_700_000_300));
   let head = clone.head();
   let reflog_before = reflog(&clone);
 
   let result = update(&clone).unwrap();
   let check = result.check;
+  let commit = |id: String, subject: &str, author: &str, time: u32, files: &[&str]| UpdateCommit {
+    id,
+    subject: subject.to_string(),
+    author: author.to_string(),
+    time,
+    files: files.iter().map(ToString::to_string).collect(),
+  };
+  // only the commits that change the conflicting file carry it; the upstream lists only those
   assert_eq!(
     check.state,
     UpdateState::Conflict {
       files: vec!["shared.txt".to_string()],
       commits: vec![
-        git_ops::update_branch::UpdateCommit {
-          id: first,
-          subject: "(auth) Add login".to_string()
-        },
-        git_ops::update_branch::UpdateCommit {
-          id: second,
-          subject: "(auth) Change two".to_string()
-        },
+        commit(first, "(auth) Add login", "Test User", 1_700_000_100, &[]),
+        commit(second, "(auth) Change two", "Test User", 1_700_000_200, &["shared.txt"]),
       ],
+      upstream_commits: vec![commit(upstream_change, "Upstream change", "Dana Lee", 1_700_000_300, &["shared.txt"])],
     }
   );
   assert_eq!((check.branch.as_str(), check.upstream.as_str()), ("master", "origin/master"));
@@ -504,7 +509,8 @@ fn e2e_templates_have_the_expected_update_states() {
 
   let (_, state) = check("update_conflict", templates::update_conflict());
   assert!(
-    matches!(&state, UpdateState::Conflict { files, commits } if files == &["src/app.txt"] && commits.len() == 2),
+    matches!(&state, UpdateState::Conflict { files, commits, upstream_commits }
+      if files == &["src/app.txt"] && commits.len() == 2 && upstream_commits.len() == 1),
     "{state:?}"
   );
   let (_, state) = check("update_blocked", templates::update_blocked());

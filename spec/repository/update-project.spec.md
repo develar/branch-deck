@@ -19,6 +19,7 @@ targets:
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/update-state.ts
   - ../../src/lib/agent-prompt.ts
+  - ../../src/lib/update-conflict.ts
 ---
 
 # Update Project
@@ -62,7 +63,9 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The state must be one of:
   - up to date: the upstream has nothing the branch lacks;
   - clean, as a fast-forward or a rebase;
-  - conflict, with the files that likely conflict and the local commits, oldest first;
+  - conflict, with the files that likely conflict, the local commits oldest first, and the upstream commits that
+    change those files (the newest 50, oldest first); each commit has its author, time and the likely conflicting
+    files it changes;
   - blocked, with the local paths that overlap the update: uncommitted or staged changes on a file the upstream
     changes, an untracked file where it adds one, an ignored file where it adds one.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
@@ -170,7 +173,11 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 - A conflict or a block after a click opens a dialog in the frame of the previews: it says nothing was changed and
   when the baseline was fetched.
-- A conflict lists the files that likely conflict and the local commits, oldest first.
+- The conflict title counts the files, "1 file conflicts with origin/master" or "6 files conflict with origin/master";
+  without known files it says "Your commits conflict with origin/master".
+- A conflict lists the files that likely conflict, each with the local commits ("yours") and the upstream commits
+  (with author and time) that change it. The list of all local commits, oldest first, comes collapsed below; the
+  commits that change a likely conflicting file are marked. Without known files that list is open.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
@@ -180,9 +187,11 @@ The header shows whether an update would apply cleanly, from a check that every 
   and the merge base and the fetch time, the local commits oldest first, the likely conflicting files, the rules (keep
   every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push, stash untracked changes
   first and pop them at the end) and the steps (rebase, resolve keeping the upstream change and the intent of the
-  commit, build and test, continue, report each resolution).
+  commit, build and test, continue, report each resolution). Each likely conflicting file names the local commits and
+  the upstream commits (with subject and author) that change it.
   [@test] ../../src/lib/agent-prompt.test.ts (`names the repository, the branch, the upstream and the exact ids`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`lists the local commits oldest first and the likely conflicting files`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`lists the local commits oldest first`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`names the commits on both sides of each likely conflicting file`)
   [@test] ../../src/lib/agent-prompt.test.ts (`states the rules and the steps`)
   [@test] ../../src/lib/agent-prompt.test.ts (`leaves out the file list when the conflicting files are unknown`)
 - The blocked prompt asks to stash, update, pop and merge, keeping the uncommitted changes uncommitted.
@@ -192,8 +201,11 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 - The button is `ghost` `sm` with `ArrowDownIcon` and "Update"; the state icon follows the label (`CheckIcon`
   `text-success`, `TriangleAlertIcon` `text-warning`). Up to date mutes the label instead of adding an icon.
-- The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body lists files and commits in mono, the
-  footer shows `master ← origin/master`, `Esc Close` and the primary button.
+- The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body starts with one line on what to do,
+  then lists the files, each as its name and then its muted directory, which is clipped from its start on a narrow
+  window, with a copy button on hover; the commits of each side sit below in aligned columns (side, hash, subject,
+  author and time); the full list is a `Collapsible` with a `TriangleAlertIcon` `text-warning` mark. The footer shows
+  `master ← origin/master`, `Esc Close` and the primary button.
 
 ## Testing / Local Run
 

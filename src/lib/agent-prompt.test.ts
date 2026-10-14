@@ -1,7 +1,7 @@
 // @spec spec/repository/update-project.spec.md
 import { describe, expect, it } from "vitest"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
-import type { UpdateCheck, UpdateState } from "@/lib/bindings"
+import type { UpdateCheck, UpdateCommit, UpdateState } from "@/lib/bindings"
 
 const H = "1111111111111111111111111111111111111111"
 const U = "2222222222222222222222222222222222222222"
@@ -11,13 +11,18 @@ function check(state: UpdateState): UpdateCheck {
   return { branch: "master", upstream: "origin/master", head: H, upstreamHead: U, base: B, state, fetchedAt: null }
 }
 
+function commit(id: string, subject: string, author: string, files: string[] = []): UpdateCommit {
+  return { id: id.repeat(40), subject, author, time: 1_700_000_000, files }
+}
+
 const conflict = check({
   status: "conflict",
-  files: ["src/app.txt"],
+  files: ["src/app.txt", "src/config.txt"],
   commits: [
-    { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", subject: "(auth) Add login" },
-    { id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", subject: "(auth) Change line 2" },
+    commit("a", "(auth) Add login", "Me"),
+    commit("b", "(auth) Change line 2", "Me", ["src/app.txt"]),
   ],
+  upstreamCommits: [commit("c", "Change line 2 upstream", "Dana Lee", ["src/app.txt", "src/config.txt"])],
 })
 
 describe("buildAgentPrompt", () => {
@@ -29,11 +34,22 @@ describe("buildAgentPrompt", () => {
     expect(prompt).toContain(`- Merge base: ${B}`)
   })
 
-  it("lists the local commits oldest first and the likely conflicting files", () => {
+  it("lists the local commits oldest first", () => {
     const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null })
     expect(prompt).toContain("My local commits, oldest first:\n- aaaaaaaa (auth) Add login\n- bbbbbbbb (auth) Change line 2")
-    expect(prompt).toContain("Files that likely conflict:\n- src/app.txt")
     expect(prompt).not.toContain("fetched")
+  })
+
+  it("names the commits on both sides of each likely conflicting file", () => {
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null })
+    expect(prompt).toContain([
+      "Files that likely conflict:",
+      "- src/app.txt",
+      "  - changed by my bbbbbbbb",
+      "  - changed upstream by cccccccc Change line 2 upstream (Dana Lee)",
+      "- src/config.txt",
+      "  - changed upstream by cccccccc Change line 2 upstream (Dana Lee)",
+    ].join("\n"))
   })
 
   it("states the rules and the steps", () => {
@@ -50,7 +66,7 @@ describe("buildAgentPrompt", () => {
   })
 
   it("leaves out the file list when the conflicting files are unknown", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/r", check: check({ status: "conflict", files: [], commits: [] }), fetchTime: null })
+    const prompt = buildAgentPrompt({ repositoryPath: "/r", check: check({ status: "conflict", files: [], commits: [], upstreamCommits: [] }), fetchTime: null })
     expect(prompt).not.toContain("Files that likely conflict")
   })
 

@@ -1,5 +1,6 @@
 import type { UpdateCheck } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
+import { groupConflictFiles } from "@/lib/update-conflict"
 
 export interface AgentPromptInput {
   repositoryPath: string
@@ -48,7 +49,14 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime }: AgentProm
       `My local commits, oldest first:\n${bullets(state.commits.map(commit => `${formatShortHash(commit.id)} ${commit.subject}`))}`,
     )
     if (state.files.length > 0) {
-      sections.push(`Files that likely conflict:\n${bullets(state.files)}`)
+      const files = groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(({ path, local, upstream }) => {
+        const sides = [
+          ...(local.length === 0 ? [] : [`changed by my ${local.map(commit => formatShortHash(commit.id)).join(", ")}`]),
+          ...upstream.map(commit => `changed upstream by ${formatShortHash(commit.id)} ${commit.subject} (${commit.author})`),
+        ]
+        return [path, ...sides.map(side => `  - ${side}`)].join("\n")
+      })
+      sections.push(`Files that likely conflict:\n${bullets(files)}`)
     }
     sections.push(
       `Rules:\n${bullets([

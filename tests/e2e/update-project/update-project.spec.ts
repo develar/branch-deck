@@ -67,15 +67,24 @@ test.describe("Update Project", () => {
     await button.click()
     const dialog = refusedDialog(page)
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole("heading")).toHaveText("Your commits conflict with origin/master")
-    await expect(dialog.getByTestId("update-conflict-files").locator("li")).toHaveText(["src/app.txt"])
-    await expect(dialog.getByTestId("update-conflict-commits").locator("li")).toHaveText([/Add login/, /Change line 2/])
+    await expect(dialog.getByRole("heading")).toHaveText("1 file conflicts with origin/master")
+    // each file with the commits of both sides that change it
+    const file = dialog.getByTestId("update-conflict-file")
+    await expect(file).toHaveAttribute("data-path", "src/app.txt")
+    await expect(file.locator("li[data-side=local]")).toHaveText([/^yours[0-9a-f]{8}feature-auth Change line 2$/])
+    await expect(file.locator("li[data-side=upstream]")).toHaveText([/^origin\/master[0-9a-f]{8}Change line 2 upstreamDana Lee, /])
+    // every commit to rebase, collapsed
+    const commits = dialog.getByTestId("update-conflict-commits")
+    await expect(commits).toBeHidden()
+    await dialog.getByRole("button", { name: "All 2 commits to rebase, oldest first" }).click()
+    await expect(commits.locator("li")).toHaveText([/Add login/, /Change line 2/])
+    await expect(commits.locator("li").nth(1).getByLabel("Changes a likely conflicting file")).toBeVisible()
 
     await dialog.getByTestId("copy-agent-prompt").click()
     await expect(page.getByText("Prompt copied")).toBeVisible()
     const prompt = await readClipboard(page)
     expect(prompt).toContain("Rebase the branch `master` of the Git repository at ")
-    expect(prompt).toContain("- src/app.txt")
+    expect(prompt).toMatch(/- src\/app.txt\n {2}- changed by my [0-9a-f]{8}\n {2}- changed upstream by [0-9a-f]{8} Change line 2 upstream \(Dana Lee\)/)
     expect(prompt).toMatch(/- [0-9a-f]{8} \(feature-auth\) Add login\n- [0-9a-f]{8} \(feature-auth\) Change line 2/)
     expect(prompt).toContain("Don't push.")
 
@@ -96,7 +105,7 @@ test.describe("Update Project", () => {
     await button.click()
     const dialog = refusedDialog(page)
     await expect(dialog.getByRole("heading")).toHaveText("Your uncommitted changes block the update")
-    await expect(dialog.getByTestId("update-blocked-paths").locator("li")).toHaveText(["src/app.txt"])
+    await expect(dialog.getByTestId("update-blocked-paths").locator("li")).toHaveAttribute("data-path", "src/app.txt")
 
     await dialog.getByTestId("copy-agent-prompt").click()
     const prompt = await readClipboard(page)

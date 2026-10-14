@@ -11,9 +11,9 @@ describe("describeUpdateState", () => {
   })
 
   it("names at most three files", () => {
-    const one = describeUpdateState({ status: "conflict", files: ["a.txt"], commits: [] }, "origin/master")
+    const one = describeUpdateState({ status: "conflict", files: ["a.txt"], commits: [], upstreamCommits: [] }, "origin/master")
     expect(one).toEqual({ tone: "warning", summary: "Conflicts in 1 file: a.txt", short: "conflicts in 1 file" })
-    const five = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d", "e"], commits: [] }, "origin/master")
+    const five = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d", "e"], commits: [], upstreamCommits: [] }, "origin/master")
     expect(five.summary).toBe("Conflicts in 5 files: a, b, c and 2 more")
     expect(describeUpdateState({ status: "blocked", paths: ["src/app.txt"] }, "origin/master")).toEqual({
       tone: "warning",
