@@ -114,6 +114,15 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   `text-base` title, a body that alone scrolls, a footer of key hints and `xs` buttons. `width` is `sm` for a picker,
   `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Back`, `Esc Close`), not a
   button.
+- **Icons, one per concept** (lucide):
+  - `CopyIcon` copies, `Settings2Icon` opens settings, `ExternalLinkIcon` opens the browser, `AppWindowIcon` opens a
+    Branch Deck window;
+  - `CircleXIcon` is an error, `TriangleAlertIcon` a warning or a conflict, in the colour of its tone;
+  - `GitMergeIcon` means merged and nothing else; a commit (the merge base, the merged-by line) is
+    `GitCommitHorizontalIcon`;
+  - message and title icons are `size-4`, the help icon `size-3.5`.
+- **An icon-only button has a `Tooltip`** and an `aria-label`; a label repeated on every row names its object
+  ("Expand feature-auth"). Text is a `Tooltip`, rich content a `Popover`; never a native `title`.
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Spacing**:

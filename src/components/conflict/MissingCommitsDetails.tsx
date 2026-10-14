@@ -1,5 +1,5 @@
 import { useCallback } from "react"
-import { ExternalLinkIcon } from "lucide-react"
+import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitList } from "@/components/commit/CommitList"
@@ -83,7 +83,7 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
               {hasAnyFileDiffs && isInWindow && <DiffViewToggle />}
               {!isInWindow && (
                 <Button size="xs" variant="ghost" onClick={openMissingCommitsWindow}>
-                  <ExternalLinkIcon data-icon="inline-start" />
+                  <AppWindowIcon data-icon="inline-start" />
                   Open in Window
                 </Button>
               )}

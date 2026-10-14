@@ -1,4 +1,4 @@
-import { ChartPieIcon, CircleCheckIcon, TriangleAlertIcon } from "lucide-react"
+import { ChartPieIcon, GitMergeIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
@@ -27,7 +27,7 @@ export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }
     const label = `Merged · ${branch.commitCount}`
     return (
       <div className="flex items-center gap-2">
-        <CircleCheckIcon className="size-4 text-success" />
+        <GitMergeIcon className="size-4 text-info" />
         <div className="flex items-center gap-2">
           {branch.integrationCommit === undefined
             ? <span className="text-sm text-muted-foreground">{label}</span>

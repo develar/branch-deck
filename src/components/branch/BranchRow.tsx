@@ -2,6 +2,7 @@ import { lazy, memo, Suspense, useEffect } from "react"
 import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
 import { BranchActions } from "@/components/branch/BranchActions"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
@@ -145,15 +146,19 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
       {activeInline?.type === "amend-conflict" && activeInline.conflictInfo && (
         <tr>
           <td colSpan={columnCount} className="p-0">
-            <div className="flex flex-col gap-3 border-b border-border bg-warning/5 bd-padding-content">
+            {/* destructive: the amend failed on a conflict */}
+            <div className="flex flex-col gap-3 border-b border-border bg-destructive/5 bd-padding-content">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <TriangleAlertIcon className="size-5 text-warning" />
-                  <span className="font-medium">Cannot amend: conflicts with subsequent commits</span>
+                <div className="flex items-center gap-2 text-sm">
+                  <TriangleAlertIcon className="size-4 shrink-0 text-destructive" />
+                  <span className="font-medium text-destructive">Cannot amend: conflicts with subsequent commits</span>
                 </div>
-                <Button size="icon-xs" variant="ghost" aria-label="Dismiss" onClick={closeInline}>
-                  <XIcon />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Dismiss the amend conflict" onClick={closeInline} />}>
+                    <XIcon />
+                  </TooltipTrigger>
+                  <TooltipContent>Dismiss</TooltipContent>
+                </Tooltip>
               </div>
               <Suspense fallback={null}>
                 <MergeConflictViewer conflict={activeInline.conflictInfo} branchName={name} />

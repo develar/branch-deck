@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { ChevronRightIcon, ClipboardCopyIcon, TriangleAlertIcon } from "lucide-react"
+import { ChevronRightIcon, CopyIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DialogTitle } from "@/components/ui/dialog"
@@ -207,7 +207,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
       <PreviewDialogFooter start={<span>{`${shown.branch} ← ${upstream}`}</span>}>
         <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
         <Button size="xs" data-testid="copy-agent-prompt" onClick={() => void copyPrompt()}>
-          <ClipboardCopyIcon data-icon="inline-start" />
+          <CopyIcon data-icon="inline-start" />
           Copy Prompt for Agent
         </Button>
       </PreviewDialogFooter>

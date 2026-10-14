@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react"
-import { CircleAlertIcon, Settings2Icon } from "lucide-react"
+import { CircleXIcon, Settings2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -68,11 +68,14 @@ export function ConfigurationHeader() {
           <BranchPrefixField disabled={isSyncing || !pathValidation.valid} />
 
           <Popover>
-            <PopoverTrigger
-              render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />}
-            >
-              <Settings2Icon />
-            </PopoverTrigger>
+            <Tooltip>
+              <PopoverTrigger
+                render={<TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sync settings" data-testid="sync-settings-button" />} />}
+              >
+                <Settings2Icon />
+              </PopoverTrigger>
+              <TooltipContent>Sync settings</TooltipContent>
+            </Tooltip>
             <PopoverContent className="w-auto min-w-[200px] gap-2 p-3">
               <label className="flex items-center gap-2 text-sm">
                 <Switch size="sm" checked={autoSyncOnFocus} onCheckedChange={setAutoSyncOnFocus} />
@@ -125,7 +128,7 @@ export function ConfigurationHeader() {
           {syncError && (
             <Tooltip>
               <TooltipTrigger render={<span className="inline-flex" />}>
-                <CircleAlertIcon className="size-4 text-destructive" />
+                <CircleXIcon className="size-4 text-destructive" />
               </TooltipTrigger>
               <TooltipContent>{syncError}</TooltipContent>
             </Tooltip>

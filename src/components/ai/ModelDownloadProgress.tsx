@@ -1,4 +1,4 @@
-import { TriangleAlertIcon } from "lucide-react"
+import { CircleXIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -122,7 +122,7 @@ function DownloadProgressContent({ event, showCancelButton }: { event: DownloadP
       return (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <TriangleAlertIcon className="size-4 text-destructive" />
+            <CircleXIcon className="size-4 text-destructive" />
             <p className="font-semibold text-destructive">Download Failed</p>
           </div>
           <p className="text-muted-foreground">{event.data.message}</p>

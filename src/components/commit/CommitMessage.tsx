@@ -2,6 +2,7 @@ import type { MouseEvent } from "react"
 import { RectangleEllipsisIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { getCommitMessageBody } from "@/lib/commit"
 import { groupCommitBodySections, parseCommitBody } from "@/lib/commit-message"
@@ -10,21 +11,28 @@ import type { CommitBodyBlock } from "@/lib/commit-message"
 /** Icon button that opens the full commit message in the commit preview; does not change the row selection. */
 export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
   return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      aria-haspopup="dialog"
-      aria-label="Show full commit message"
-      data-testid="commit-message-toggle"
-      // `-my-0.5`: the 24px button keeps the 20px line height of the subject
-      className="-my-0.5 shrink-0 text-muted-foreground hover:text-foreground"
-      onClick={(event: MouseEvent) => {
-        event.stopPropagation()
-        onOpen()
-      }}
-    >
-      <RectangleEllipsisIcon />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-haspopup="dialog"
+            aria-label="Show full commit message"
+            data-testid="commit-message-toggle"
+            // `-my-0.5`: the 24px button keeps the 20px line height of the subject
+            className="-my-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={(event: MouseEvent) => {
+              event.stopPropagation()
+              onOpen()
+            }}
+          />
+        )}
+      >
+        <RectangleEllipsisIcon />
+      </TooltipTrigger>
+      <TooltipContent>Show full commit message</TooltipContent>
+    </Tooltip>
   )
 }
 

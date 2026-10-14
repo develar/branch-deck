@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { FileDiffIcon, GitMergeIcon } from "lucide-react"
+import { FileDiffIcon, TriangleAlertIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import { Callout } from "@/components/shared/Callout"
@@ -25,8 +25,8 @@ export function MergeConflictViewer({ conflict, branchName }: MergeConflictViewe
       {/* the commit that cannot be applied, why, and how to resolve it */}
       <Card className="gap-4 bd-padding-card shadow-none">
         {/* the commit row above already shows the commit, so only the title is repeated here */}
-        <p className="flex items-center gap-3 text-sm font-medium text-foreground">
-          <GitMergeIcon className="size-5 shrink-0 text-destructive" />
+        <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <TriangleAlertIcon className="size-4 shrink-0 text-destructive" />
           Cherry-pick conflict detected
         </p>
 

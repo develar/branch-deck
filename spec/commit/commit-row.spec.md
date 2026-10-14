@@ -93,7 +93,8 @@ The commit hash popover shows the same header and body.
 ### Commit preview
 
 - A row must show the message button only when the message has more lines than the subject.
-- The message button must be an icon button with `aria-haspopup="dialog"` and the label "Show full commit message".
+- The message button must be an icon button with `aria-haspopup="dialog"`, the label "Show full commit message" and the
+  same text as its tooltip.
 - The message button must open the preview of its commit.
 - The row must not render the body.
 - The preview must show the whole subject, the meta line and the body.
