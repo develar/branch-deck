@@ -81,7 +81,7 @@ test.describe("Patronus chip", () => {
     let popover = await hoverChip(page, "feature-api")
     await expect(popover.getByTestId("patronus-outdated")).toHaveText(/^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and restart to test the current branch\.$/)
     await expect(popover.getByRole("button", { name: "Push and Restart" })).toBeVisible()
-    await expect(popover.getByRole("button", { name: "Restart", exact: true })).toHaveCount(0)
+    await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
     await expect(popover.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
@@ -91,7 +91,7 @@ test.describe("Patronus chip", () => {
     await expect(getChip(page, "feature-api").getByTestId("patronus-outdated-dot")).toBeVisible()
     popover = await hoverChip(page, "feature-api")
     await expect(popover.getByTestId("patronus-outdated")).toHaveText(/: the result won't cover the newest commits\. Restart to test the current branch\.$/)
-    await expect(popover.getByRole("button", { name: "Restart", exact: true })).toBeVisible()
+    await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toBeVisible()
     await expect(popover.getByRole("button", { name: "Push and Restart" })).toHaveCount(0)
   })
 

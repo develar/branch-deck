@@ -166,7 +166,7 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
 - With the dot, the details say what changed and how to test the branch as it is: "Started on 3264f30f; the branch has
   changed since (now 88de421d): the result won't cover the newest commits. Restart to test the current branch.", with
-  Restart. When the remote lacks the change, a restart would test the commit the remote has: "Push and restart to test
+  "Restart Safe Push". When the remote lacks the change, a restart would test the commit the remote has: "Push and restart to test
   the current branch.", with "Push and Restart" ([below](#restart-and-cancel)). For a running robot of the branch,
   "Cancel, then restart to test the current branch." ("Cancel, then push and restart …"). A robot that can't be
   restarted from here (a Safe Push of a temporary ref, "Needs review") gets no advice.
