@@ -112,6 +112,7 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
         integrated_at: Some(1_700_000_000),
         confidence: IntegrationConfidence::Exact,
         commit_count: 1,
+        commit: None,
       }
     } else {
       BranchIntegrationStatus::NotIntegrated {

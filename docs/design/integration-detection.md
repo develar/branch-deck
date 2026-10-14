@@ -75,6 +75,23 @@ flowchart TB
    still exist) and excludes `^<base>` from the cherry-mark scans and the merge count, and uses the base as the merge
    base of the squash check
 
+7. **Decision**: An integrated branch names the baseline commit that brought it in (`commit: UpstreamCommit`, with
+   its id, author, committer and commit time; `integratedAt` is that commit time)
+   **Rationale**: "Merged" alone doesn't say where the work is, or who pushed it (a Safe Push robot, a reviewer).
+   Each strategy already finds the commit for the time, so the id and the names come from the same process, with
+   `%H%x00%an%x00%cn%x00%ct` instead of `%ct`:
+   - merge: the oldest merge on the ancestry path from the branch to the baseline;
+   - rebase: the newest baseline commit that `--cherry-mark` marks as equivalent;
+   - squash: the newest baseline commit whose message has the subject of the branch tip.
+
+   The cache stores it as `"x": [id, author, committer]` (the time is `ia`); a note written before has no `x` and
+   still parses, without a commit. The archived card shows it as "Merged as abc12345 by <committer>, 2 hours ago",
+   with the full hash to copy.
+
+8. **Decision**: `ArchivedBranchesFound` carries `newlyArchived`, the branches this sync archived
+   **Rationale**: Archiving is the moment a branch landed; the archived card marks those rows "New" for the rest of
+   the session, until the user dismisses what landed, instead of the branch silently moving into a collapsed card.
+
 ### Implementation Notes
 
 - **Detection Strategies**: 
@@ -123,6 +140,7 @@ Key optimizations:
 
 - Implementation: `crates/branch-integration/`
 - Cache format: `crates/branch-integration/cache.rs`
-- Detection strategies: `merge.rs`, `rebase.rs`, `squash.rs`
+- Detection strategies: `merge.rs`, `rebase.rs`, `squash.rs`; the integration commit format: `common.rs`
+- UI: `src/stores/archived-branches.ts` (`newlyArchived`, `clearNewlyArchived`), `src/lib/integration-commit.ts`
 - Tests: `crates/integration-detection-tests/`
 - Related: [virtual-branches.md](virtual-branches.md)

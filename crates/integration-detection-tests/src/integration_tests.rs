@@ -1,4 +1,4 @@
-use super::test_helpers::{detected_branch_info, integrated_branch_names, setup_test_repos, sync_user_branches, verify_detection_cache_works};
+use super::test_helpers::{detected_branch_info, integrated_branch_names, newly_archived_names, setup_test_repos, sync_user_branches, verify_detection_cache_works};
 use branch_integration::archive::get_archived_branch_commits;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -62,6 +62,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   upstream_repo.checkout("main").unwrap();
 
   let mut integration_timestamps = std::collections::HashMap::new();
+  let mut integration_commits = std::collections::HashMap::new();
   for (branch_name, _) in branch_names {
     let full_branch_name = to_final_branch_name("user", branch_name).unwrap();
 
@@ -92,9 +93,13 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
       }
     }
 
-    // Capture the integration timestamp
+    // Capture the integration timestamp and the commit: the merge, the last cherry-pick or the squash
     let integration_timestamp = get_commit_timestamp(&upstream_repo, "HEAD");
     integration_timestamps.insert(branch_name.to_string(), integration_timestamp);
+    let commit = upstream_repo.log(&["-1", "--format=%H%x00%an%x00%cn", "HEAD"]).unwrap();
+    let mut fields = commit.trim().split('\0').map(str::to_string);
+    let commit = (fields.next().unwrap(), fields.next().unwrap(), fields.next().unwrap());
+    integration_commits.insert(branch_name.to_string(), commit);
 
     // Delete integrated branch
     upstream_repo.delete_branch(&full_branch_name).unwrap();
@@ -138,6 +143,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
   let integrated_branches = integrated_branch_names(&events);
 
   assert_eq!(integrated_branches.len(), branch_names.len(), "Should detect all branches as integrated");
+  assert_eq!(newly_archived_names(&events).len(), branch_names.len(), "This sync archived every branch");
 
   // Verify each branch is detected with correct timestamp
   for (branch_name, _) in branch_names {
@@ -152,7 +158,13 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
       // Find the integration info to get the timestamp
       let integration_info = detected_branch_info(&events, integrated_branch);
 
-      if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {
+      if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, commit, .. } = &integration_info.status {
+        let commit = commit.as_ref().unwrap_or_else(|| panic!("Expected the integration commit for branch {branch_name}"));
+        let (expected_id, expected_author, expected_committer) = integration_commits.get(*branch_name).unwrap();
+        assert_eq!(&commit.id, expected_id, "Branch {branch_name} integration commit");
+        assert_eq!(&commit.author, expected_author, "Branch {branch_name} integration commit author");
+        assert_eq!(&commit.committer, expected_committer, "Branch {branch_name} integration commit committer");
+        assert_eq!(Some(commit.time), *integrated_at, "Branch {branch_name} integration time is the commit time");
         if let Some(integrated_date) = integrated_at {
           // Allow some tolerance (within 60 seconds) for timestamp detection
           let timestamp_diff = (i64::from(*integrated_date) - i64::from(*expected_timestamp)).abs();

@@ -2,6 +2,7 @@
 
 use branch_integration::cache::{DETECTION_CACHE_VERSION, deserialize_from_cache, serialize_for_cache};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
+use sync_types::upstream_commit::UpstreamCommit;
 use test_log::test;
 
 /// Test cache JSON serialization and parsing
@@ -14,6 +15,7 @@ fn test_cache_serialization() {
       integrated_at: Some(1234567890),
       confidence: IntegrationConfidence::High,
       commit_count: 3,
+      commit: None,
     },
   };
 
@@ -32,11 +34,13 @@ fn test_cache_serialization() {
     commit_count,
     integrated_at,
     confidence,
+    commit,
   } = &parsed.status
   {
     assert_eq!(*commit_count, 3);
     assert_eq!(*integrated_at, Some(1234567890));
     assert_eq!(*confidence, IntegrationConfidence::High);
+    assert_eq!(*commit, None);
   } else {
     panic!("Expected Integrated status");
   }
@@ -45,6 +49,55 @@ fn test_cache_serialization() {
   parsed.name = "test-branch".to_string();
   assert_eq!(parsed.name, "test-branch");
   assert_eq!(parsed.summary, "test summary");
+}
+
+/// The commit that integrated the branch survives the cache, its time taken from `ia`
+#[test]
+fn integration_commit_round_trips_through_the_cache() {
+  let commit = UpstreamCommit {
+    id: "0123456789abcdef0123456789abcdef01234567".to_string(),
+    author: "Jane Doe".to_string(),
+    committer: "Safe Push Robot".to_string(),
+    time: 1_760_000_000,
+  };
+  let info = BranchIntegrationInfo {
+    name: "test-branch".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::Integrated {
+      integrated_at: Some(commit.time),
+      confidence: IntegrationConfidence::High,
+      commit_count: 2,
+      commit: Some(commit.clone()),
+    },
+  };
+
+  let json = serialize_for_cache(&info).unwrap();
+  assert!(json.contains(r#""x":["0123456789abcdef0123456789abcdef01234567","Jane Doe","Safe Push Robot"]"#), "{json}");
+  let parsed = deserialize_from_cache(&json).unwrap();
+  assert!(
+    matches!(&parsed.status, BranchIntegrationStatus::Integrated { commit: Some(parsed), .. } if *parsed == commit),
+    "{:?}",
+    parsed.status
+  );
+}
+
+/// A note written before the commit was recorded still parses, without a commit
+#[test]
+fn note_without_integration_commit_still_parses() {
+  let parsed = deserialize_from_cache(r#"{"v":1,"s":{"k":"i","c":"h","cc":2,"ia":1760000000}}"#).unwrap();
+  assert!(
+    matches!(
+      parsed.status,
+      BranchIntegrationStatus::Integrated {
+        commit: None,
+        integrated_at: Some(1_760_000_000),
+        commit_count: 2,
+        ..
+      }
+    ),
+    "{:?}",
+    parsed.status
+  );
 }
 
 /// Test that zero values are omitted from cache
@@ -98,6 +151,7 @@ fn test_cache_omits_zero_values() {
       integrated_at: None,
       confidence: IntegrationConfidence::High,
       commit_count: 0, // should be omitted
+      commit: None,
     },
   };
 
@@ -124,6 +178,7 @@ fn test_cache_exact_confidence() {
       integrated_at: Some(1234567890),
       confidence: IntegrationConfidence::Exact,
       commit_count: 5,
+      commit: None,
     },
   };
 
@@ -206,6 +261,7 @@ fn test_json_size_optimization() {
       integrated_at: Some(1703116800),
       confidence: IntegrationConfidence::High,
       commit_count: 5,
+      commit: None,
     },
   };
 

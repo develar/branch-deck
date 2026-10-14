@@ -8,4 +8,4 @@ export const repositoryMock = {
 
 export const repositorySettingsMock = { updateProject: () => {} }
 
-export const archivedBranchesMock = { updateFromArchivedNames: () => {}, updateFromIntegrationInfo: () => {} }
+export const archivedBranchesMock = { updateFromArchivedNames: () => {}, updateFromIntegrationInfo: () => {}, clearNewlyArchived: () => {} }

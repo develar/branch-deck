@@ -210,14 +210,16 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
     commit_subjects,
     ..
   } = branch_data;
+  let newly_archived_names: Vec<String> = newly_archived.keys().cloned().collect();
   let mut all_archived_branches: Vec<String> = Vec::with_capacity(archived_all.len() + newly_archived.len());
-  all_archived_branches.extend(newly_archived.keys().cloned());
+  all_archived_branches.extend(newly_archived_names.iter().cloned());
   all_archived_branches.extend(archived_all);
   all_branch_commits.extend(newly_archived);
 
   // Send event with archived branch names (even if empty) to update UI
   config.progress.send(SyncEvent::ArchivedBranchesFound {
     branch_names: all_archived_branches.clone(),
+    newly_archived: newly_archived_names,
   })?;
 
   // If no archived branches exist, nothing to detect

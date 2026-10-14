@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { IntegrationConfidence } from "@/lib/bindings"
+import { describeIntegrationCommit } from "@/lib/integration-commit"
 import type { ArchivedBranch } from "@/stores/archived-branches"
 
 function confidenceBadgeVariant(confidence: IntegrationConfidence): "success" | "info" {
@@ -23,11 +24,19 @@ export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }
   if (branch.type === "integrated") {
     // only a non-default confidence is shown
     const showConfidence = branch.confidence !== undefined && branch.confidence !== "High"
+    const label = `Merged · ${branch.commitCount}`
     return (
       <div className="flex items-center gap-2">
         <CircleCheckIcon className="size-4 text-success" />
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">{`Merged · ${branch.commitCount}`}</span>
+          {branch.integrationCommit === undefined
+            ? <span className="text-sm text-muted-foreground">{label}</span>
+            : (
+                <Tooltip>
+                  <TooltipTrigger render={<span className="text-sm text-muted-foreground" />}>{label}</TooltipTrigger>
+                  <TooltipContent>{describeIntegrationCommit(branch.integrationCommit)}</TooltipContent>
+                </Tooltip>
+              )}
           {showConfidence && (
             <Badge variant={confidenceBadgeVariant(branch.confidence!)}>
               {branch.confidence}

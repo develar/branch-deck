@@ -194,7 +194,12 @@ export type BranchIntegrationInfo = {
 };
 
 /**  Unified branch integration status */
-export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number | null; confidence: IntegrationConfidence; commitCount: number } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
+export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number | null; confidence: IntegrationConfidence; commitCount: number; 
+/**
+ *  The baseline commit that brought the branch in: the merge, the newest equivalent commit or the squash; `None`
+ *  when it can't be found, and in cache notes written before it was recorded
+ */
+commit: UpstreamCommit | null } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
 
 /**  What groups the commits of a branch */
 export type BranchOrigin = 
@@ -1055,6 +1060,8 @@ export type SyncEvent =
 /**  Sent immediately when archived branches are found (before expensive detection) */
 { type: "archivedBranchesFound"; data: {
 	branchNames: string[],
+	/**  The branches this sync archived, a subset of `branch_names` */
+	newlyArchived: string[],
 } } | 
 /**  Sent when remote branch status is checked */
 { type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
@@ -1188,6 +1195,15 @@ upstreamCommits: UpdateCommit[] } |
 { status: "blocked"; paths: string[] };
 
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string };
+
+/**  A commit of the baseline that carries the user's work */
+export type UpstreamCommit = {
+	id: string,
+	author: string,
+	committer: string,
+	/**  Commit time, Unix seconds */
+	time: number,
+};
 
 export type ValidateRepositoryPathParams = {
 	path: string,

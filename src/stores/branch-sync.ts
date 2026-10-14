@@ -593,7 +593,7 @@ function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: Syn
       branchSyncStore.setState({ unassignedCommits: event.data.commits })
       break
     case "archivedBranchesFound":
-      updateFromArchivedNames(event.data.branchNames)
+      updateFromArchivedNames(event.data.branchNames, event.data.newlyArchived)
       break
     case "branchIntegrationDetected":
       updateFromIntegrationInfo(event.data.info)

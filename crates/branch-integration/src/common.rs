@@ -3,7 +3,35 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationInfo;
+use sync_types::upstream_commit::UpstreamCommit;
 use tracing::{debug, instrument, warn};
+
+/// The fields of an `UpstreamCommit` in `log`/`rev-list` output: id, author, committer and commit time, NUL-separated
+pub const UPSTREAM_COMMIT_FORMAT: &str = "%H%x00%an%x00%cn%x00%ct";
+
+/// Parse one line of `UPSTREAM_COMMIT_FORMAT`
+pub fn parse_upstream_commit(line: &str) -> Option<UpstreamCommit> {
+  let mut fields = line.split('\0');
+  let (id, author, committer, time) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
+  if id.is_empty() {
+    return None;
+  }
+  Some(UpstreamCommit {
+    id: id.to_string(),
+    author: author.to_string(),
+    committer: committer.to_string(),
+    time: time.trim().parse().ok()?,
+  })
+}
+
+/// The oldest commit that `git log <log_args>` lists (`log` lists newest first), `None` without one or on an error
+pub fn oldest_logged_commit(git_executor: &GitCommandExecutor, repo_path: &str, log_args: &[&str]) -> Option<UpstreamCommit> {
+  let format = format!("--format={UPSTREAM_COMMIT_FORMAT}");
+  let mut args = vec!["log", format.as_str()];
+  args.extend_from_slice(log_args);
+  let lines = git_executor.execute_command_lines(&args, repo_path).ok()?;
+  lines.last().and_then(|line| parse_upstream_commit(line))
+}
 
 /// Structure to hold all branch data from a single git query
 pub struct BranchData {

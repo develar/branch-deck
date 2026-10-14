@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
-import type { BranchIntegrationInfo, Commit, IntegrationConfidence } from "@/lib/bindings"
+import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getEffectiveBranchPrefix, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
 
@@ -12,6 +12,8 @@ export interface ArchivedBranch {
   readonly commitCount: number
   readonly confidence: IntegrationConfidence | undefined
   readonly integratedAt: number
+  /** The baseline commit that brought an integrated branch in, if found */
+  readonly integrationCommit: UpstreamCommit | undefined
   /** For not-integrated branches with partial integration */
   readonly integratedCount: number
   readonly orphanedCount: number
@@ -27,11 +29,14 @@ export interface ArchivedBranchesState {
   /** Sorted: by integration date (newest first), then by archive date from the branch path */
   order: string[]
   branches: Record<string, ArchivedBranch>
+  /** The branches a sync of this session archived, marked "New" until `clearNewlyArchived` */
+  newlyArchived: ReadonlySet<string>
 }
 
 export const archivedBranchesStore = createStore<ArchivedBranchesState>(() => ({
   order: [],
   branches: {},
+  newlyArchived: new Set(),
 }))
 
 // ---- hooks ----
@@ -48,6 +53,10 @@ export function useArchivedBranchCount(): number {
   return useStore(archivedBranchesStore, state => state.order.length)
 }
 
+export function useIsNewlyArchived(name: string): boolean {
+  return useStore(archivedBranchesStore, state => state.newlyArchived.has(name))
+}
+
 // ---- updates ----
 
 function createPlaceholder(name: string): ArchivedBranch {
@@ -58,6 +67,7 @@ function createPlaceholder(name: string): ArchivedBranch {
     commitCount: 0,
     confidence: undefined,
     integratedAt: 0,
+    integrationCommit: undefined,
     integratedCount: 0,
     orphanedCount: 0,
     summary: "",
@@ -111,9 +121,13 @@ function updateArchivedBranch(name: string, updater: (branch: ArchivedBranch) =>
   }
 }
 
-/** Reconciles with the archived branch names found by sync: keeps existing records (and their loaded commits), adds placeholders, drops missing. */
-export function updateFromArchivedNames(names: string[]): void {
-  const { branches: existing } = archivedBranchesStore.getState()
+/**
+ * Reconciles with the archived branch names found by sync: keeps existing records (and their loaded commits), adds
+ * placeholders, drops missing. `newlyArchived` (the names this sync archived) are marked "New" in addition to the earlier
+ * ones that are still archived.
+ */
+export function updateFromArchivedNames(names: string[], newlyArchived: string[]): void {
+  const { branches: existing, newlyArchived: marked } = archivedBranchesStore.getState()
   const branches: Record<string, ArchivedBranch> = {}
   insertionOrder = []
   for (const name of names) {
@@ -123,7 +137,15 @@ export function updateFromArchivedNames(names: string[]): void {
     branches[name] = existing[name] ?? createPlaceholder(name)
     insertionOrder.push(name)
   }
-  setBranches(branches)
+  const nextMarked = new Set([...marked, ...newlyArchived].filter(name => name in branches))
+  archivedBranchesStore.setState({ branches, order: sortOrder(insertionOrder, branches), newlyArchived: nextMarked })
+}
+
+/** Drops the "New" mark of the branches archived in this session (once the user has seen what landed) */
+export function clearNewlyArchived(): void {
+  if (archivedBranchesStore.getState().newlyArchived.size > 0) {
+    archivedBranchesStore.setState({ newlyArchived: new Set() })
+  }
 }
 
 export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
@@ -138,6 +160,7 @@ export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
     ...branch,
     summary: info.summary,
     confidence: undefined,
+    integrationCommit: undefined,
     integratedCount: 0,
     orphanedCount: 0,
   }
@@ -145,8 +168,8 @@ export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
   let next: ArchivedBranch
   switch (info.status.kind) {
     case "integrated": {
-      const { commitCount, confidence, integratedAt } = info.status
-      next = { ...base, type: "integrated", commitCount, confidence, integratedAt: integratedAt ?? 0 }
+      const { commitCount, confidence, integratedAt, commit } = info.status
+      next = { ...base, type: "integrated", commitCount, confidence, integratedAt: integratedAt ?? 0, integrationCommit: commit ?? undefined }
       break
     }
     case "notIntegrated": {

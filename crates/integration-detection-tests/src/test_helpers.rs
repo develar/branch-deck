@@ -67,6 +67,18 @@ pub fn detected_branch_names(events: &[SyncEvent]) -> Vec<String> {
     .collect()
 }
 
+/// Names of the branches that `ArchivedBranchesFound` reports as archived by this sync
+pub fn newly_archived_names(events: &[SyncEvent]) -> Vec<String> {
+  events
+    .iter()
+    .filter_map(|e| match e {
+      SyncEvent::ArchivedBranchesFound { newly_archived, .. } => Some(newly_archived.clone()),
+      _ => None,
+    })
+    .flatten()
+    .collect()
+}
+
 /// Names of the branches reported as integrated by `BranchIntegrationDetected` events
 pub fn integrated_branch_names(events: &[SyncEvent]) -> Vec<String> {
   events
@@ -98,6 +110,7 @@ pub fn integrated_cache_info() -> BranchIntegrationInfo {
       integrated_at: Some(0),
       confidence: IntegrationConfidence::High,
       commit_count: 1,
+      commit: None,
     },
   }
 }
@@ -198,6 +211,7 @@ pub async fn verify_detection_cache_works(
     detection_count, expected_detection_count,
     "Second detection should find same number of integrated/orphaned branches"
   );
+  assert_eq!(newly_archived_names(&events), Vec::<String>::new(), "The branches were archived by the previous sync");
 
   // Branch details are now validated at the event level, not the branch name level
 

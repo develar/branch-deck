@@ -9,6 +9,7 @@ pub mod issue_navigation;
 pub mod patronus;
 pub mod pull_request;
 pub mod stack;
+pub mod upstream_commit;
 
 /// Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count
 #[derive(Clone, Debug, Serialize)]
@@ -93,7 +94,11 @@ pub enum SyncEvent {
   BranchIntegrationDetected { info: branch_integration::BranchIntegrationInfo },
   /// Sent immediately when archived branches are found (before expensive detection)
   #[serde(rename_all = "camelCase")]
-  ArchivedBranchesFound { branch_names: Vec<String> },
+  ArchivedBranchesFound {
+    branch_names: Vec<String>,
+    /// The branches this sync archived, a subset of `branch_names`
+    newly_archived: Vec<String>,
+  },
   /// Sent when remote branch status is checked
   #[serde(rename_all = "camelCase")]
   RemoteStatusUpdate(RemoteStatusUpdate),

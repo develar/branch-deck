@@ -24,10 +24,12 @@ export interface BranchNameCellProps {
   issueKey?: string | null
   /** Fixup commits to squash into commits of the branch */
   fixupCount?: number
+  /** A mark after the name, e.g. "New" on a branch archived in this session */
+  mark?: ReactNode
   onToggleExpanded: () => void
 }
 
-export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, depth = 0, issueKey = null, fixupCount = 0, onToggleExpanded }: BranchNameCellProps) {
+export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, depth = 0, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   const content = (
     // the rule spans the row height, below the icon of the row above
@@ -51,6 +53,7 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
       <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" linkClassName="text-foreground hover:underline" />
       {issueKey !== null && <BranchIssueBadge issueKey={issueKey} />}
       {fixupCount > 0 && <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">{formatFixupCount(fixupCount)}</Badge>}
+      {mark}
       {summary && <BranchSummary summary={summary} />}
     </div>
   )

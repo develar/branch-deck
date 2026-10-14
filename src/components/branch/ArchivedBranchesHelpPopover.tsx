@@ -19,9 +19,9 @@ export function ArchivedBranchesHelpPopover() {
         <div className="flex flex-col gap-1.5 pt-3">
           <div className="font-medium text-muted-foreground">Automatic cleanup</div>
           <p>
-            {"Archived branches are automatically deleted after "}
+            {"Merged archived branches are automatically deleted after "}
             <strong>7 days</strong>
-            {" to keep your repository clean."}
+            {" to keep your repository clean. Branches that are not merged stay until you delete them."}
           </p>
           <p className="text-muted-foreground">This cleanup happens during branch synchronization.</p>
         </div>

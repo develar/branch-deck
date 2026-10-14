@@ -80,7 +80,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
     .get_events()
     .into_iter()
     .filter_map(|event| match event {
-      sync_types::SyncEvent::ArchivedBranchesFound { branch_names } => Some(branch_names),
+      sync_types::SyncEvent::ArchivedBranchesFound { branch_names, .. } => Some(branch_names),
       _ => None,
     })
     .flatten()

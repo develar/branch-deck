@@ -1,3 +1,4 @@
+use crate::common::oldest_logged_commit;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
@@ -13,16 +14,19 @@ fn get_tree_id(git: &GitCommandExecutor, repo: &str, reference: &str) -> Result<
   Ok(out.trim().to_string())
 }
 
-fn find_commit_time_by_subject(git: &GitCommandExecutor, repo: &str, baseline: &str, subject: &str) -> Option<u32> {
-  git
-    .execute_command(&["log", "--format=%ct", "-F", "--grep", subject.trim(), "-n", "1", baseline], repo)
+/// The squashed branch as integrated, with the baseline commit that squashed it in: the newest one whose message has the
+/// subject of the branch tip
+fn squash_integrated(git: &GitCommandExecutor, repo: &str, branch_name: &str, baseline: &str, right_count: usize) -> BranchIntegrationStatus {
+  let commit = git
+    .execute_command(&["log", "-1", "--format=%s", branch_name], repo)
     .ok()
-    .and_then(|s| s.trim().parse::<u32>().ok())
-}
-
-fn find_squash_timestamp(git_executor: &GitCommandExecutor, repo_path: &str, branch_name: &str, baseline_branch: &str) -> Option<u32> {
-  let subject = git_executor.execute_command(&["log", "-1", "--format=%s", branch_name], repo_path).ok()?;
-  find_commit_time_by_subject(git_executor, repo_path, baseline_branch, subject.trim())
+    .and_then(|subject| oldest_logged_commit(git, repo, &["-F", "--grep", subject.trim(), "-n", "1", baseline]));
+  BranchIntegrationStatus::Integrated {
+    integrated_at: commit.as_ref().map(|commit| commit.time),
+    confidence: IntegrationConfidence::High,
+    commit_count: u32::try_from(right_count).unwrap_or(u32::MAX),
+    commit,
+  }
 }
 
 /// `stack_base` is the commit a stacked branch was built on: only the changes after it are the branch's own
@@ -39,13 +43,8 @@ pub fn detect_squash_status(
     None => diff_is_clean(git, repo, baseline, branch_name),
   };
   if diff_clean {
-    let integrated_at = find_squash_timestamp(git, repo, branch_name, baseline);
     info!(name = %branch_name, method = "diff-clean", "Branch fully integrated");
-    return Ok(Some(BranchIntegrationStatus::Integrated {
-      integrated_at,
-      confidence: IntegrationConfidence::High,
-      commit_count: u32::try_from(right_count).unwrap_or(u32::MAX),
-    }));
+    return Ok(Some(squash_integrated(git, repo, branch_name, baseline, right_count)));
   }
 
   let merge_base_result = match stack_base {
@@ -61,13 +60,8 @@ pub fn detect_squash_status(
       if let Ok(baseline_tree) = get_tree_id(git, repo, baseline)
         && merge_tree_hash == baseline_tree
       {
-        let integrated_at = find_squash_timestamp(git, repo, branch_name, baseline);
         info!(name = %branch_name, method = "merge-tree", "Branch fully integrated");
-        return Ok(Some(BranchIntegrationStatus::Integrated {
-          integrated_at,
-          confidence: IntegrationConfidence::High,
-          commit_count: u32::try_from(right_count).unwrap_or(u32::MAX),
-        }));
+        return Ok(Some(squash_integrated(git, repo, branch_name, baseline, right_count)));
       }
     }
   }

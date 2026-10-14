@@ -3,6 +3,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::write_notes;
 use serde_json::{Value, json};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
+use sync_types::upstream_commit::UpstreamCommit;
 use tracing::{debug, instrument};
 
 // Git notes ref for detection cache - this is the namespace where notes are stored
@@ -22,6 +23,7 @@ pub fn serialize_for_cache(info: &BranchIntegrationInfo) -> Result<String> {
       integrated_at,
       confidence,
       commit_count,
+      commit,
     } => {
       let mut status = json!({
         "k": "i",
@@ -35,6 +37,10 @@ pub fn serialize_for_cache(info: &BranchIntegrationInfo) -> Result<String> {
       }
       if let Some(ia) = integrated_at {
         status.as_object_mut().unwrap().insert("ia".to_string(), json!(ia));
+      }
+      // `[id, author, committer]`; the time is `ia`
+      if let Some(commit) = commit {
+        status.as_object_mut().unwrap().insert("x".to_string(), json!([commit.id, commit.author, commit.committer]));
       }
       status
     }
@@ -89,6 +95,18 @@ fn read_u32(value: &serde_json::Value, key: &str) -> Option<u32> {
   value.get(key).and_then(serde_json::Value::as_u64).map(|v| u32::try_from(v).unwrap_or(u32::MAX))
 }
 
+/// Reads the integration commit `x: [id, author, committer]`, committed at `time`
+fn read_upstream_commit(value: &serde_json::Value, time: u32) -> Option<UpstreamCommit> {
+  let fields = value.get("x")?.as_array()?;
+  let field = |i: usize| fields.get(i).and_then(Value::as_str).map(str::to_string);
+  Some(UpstreamCommit {
+    id: field(0).filter(|id| !id.is_empty())?,
+    author: field(1)?,
+    committer: field(2)?,
+    time,
+  })
+}
+
 /// Deserialize compact JSON from git notes to `BranchIntegrationInfo` (with empty name)
 pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
   let value: Value = serde_json::from_str(json)?;
@@ -109,10 +127,14 @@ pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
         _ => IntegrationConfidence::High,
       };
 
+      // absent in notes written before the commit was recorded
+      let commit = integrated_at.and_then(|time| read_upstream_commit(status_value, time));
+
       BranchIntegrationStatus::Integrated {
         integrated_at,
         confidence,
         commit_count,
+        commit,
       }
     }
     Some("n") => {

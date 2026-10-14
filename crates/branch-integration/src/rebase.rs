@@ -1,6 +1,8 @@
+use crate::common::{UPSTREAM_COMMIT_FORMAT, parse_upstream_commit};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
+use sync_types::upstream_commit::UpstreamCommit;
 use tracing::info;
 
 /// `rev-list` arguments for the symmetric difference of `baseline` and the branch, without the commits below the stack
@@ -54,23 +56,15 @@ pub fn scan_right_side_marks(git: &GitCommandExecutor, repo: &str, baseline: &st
   })
 }
 
-/// Get the timestamp of the most recent integrated commit using cherry-pick detection
-fn get_integration_timestamp(git: &GitCommandExecutor, repo: &str, baseline: &str, branch_name: &str, stack_base: Option<&str>) -> Option<u32> {
+/// The newest baseline commit equivalent to a commit of the branch (cherry-pick detection)
+fn find_integration_commit(git: &GitCommandExecutor, repo: &str, baseline: &str, branch_name: &str, stack_base: Option<&str>) -> Option<UpstreamCommit> {
   let range = symmetric_range(baseline, branch_name, stack_base);
-  let mut args = vec!["rev-list", "--left-right", "--left-only", "--cherry-mark", "--no-merges", "--pretty=format:%m %ct"];
+  let format = format!("--pretty=format:%m{UPSTREAM_COMMIT_FORMAT}");
+  let mut args = vec!["rev-list", "--left-right", "--left-only", "--cherry-mark", "--no-merges", &format];
   args.extend(range.iter().map(String::as_str));
   let lines = git.execute_command_lines(&args, repo).ok()?;
-  for line in lines {
-    if line.starts_with("commit ") {
-      continue;
-    }
-    if let Some(rest) = line.strip_prefix("= ")
-      && let Ok(ts) = rest.parse::<u32>()
-    {
-      return Some(ts);
-    }
-  }
-  None
+  // newest first, each after its `commit <id>` line
+  lines.iter().find_map(|line| line.strip_prefix('=').and_then(parse_upstream_commit))
 }
 
 /// Detect integration via rebase/cherry-pick using single-pass marker scan counts
@@ -89,16 +83,17 @@ pub fn detect_rebase_status_with_marks(
   } = marks;
   if total_right == 0 || (orphaned_right == 0 && integrated_right > 0) {
     let commit_count = total_right;
-    let integrated_at = if integrated_right > 0 {
-      get_integration_timestamp(git, repo, baseline, branch_name, stack_base)
+    let commit = if integrated_right > 0 {
+      find_integration_commit(git, repo, baseline, branch_name, stack_base)
     } else {
       None
     };
     info!(name = %branch_name, method = "cherry-pick", "Branch fully integrated");
     return Ok(BranchIntegrationStatus::Integrated {
-      integrated_at,
+      integrated_at: commit.as_ref().map(|commit| commit.time),
       confidence: IntegrationConfidence::High,
       commit_count,
+      commit,
     });
   }
 
@@ -108,7 +103,7 @@ pub fn detect_rebase_status_with_marks(
 
   if orphaned_count > 0 || total_count > 0 {
     let integrated_at = if integrated_count > 0 {
-      get_integration_timestamp(git, repo, baseline, branch_name, stack_base)
+      find_integration_commit(git, repo, baseline, branch_name, stack_base).map(|commit| commit.time)
     } else {
       None
     };

@@ -1,3 +1,4 @@
+use crate::upstream_commit::UpstreamCommit;
 use serde::{Deserialize, Serialize};
 
 /// Confidence level for integration detection
@@ -37,6 +38,9 @@ pub enum BranchIntegrationStatus {
     integrated_at: Option<u32>,
     confidence: IntegrationConfidence,
     commit_count: u32,
+    /// The baseline commit that brought the branch in: the merge, the newest equivalent commit or the squash; `None`
+    /// when it can't be found, and in cache notes written before it was recorded
+    commit: Option<UpstreamCommit>,
   },
   #[serde(rename_all = "camelCase")]
   NotIntegrated {

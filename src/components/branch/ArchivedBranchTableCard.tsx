@@ -10,6 +10,7 @@ import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { CopyButton } from "@/components/shared/CopyButton"
+import { Badge } from "@/components/ui/badge"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { TableHeader } from "@/components/shared/TableHeader"
@@ -17,7 +18,7 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
 import type { MenuItemGroups } from "@/lib/menu"
-import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder } from "@/stores/archived-branches"
+import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived } from "@/stores/archived-branches"
 import { syncBranches } from "@/stores/branch-sync"
 import { closeInline, isProcessing, openInline, portalTargetIdFor, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
 
@@ -80,6 +81,7 @@ interface ArchivedBranchRowProps {
 
 const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onToggleExpanded }: ArchivedBranchRowProps) {
   const branch = useArchivedBranch(name)
+  const isNew = useIsNewlyArchived(name)
   const activeInline = useActiveInlineForRow(name)
   if (branch === undefined) {
     return null
@@ -104,6 +106,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           expanded={expanded}
           canExpand={branch.type !== "placeholder"}
           simplified
+          mark={isNew && <Badge variant="info" className="shrink-0" data-testid="archived-branch-new">New</Badge>}
           onToggleExpanded={toggle}
         />
         <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
