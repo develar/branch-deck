@@ -3,12 +3,15 @@ pub mod cache;
 pub mod cherry_pick;
 pub mod commit_list;
 pub mod commit_utils;
+pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod merge_conflict;
 pub mod model;
 pub mod notes;
+pub mod ref_transaction;
 pub mod reword_commits;
+pub mod rewrite_guard;
 
 #[cfg(test)]
 mod amend_operations_test;

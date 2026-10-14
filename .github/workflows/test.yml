@@ -19,11 +19,33 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Upgrade Git to latest version (macOS only)
-        if: matrix.platform == 'macos-latest'
+      - name: Upgrade Git to latest version (macOS)
+        if: runner.os == 'macOS'
+        run: brew upgrade git || brew install git
+
+      - name: Upgrade Git to latest version (Linux)
+        if: runner.os == 'Linux'
         run: |
-          brew upgrade git || brew install git
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install -y git
+
+      # Branch Deck requires Git 2.54+ (MIN_VERSION in crates/git-executor/src/git_info.rs)
+      - name: Check Git version
+        shell: bash
+        run: |
+          too_old() {
+            read -r major minor <<< "$(git --version | sed -E 's/^git version ([0-9]+)\.([0-9]+).*/\1 \2/')"
+            [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 54 ]; }
+          }
+          if too_old && [ "$RUNNER_OS" = "Windows" ]; then
+            choco upgrade git -y --no-progress
+          fi
           git --version
+          if too_old; then
+            echo "Git is older than the required 2.54" >&2
+            exit 1
+          fi
 
       - name: install pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0

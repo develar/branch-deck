@@ -42,15 +42,13 @@ fn compute_summary(branch: &str, subject: Option<&String>) -> String {
   }
 }
 
-/// Write all collected caches sequentially to avoid race conditions
-fn write_caches_sequentially(git_executor: &GitCommandExecutor, repo_path: &str, caches_to_write: Vec<(String, BranchIntegrationInfo)>) -> Result<()> {
+/// Write all collected caches with one notes commit
+fn write_caches(git_executor: &GitCommandExecutor, repo_path: &str, caches_to_write: &[(String, BranchIntegrationInfo)]) -> Result<()> {
   if !caches_to_write.is_empty() {
-    let cache_ops = CacheOps::new(git_executor, repo_path);
+    CacheOps::new(git_executor, repo_path)
+      .write_all(caches_to_write)
+      .inspect_err(|e| trace!(error = %e, "Failed to write caches"))?;
     for (branch_tip, cache) in caches_to_write {
-      cache_ops.write(&branch_tip, &cache).map_err(|e| {
-        trace!(error = %e, branch_tip = %branch_tip, "Failed to write cache");
-        e
-      })?;
       debug!(branch_tip = %branch_tip, status = ?cache.status, "Cached detection result");
     }
   }
@@ -185,8 +183,11 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
 
   // Branches merged into baseline per git's native detection; only useful for merge-based workflows
   let merged_branches: HashSet<String> = if matches!(config.strategy, DetectionStrategy::Merge | DetectionStrategy::All) {
+    // only Branch Deck's own branches, not every branch of the repository
+    let merged = format!("--merged={baseline_branch}");
+    let own_branches = format!("refs/heads/{branch_prefix}/");
     let merged_branches: HashSet<String> = git_executor
-      .execute_command_lines(&["branch", "--merged", baseline_branch, "--format=%(refname:short)"], repo_path)?
+      .execute_command_lines(&["for-each-ref", &merged, "--format=%(refname:lstrip=2)", &own_branches], repo_path)?
       .into_iter()
       .collect();
     debug!(baseline = %baseline_branch, count = merged_branches.len(), "Found branches merged into baseline");
@@ -215,7 +216,7 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
   let caches_to_write = detect_in_parallel(git_executor, repo_path, baseline_branch, config.strategy, config.progress, jobs, &commit_subjects)?;
 
   // Write all caches sequentially to avoid notes ref races
-  write_caches_sequentially(git_executor, repo_path, caches_to_write)
+  write_caches(git_executor, repo_path, &caches_to_write)
 }
 
 /// Run fresh detection for `jobs` on a bounded pool of scoped threads, sending each result as soon as it is known.

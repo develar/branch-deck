@@ -232,3 +232,76 @@ fn test_unapply_drops_the_commits_from_the_current_branch_of_a_clone() -> Result
   assert!(!test_repo.branch_exists("origin/master"), "no local branch named like the baseline");
   Ok(())
 }
+
+/// `git status --porcelain` including untracked files, without trimming the leading status column
+fn status(test_repo: &TestRepo) -> String {
+  test_repo
+    .git_executor()
+    .execute_command_raw(&["status", "--porcelain"], test_repo.path().to_str().unwrap())
+    .unwrap()
+    .trim_end()
+    .to_string()
+}
+
+fn refs(test_repo: &TestRepo) -> String {
+  test_repo
+    .git_executor()
+    .execute_command(&["for-each-ref", "--format=%(refname) %(objectname)"], test_repo.path().to_str().unwrap())
+    .unwrap()
+}
+
+#[test]
+fn unapply_keeps_unrelated_staged_changes() -> Result<()> {
+  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
+  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+  let path = test_repo.path().to_str().unwrap();
+  std::fs::write(test_repo.path().join("initial.txt"), "staged edit")?;
+  test_repo.git_executor().execute_command(&["add", "initial.txt"], path)?;
+
+  unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()])?;
+
+  // the staged edit is still staged; the dropped file stays in the working tree, untracked
+  assert_eq!(status(&test_repo), "M  initial.txt\n?? file1.txt");
+  assert_eq!(std::fs::read_to_string(test_repo.path().join("file1.txt"))?, "content 1");
+  assert_eq!(test_repo.git_executor().execute_command(&["show", ":initial.txt"], path)?, "staged edit");
+  let reflog = test_repo.log(&["-g", "-1", "--format=%gs"]).map_err(anyhow::Error::msg)?;
+  assert!(reflog.starts_with("branch-deck: unapply"), "{reflog}");
+  Ok(())
+}
+
+#[test]
+fn unapply_conflict_changes_nothing() -> Result<()> {
+  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
+  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+  // a later commit depends on file1.txt
+  test_repo.create_commit("Edit file1", "file1.txt", "content 1, edited");
+  std::fs::write(test_repo.path().join("initial.txt"), "work in progress")?;
+  let refs_before = refs(&test_repo);
+  let status_before = status(&test_repo);
+
+  let error = unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()]).expect_err("unapply should conflict");
+
+  assert!(error.to_string().contains("conflicts with later commits"), "{error}");
+  assert_eq!(refs(&test_repo), refs_before);
+  assert_eq!(status(&test_repo), status_before);
+  Ok(())
+}
+
+#[test]
+fn unapply_is_atomic() -> Result<()> {
+  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
+  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+  let path = test_repo.path().to_str().unwrap();
+  // a staged edit of a file the drop removes: the rewrite would lose it, so nothing may change
+  std::fs::write(test_repo.path().join("file2.txt"), "staged over the dropped file")?;
+  test_repo.git_executor().execute_command(&["add", "file2.txt"], path)?;
+  let refs_before = refs(&test_repo);
+
+  let error = unapply(&test_repo, &virtual_branch_name, original_commits).expect_err("unapply should be refused");
+
+  assert!(error.to_string().contains("Staged changes overlap"), "{error}");
+  assert_eq!(refs(&test_repo), refs_before);
+  assert!(test_repo.branch_exists(&virtual_branch_name), "the virtual branch must not be renamed");
+  assert_eq!(test_repo.git_executor().execute_command(&["show", ":file2.txt"], path)?, "staged over the dropped file");
+  Ok(())
+}

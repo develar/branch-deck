@@ -1,9 +1,11 @@
 use anyhow::{Result, anyhow};
-use branch_integration::archive::rename_branch_unique;
+use branch_integration::archive::{REF_RENAME_MUTEX, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::amend_operations::drop_commits_from_head;
+use git_ops::amend_operations::prepare_drop_commits;
 use git_ops::model::{BranchKind, qualified_branch_name, strip_branch_namespace};
+use git_ops::ref_transaction::RefTransaction;
 use serde::{Deserialize, Serialize};
+use std::sync::PoisonError;
 use tracing::{debug, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,19 +50,16 @@ fn validate_commits_in_head(git_executor: &GitCommandExecutor, repository_path: 
   Ok(())
 }
 
-/// Rename a branch to an unapplied namespace, ensuring no collisions by appending a numeric suffix if needed.
-/// Returns the final unapplied branch name.
-fn move_branch_to_unapplied(git_executor: &GitCommandExecutor, repo: &str, from_branch: &str, branch_prefix: &str) -> Result<String> {
+/// Name in the unapplied namespace for `from_branch`, with a numeric suffix if the plain name is taken
+fn unapplied_branch_name(git_executor: &GitCommandExecutor, repo: &str, from_branch: &str, branch_prefix: &str) -> Result<String> {
   let simple_name = strip_branch_namespace(from_branch, branch_prefix, BranchKind::Virtual).ok_or_else(|| anyhow!("Could not extract simple name from branch: {from_branch}"))?;
 
   let base_unapplied_name = qualified_branch_name(branch_prefix, BranchKind::Unapplied, simple_name)?;
-  rename_branch_unique(git_executor, repo, from_branch, &base_unapplied_name)
+  unique_branch_name(git_executor, repo, &base_unapplied_name)
 }
 
-/// Core function to unapply a virtual branch
-/// 1. Validates the provided commit IDs exist in HEAD
-/// 2. Moves the virtual branch to unapplied namespace  
-/// 3. Drops the specified commits from HEAD (the checked out branch)
+/// Core function to unapply a virtual branch: drops its original commits from HEAD (the checked out branch) and moves
+/// the virtual branch to the unapplied namespace in one ref transaction, so either both happen or nothing does.
 #[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
 pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams) -> Result<UnapplyBranchResult> {
   let UnapplyBranchParams {
@@ -92,14 +91,24 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   validate_commits_in_head(git_executor, &repository_path, &original_commit_ids)?;
   debug!(commits_count = original_commit_ids.len(), "Validated that all commits exist in HEAD");
 
-  // Move the virtual branch to unapplied namespace
-  let unapplied_branch_name = move_branch_to_unapplied(git_executor, &repository_path, &branch_name, &branch_prefix)?;
-  debug!(unapplied_branch = %unapplied_branch_name, "Moved virtual branch to unapplied");
+  // Fails on conflicts and on staged changes that would be lost, before anything changes
+  let prepared = prepare_drop_commits(git_executor, &repository_path, &original_commit_ids).map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
+  let virtual_ref = format!("refs/heads/{branch_name}");
+  let virtual_tip = git_executor.execute_command(&["rev-parse", "--verify", &virtual_ref], &repository_path)?;
 
-  // Drop the specified commits from HEAD
-  let _new_head = drop_commits_from_head(git_executor, &repository_path, &original_commit_ids).map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
-
-  debug!(commits_dropped = original_commit_ids.len(), "Successfully dropped commits from HEAD");
+  let unapplied_branch_name = {
+    let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
+    let unapplied_branch_name = unapplied_branch_name(git_executor, &repository_path, &branch_name, &branch_prefix)?;
+    let mut transaction = RefTransaction::new();
+    transaction
+      .create(&format!("refs/heads/{unapplied_branch_name}"), &virtual_tip)
+      .delete(&virtual_ref, Some(&virtual_tip));
+    prepared
+      .apply(git_executor, &repository_path, transaction, &format!("unapply {branch_name}"))
+      .map_err(|e| anyhow!("Failed to drop commits from HEAD: {e}"))?;
+    unapplied_branch_name
+  };
+  debug!(unapplied_branch = %unapplied_branch_name, commits_dropped = original_commit_ids.len(), "Unapplied branch");
 
   Ok(UnapplyBranchResult {
     unapplied_branch_name,

@@ -68,19 +68,16 @@ pub(crate) fn reword_messages<'a>(
     resolved.push((id, commit.id.clone(), new_message));
   }
 
-  let mut params = Vec::new();
-  for (_, full_id, new_message) in &resolved {
-    let Some(new_message) = new_message else { continue };
-    // e.g. reworded or dropped in a terminal while the message was edited here
-    let (_, status) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", full_id, "HEAD"], repository_path)?;
-    if status != 0 {
-      return Err(anyhow!("Commit {} is no longer on the current branch, sync and try again", short_hash(full_id)));
-    }
-    params.push(RewordCommitParams {
-      commit_id: full_id.clone(),
-      new_message: new_message.clone(),
-    });
-  }
+  // `reword_commits_batch` refuses a commit that is no longer on the current branch
+  let params: Vec<RewordCommitParams> = resolved
+    .iter()
+    .filter_map(|(_, full_id, new_message)| {
+      new_message.as_ref().map(|new_message| RewordCommitParams {
+        commit_id: full_id.clone(),
+        new_message: new_message.clone(),
+      })
+    })
+    .collect();
 
   let reworded_count = params.len();
   // also maps the commits recreated on top of a reworded one, unchanged messages included

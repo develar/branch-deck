@@ -71,9 +71,26 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 ## Development Rules
 
 ### Git Operations
-- All git operations use the CLI via the `GitCommandExecutor` in Rust.
-- Always use the `--no-pager` flag for non-interactive commands.
-- Handle special exit codes (e.g., `git merge-tree` exiting with 1 indicates conflicts).
+Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
+- **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
+- All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false`
+  and strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF`; callers don't add `--no-pager`.
+- **Never write to the working tree**: no `checkout`, `switch`, `reset`, `rebase`, `stash`, `commit`, `cherry-pick`,
+  `merge`, `restore`, `clean`, `apply` without `--cached`, `git history`; `crates/git-executor/src/worktree_safety_test.rs`
+  enforces it. Reading worktree files into a temporary `GIT_INDEX_FILE` is fine.
+- **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
+  a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
+  Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
+- **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
+  message; related refs (unapply rename, temp refs) go into the same transaction.
+- **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
+  HEAD not detached, no merges in the range (refuse, no rebase fallback).
+- **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:
+  `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
+  user. Signatures are stripped.
+- **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
+  `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`.
+- Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts.
 
 ### Rust Import Rules
 - **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.
@@ -131,7 +148,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 
 ### Performance Guidelines
 - **Frontend**: Select narrow slices from zustand stores and `memo` list rows. Debounce user inputs where appropriate (e.g., using `p-debounce`).
-- **Backend**: Batch Git operations using `--stdin` where possible. Always use `--no-pager`.
+- **Backend**: One git process per operation phase, never one per commit, note or file (see [Git Operations](docs/design/git-operations.md)).
 - **AI/ML**: Always build with `--release` for ML inference (it's 8-10x faster). In dev mode, only ML dependencies are optimized to keep rebuilds fast.
 
 ### Debugging & Troubleshooting
@@ -150,6 +167,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
 - [Distributed Settings Architecture](docs/design/distributed-settings.md) - Settings synchronization across windows
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
+- [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
 - [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
 - [UI Theme](docs/design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
@@ -203,7 +221,7 @@ Branch Deck automatically groups commits by prefix (e.g., `(feature-auth)`) and 
 3.  **Note Structure**: Git notes are created on the NEW virtual commits to track the ORIGINAL commit OID, for reverse tracking.
 
 ## Conflict Handling
-- Uses `git merge-tree --write-tree` for conflict detection.
+- Uses `git merge-tree --write-tree` for conflict detection, never the working tree.
 - Shows a 3-way merge view (base, target, cherry-pick).
 - Conflicts occur when grouping by prefix changes the linear history of commits that depend on each other.
 

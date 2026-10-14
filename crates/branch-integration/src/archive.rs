@@ -11,26 +11,28 @@ use tracing::{debug, info, instrument, warn};
 pub const ARCHIVE_RETENTION_DAYS: u64 = 7;
 
 /// Process-wide lock serializing branch renames into the archive and unapplied namespaces,
-/// so that picking a free name and renaming to it happen atomically.
+/// so that picking a free name and creating the ref happen atomically.
 pub static REF_RENAME_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-/// Rename `from_branch` to `to_base`, appending a numeric suffix (`-1`, `-2`, ...) if that name is taken.
-/// The probe loop and the rename run under `REF_RENAME_MUTEX`. Returns the final branch name.
-pub fn rename_branch_unique(git: &GitCommandExecutor, repo: &str, from_branch: &str, to_base: &str) -> Result<String> {
-  let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
+/// First free branch name of `to_base`, `to_base-1`, `to_base-2`, ... read with one `for-each-ref`.
+/// Hold `REF_RENAME_MUTEX` until the ref is created, so that another rename can't pick the same name.
+pub fn unique_branch_name(git: &GitCommandExecutor, repo: &str, to_base: &str) -> Result<String> {
+  let exact = format!("refs/heads/{to_base}");
+  let suffixed = format!("refs/heads/{to_base}-*");
+  let taken: HashSet<String> = git
+    .execute_command_lines(&["for-each-ref", "--format=%(refname:lstrip=2)", &exact, &suffixed], repo)?
+    .into_iter()
+    .collect();
 
   let mut target = to_base.to_string();
   let mut suffix: u32 = 1;
-  while git.ref_exists(repo, &format!("refs/heads/{target}")) {
+  while taken.contains(&target) {
     if suffix > 1000 {
       return Err(anyhow::anyhow!("Too many existing branches named like {to_base}"));
     }
     target = format!("{to_base}-{suffix}");
     suffix += 1;
   }
-
-  // git creates the intermediate ref directories itself
-  git.execute_command(&["branch", "-m", from_branch, &target], repo)?;
   Ok(target)
 }
 

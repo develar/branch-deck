@@ -5,7 +5,9 @@
 - **Rust** (latest stable version)
 - **Node.js** (18+ recommended) 
 - **pnpm** package manager
-- **Git**
+- **Git 2.54+** (needed for `git replay --ref` and `fast-import --signed-commits`, see
+  [Git Operations](docs/design/git-operations.md)): `brew install git` on macOS (the system git is too old),
+  the [git-core PPA](https://launchpad.net/~git-core/+archive/ubuntu/ppa) on Ubuntu, Git for Windows 2.54+ on Windows
 
 ## Setup
 

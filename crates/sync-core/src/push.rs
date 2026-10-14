@@ -18,25 +18,25 @@ pub struct PushBranchParams {
   pub baseline_branch: String,
 }
 
-/// Force-pushes the virtual branch to `origin` and returns its updated remote status.
+/// Force-pushes (with a lease) the virtual branch to `origin` and returns its updated remote status.
 #[instrument(skip(git_executor), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
 pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams) -> Result<RemoteStatusUpdate> {
   let repository_path = &params.repository_path;
   let branch_name = &params.branch_name;
   let final_branch_name = to_final_branch_name(&params.branch_prefix, branch_name)?;
 
+  // The lease overwrites the remote branch only if it is still where the last fetch or push saw it,
+  // so a commit pushed from elsewhere meanwhile is not lost.
   // An empty credential helper keeps git from prompting: the push must not block on interactive input
   git_executor.execute_command(
     &[
       "-c",
       "credential.helper=",
-      "-c",
-      "log.showSignature=false",
       "push",
       "--porcelain",
-      "--force",
+      &format!("--force-with-lease=refs/heads/{final_branch_name}"),
       "origin",
-      &format!("refs/heads/{final_branch_name}:{final_branch_name}"),
+      &format!("refs/heads/{final_branch_name}:refs/heads/{final_branch_name}"),
     ],
     repository_path,
   )?;

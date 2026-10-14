@@ -61,33 +61,3 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, id: &
     .next()
     .ok_or_else(|| anyhow!("commit {id} not found"))
 }
-
-/// Create a commit from a tree using metadata from an existing Commit object.
-/// Allows overriding parent and message while preserving author/committer info.
-#[instrument(skip(git_executor, commit))]
-pub fn create_commit_with_metadata(git_executor: &GitCommandExecutor, repo_path: &str, tree_id: &str, parent_id: Option<&str>, commit: &Commit, message: &str) -> Result<String> {
-  let mut args = vec!["commit-tree", tree_id];
-
-  if let Some(parent) = parent_id.or(commit.parent_id.as_deref()) {
-    args.push("-p");
-    args.push(parent);
-  }
-
-  args.push("-m");
-  args.push(message);
-
-  let author_date = commit.author_timestamp.to_string();
-  let committer_date = commit.committer_timestamp.to_string();
-
-  let env_vars = vec![
-    ("GIT_AUTHOR_NAME", commit.author_name.as_str()),
-    ("GIT_AUTHOR_EMAIL", commit.author_email.as_str()),
-    ("GIT_AUTHOR_DATE", &author_date),
-    ("GIT_COMMITTER_NAME", commit.author_name.as_str()),
-    ("GIT_COMMITTER_EMAIL", commit.author_email.as_str()),
-    ("GIT_COMMITTER_DATE", &committer_date),
-  ];
-
-  let output = git_executor.execute_command_with_env(&args, repo_path, &env_vars)?;
-  Ok(output.trim().to_string())
-}

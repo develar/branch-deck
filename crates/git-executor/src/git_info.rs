@@ -1,5 +1,17 @@
 use std::process::Command;
 
+/// Minimum supported Git version. 2.54 is the first release where `git replay` has `--ref` (to read the new tip
+/// of a range ending in a commit), replays down to the root commit and drops commits that become empty.
+/// See the version table in docs/design/git-operations.md before raising or lowering it.
+pub const MIN_VERSION: (u32, u32) = (2, 54);
+
+#[cfg(target_os = "macos")]
+const UPGRADE_HINT: &str = "Install or upgrade Git with: brew install git";
+#[cfg(target_os = "linux")]
+const UPGRADE_HINT: &str = "Install a current Git from your distribution, e.g. on Ubuntu: sudo add-apt-repository ppa:git-core/ppa && sudo apt install git";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const UPGRADE_HINT: &str = "Install the current Git for Windows from https://git-scm.com/downloads/win";
+
 #[derive(Debug, Clone)]
 pub struct GitInfo {
   pub version: String,
@@ -7,11 +19,12 @@ pub struct GitInfo {
 }
 
 impl GitInfo {
-  // attempts to discover the git executable path and version
+  /// Discover the git executable and check that it meets `MIN_VERSION` on every platform
   pub fn discover() -> Result<Self, String> {
-    // find git path using the shell
     let git_path = get_git_path()?;
-    Self::from_path(&git_path)
+    let info = Self::from_path(&git_path)?;
+    info.validate_minimum_version().map_err(|e| format!("{e}\n{UPGRADE_HINT}"))?;
+    Ok(info)
   }
 
   // creates GitInfo from a specific git path
@@ -37,16 +50,14 @@ impl GitInfo {
     Ok((major, minor))
   }
 
-  /// Check if Git version meets minimum requirement (2.49)
+  /// Check that the Git version meets `MIN_VERSION`
   pub fn validate_minimum_version(&self) -> Result<(), String> {
-    const MIN_MAJOR: u32 = 2;
-    const MIN_MINOR: u32 = 49;
-
+    let (min_major, min_minor) = MIN_VERSION;
     let (major, minor) = self.parse_version()?;
 
-    if major < MIN_MAJOR || (major == MIN_MAJOR && minor < MIN_MINOR) {
+    if (major, minor) < MIN_VERSION {
       Err(format!(
-        "Git version {major}.{minor} is too old. Branch Deck requires Git {MIN_MAJOR}.{MIN_MINOR} or newer. Please upgrade your Git installation."
+        "Git version {major}.{minor} is too old. Branch Deck requires Git {min_major}.{min_minor} or newer. Please upgrade your Git installation."
       ))
     } else {
       Ok(())
@@ -86,12 +97,7 @@ fn get_git_path() -> Result<String, String> {
   // Fall back to system git
   let system_git = execute_command(Command::new("/bin/zsh").args(["-l", "-c", "which git"]), "Could not find git executable")?;
 
-  // Validate system git version
-  let info = GitInfo::from_path(&system_git)?;
-  info
-    .validate_minimum_version()
-    .map_err(|e| format!("{e}\nNote: Homebrew git not found or doesn't meet requirements. Please install/upgrade with: brew install git"))?;
-
+  // `discover` validates the version of the system git
   Ok(system_git)
 }
 
@@ -99,4 +105,26 @@ fn get_git_path() -> Result<String, String> {
 #[expect(clippy::unnecessary_wraps, reason = "same signature as the fallible macOS variant")]
 fn get_git_path() -> Result<String, String> {
   Ok(String::from("git"))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::GitInfo;
+
+  fn info(version: &str) -> GitInfo {
+    GitInfo {
+      version: version.to_string(),
+      path: "git".to_string(),
+    }
+  }
+
+  #[test]
+  fn minimum_version() {
+    assert!(info("2.54.0").validate_minimum_version().is_ok());
+    assert!(info("2.54.0.windows.1").validate_minimum_version().is_ok());
+    assert!(info("3.0.0").validate_minimum_version().is_ok());
+    assert!(info("2.53.1").validate_minimum_version().is_err());
+    assert!(info("2.39.5 (Apple Git-154)").validate_minimum_version().is_err());
+    assert!(info("garbage").validate_minimum_version().is_err());
+  }
 }

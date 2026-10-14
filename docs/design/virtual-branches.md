@@ -123,7 +123,8 @@ previous messages with `reword_commits`. See [Move Commits](../../spec/branch/mo
 
 Key optimizations:
 - Native Git CLI via direct command execution - no libgit2 or reimplementation overhead
-- Modern Git features optimized for large repositories (cherry-mark, merge-tree, batch operations)
+- Object-only Git plumbing (cherry-mark, `merge-tree --write-tree`, one `fast-import` stream for the notes of a branch),
+  never the working tree: see [Git Operations](git-operations.md) for the rules and the Git 2.54 minimum
 - Parallel processing of independent operations across multiple CPU cores
 - Efficient caching with git notes to avoid redundant computations
 - Result: Can sync hundreds of commits into virtual branches in seconds, even on large monorepos

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_writer::write_notes;
 use serde_json::{Value, json};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use tracing::{debug, instrument};
@@ -152,16 +153,20 @@ impl<'a> CacheOps<'a> {
     Self { git, repo }
   }
 
-  /// Write cache to git note
-  #[instrument(skip(self, info), fields(commit = %commit))]
+  /// Write one cached detection result as a note
   pub fn write(&self, commit: &str, info: &BranchIntegrationInfo) -> Result<()> {
-    let json = serialize_for_cache(info)?;
-    debug!(json = %json, "Writing cache note");
-    self
-      .git
-      .execute_command(&["notes", "--ref", NOTES_REF, "add", "-f", "-m", &json, commit], self.repo)
-      .context("Failed to write note")?;
-    debug!("Successfully cached detection for {}", commit);
+    self.write_all(&[(commit.to_string(), info.clone())])
+  }
+
+  /// Write the cached detection results as notes, all in one notes commit
+  #[instrument(skip(self, entries), fields(count = entries.len()))]
+  pub fn write_all(&self, entries: &[(String, BranchIntegrationInfo)]) -> Result<()> {
+    let notes = entries
+      .iter()
+      .map(|(commit, info)| Ok((commit.clone(), serialize_for_cache(info)?)))
+      .collect::<Result<Vec<_>>>()?;
+    write_notes(self.git, self.repo, NOTES_REF, &notes).context("Failed to write notes")?;
+    debug!("Cached detection for {} branches", notes.len());
     Ok(())
   }
 }

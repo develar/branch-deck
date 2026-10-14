@@ -27,6 +27,31 @@ fn commit_count(repo: &TestRepo) -> Result<usize> {
   Ok(output.trim().parse().unwrap_or(0))
 }
 
+/// `git status --porcelain` of tracked files
+fn status(repo: &TestRepo) -> Result<String> {
+  let output = repo
+    .git_executor()
+    .execute_command_raw(&["status", "--porcelain", "--untracked-files=no"], repo_path(repo))?;
+  Ok(output.trim_end().to_string())
+}
+
+/// Trimmed content of `file` at `rev`
+fn show(repo: &TestRepo, rev: &str, file: &str) -> Result<String> {
+  repo.git_executor().execute_command(&["show", &format!("{rev}:{file}")], repo_path(repo))
+}
+
+fn log_format(repo: &TestRepo, rev: &str, format: &str) -> Result<String> {
+  repo
+    .git_executor()
+    .execute_command(&["log", "-1", "--date=raw", &format!("--format={format}"), rev], repo_path(repo))
+}
+
+fn assert_no_temp_refs(repo: &TestRepo) -> Result<()> {
+  let refs = repo.git_executor().execute_command(&["for-each-ref", "refs/branch-deck/"], repo_path(repo))?;
+  assert_eq!(refs, "", "temporary refs are left");
+  Ok(())
+}
+
 fn read_file(repo: &TestRepo, filename: &str) -> Result<String> {
   Ok(fs::read_to_string(repo.path().join(filename))?)
 }
@@ -237,187 +262,178 @@ fn test_amend_with_multiple_subsequent_commits() -> Result<()> {
 }
 
 #[test]
-fn test_amend_with_intervening_commits_modifying_same_file() -> Result<()> {
+fn test_amend_is_refused_when_later_commits_changed_the_same_lines() -> Result<()> {
   let repo = TestRepo::new();
-
-  // Create initial commit with a file
   let original_commit = repo.create_commit("Original commit", "shared.txt", "original content");
-
-  // Create intervening commits that modify the same file (simulating other branches)
   repo.create_commit("Intervening commit 1", "shared.txt", "modified by commit 1");
   repo.create_commit("Intervening commit 2", "shared.txt", "modified by commit 2");
+  let head_before = repo.head();
 
-  let initial_count = commit_count(&repo)?;
-
-  // Add uncommitted changes to amend to the original commit
+  // the change is made on top of HEAD, so it conflicts with the commits after the target
   stage_file(&repo, "shared.txt", "original content with new amendments")?;
 
-  // This should succeed with our new implementation
-  let result = amend(&repo, &original_commit, &["shared.txt"])?;
+  let error = amend(&repo, &original_commit, &["shared.txt"]).expect_err("amend should be refused");
 
-  // Verify the operation succeeded
-  assert_ne!(result.amended_commit_id, "");
-  assert_ne!(result.rebased_to_commit, "");
-  assert_ne!(result.amended_commit_id, original_commit);
-
-  // Verify commit count is still the same (no commits lost)
-  assert_eq!(commit_count(&repo)?, initial_count);
-
-  // Verify the amended commit contains our changes by checking the file at that specific commit
-  let amended_file_content = repo
-    .git_executor()
-    .execute_command(&["show", &format!("{}:shared.txt", result.amended_commit_id)], repo_path(&repo))?;
-  assert_eq!(amended_file_content.trim(), "original content with new amendments");
-
-  // The final state depends on what subsequent commits did - they were rebased on top of our amended commit
-  // Since the subsequent commits completely overwrote the file content, the final state should be from the last commit
-  // But our test confirms the amend operation itself worked correctly
-
+  assert!(error.to_string().contains("conflict"), "{error}");
+  assert_eq!(repo.head(), head_before);
+  assert_eq!(read_file(&repo, "shared.txt")?, "original content with new amendments");
+  assert_eq!(status(&repo)?, "M  shared.txt");
   Ok(())
 }
 
 #[test]
-fn test_amend_multiple_files_optimization() -> Result<()> {
+fn test_amend_multiple_files() -> Result<()> {
   let repo = TestRepo::new();
-
-  // Create initial commit with multiple files
-  let original_commit = repo.create_commit("Initial commit", "file1.txt", "content1");
-  repo.create_commit("Add file2", "file2.txt", "content2");
+  repo.create_commit("Add file1", "file1.txt", "content1");
+  let original_commit = repo.create_commit("Add file2", "file2.txt", "content2");
   repo.create_commit("Add file3", "file3.txt", "content3");
 
-  // Modify multiple files to test batch processing
   stage_file(&repo, "file1.txt", "amended content1")?;
-  stage_file(&repo, "file2.txt", "amended content2")?;
-  stage_file(&repo, "file3.txt", "amended content3")?;
+  write_file(&repo, "file2.txt", "amended content2")?;
 
-  // Should use the optimized batch processing for multiple files
-  let result = amend(&repo, &original_commit, &["file1.txt", "file2.txt", "file3.txt"])?;
+  let result = amend(&repo, &original_commit, &["file1.txt", "file2.txt"])?;
 
-  // Verify the operation succeeded
-  assert_ne!(result.amended_commit_id, "");
-  assert_ne!(result.amended_commit_id, original_commit);
-
-  // Verify the amended commit contains our changes for file1 (the original commit only had file1)
-  let amended_file_content = repo
-    .git_executor()
-    .execute_command(&["show", &format!("{}:file1.txt", result.amended_commit_id)], repo_path(&repo))?;
-  assert_eq!(amended_file_content.trim(), "amended content1");
-
+  assert_eq!(show(&repo, &result.amended_commit_id, "file1.txt")?, "amended content1");
+  assert_eq!(show(&repo, &result.amended_commit_id, "file2.txt")?, "amended content2");
+  assert_eq!(show(&repo, "HEAD", "file3.txt")?, "content3");
+  assert_eq!(status(&repo)?, "");
   Ok(())
 }
 
 #[test]
-fn test_amend_conflict_returns_merge_conflict_info() -> Result<()> {
+fn test_amend_conflict_changes_nothing() -> Result<()> {
   let repo = TestRepo::new();
-
-  // Create initial commit
   repo.create_commit("Base commit", "base.txt", "base content");
-
-  // Create second commit to amend to
   let commit_to_amend = repo.create_commit("Add file1", "file1.txt", "line 1\noriginal line 2\nline 3");
-
-  // Create third commit that modifies the same file (this will cause conflicts when rebased)
   repo.create_commit("Later modification", "file1.txt", "line 1\nmodified by later commit\nline 3");
+  let head_before = repo.head();
+  write_file(&repo, "file1.txt", "line 1\nmodified by uncommitted\nline 3")?;
 
-  // Add conflicting uncommitted changes to the same lines
-  stage_file(&repo, "file1.txt", "line 1\nmodified by uncommitted\nline 3")?;
+  let error = amend(&repo, &commit_to_amend, &["file1.txt"]).expect_err("amend should conflict");
 
-  // Attempt to amend - should fail with conflict
-  let result = amend(&repo, &commit_to_amend, &["file1.txt"]);
-
-  // Should return an error due to conflicts
-  assert!(result.is_err());
-
-  let error = result.unwrap_err();
-
-  // For this test, we mainly care that conflicts are detected properly
-  // The exact error type may vary depending on where the conflict analysis fails
-  match &error {
-    crate::copy_commit::CopyCommitError::BranchError(branch_err) => {
-      match branch_err {
-        crate::model::BranchError::MergeConflict(conflict_info) => {
-          // Verify the conflict info has expected data
-          assert_ne!(conflict_info.commit.hash, "");
-          assert_ne!(conflict_info.commit.message, "");
-          assert!(!conflict_info.conflicting_files.is_empty());
-
-          // Should have at least one conflicting file (file1.txt)
-          let conflicting_file = &conflict_info.conflicting_files[0];
-          assert_eq!(conflicting_file.file, "file1.txt");
-
-          println!("✓ Correctly returned MergeConflictInfo with {} conflicting files", conflict_info.conflicting_files.len());
-        }
-        crate::model::BranchError::Generic(msg) => {
-          // Sometimes conflicts are detected but conflict analysis may fail
-          // That's also acceptable behavior - the important thing is we detect conflicts
-          assert!(msg.contains("conflict") || msg.contains("Rebase"));
-          println!("✓ Conflicts properly detected with message: {msg}");
-        }
-      }
-    }
-    crate::copy_commit::CopyCommitError::Other(other_err) => {
-      // Check if it's a conflict-related error
-      let error_msg = other_err.to_string();
-      assert!(error_msg.contains("conflict") || error_msg.contains("Rebase"));
-      println!("✓ Conflicts properly detected with error: {error_msg}");
-    }
-  }
-
+  let CopyCommitError::BranchError(crate::model::BranchError::Generic(message)) = &error else {
+    panic!("expected a conflict error, got {error:?}");
+  };
+  assert!(message.contains("conflict"), "{message}");
+  assert_eq!(repo.head(), head_before);
+  assert_eq!(read_file(&repo, "file1.txt")?, "line 1\nmodified by uncommitted\nline 3");
+  assert_eq!(status(&repo)?, " M file1.txt");
+  assert_no_temp_refs(&repo)?;
   Ok(())
 }
 
 #[test]
-fn test_amend_conflict_in_non_linear_history_returns_merge_conflict_info() -> Result<()> {
+fn amend_refuses_range_with_merges() -> Result<()> {
   let repo = TestRepo::new();
 
   repo.create_commit("Base commit", "base.txt", "base content");
   let branch = repo.git_executor().execute_command(&["symbolic-ref", "--short", "HEAD"], repo_path(&repo))?;
   let commit_to_amend = repo.create_commit("Add file1", "file1.txt", "line 1\noriginal line 2\nline 3\n");
 
-  // A merge commit after the target makes the history non-linear, so amend falls back to fixup + autosquash
+  // a merge commit after the target: Branch Deck rewrites only linear history
   repo.git_executor().execute_command(&["checkout", "-q", "-b", "side"], repo_path(&repo))?;
   repo.create_commit("Side commit", "side.txt", "side content");
   repo.git_executor().execute_command(&["checkout", "-q", &branch], repo_path(&repo))?;
-  repo.create_commit("Later modification", "file1.txt", "line 1\nmodified by later commit\nline 3\n");
+  repo.create_commit("Later modification", "file2.txt", "other");
   repo
     .git_executor()
     .execute_command(&["merge", "-q", "--no-ff", "-m", "Merge side", "side"], repo_path(&repo))?;
-  let head_before = repo.git_executor().execute_command(&["rev-parse", "HEAD"], repo_path(&repo))?;
+  let head_before = repo.head();
+  write_file(&repo, "file1.txt", "line 1\namended line 2\nline 3\n")?;
 
-  // Conflicting uncommitted change to the same line
-  write_file(&repo, "file1.txt", "line 1\nmodified by uncommitted\nline 3\n")?;
+  let error = amend(&repo, &commit_to_amend, &["file1.txt"]).expect_err("amend should be refused");
 
-  let error = amend(&repo, &commit_to_amend, &["file1.txt"]).expect_err("amend should conflict");
+  assert!(error.to_string().contains("merge commit"), "{error}");
+  assert_eq!(repo.head(), head_before);
+  assert_eq!(status(&repo)?, " M file1.txt");
+  assert_eq!(read_file(&repo, "file1.txt")?, "line 1\namended line 2\nline 3\n");
+  Ok(())
+}
 
-  let CopyCommitError::BranchError(crate::model::BranchError::MergeConflict(conflict_info)) = error else {
-    panic!("expected MergeConflictInfo, got {error:?}");
-  };
-  assert_eq!(conflict_info.original_parent.hash, commit_to_amend);
-  assert_eq!(conflict_info.commit.hash, conflict_info.target_branch.hash);
-  assert_ne!(conflict_info.commit.message, "");
-  assert!(conflict_info.conflict_marker_commits.contains_key(&conflict_info.commit.hash));
+#[test]
+fn amend_only_selected_files() -> Result<()> {
+  let repo = TestRepo::new();
+  let target = repo.create_commit("Add files", "file1.txt", "one");
+  repo.create_commit("Add file2", "file2.txt", "two");
+  write_file(&repo, "file1.txt", "one amended")?;
+  write_file(&repo, "file2.txt", "two modified")?;
 
-  let files: Vec<&str> = conflict_info.conflicting_files.iter().map(|f| f.file.as_str()).collect();
-  assert_eq!(files, ["file1.txt"]);
-  let detail = &conflict_info.conflicting_files[0];
-  assert!(
-    detail.target_file.as_ref().is_some_and(|f| f.content.ends_with("line 3\n")),
-    "untrimmed target content: {detail:?}"
-  );
+  let result = amend(&repo, &target, &["file1.txt"])?;
 
-  // The rebase was aborted and the fixup commit dropped: the branch is back at the pre-amend HEAD
-  assert_eq!(repo.git_executor().execute_command(&["rev-parse", "HEAD"], repo_path(&repo))?, head_before);
-  let (_, rebase_head_exit_code) = repo
-    .git_executor()
-    .execute_command_with_status(&["rev-parse", "--verify", "--quiet", "REBASE_HEAD"], repo_path(&repo))?;
-  assert_ne!(rebase_head_exit_code, 0, "rebase should be aborted");
+  assert_eq!(show(&repo, &result.amended_commit_id, "file1.txt")?, "one amended");
+  assert_eq!(show(&repo, "HEAD", "file2.txt")?, "two");
+  assert_eq!(status(&repo)?, " M file2.txt");
+  assert_eq!(read_file(&repo, "file2.txt")?, "two modified");
+  Ok(())
+}
 
-  // The uncommitted change is back in the working tree, unstaged
-  assert_eq!(
-    repo.git_executor().execute_command(&["status", "--porcelain", "--", "file1.txt"], repo_path(&repo))?,
-    "M file1.txt"
-  );
-  assert_eq!(read_file(&repo, "file1.txt")?, "line 1\nmodified by uncommitted\nline 3\n");
+#[test]
+fn amend_head_only_selected_files() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Add file1", "file1.txt", "one");
+  let head = repo.create_commit("Add file2", "file2.txt", "two");
+  write_file(&repo, "file1.txt", "one modified")?;
+  write_file(&repo, "file2.txt", "two amended")?;
 
+  let result = amend(&repo, &head, &["file2.txt"])?;
+
+  assert_eq!(result.amended_commit_id, result.rebased_to_commit);
+  assert_eq!(show(&repo, "HEAD", "file2.txt")?, "two amended");
+  assert_eq!(show(&repo, "HEAD", "file1.txt")?, "one");
+  assert_eq!(status(&repo)?, " M file1.txt");
+  Ok(())
+}
+
+#[test]
+fn amend_non_head_applies_only_delta() -> Result<()> {
+  let repo = TestRepo::new();
+  let target = repo.create_commit("Add config", "config.txt", "a\nb\nc\nd\ne\nf\ng\n");
+  // a later commit changes another part of the same file
+  repo.create_commit("Change the end", "config.txt", "a\nb\nc\nd\ne\nf\nG\n");
+  write_file(&repo, "config.txt", "A\nb\nc\nd\ne\nf\nG\n")?;
+
+  let result = amend(&repo, &target, &["config.txt"])?;
+
+  // the target gets only the working-tree delta, not the later commit's change
+  assert_eq!(show(&repo, &result.amended_commit_id, "config.txt")?, "A\nb\nc\nd\ne\nf\ng");
+  assert_eq!(show(&repo, "HEAD", "config.txt")?, "A\nb\nc\nd\ne\nf\nG");
+  assert_eq!(status(&repo)?, "");
+  assert_eq!(commit_count(&repo)?, 2);
+  Ok(())
+}
+
+#[test]
+fn amend_keeps_unrelated_staged_changes() -> Result<()> {
+  let repo = TestRepo::new();
+  let target = repo.create_commit("Add file1", "file1.txt", "one");
+  repo.create_commit("Add file2", "file2.txt", "two");
+  write_file(&repo, "file1.txt", "one amended")?;
+  stage_file(&repo, "file2.txt", "two staged")?;
+  write_file(&repo, "file2.txt", "two staged and edited")?;
+
+  amend(&repo, &target, &["file1.txt"])?;
+
+  // file2 is still staged as before, with its unstaged edit on top
+  assert_eq!(status(&repo)?, "MM file2.txt");
+  assert_eq!(repo.git_executor().execute_command(&["show", ":file2.txt"], repo_path(&repo))?, "two staged");
+  assert_eq!(read_file(&repo, "file2.txt")?, "two staged and edited");
+  Ok(())
+}
+
+#[test]
+fn amend_keeps_the_author_and_message_and_records_the_reflog() -> Result<()> {
+  let repo = TestRepo::new();
+  let target = repo.create_commit("Add file1\n\nWith a body", "file1.txt", "one");
+  repo.create_commit("Add file2", "file2.txt", "two");
+  let author_before = log_format(&repo, &target, "%an <%ae> %ad")?;
+  write_file(&repo, "file1.txt", "one amended")?;
+
+  let result = amend(&repo, &target, &["file1.txt"])?;
+
+  assert_eq!(log_format(&repo, &result.amended_commit_id, "%an <%ae> %ad")?, author_before);
+  assert_eq!(log_format(&repo, &result.amended_commit_id, "%B")?, "Add file1\n\nWith a body");
+  let reflog = repo.git_executor().execute_command(&["reflog", "-1", "--format=%gs"], repo_path(&repo))?;
+  assert!(reflog.starts_with("branch-deck: amend"), "{reflog}");
+  assert_no_temp_refs(&repo)?;
   Ok(())
 }

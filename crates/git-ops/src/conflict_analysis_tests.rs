@@ -2,12 +2,18 @@ use super::conflict_analysis::*;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use std::io::Write;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use tracing::instrument;
+
+/// Content of files at one revision; a file absent there has empty content
+fn get_files_content_at_commit(git_executor: &GitCommandExecutor, repo_path: &str, commit_hash: &str, file_paths: &[String]) -> Result<HashMap<String, String>> {
+  let mut contents = get_files_content_at_revisions(git_executor, repo_path, &[(commit_hash, file_paths)])?;
+  Ok(contents.remove(commit_hash).unwrap_or_default())
+}
 
 /// Count commits between two commits (test-only function)
 #[instrument(skip(git_executor))]
@@ -26,32 +32,6 @@ fn commit_file_diffs(test_repo: &TestRepo, commit: &str, files: &[&str]) -> Vec<
     batch_get_file_diffs(test_repo.git_executor(), test_repo.path().to_str().unwrap(), &commit_files_map).unwrap_or_else(|e| panic!("batch_get_file_diffs failed: {e}"));
   assert_eq!(all_diffs.len(), 1);
   all_diffs.remove(commit).unwrap()
-}
-
-/// Writes `content` as a blob with `git hash-object -w` and returns its OID
-fn write_blob(test_repo: &TestRepo, content: &[u8]) -> String {
-  let output = Command::new("git")
-    .args(["hash-object", "-w", "--stdin"])
-    .current_dir(test_repo.path())
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .spawn()
-    .and_then(|mut child| {
-      child.stdin.as_mut().unwrap().write_all(content)?;
-      child.wait_with_output()
-    })
-    .expect("Failed to create blob");
-  String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-#[test]
-fn test_parse_cat_file_header() {
-  assert_eq!(parse_cat_file_header("abc123def456 blob 1024"), Some(("abc123def456".to_string(), 1024)));
-
-  assert_eq!(parse_cat_file_header("xyz789 tree 512"), Some(("xyz789".to_string(), 512)));
-
-  assert_eq!(parse_cat_file_header("invalid header"), None);
-  assert_eq!(parse_cat_file_header("abc123 blob notanumber"), None);
 }
 
 #[test]
@@ -602,43 +582,37 @@ fn test_null_terminated_ls_tree_parsing() {
 }
 
 #[test]
-fn test_batch_cat_file_with_null_termination() {
+fn test_batch_contents_with_null_termination() {
   let test_repo = TestRepo::new();
   let git_executor = &GitCommandExecutor::new();
+  let commit = test_repo.create_commit_with_files("Add files", &[("newline.txt", "Content with\nnewline\n"), ("normal.txt", "Normal content")]);
 
-  // Create multiple blobs
-  let oid1 = write_blob(&test_repo, b"Content with\nnewline");
+  let files = vec!["newline.txt".to_string(), "normal.txt".to_string()];
+  let contents = get_files_content_at_commit(git_executor, test_repo.path().to_str().unwrap(), &commit, &files).unwrap();
 
-  let oid2 = write_blob(&test_repo, b"Normal content");
-
-  // Test batch cat-file
-  let oids = vec![oid1.as_str(), oid2.as_str()];
-  let contents = execute_batch_cat_file(git_executor, test_repo.path().to_str().unwrap(), &oids).unwrap();
-
-  assert_eq!(contents.len(), 2, "Should retrieve both blobs");
-  assert_eq!(contents.get(&oid1).unwrap(), "Content with\nnewline");
-  assert_eq!(contents.get(&oid2).unwrap(), "Normal content");
+  assert_eq!(contents.get("newline.txt").unwrap(), "Content with\nnewline\n");
+  assert_eq!(contents.get("normal.txt").unwrap(), "Normal content");
 }
 
 #[test]
-fn test_error_handling_batch_cat_file_missing_objects() {
+fn test_batch_contents_of_several_revisions_with_absent_files() {
   let test_repo = TestRepo::new();
   let git_executor = &GitCommandExecutor::new();
+  let first = test_repo.create_commit("Add a", "a.txt", "a1");
+  let second = test_repo.create_commit("Add b", "b.txt", "b2");
 
-  // Create one valid blob
-  let valid_oid = write_blob(&test_repo, b"Valid content");
-
-  // Test with mix of valid and invalid OIDs
-  let oids = vec![
-    valid_oid.as_str(),
-    "0000000000000000000000000000000000000000", // Invalid OID
+  let files = vec!["a.txt".to_string(), "b.txt".to_string()];
+  let requests: Vec<(&str, &[String])> = vec![
+    (first.as_str(), files.as_slice()),
+    (second.as_str(), files.as_slice()),
+    ("0000000000000000000000000000000000000000", files.as_slice()),
   ];
+  let contents = get_files_content_at_revisions(git_executor, test_repo.path().to_str().unwrap(), &requests).unwrap();
 
-  let contents = execute_batch_cat_file(git_executor, test_repo.path().to_str().unwrap(), &oids).unwrap();
-
-  // Should still return the valid object
-  assert_eq!(contents.len(), 1, "Should retrieve only valid objects");
-  assert_eq!(contents.get(&valid_oid).unwrap(), "Valid content");
+  assert_eq!(contents[&first]["a.txt"], "a1");
+  assert_eq!(contents[&first]["b.txt"], "", "absent at the first commit");
+  assert_eq!(contents[&second]["b.txt"], "b2");
+  assert_eq!(contents["0000000000000000000000000000000000000000"]["a.txt"], "", "unknown revision");
 }
 
 #[test]

@@ -6,6 +6,7 @@ use git_ops::commit_list::Commit;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::notes::write_commit_notes;
+use git_ops::ref_transaction::RefTransaction;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use sync_types::{ProgressReporter, SyncEvent};
@@ -179,9 +180,9 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
 
   // only update the branch if it's new or changed
   if branch_sync_status != BranchSyncStatus::Unchanged {
-    // Use git CLI to update branch reference
-    let args = vec!["branch", "-f", &full_branch_name, &last_commit_hash];
-    git_executor.execute_command(&args, repository_path)?;
+    RefTransaction::new()
+      .update(&format!("refs/heads/{full_branch_name}"), &last_commit_hash, None)
+      .commit(git_executor, repository_path, "sync")?;
   }
 
   // Write all commit notes after successful branch sync

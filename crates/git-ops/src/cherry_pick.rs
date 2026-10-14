@@ -16,15 +16,13 @@ pub fn perform_fast_cherry_pick_with_context(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   cherry_commit_id: &str,
+  cherry_parent_id: &str,
   target_commit_id: &str,
   on_status: &dyn Fn(BranchSyncStatus),
   tree_id_cache: &TreeIdCache,
 ) -> Result<String, CopyCommitError> {
-  let cherry_parent_id = get_commit_parent(git_executor, repo_path, cherry_commit_id)?
-    .ok_or_else(|| CopyCommitError::Other(anyhow!("Cannot cherry-pick root commit {cherry_commit_id}: it has no parent")))?;
-
   // Fast path: check if parent tree matches target tree
-  let cherry_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, &cherry_parent_id)?;
+  let cherry_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, cherry_parent_id)?;
   let target_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, target_commit_id)?;
 
   if cherry_parent_tree_id == target_tree_id {
@@ -47,7 +45,7 @@ pub fn perform_fast_cherry_pick_with_context(
     "--write-tree",
     "-z", // Use NUL character as separator for better parsing
     "--merge-base",
-    &cherry_parent_id,
+    cherry_parent_id,
     target_commit_id,
     cherry_commit_id,
   ];
@@ -96,7 +94,7 @@ pub fn perform_fast_cherry_pick_with_context(
         repo_path,
         conflict_files: &conflict_files,
         merge_tree_oid: tree_oid,
-        parent_commit_id: &cherry_parent_id,
+        parent_commit_id: cherry_parent_id,
         target_commit_id,
         cherry_commit_id,
       })?;

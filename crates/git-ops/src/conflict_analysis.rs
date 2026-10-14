@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
 use specta::Type;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
@@ -329,26 +330,20 @@ pub(crate) fn batch_get_file_diffs(
     }
   }
 
-  // Batch fetch all file contents for all commits at once
-  let mut all_contents: HashMap<String, HashMap<String, String>> = HashMap::new();
-
-  for (commit_hash, files) in &all_files_by_commit {
-    let files_vec: Vec<String> = files.iter().cloned().collect();
-    let contents = get_files_content_at_commit(git_executor, repo_path, commit_hash, &files_vec)?;
-    all_contents.insert(commit_hash.clone(), contents);
-  }
-
-  // Also fetch parent contents: every file touched by any of the commits
+  // Fetch the contents at all commits and their parents (every file touched by any of the commits) at once
   let all_files: Vec<String> = all_files_by_commit
     .values()
     .flat_map(|files| files.iter().cloned())
     .collect::<HashSet<_>>()
     .into_iter()
     .collect();
-  for parent_hash in &parent_commits {
-    let contents = get_files_content_at_commit(git_executor, repo_path, parent_hash, &all_files)?;
-    all_contents.insert(parent_hash.clone(), contents);
-  }
+  let commit_files: Vec<(String, Vec<String>)> = all_files_by_commit
+    .iter()
+    .map(|(commit_hash, files)| (commit_hash.clone(), files.iter().cloned().collect()))
+    .collect();
+  let mut requests: Vec<(&str, &[String])> = commit_files.iter().map(|(commit_hash, files)| (commit_hash.as_str(), files.as_slice())).collect();
+  requests.extend(parent_commits.iter().map(|parent_hash| (parent_hash.as_str(), all_files.as_slice())));
+  let all_contents = get_files_content_at_revisions(git_executor, repo_path, &requests)?;
 
   // Now generate diffs for each commit
   for (commit_hash, files) in commit_files_map {
@@ -491,154 +486,59 @@ fn unquote_c_style(quoted: &str) -> Option<(String, &str)> {
   None
 }
 
-/// Get content of multiple files at a specific commit (or any tree-ish) using batch operation
-#[instrument(skip(git_executor, file_paths))]
-pub(crate) fn get_files_content_at_commit(git_executor: &GitCommandExecutor, repo_path: &str, commit_hash: &str, file_paths: &[String]) -> Result<HashMap<String, String>> {
-  let mut contents = HashMap::new();
-
-  if file_paths.is_empty() {
-    return Ok(contents);
-  }
-
-  // Use git ls-tree with -z for null-terminated output to list files in the commit
-  // Then use git cat-file --batch to efficiently retrieve all file contents
-
-  // First, get the object IDs for all files
-  let mut args = vec!["ls-tree", "-z", "-r", commit_hash, "--"];
-  let file_refs: Vec<&str> = file_paths.iter().map(std::string::String::as_str).collect();
-  args.extend(&file_refs);
-
-  let ls_tree_output = git_executor
-    .execute_command(&args, repo_path)
-    .map_err(|e| anyhow!("Failed to ls-tree at commit {commit_hash}: {e}"))?;
-
-  debug!(output_length = ls_tree_output.len(), "ls-tree completed");
-
-  // Parse ls-tree output to get object IDs
-  let mut oid_to_files: HashMap<String, Vec<String>> = HashMap::new();
-  let mut object_requests = Vec::new();
-
-  for entry in ls_tree_output.split('\0').filter(|s| !s.is_empty()) {
-    // Format: <mode> <type> <object>	<file>
-    // Example: "100644 blob 1234567890abcdef	path/to/file.txt"
-    if let Some(tab_pos) = entry.find('\t') {
-      let (metadata, file_path) = entry.split_at(tab_pos);
-      let file_path = &file_path[1..]; // Skip the tab character
-
-      // Parse metadata: "<mode> <type> <object>"
-      let parts: Vec<&str> = metadata.split_whitespace().collect();
-      if parts.len() >= 3 && parts[1] == "blob" {
-        let oid = parts[2];
-        oid_to_files.entry(oid.to_string()).or_default().push(file_path.to_string());
-        object_requests.push(oid);
-      }
+/// Content of files at several revisions with one `git cat-file --batch` reading `<rev>:<path>` names, keyed by
+/// revision and path. A file that is absent at a revision (or is not a blob) has empty content.
+#[instrument(skip(git_executor, requests), fields(revisions = requests.len()))]
+pub(crate) fn get_files_content_at_revisions(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  requests: &[(&str, &[String])],
+) -> Result<HashMap<String, HashMap<String, String>>> {
+  let mut result: HashMap<String, HashMap<String, String>> = HashMap::with_capacity(requests.len());
+  let mut names = Vec::new();
+  let mut input = String::new();
+  for (rev, file_paths) in requests {
+    let contents = result.entry((*rev).to_string()).or_default();
+    for file_path in *file_paths {
+      // absent files keep this empty content
+      contents.insert(file_path.clone(), String::new());
+      let _ = write!(input, "{rev}:{file_path}\0");
+      names.push((*rev, file_path.as_str()));
     }
   }
-
-  // Use git cat-file --batch to get all contents at once
-  debug!(objects_to_fetch = object_requests.len(), "found objects to fetch");
-
-  if !object_requests.is_empty() {
-    // Deduplicate OIDs while keeping track of which files need which OID
-    let mut unique_oids = Vec::new();
-    let mut seen_oids = HashSet::new();
-
-    for oid in &object_requests {
-      if seen_oids.insert(oid.to_string()) {
-        unique_oids.push(*oid);
-      }
-    }
-
-    debug!(unique_objects = unique_oids.len(), "deduped objects to fetch");
-
-    let fetched_contents = execute_batch_cat_file(git_executor, repo_path, &unique_oids)?;
-
-    // Map content back to all files that use each OID
-    for (oid, content) in fetched_contents {
-      // Find all files that use this OID
-      if let Some(file_paths) = oid_to_files.get(&oid) {
-        for file_path in file_paths {
-          contents.insert(file_path.clone(), content.clone());
-        }
-      }
-    }
+  if names.is_empty() {
+    return Ok(result);
   }
 
-  // Files that don't exist at this commit will have empty content
-  // This is normal for files that were added in later commits
-  for file in file_paths {
-    if !contents.contains_key(file) {
-      contents.insert(file.clone(), String::new());
-    }
-  }
-
-  Ok(contents)
-}
-
-/// Parse git cat-file --batch header line
-#[instrument]
-pub(crate) fn parse_cat_file_header(line: &str) -> Option<(String, usize)> {
-  // Format: <sha> <type> <size>
-  let parts: Vec<&str> = line.split_whitespace().collect();
-  if parts.len() >= 3
-    && let Ok(size) = parts[2].parse::<usize>()
-  {
-    return Some((parts[0].to_string(), size));
-  }
-  None
-}
-
-/// Read blob contents with one `git cat-file --batch`, keyed by OID. Missing objects are skipped.
-/// Content is returned exactly as stored (invalid UTF-8 is replaced), never trimmed.
-#[instrument(skip(git_executor, oids), fields(batch_objects = oids.len()))]
-pub(crate) fn execute_batch_cat_file(git_executor: &GitCommandExecutor, repo_path: &str, oids: &[&str]) -> Result<HashMap<String, String>> {
-  let mut contents = HashMap::new();
-
-  if oids.is_empty() {
-    return Ok(contents);
-  }
-
-  // NUL-terminated input with -Z
-  let batch_input = oids.join("\0") + "\0";
-
-  let args = vec!["cat-file", "--batch", "--buffer", "-Z"];
   let bytes = git_executor
-    .execute_command_with_input_raw(&args, repo_path, &batch_input)
+    .execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repo_path, &input)
     .map_err(|e| anyhow!("Failed to cat-file batch: {e}"))?;
 
-  // With -Z, every entry is `<oid> <type> <size>\0<content>\0`, or `<oid> missing\0` for a missing object
+  // With -Z, every entry is `<oid> <type> <size>\0<content>\0`, or `<name> missing\0` for an absent file
   let mut i = 0;
-  let mut oid_index = 0;
-  while i < bytes.len() && oid_index < oids.len() {
-    let Some(end) = memchr::memchr(0, &bytes[i..]).map(|pos| i + pos) else {
-      break;
-    };
-    let header = std::str::from_utf8(&bytes[i..end]).map_err(|e| anyhow!("Invalid UTF-8 in header: {e}"))?;
+  for (rev, file_path) in names {
+    let end = memchr::memchr(0, &bytes[i..]).map(|pos| i + pos).ok_or_else(|| anyhow!("truncated cat-file output"))?;
+    let header = String::from_utf8_lossy(&bytes[i..end]).into_owned();
     i = end + 1;
-
-    if let Some((oid, size)) = parse_cat_file_header(header) {
-      let content_bytes = bytes
-        .get(i..i + size)
-        .ok_or_else(|| anyhow!("Insufficient data for content: expected {size} bytes, but only {} remaining", bytes.len() - i))?;
-
-      let expected_oid = oids[oid_index];
-      if oid != expected_oid {
-        return Err(anyhow!("OID mismatch: expected {expected_oid}, got {oid}"));
-      }
-      contents.insert(oid, String::from_utf8_lossy(content_bytes).into_owned());
-
-      // Move past the content and its NUL terminator
-      i += size;
-      if bytes.get(i) == Some(&0) {
-        i += 1;
-      }
-    } else if header.ends_with(" missing") {
-      debug!(header, "object missing");
-    } else {
+    let mut fields = header.rsplitn(3, ' ');
+    let (Some(size), Some(kind)) = (fields.next(), fields.next()) else {
       return Err(anyhow!("Failed to parse git cat-file header: {header:?}"));
+    };
+    let Ok(size) = size.parse::<usize>() else {
+      // `missing` or `ambiguous`
+      debug!(header, "object missing");
+      continue;
+    };
+    let content = bytes
+      .get(i..i + size)
+      .ok_or_else(|| anyhow!("Insufficient data for content: expected {size} bytes, but only {} remaining", bytes.len() - i))?;
+    if kind == "blob"
+      && let Some(contents) = result.get_mut(rev)
+    {
+      contents.insert(file_path.to_string(), String::from_utf8_lossy(content).into_owned());
     }
-    oid_index += 1;
+    // skip the content and its NUL terminator
+    i += size + 1;
   }
-
-  Ok(contents)
+  Ok(result)
 }

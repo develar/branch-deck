@@ -25,6 +25,13 @@ impl TreeIdCache {
     !commit_id.is_empty() && commit_id.chars().all(|c| c.is_ascii_hexdigit())
   }
 
+  /// Record the tree of a commit whose tree is already known (e.g. one just created), saving a later lookup
+  pub fn insert(&self, commit_id: &str, tree_id: &str) {
+    if Self::is_cacheable_key(commit_id) {
+      self.cache.insert(commit_id.to_string(), tree_id.to_string());
+    }
+  }
+
   /// Get tree ID for a commit, using cache when possible
   #[instrument(skip(self, git_executor), fields(commit_id = %commit_id))]
   pub fn get_tree_id(&self, git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<String, CopyCommitError> {

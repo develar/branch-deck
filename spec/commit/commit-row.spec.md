@@ -139,6 +139,8 @@ The commit hash popover shows the same header and body.
 - The save hint must name the platform shortcut: `⌘↵` on macOS, `Ctrl+Enter` elsewhere.
 - The save must replace only the message: the commits after it are recreated with the same trees, and the working
   tree and the index stay as they are.
+- The save must keep the author and the committer of every recreated commit: name, email, date and timezone.
+  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`reword_preserves_committer`)
 - The message must be cleaned up as `git commit` does: LF line endings, no trailing whitespace, no blank lines around.
 - An unchanged message must keep the commit.
 - A message without a subject line must be refused.

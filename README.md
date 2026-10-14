@@ -56,10 +56,14 @@ See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout an
 
 [Download the latest release](https://github.com/develar/branch-deck/releases/latest) for macOS (Apple silicon), Windows or Linux.
 
+Requires Git 2.54 or newer (`brew install git` on macOS). Branch Deck never touches your working tree or your staged
+changes; see [Git Operations](docs/design/git-operations.md).
+
 ## Documentation
 
 - [Virtual Branches](docs/design/virtual-branches.md) — how commits are grouped and cherry-picked
 - [Integration Detection](docs/design/integration-detection.md) — how merged branches are detected
+- [Git Operations](docs/design/git-operations.md) — working-tree safety, history rewrites and the Git version requirement
 - [All design docs](docs/design/)
 
 ## Contributing

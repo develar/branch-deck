@@ -9,6 +9,16 @@ use tracing::instrument;
 /// never take optional locks (read-only commands like `status` must not contend with the user's git).
 const BASE_ENV: [(&str, &str); 2] = [("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0")];
 
+/// Inherited variables that would redirect git away from `repository_path` or its real index and notes
+/// (the app may be started from a git hook or a shell inside another repository).
+/// A temporary index is passed explicitly through the per-call `env`, which is applied after this removal.
+const REMOVED_ENV: [&str; 4] = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_NOTES_REF"];
+
+/// Config overrides for every invocation, so output that we parse does not depend on the user's config:
+/// unquoted UTF-8 paths, no colour codes and no signature verification text in `log`/`show` output.
+/// Callers don't need `--no-pager` either: git never starts a pager when stdout is not a terminal.
+const BASE_CONFIG: [&str; 6] = ["-c", "core.quotePath=false", "-c", "color.ui=never", "-c", "log.showSignature=false"];
+
 #[derive(Clone, Debug, Default)]
 pub struct GitCommandExecutor {
   info: Arc<OnceLock<GitInfo>>,
@@ -59,7 +69,10 @@ impl GitCommandExecutor {
     }
     let git_info = self.get_info()?;
     let mut cmd = Command::new(&git_info.path);
-    cmd.args(args).current_dir(repository_path).envs(BASE_ENV).envs(env.iter().copied());
+    for name in REMOVED_ENV {
+      cmd.env_remove(name);
+    }
+    cmd.args(BASE_CONFIG).args(args).current_dir(repository_path).envs(BASE_ENV).envs(env.iter().copied());
     Ok(cmd)
   }
 
@@ -163,7 +176,19 @@ impl GitCommandExecutor {
   /// Execute a git command and return the output with exit code: trimmed stdout on success, trimmed stderr otherwise.
   /// A non-zero exit code is not an error and is not logged as one, so this is the method for expected failures.
   pub fn execute_command_with_status(&self, args: &[&str], repository_path: &str) -> Result<(String, i32)> {
-    let output = self.output(args, repository_path, &RunOptions::default())?;
+    self.execute_command_with_status_env(args, repository_path, &[])
+  }
+
+  /// `execute_command_with_status` with extra environment variables (e.g. `GIT_INDEX_FILE`)
+  pub fn execute_command_with_status_env(&self, args: &[&str], repository_path: &str, env_vars: &[(&str, &str)]) -> Result<(String, i32)> {
+    let output = self.output(
+      args,
+      repository_path,
+      &RunOptions {
+        env: env_vars,
+        ..RunOptions::default()
+      },
+    )?;
     let exit_code = output.status.code().unwrap_or(-1);
     if output.status.success() {
       Ok((Self::trimmed(&output), exit_code))
@@ -208,6 +233,19 @@ impl GitCommandExecutor {
       repository_path,
       &RunOptions {
         stdin: Some(input.as_bytes()),
+        ..RunOptions::default()
+      },
+    )?;
+    Ok(output.stdout)
+  }
+
+  /// Like `execute_command_with_input_raw`, for binary input such as a `fast-import` stream with non-UTF-8 messages
+  pub fn execute_command_with_input_bytes(&self, args: &[&str], repository_path: &str, input: &[u8]) -> Result<Vec<u8>> {
+    let output = self.run(
+      args,
+      repository_path,
+      &RunOptions {
+        stdin: Some(input),
         ..RunOptions::default()
       },
     )?;

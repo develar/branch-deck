@@ -22,6 +22,7 @@ impl From<anyhow::Error> for CopyCommitError {
 impl std::fmt::Display for CopyCommitError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
+      CopyCommitError::BranchError(BranchError::Generic(message)) => f.write_str(message),
       CopyCommitError::BranchError(e) => write!(f, "Branch error: {e:?}"),
       CopyCommitError::Other(e) => write!(f, "{e}"),
     }
@@ -103,6 +104,11 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     }
   }
 
+  // the commit list read the tree with the commit
+  if !commit.tree_id.is_empty() {
+    tree_id_cache.insert(&commit.id, &commit.tree_id);
+  }
+
   // Get tree IDs for comparison using cache
   let original_parent_tree_id = if let Some(parent_id) = &commit.parent_id {
     tree_id_cache.get_tree_id(git_executor, repo_path, parent_id)?
@@ -120,7 +126,11 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
   } else {
     debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     // Use cherry-pick for efficient 3-way merge with conflict handling
-    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, new_parent_oid, on_status, tree_id_cache)?
+    let parent_id = commit
+      .parent_id
+      .as_deref()
+      .ok_or_else(|| CopyCommitError::Other(anyhow!("Cannot cherry-pick root commit {}: it has no parent", commit.id)))?;
+    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, parent_id, new_parent_oid, on_status, tree_id_cache)?
   };
 
   // Reconstruct message with stripped subject for the actual git commit
@@ -152,6 +162,8 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
 
   let new_commit_hash = output.trim().to_string();
+  // the next commit of the branch is copied onto this one; its tree is known, so don't ask git for it
+  tree_id_cache.insert(&new_commit_hash, &tree_id);
 
   // Note for later batch writing
   let note = Some((commit.id.clone(), new_commit_hash.clone()));

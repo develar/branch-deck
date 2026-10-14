@@ -32,13 +32,13 @@ pub async fn sync_branches(
   let branch_prefix = &params.branch_prefix;
 
   // Git discovery runs a process and the config lookup reads the file system: both block.
-  // The version check is free after the first call, git info is discovered once per process.
+  // Discovery rejects a too old git, and runs once per process; it fails here before any progress is reported.
   let issue_config = {
     let git = (*git_executor).clone();
     let cache = (*cache).clone();
     let repository_path = repository_path.clone();
     run_blocking(move || {
-      git.get_info()?.validate_minimum_version().map_err(anyhow::Error::msg)?;
+      git.get_info()?;
       Ok::<_, anyhow::Error>(cache.issue_config(&repository_path))
     })
     .await

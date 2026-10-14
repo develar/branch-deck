@@ -46,3 +46,47 @@ fn push_branch_fails_without_local_branch() {
   assert!(push_branch(local.git_executor(), &params(&local, "missing", 0)).is_err());
   assert!(!upstream.branch_exists("prefix/virtual/missing"));
 }
+
+#[test]
+fn push_branch_overwrites_its_own_rewritten_branch() {
+  let (upstream, local) = clone_upstream();
+  let base = local.head();
+  local.create_commit("(feature) Add feature", "feature.txt", "feature");
+  local.create_branch("prefix/virtual/feature").unwrap();
+  push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+
+  // the virtual branch is rebuilt: not a fast-forward of what was pushed
+  local.reset_hard(&base).unwrap();
+  let rewritten = local.create_commit("(feature) Add feature, reworded", "feature.txt", "feature");
+  let path = local.path().to_str().unwrap();
+  local
+    .git_executor()
+    .execute_command(&["update-ref", "refs/heads/prefix/virtual/feature", &rewritten], path)
+    .unwrap();
+
+  push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+
+  assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), rewritten);
+}
+
+#[test]
+fn push_branch_keeps_a_remote_commit_pushed_from_elsewhere() {
+  let (upstream, local) = clone_upstream();
+  local.create_commit("(feature) Add feature", "feature.txt", "feature");
+  local.create_branch("prefix/virtual/feature").unwrap();
+  push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+
+  // someone pushes to the branch from another clone; this clone has not fetched it
+  upstream.checkout("prefix/virtual/feature").unwrap();
+  let theirs = upstream.create_commit("Their fix", "fix.txt", "fix");
+  upstream.checkout("master").unwrap();
+  local.create_commit("(feature) More", "more.txt", "more");
+  let path = local.path().to_str().unwrap();
+  local
+    .git_executor()
+    .execute_command(&["update-ref", "refs/heads/prefix/virtual/feature", "HEAD"], path)
+    .unwrap();
+
+  assert!(push_branch(local.git_executor(), &params(&local, "feature", 2)).is_err());
+  assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), theirs);
+}

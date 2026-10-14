@@ -1,6 +1,6 @@
 use crate::commit_list::Commit;
 use crate::commit_utils::get_commits_info;
-use crate::conflict_analysis::{ConflictAnalysis, FileDiff, FileInfo, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_commit, split_diff_by_file};
+use crate::conflict_analysis::{ConflictAnalysis, FileDiff, FileInfo, PATCH_ARGS, analyze_conflict, find_merge_base, get_files_content_at_revisions, split_diff_by_file};
 use crate::copy_commit::CopyCommitError;
 use crate::model::{ConflictCommit, ConflictDetail, MergeConflictInfo};
 use anyhow::anyhow;
@@ -97,14 +97,6 @@ fn diff_by_file(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, 
   Ok(split_diff_by_file(&output).into_iter().collect())
 }
 
-/// Content of the conflicted files at `rev`; on failure every file is empty, as if absent
-fn contents_or_empty(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str, file_paths: &[String]) -> HashMap<String, String> {
-  get_files_content_at_commit(git_executor, repo_path, rev, file_paths).unwrap_or_else(|e| {
-    debug!(error = %e, rev, "failed to read file contents, using empty content");
-    HashMap::new()
-  })
-}
-
 /// Parse one file's patch into hunks, each prefixed with the file header expected by git-diff-view.
 /// Only the lines before the first hunk are metadata; inside a hunk every line is content.
 fn parse_diff_hunks(file_patch: &str, file_path: &str) -> Vec<String> {
@@ -195,21 +187,25 @@ pub(crate) fn extract_conflict_details(ctx: &ConflictContext<'_>, merge_base_id:
   } = *ctx;
   let file_paths: Vec<String> = ctx.conflict_files.iter().map(|p| p.display().to_string()).collect();
 
-  // In the amend case target, cherry and merge tree are the same commit: read it once
-  let base_contents = contents_or_empty(git_executor, repo_path, merge_base_id, &file_paths);
-  let target_contents = contents_or_empty(git_executor, repo_path, target_commit_id, &file_paths);
-  let cherry_contents = (cherry_commit_id != target_commit_id).then(|| contents_or_empty(git_executor, repo_path, cherry_commit_id, &file_paths));
-  // If the conflict is detected, the merged content must exist: do not hide errors
-  let conflict_contents = if merge_tree_oid == target_commit_id {
-    None
-  } else {
-    Some(
-      get_files_content_at_commit(git_executor, repo_path, merge_tree_oid, &file_paths)
-        .map_err(|e| CopyCommitError::Other(anyhow!("Failed to get file content from merge tree: {e}")))?,
-    )
-  };
-  let cherry_contents = cherry_contents.as_ref().unwrap_or(&target_contents);
-  let conflict_contents = conflict_contents.as_ref().unwrap_or(&target_contents);
+  // In the amend case target, cherry and merge tree are the same commit: read it once. One cat-file for all versions.
+  let mut revisions = vec![merge_base_id, target_commit_id];
+  if cherry_commit_id != target_commit_id {
+    revisions.push(cherry_commit_id);
+  }
+  if merge_tree_oid != target_commit_id {
+    revisions.push(merge_tree_oid);
+  }
+  let requests: Vec<(&str, &[String])> = revisions.iter().map(|rev| (*rev, file_paths.as_slice())).collect();
+  let contents = get_files_content_at_revisions(git_executor, repo_path, &requests).unwrap_or_else(|e| {
+    debug!(error = %e, "failed to read file contents, using empty content");
+    HashMap::new()
+  });
+  let empty = HashMap::new();
+  let contents_at = |rev: &str| contents.get(rev).unwrap_or(&empty);
+  let base_contents = contents_at(merge_base_id);
+  let target_contents = contents_at(target_commit_id);
+  let cherry_contents = contents_at(cherry_commit_id);
+  let conflict_contents = contents_at(merge_tree_oid);
 
   let conflict_patches = diff_by_file(git_executor, repo_path, target_commit_id, merge_tree_oid, &file_paths)?;
   let base_to_target_patches = diff_by_file(git_executor, repo_path, merge_base_id, target_commit_id, &file_paths)?;
@@ -240,8 +236,8 @@ pub(crate) fn extract_conflict_details(ctx: &ConflictContext<'_>, merge_base_id:
     };
 
     // 3-way merge view
-    let base_content = content_of(&base_contents, &file_path);
-    let target_content = content_of(&target_contents, &file_path);
+    let base_content = content_of(base_contents, &file_path);
+    let target_content = content_of(target_contents, &file_path);
     let cherry_content = content_of(cherry_contents, &file_path);
     let base_to_target_diff = version_diff(&file_path, &file_lang, base_content.clone(), target_content.clone(), base_to_target_patches.get(&file_path));
     let base_to_cherry_diff = version_diff(&file_path, &file_lang, base_content.clone(), cherry_content.clone(), base_to_cherry_patches.get(&file_path));
