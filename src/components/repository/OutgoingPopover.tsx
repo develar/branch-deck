@@ -70,7 +70,7 @@ export function OutgoingPopover({ summary, reviewBranches = [], attention = [], 
           "grid items-center gap-x-3",
           renderPullRequest === undefined
             ? "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_auto]"
-            : "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_auto_auto]",
+            : "grid-cols-[minmax(8rem,max-content)_5rem_auto_auto_max-content_auto]",
         )}
       >
         {summary.branches.map(branch => (

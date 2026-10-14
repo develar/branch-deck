@@ -78,7 +78,7 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], atte
             )
           : <span className="tabular-nums" data-testid="outgoing-review-count">{reviewBranches.length}</span>}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto max-w-xl gap-3 p-3" data-testid="outgoing-popover">
+      <PopoverContent align="end" className="w-auto max-w-2xl gap-3 p-3" data-testid="outgoing-popover">
         <Suspense fallback={null}>
           <OutgoingPopover
             summary={summary}

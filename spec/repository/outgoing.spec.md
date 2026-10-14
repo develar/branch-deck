@@ -253,7 +253,7 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   of the surface, the two parts of a segment touch; both are rounded by `rounded-sm`, derived from `--radius`.
 - Text never takes a state colour: the counts, the state words and the legend use `text-muted-foreground`; the colour
   is carried by the bars and the legend swatches.
-- The overview is a `Popover` as wide as its content up to `max-w-xl`, aligned to the end of the button. The rows form a
+- The overview is a `Popover` as wide as its content up to `max-w-2xl`, aligned to the end of the button. The rows form a
   grid, so the bars and the counts line up; the name column is `minmax(8rem,max-content)`, so a name is truncated only
   past 8rem, never to a letter; a row bar sits on a `bg-muted` track.
 - The chips column is at least `min-w-16` and its chips are aligned to its end, so the rows don't move when the chips
