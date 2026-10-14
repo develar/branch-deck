@@ -8,6 +8,8 @@ pub struct RepoTemplate {
   #[expect(dead_code)]
   name: String,
   branch_prefix: Option<String>,
+  /// Other git config, e.g. `branchdeck.stacks`
+  config: Vec<(String, String)>,
   commits: Vec<CommitSpec>,
 }
 
@@ -22,8 +24,15 @@ impl RepoTemplate {
     Self {
       name: name.into(),
       branch_prefix: None,
+      config: Vec::new(),
       commits: Vec::new(),
     }
+  }
+
+  #[must_use]
+  pub fn config(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    self.config.push((key.into(), value.into()));
+    self
   }
 
   #[must_use]
@@ -65,6 +74,9 @@ impl RepoTemplate {
     // Set branch prefix if specified
     if let Some(prefix) = &self.branch_prefix {
       Command::new("git").args(["config", "branchdeck.branchPrefix", prefix]).current_dir(output_path).output()?;
+    }
+    for (key, value) in &self.config {
+      Command::new("git").args(["config", key, value]).current_dir(output_path).output()?;
     }
 
     // Track if we have any commits
@@ -339,6 +351,43 @@ pub mod templates {
         Some(1704128400),
       )
       .commit_with_timestamp("fixup! Add build script", &[("build.js", "export function build(target) {}\n")], Some(1704130200))
+  }
+
+  /// Stacked branches on: `login` stacks on `auth` and edits its file, `oauth` stacks on `login`, `session` (an issue
+  /// key in its subject) on `auth`, and `docs` stands alone
+  pub fn stacked_branches() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("stacked_branches")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Auth\n")], Some(1704117600))
+      .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(1704119400))
+      .commit_with_timestamp(
+        "(auth/login) Add login form",
+        &[("auth.js", "export function auth(user) {}\n"), ("login.js", "export function login() {}\n")],
+        Some(1704121200),
+      )
+      .commit_with_timestamp("(login/oauth) Add OAuth provider", &[("oauth.js", "export function oauth() {}\n")], Some(1704123000))
+      .commit_with_timestamp(
+        "(auth/session) ABC-1: Add session store",
+        &[("session.js", "export const session = {}\n")],
+        Some(1704124800),
+      )
+      .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
+  }
+
+  /// Stacked branches on, with a parent (`auth`) that changes a file only an unassigned commit creates: its copy
+  /// conflicts, so its child (`login`) is blocked
+  pub fn stacked_conflict() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("stacked_conflict")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Auth\n")], Some(1704117600))
+      .commit_with_timestamp("Add config", &[("config.js", "export const config = {}\n")], Some(1704119400))
+      .commit_with_timestamp("(auth) Read the auth config", &[("config.js", "export const config = { auth: true }\n")], Some(1704121200))
+      .commit_with_timestamp("(auth/login) Add login form", &[("login.js", "export function login() {}\n")], Some(1704123000))
+      .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704124800))
   }
 
   /// Repository with issue navigation configuration for testing issue links

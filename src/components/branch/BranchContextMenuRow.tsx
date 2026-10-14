@@ -13,6 +13,8 @@ interface BranchContextMenuRowProps {
   "group"?: boolean
   "className"?: string
   "data-testid"?: string
+  /** Nesting level of the row, rendered as `data-depth` when it is nested */
+  "depth"?: number
   /** Commits from another list are dragged ("ready") or over the row ("over") */
   "dropTarget"?: "ready" | "over"
   "dropProps"?: {
@@ -29,7 +31,7 @@ interface BranchContextMenuRowProps {
 }
 
 /** Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click. */
-export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -38,6 +40,7 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             data-testid={testId}
             data-branch-name={name}
             data-row-id={rowId}
+            data-depth={depth > 0 ? depth : undefined}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
             className={cn(group && "group", "cursor-pointer transition-all hover:bg-muted", className)}

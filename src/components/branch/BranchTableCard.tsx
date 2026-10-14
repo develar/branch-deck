@@ -21,7 +21,7 @@ const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreview
 const NEW_BRANCH_TARGET = "\u0000new-branch"
 
 /**
- * Table of active virtual branches, the branches of an issue nested under it. Subscribes to the row list only; each
+ * Table of active virtual branches, the branches of an issue nested under it and stacked branches under their parents. Subscribes to the row list only; each
  * row subscribes to its own branch.
  * Space (over a branch row, or on the last toggled row of the focused table) opens the branch preview.
  */
@@ -40,7 +40,7 @@ export function BranchTableCard() {
   const [previewName, setPreviewName] = useState<string | null>(null)
   // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
   const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
-  const branchNames = rows.filter(row => !row.startsWith("i:")).map(row => row.slice(2))
+  const branchNames = rows.flatMap(row => row.kind === "branch" ? [row.name] : [])
   if (previewName !== null && !branchNames.includes(previewName)) {
     setPreviewName(null)
   }
@@ -79,17 +79,16 @@ export function BranchTableCard() {
           </thead>
           <tbody className="divide-y divide-border">
             {rows.map((row) => {
-              const name = row.slice(2)
-              if (row.startsWith("i:")) {
-                const separator = name.indexOf(":")
-                return <IssueFamilyRow key={row} issueKey={name.slice(separator + 1)} branchCount={Number(name.slice(0, separator))} />
+              if (row.kind === "issue") {
+                return <IssueFamilyRow key={row.key} issueKey={row.issueKey} branchCount={row.branchCount} />
               }
+              const name = row.name
               return (
                 <BranchRow
                   key={name}
                   name={name}
-                  nested={row.startsWith("n:")}
-                  showIssueKey={row.startsWith("c:")}
+                  depth={row.depth}
+                  showIssueKey={row.showIssueKey}
                   expanded={expandedKeys.has(name)}
                   onToggleExpanded={toggleExpanded}
                   setExpanded={setExpanded}

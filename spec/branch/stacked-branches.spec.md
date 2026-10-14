@@ -12,6 +12,11 @@ targets:
   - ../../crates/branch-integration/src/detector.rs
   - ../../crates/sync-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
+  - ../../src/stores/branch-sync.ts
+  - ../../src/components/branch/BranchTableCard.tsx
+  - ../../src/components/branch/BranchNameCell.tsx
+  - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/branch/BranchActions.tsx
 ---
 
 # Stacked Branches
@@ -120,7 +125,18 @@ the other branches still sync. The backend is done; the branch table does not sh
 
 ### UI
 
-- A blocked branch must show a `blocked` warning badge with the reason as its tooltip.
+- The branch table must show each branch under the branch it stacks on, depth-first and newest first among siblings,
+  with one rule per level under the icon of the row above; its expanded commits follow the depth. A branch whose
+  parent has no row, or whose parents form a cycle, stays at the top level.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a branch whose parent has no row, or whose parents form a cycle, at the top level`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+- Issue families must be formed from the stack roots only. A stacked branch of another issue than its parent shows its
+  issue as a chip. Without stacked branches the table is as before.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`)
+  [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
+- A blocked branch must show a muted `blocked by <parent>` status with the reason as its tooltip, a disabled push
+  button, and, expanded, an info alert with a link that reveals the parent.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
 
 ## Testing / Local Run
 

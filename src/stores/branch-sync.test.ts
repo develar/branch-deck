@@ -128,7 +128,8 @@ describe("branch table rows", () => {
   async function rowsOf(event: SyncEvent): Promise<string[]> {
     syncEvents.current = [event]
     await syncBranches()
-    return getBranchTableRows()
+    // b: a branch, n: nested under its issue, c: with an issue chip, i: an issue row
+    return getBranchTableRows().map(row => row.kind === "issue" ? `i:${row.branchCount}:${row.issueKey}` : `${row.showIssueKey ? "c" : row.depth > 0 ? "n" : "b"}:${row.name}`)
   }
 
   it("nests the branches of an issue under the issue branch, wherever it is in the order", async () => {

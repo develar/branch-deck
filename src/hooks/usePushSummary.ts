@@ -9,7 +9,7 @@ import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
 export function usePushSummary(): PushSummary {
   const rows = useBranchTableRows()
   const branches = useBranchSync(useShallow(state => rows.flatMap((row): Branch[] => {
-    const branch = row.startsWith("i:") ? undefined : state.branches[row.slice(2)]
+    const branch = row.kind === "issue" ? undefined : state.branches[row.name]
     return branch === undefined ? [] : [branch]
   })))
   return useMemo(() => summarizePushState(branches), [branches])

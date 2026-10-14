@@ -31,8 +31,8 @@ const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference
 
 export interface BranchRowProps {
   name: string
-  /** Nested under the row of its issue */
-  nested?: boolean
+  /** Levels nested: under the row of its issue and under the branches it stacks on */
+  depth?: number
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
   expanded: boolean
@@ -44,7 +44,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, nested = false, showIssueKey = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
@@ -79,6 +79,7 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
         data-testid="branch-row"
         name={name}
         rowId={name}
+        depth={depth}
         expanded={expanded}
         processing={processing}
         group
@@ -94,7 +95,7 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
       >
         <BranchNameCell
           name={name}
-          nested={nested}
+          depth={depth}
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
           summary={branch.summary}
@@ -156,7 +157,7 @@ export const BranchRow = memo(function BranchRow({ name, nested = false, showIss
       {expanded && (
         <tr>
           <td colSpan={columnCount} className="px-0 py-4">
-            <ActiveBranchExpanded branch={branch} highlightTipCommit={activeInline?.type === "amend-changes"} />
+            <ActiveBranchExpanded branch={branch} depth={depth} highlightTipCommit={activeInline?.type === "amend-changes"} />
           </td>
         </tr>
       )}

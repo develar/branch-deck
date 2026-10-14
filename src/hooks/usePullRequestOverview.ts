@@ -18,9 +18,12 @@ export function usePullRequestOverview(): PullRequestOverview {
     const openBranches: string[] = []
     let needsAttention = false
     for (const row of rows) {
-      const pullRequest = row.startsWith("i:") ? undefined : pullRequests[row.slice(2)]
+      if (row.kind === "issue") {
+        continue
+      }
+      const pullRequest = pullRequests[row.name]
       if (pullRequest?.state === "open") {
-        openBranches.push(row.slice(2))
+        openBranches.push(row.name)
         needsAttention ||= needsAuthorAttention(pullRequest)
       }
     }

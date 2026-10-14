@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { AutosquashPlan, BranchError, BranchOrigin, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UpdateCheck } from "@/lib/bindings"
+import type { AutosquashPlan, BranchError, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UpdateCheck } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
@@ -68,6 +68,8 @@ export interface Branch {
   readonly origin: BranchOrigin
   /** The issue the branch belongs to: its own name for an issue branch, the key all commits carry for a prefix branch */
   readonly issueKey: string | null
+  /** Where the branch sits in its stack; null without stacked branches */
+  readonly stack: BranchStack | null
 }
 
 type MutableBranch = { -readonly [K in keyof Branch]: Branch[K] }
@@ -102,6 +104,8 @@ export interface BranchSyncState {
   autosquashPlan: AutosquashPlan | null
   /** null until a sync reported it */
   baselineStatus: BaselineStatus | null
+  /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
+  stacksEnabled: boolean
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -115,6 +119,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   unassignedCommits: [],
   autosquashPlan: null,
   baselineStatus: null,
+  stacksEnabled: false,
 }))
 
 // ---- hooks ----
@@ -129,19 +134,75 @@ export function useBranchOrder(): string[] {
 }
 
 /**
- * A row of the branch table, encoded as a string so the row list compares shallowly:
- * - `b:<name>` a branch
- * - `n:<name>` a branch nested under its issue (the issue branch, or an issue row)
- * - `c:<name>` a branch of an issue that has no other branch: shown with an issue chip
- * - `i:<count>:<key>` an issue row heading `count` nested branches, for an issue without a branch of its own
+ * A row of the branch table:
+ * - a branch, `depth` levels in: under its issue (the issue branch, or an issue row) and under the branches it stacks on;
+ *   `showIssueKey` shows its issue as a chip, for a branch with no issue row above it or a stacked branch of another issue
+ * - an issue row heading `branchCount` nested branches, for an issue without a branch of its own
+ *
+ * Rows are interned by `key`, so an unchanged row list compares shallowly.
  */
-export type BranchTableRow = string
+export type BranchTableRow
+  = | { readonly kind: "branch", readonly key: string, readonly name: string, readonly depth: number, readonly showIssueKey: boolean }
+    | { readonly kind: "issue", readonly key: string, readonly issueKey: string, readonly branchCount: number }
+
+const internedRows = new Map<string, BranchTableRow>()
+
+function internRow(row: BranchTableRow): BranchTableRow {
+  const existing = internedRows.get(row.key)
+  if (existing !== undefined) {
+    return existing
+  }
+  // names come and go; the cache needn't keep every row ever seen
+  if (internedRows.size > 10_000) {
+    internedRows.clear()
+  }
+  internedRows.set(row.key, row)
+  return row
+}
+
+function branchRow(name: string, depth: number, showIssueKey: boolean): BranchTableRow {
+  return internRow({ kind: "branch", key: `b:${depth}:${showIssueKey ? 1 : 0}:${name}`, name, depth, showIssueKey })
+}
+
+/** The branch of the table that `name` stacks on; null for a root or a parent without a branch here */
+function stackParentIn(branches: Record<string, Branch>, name: string): string | null {
+  const parent = branches[name]?.stack?.declaredParent ?? null
+  return parent !== null && parent !== name && branches[parent] !== undefined ? parent : null
+}
 
 function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
   const { branchOrder, branches } = state
-  // the prefix branches of each issue (an issue branch is named after its key)
-  const families = new Map<string, string[]>()
+  // the branches stacked on each branch, newest first; a branch in a cycle of parents is a root
+  const children = new Map<string, string[]>()
+  const isRoot = (name: string) => {
+    const seen = new Set<string>([name])
+    let parent = stackParentIn(branches, name)
+    while (parent !== null) {
+      if (seen.has(parent)) {
+        return true
+      }
+      seen.add(parent)
+      parent = stackParentIn(branches, parent)
+    }
+    return false
+  }
   for (const name of branchOrder) {
+    const parent = stackParentIn(branches, name)
+    if (parent !== null && !isRoot(name)) {
+      const siblings = children.get(parent)
+      if (siblings === undefined) {
+        children.set(parent, [name])
+      }
+      else {
+        siblings.push(name)
+      }
+    }
+  }
+  const roots = branchOrder.filter(name => stackParentIn(branches, name) === null || isRoot(name))
+
+  // the prefix branches of each issue among the stack roots (an issue branch is named after its key)
+  const families = new Map<string, string[]>()
+  for (const name of roots) {
     const issueKey = branches[name]?.issueKey
     if (issueKey != null && issueKey !== name) {
       const family = families.get(issueKey)
@@ -156,40 +217,86 @@ function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
 
   const rows: BranchTableRow[] = []
   const placed = new Set<string>()
-  const placeFamily = (issueKey: string) => {
-    for (const child of families.get(issueKey) ?? []) {
-      rows.push(`n:${child}`)
-      placed.add(child)
+  // a branch, then the branches stacked on it, depth-first
+  const placeBranch = (name: string, depth: number, showIssueKey: boolean) => {
+    if (placed.has(name)) {
+      return
+    }
+    rows.push(branchRow(name, depth, showIssueKey))
+    placed.add(name)
+    const issueKey = branches[name]?.issueKey ?? null
+    for (const child of children.get(name) ?? []) {
+      const childIssueKey = branches[child]?.issueKey ?? null
+      placeBranch(child, depth + 1, childIssueKey !== null && childIssueKey !== issueKey)
     }
   }
-  for (const name of branchOrder) {
+  const placeFamily = (issueKey: string) => {
+    for (const member of families.get(issueKey) ?? []) {
+      placeBranch(member, 1, false)
+    }
+  }
+  for (const name of roots) {
     if (placed.has(name)) {
       continue
     }
     const issueKey = branches[name]?.issueKey ?? null
     if (issueKey === null || issueKey === name) {
-      rows.push(`b:${name}`)
-      placed.add(name)
+      placeBranch(name, 0, false)
       if (issueKey === name) {
         placeFamily(issueKey)
       }
       continue
     }
     // placed under the issue branch, wherever that is in the order
-    if (branches[issueKey] !== undefined) {
+    if (branches[issueKey] !== undefined && roots.includes(issueKey)) {
       continue
     }
     const family = families.get(issueKey)!
     if (family.length === 1) {
-      rows.push(`c:${name}`)
-      placed.add(name)
+      placeBranch(name, 0, true)
     }
     else {
-      rows.push(`i:${family.length}:${issueKey}`)
+      rows.push(internRow({ kind: "issue", key: `i:${family.length}:${issueKey}`, issueKey, branchCount: family.length }))
       placeFamily(issueKey)
     }
   }
   return rows
+}
+
+/** The branches stacked on `name`, directly or further down */
+function stackDescendantsIn(state: BranchSyncState, name: string): string[] {
+  const descendants: string[] = []
+  const pending = [name]
+  while (pending.length > 0) {
+    const parent = pending.pop()!
+    for (const candidate of state.branchOrder) {
+      if (candidate !== name && !descendants.includes(candidate) && stackParentIn(state.branches, candidate) === parent) {
+        descendants.push(candidate)
+        pending.push(candidate)
+      }
+    }
+  }
+  return descendants
+}
+
+/** The branches stacked directly on `name`, newest first */
+export function getStackChildren(name: string): string[] {
+  const { branchOrder, branches } = branchSyncStore.getState()
+  return branchOrder.filter(candidate => candidate !== name && stackParentIn(branches, candidate) === name)
+}
+
+/** The branches stacked on `name`, directly or further down */
+export function getStackDescendants(name: string): string[] {
+  return stackDescendantsIn(branchSyncStore.getState(), name)
+}
+
+/** Whether the last grouping read prefixes as stacked branches */
+export function useStacksEnabled(): boolean {
+  return useStore(branchSyncStore, state => state.stacksEnabled)
+}
+
+export function isStacksEnabled(): boolean {
+  return branchSyncStore.getState().stacksEnabled
 }
 
 /** The branch table rows: newest first, the branches of an issue nested under it. */
@@ -244,16 +351,35 @@ export function getBranch(name: string): Branch | undefined {
   return branchSyncStore.getState().branches[name]
 }
 
-function moveTargetsIn(state: BranchSyncState, sourceBranch: string | null, limit: number): string[] {
-  const issueKey = sourceBranch === null ? null : (state.branches[sourceBranch]?.issueKey ?? null)
-  const candidates = state.branchOrder.filter(name => name !== sourceBranch)
-  // `branchOrder` is newest first; the branches of the same issue go first
-  const sameIssue = issueKey === null ? [] : candidates.filter(name => state.branches[name]?.issueKey === issueKey)
-  const others = candidates.filter(name => !sameIssue.includes(name))
-  return [...sameIssue, ...others].slice(0, limit)
+/** The root of the stack of `name`: itself without a parent branch; cycle-safe */
+function stackRootIn(branches: Record<string, Branch>, name: string): string {
+  const seen = new Set<string>([name])
+  let root = name
+  let parent = stackParentIn(branches, root)
+  while (parent !== null && !seen.has(parent)) {
+    seen.add(parent)
+    root = parent
+    parent = stackParentIn(branches, root)
+  }
+  return root
 }
 
-/** Branches to offer as a move target for commits of `sourceBranch` (null: unassigned): the same issue first, then the newest. */
+function moveTargetsIn(state: BranchSyncState, sourceBranch: string | null, limit: number): string[] {
+  const source = sourceBranch === null ? undefined : state.branches[sourceBranch]
+  const issueKey = source?.issueKey ?? null
+  const candidates = state.branchOrder.filter(name => name !== sourceBranch)
+  // `branchOrder` is newest first; the branches of the same stack go first, then those of the same issue
+  const stackRoot = source?.stack == null ? null : stackRootIn(state.branches, source.name)
+  const sameStack = stackRoot === null ? [] : candidates.filter(name => stackRootIn(state.branches, name) === stackRoot)
+  const sameIssue = issueKey === null ? [] : candidates.filter(name => !sameStack.includes(name) && state.branches[name]?.issueKey === issueKey)
+  const others = candidates.filter(name => !sameStack.includes(name) && !sameIssue.includes(name))
+  return [...sameStack, ...sameIssue, ...others].slice(0, limit)
+}
+
+/**
+ * Branches to offer as a move target for commits of `sourceBranch` (null: unassigned): the same stack first, then the
+ * same issue, then the newest.
+ */
 export function useMoveTargets(sourceBranch: string | null, limit: number): string[] {
   return useStore(branchSyncStore, useShallow(state => moveTargetsIn(state, sourceBranch, limit)))
 }
@@ -480,6 +606,7 @@ function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStat
     myEmail: info.myEmail ?? null,
     origin: info.origin,
     issueKey: info.issueKey ?? null,
+    stack: info.stack ?? null,
   }
 }
 
@@ -499,7 +626,7 @@ function handleBranchesGrouped(data: Extract<SyncEvent, { type: "branchesGrouped
     branches[info.name] = createBranchFromGroup(info, previous[info.name]?.remoteStatus ?? null)
     branchOrder.push(info.name)
   }
-  branchSyncStore.setState({ baselineBranch: data.baselineBranch, branches, branchOrder })
+  branchSyncStore.setState({ baselineBranch: data.baselineBranch, branches, branchOrder, stacksEnabled: data.stacks ?? false })
 }
 
 function handleCommitSynced(data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {
@@ -566,6 +693,10 @@ function shouldRequestAutoExpand(branchName: string, status: BranchSyncStatus, o
 function handleBranchStatusUpdate(data: Extract<SyncEvent, { type: "branchStatusUpdate" }>["data"], options?: SyncOptions): void {
   const { branchName, status, error } = data
   updateBranch(branchName, (branch) => {
+    if (status === "Blocked") {
+      // not an error of this branch: its parent can't be built on; the reason is the tooltip
+      return { ...branch, status, statusText: error?.Generic ?? "blocked" }
+    }
     const next: MutableBranch = { ...branch, status, statusText: getStatusText(status) }
     if (error) {
       next.errorDetails = error

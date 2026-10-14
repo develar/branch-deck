@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
+import { blockingBranchOf } from "@/lib/stack"
 import type { StatusTexts } from "@/lib/remote-status"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -21,9 +22,10 @@ export function getStatusBadge(branch: Branch): StatusTexts {
   if (branch.status === "AnalyzingConflict") {
     return { text: branch.statusText, tooltip: branch.statusText || "Analyzing conflict…", color: "warning", badge: true }
   }
-  // a stacked branch whose parent can't be built on; its ref is left as it was
+  // a stacked branch whose parent can't be built on: not an error of its own, so muted; its ref is left as it was
   if (branch.status === "Blocked") {
-    return { text: "blocked", tooltip: branch.statusText || "Blocked by its parent branch", color: "warning", badge: true }
+    const blocker = blockingBranchOf(branch)
+    return { text: blocker === null ? "blocked" : `blocked by ${blocker}`, tooltip: branch.statusText || "Blocked by its parent branch", color: "warning" }
   }
 
   // remote status is the most actionable; it has the colour of the push button
