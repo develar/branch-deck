@@ -42,18 +42,21 @@ export function ConflictWindowPage({ commit, branchName, onto, loadingMessage, i
           )
         : (
             <>
-              <Card className="gap-4 bd-padding-card">
-                <ConflictCommitContext
-                  title={formatConflictTitle(commit.message, onto)}
-                  meta={{
-                    hash: commit.hash,
-                    authorTime: commit.authorTime,
-                    committerTime: commit.committerTime,
-                    extra: branchName ? [<span key="branch">{branchName}</span>] : undefined,
-                  }}
-                />
-                {insight}
-                <ConflictResolutionHint />
+              {/* the padding of a Card is not merged with `bd-padding-card`: the body carries it */}
+              <Card className="gap-0 py-0">
+                <div className="flex flex-col gap-4 bd-padding-card">
+                  <ConflictCommitContext
+                    title={formatConflictTitle(commit.message, onto)}
+                    meta={{
+                      hash: commit.hash,
+                      authorTime: commit.authorTime,
+                      committerTime: commit.committerTime,
+                      extra: branchName ? [<span key="branch">{branchName}</span>] : undefined,
+                    }}
+                  />
+                  {insight}
+                  <ConflictResolutionHint />
+                </div>
               </Card>
               {children}
             </>
