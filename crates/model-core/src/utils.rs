@@ -39,10 +39,15 @@ pub fn clean_branch_name(raw_name: &str) -> Result<String> {
     first_line.to_string()
   };
 
-  // Filter valid characters and build final string
+  // Filter valid characters and build final string. A suggestion names one branch: a `/` would declare a parent with
+  // stacked branches on, or a flat name with a slash without them, so it becomes a hyphen
   let mut result = String::with_capacity(processed.len());
   for c in processed.chars() {
-    if c.is_alphanumeric() || matches!(c, '-' | '_' | '/' | '.') {
+    if c == '/' {
+      if !result.ends_with('-') {
+        result.push('-');
+      }
+    } else if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') {
       result.push(c);
     }
   }
@@ -140,6 +145,9 @@ mod tests {
       "very-long-branch-name-that-should-be-truncated-bec"
     ); // Truncated at MAX_BRANCH_NAME_LENGTH chars, trailing hyphen trimmed
     assert_eq!(clean_branch_name("main").unwrap(), "main"); // main is a valid branch name
+    // a suggestion is one branch, not a parent/branch path
+    assert_eq!(clean_branch_name("feature/auth").unwrap(), "feature-auth");
+    assert_eq!(clean_branch_name("auth//login/").unwrap(), "auth-login");
     // Multi-byte characters straddling the length limit must not panic
     let cyrillic = "ф".repeat(40);
     assert_eq!(clean_branch_name(&cyrillic).unwrap(), "ф".repeat(25));
