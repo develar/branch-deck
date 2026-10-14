@@ -16,15 +16,29 @@ export function getPullRequestBase(branch: Branch): string {
 }
 
 /**
+ * The `gh` command that retargets the open pull request of a branch whose base is not the one it should have, e.g.
+ * after its parent was integrated or the branch was restacked; null if there is nothing to retarget
+ */
+export function getRetargetCommand(branch: Branch): string | null {
+  const pullRequest = getPullRequest(branch.name)
+  if (pullRequest === undefined || pullRequest.state !== "open" || !pullRequest.baseRefName) {
+    return null
+  }
+  const base = getPullRequestBase(branch)
+  return pullRequest.baseRefName === base ? null : `gh pr edit ${pullRequest.number} --base ${base}`
+}
+
+/**
  * A stacked branch's pull request targets its parent: the toast names the base and copies the `gh` command that opens
- * the pull request, or that retargets an open one whose parent was integrated
+ * the pull request, or that retargets an open one with another base
  */
 export function showStackedPushToast(branch: Branch): void {
   const base = getPullRequestBase(branch)
   const head = getFullBranchName(branch.name)
   const pullRequest = getPullRequest(branch.name)
-  const retarget = pullRequest !== undefined && pullRequest.state === "open" && branch.stack?.prBaseChanged === true
-  const command = pullRequest === undefined ? `gh pr create --base ${base} --head ${head}` : `gh pr edit ${pullRequest.number} --base ${base}`
+  const retargetCommand = getRetargetCommand(branch)
+  const retarget = retargetCommand !== null
+  const command = retargetCommand ?? `gh pr create --base ${base} --head ${head}`
   // the short name fits the toast; the copied command has the full branch name
   const baseName = <span className="font-medium">{branch.stack?.effectiveBase ?? base}</span>
   toast.add({
@@ -33,7 +47,7 @@ export function showStackedPushToast(branch: Branch): void {
     description: retarget
       ? (
           <>
-            {"Its parent was integrated: retarget the pull request to "}
+            {"The pull request targets another base: retarget it to "}
             {baseName}
           </>
         )

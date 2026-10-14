@@ -4,7 +4,7 @@ import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
 import { pushStack } from "@/lib/git/push"
-import { copyText, getPullRequestBase } from "@/lib/git/stacked-push-toast"
+import { copyText, getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
 import { stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -106,6 +106,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   if (openPullRequestItem !== null) {
     historyActions.push(openPullRequestItem)
+  }
+  const retargetCommand = isStacksEnabled() ? getRetargetCommand(branch) : null
+  if (retargetCommand !== null) {
+    historyActions.push({ label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => copyText(retargetCommand) })
   }
   if (historyActions.length > 0) {
     groups.push(historyActions)

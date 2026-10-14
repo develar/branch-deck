@@ -15,6 +15,11 @@ pub struct PullRequest {
   pub review_decision: Option<ReviewDecision>,
   /// The full branch name on the remote, e.g. `user/virtual/feature-auth`
   pub head_ref_name: String,
+  /// The branch the pull request merges into, e.g. `master` or the parent of a stacked branch `user/virtual/auth`;
+  /// empty if unknown
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub base_ref_name: String,
   /// The commit the pull request shows; differs from the local branch tip until the branch is pushed
   pub head_ref_oid: String,
   /// null when the head commit has no checks

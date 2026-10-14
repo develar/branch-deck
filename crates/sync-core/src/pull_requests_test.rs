@@ -17,6 +17,7 @@ const FIXTURE: &str = r#"[
     "reviewDecision": "APPROVED",
     "headRefName": "develar/virtual/auth",
     "headRefOid": "1111111111111111111111111111111111111111",
+    "baseRefName": "master",
     "headRepositoryOwner": {"id": "MDEyOk9yZ2FuaXphdGlvbjg3ODQzNw==", "login": "JetBrains"},
     "isCrossRepository": false,
     "updatedAt": "2026-10-14T09:30:00Z",
@@ -149,6 +150,7 @@ fn parses_and_matches_pull_requests_by_virtual_branch() {
   assert!(!auth.is_draft);
   assert_eq!(auth.review_decision, Some(ReviewDecision::Approved));
   assert_eq!(auth.head_ref_name, "develar/virtual/auth");
+  assert_eq!(auth.base_ref_name, "master");
   assert_eq!(auth.head_ref_oid, "1111111111111111111111111111111111111111");
   assert_eq!(auth.updated_at, 1791970200);
   assert_eq!(

@@ -547,6 +547,11 @@ export type PullRequest = {
 	reviewDecision: ReviewDecision | null,
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
 	headRefName: string,
+	/**
+	 *  The branch the pull request merges into, e.g. `master` or the parent of a stacked branch `user/virtual/auth`;
+	 *  empty if unknown
+	 */
+	baseRefName?: string,
 	/**  The commit the pull request shows; differs from the local branch tip until the branch is pushed */
 	headRefOid: string,
 	/**  null when the head commit has no checks */

@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
+import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
 /** `name@depth` of the branch rows in display order */
@@ -159,5 +160,24 @@ test.describe("Stacked branches", () => {
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Copy PR Base")
     await expect.poll(() => readClipboard(page)).toBe("master")
+  })
+
+  test("should offer to retarget a pull request whose base is not the parent", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the pull request of login still targets master, e.g. it was opened before login was stacked on auth
+    await setupRepo("stacked_branches", { pullRequests: availablePullRequests(pullRequest("login", 801, { baseRefName: "master" })) })
+    await syncAndWaitForBranches()
+    await page.route("**/invoke/push_branch", async (route) => {
+      const params = route.request().postDataJSON() as { branchName: string }
+      await route.fulfill({ json: { branchName: params.branchName, remoteExists: true, unpushedCommits: [], commitsBehind: 0, myUnpushedCount: 0, fastForward: true, lastPushTime: 1704139200 } })
+    })
+
+    await openContextMenu(page, findBranchRow(page, "login"))
+    await clickContextMenuItem(page, "Copy Retarget Command")
+    await expect.poll(() => readClipboard(page)).toBe("gh pr edit 801 --base user-name/virtual/auth")
+
+    await getPushButton(findBranchRow(page, "login")).click()
+    const toast = page.locator("[data-slot=toast]", { hasText: "retarget it to auth" })
+    await expect(toast).toBeVisible()
+    await expect(toast.getByRole("button", { name: "Copy gh pr edit" })).toBeVisible()
   })
 })

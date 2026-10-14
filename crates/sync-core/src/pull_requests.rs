@@ -28,7 +28,7 @@ pub const GH_TIMEOUT: Duration = Duration::from_secs(30);
 const PR_LIST_LIMIT: &str = "50";
 
 const PR_FIELDS: &str =
-  "number,title,url,state,isDraft,reviewDecision,headRefName,headRefOid,headRepositoryOwner,isCrossRepository,updatedAt,statusCheckRollup,latestReviews,reviewRequests";
+  "number,title,url,state,isDraft,reviewDecision,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository,updatedAt,statusCheckRollup,latestReviews,reviewRequests";
 
 /// Failed check names kept for the popover
 const MAX_FAILED_NAMES: usize = 3;
@@ -227,6 +227,8 @@ struct GhPullRequest {
   review_decision: Option<String>,
   head_ref_name: String,
   head_ref_oid: String,
+  #[serde(default)]
+  base_ref_name: String,
   head_repository_owner: Option<GhLogin>,
   #[serde(default)]
   is_cross_repository: bool,
@@ -328,6 +330,7 @@ fn to_pull_request(gh: GhPullRequest) -> PullRequest {
     review_decision,
     head_ref_name: gh.head_ref_name,
     head_ref_oid: gh.head_ref_oid,
+    base_ref_name: gh.base_ref_name,
     checks: summarize_checks(&gh.status_check_rollup.unwrap_or_default()),
     updated_at: gh.updated_at.as_deref().and_then(parse_utc_timestamp).unwrap_or(0),
     reviewers: collect_reviewers(gh.latest_reviews.unwrap_or_default(), gh.review_requests.unwrap_or_default()),

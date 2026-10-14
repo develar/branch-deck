@@ -137,8 +137,12 @@ renames branches.
 - The pull request base of a stacked branch must be its parent's pushed branch; of a root, the baseline as the remote
   names it (`master`). "Copy PR Base" in the branch menu must copy it.
   [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`)
-- After a push, the toast must name the base and offer to copy `gh pr create --base … --head …`; for an open pull
-  request whose parent was integrated, it must say to retarget it and offer `gh pr edit … --base …`.
+- After a push, the toast must name the base and offer to copy `gh pr create --base … --head …`. An open pull request
+  whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or the branch was
+  restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the
+  branch menu.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose parent has unpushed work must say to push the parent first. "Push Stack" must push
   the ancestors with unpushed work, root first, then the branch, and stop at a failure.
   [@test] ../../src/lib/stack.test.ts (`pushes the ancestors that have work for the remote first, root first`)
