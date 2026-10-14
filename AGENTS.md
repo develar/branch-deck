@@ -68,8 +68,26 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Integration Status**: Auto-detection and archiving of merged, rebased, or squashed branches.
 - **AI Branch Naming**: On-device ML model to generate branch names from unassigned commits.
 - **Context Menus**: Right-click operations (shadcn `ContextMenu`) for common actions on branches and commits.
+- **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits, with undo
+  (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
+- **Update Project**: fetch and replay onto the baseline; the only working-tree write
+  (`spec/repository/update-project.spec.md`).
+- **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
+  `spec/branch/pull-requests.spec.md`).
 
 ## Development Rules
+
+### Specs and Docs
+Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part of the change, not a follow-up.
+- **Before** changing a feature, read its spec and the design doc it links: the spec is the contract, the doc the why.
+- **Same commit**: a behaviour change updates its spec: requirements, `[@test]` links, `targets:` front matter and the
+  UX tokens. A renamed or moved test or file updates every link to it; grep `spec/` and `docs/` for the old name.
+- **New user-visible feature**: a new spec in the air format (copy the structure of an existing one), plus an entry in
+  the README "Features" list.
+- **Git**: a new git operation or a changed flow gets its section in [Git Operations](docs/design/git-operations.md);
+  a new or changed hard rule also goes into "Git Operations" below.
+- **Truth**: docs describe the code as it is. A doc that contradicts the code is a bug: fix the doc (or the code) in
+  the same change; never leave it for later. See [Design Docs Guidelines](docs/guidelines/design-docs.md).
 
 ### Git Operations
 Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
