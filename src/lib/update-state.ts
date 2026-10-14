@@ -27,7 +27,7 @@ function fileCount(count: number): string {
 export function describeUpdateState(state: UpdateState, upstream: string): UpdateStateDescription {
   switch (state.status) {
     case "upToDate":
-      return { tone: "muted", summary: `Up to date with ${upstream}`, short: "up to date" }
+      return { tone: "muted", summary: `Up to date with ${upstream}`, short: "nothing new" }
     case "clean":
       return state.kind === "fastForward"
         ? { tone: "success", summary: `Fast-forwards to ${upstream}`, short: "fast-forwards" }

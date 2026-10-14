@@ -43,7 +43,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     await page.getByTestId("outgoing-indicator").hover()
     const line = page.getByTestId("outgoing-popover").getByTestId("update-state-line")
-    await expect(line).toContainText("origin/master: rebases cleanly")
+    await expect(line).toContainText("Incoming from origin/master: rebases cleanly")
 
     await line.getByTestId("update-state-line-button").click()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()

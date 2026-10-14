@@ -141,8 +141,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   origin/master" (with the commits dropped as already upstream), and a sync follows without expanding or scrolling.
   Up to date says "master is already up to date with origin/master".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
-- The footer of the outgoing overview must show the same state in one line, "origin/master: rebases cleanly", with an
-  Update button.
+- The footer of the outgoing overview must show the same state in one line, named as incoming and with the fetch time,
+  "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to date: "nothing new"), with an Update
+  button. Below the push rows, a bare "origin/master: up to date" reads as nothing to push.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
 
 ### Conflict and blocked dialog

@@ -5,7 +5,7 @@ import { describeUpdateState, lastFetchTime } from "@/lib/update-state"
 
 describe("describeUpdateState", () => {
   it("names the state, never a count of upstream commits", () => {
-    expect(describeUpdateState({ status: "upToDate" }, "origin/master")).toEqual({ tone: "muted", summary: "Up to date with origin/master", short: "up to date" })
+    expect(describeUpdateState({ status: "upToDate" }, "origin/master")).toEqual({ tone: "muted", summary: "Up to date with origin/master", short: "nothing new" })
     expect(describeUpdateState({ status: "clean", kind: "rebase" }, "origin/master")).toEqual({ tone: "success", summary: "Rebases cleanly onto origin/master", short: "rebases cleanly" })
     expect(describeUpdateState({ status: "clean", kind: "fastForward" }, "origin/main").summary).toBe("Fast-forwards to origin/main")
   })

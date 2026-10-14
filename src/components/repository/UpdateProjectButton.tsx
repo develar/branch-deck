@@ -106,22 +106,31 @@ function UpdateProjectButtonContent({ status, phase }: { status: BaselineStatus,
   )
 }
 
-/** The update state in one line with an Update button, for the footer of the outgoing overview */
+/**
+ * The update state in one line with an Update button, for the footer of the outgoing overview. Says "Incoming" and the
+ * fetch time: below the push rows, a bare "origin/master: up to date" reads as nothing to push.
+ */
 export function UpdateStateLine() {
   const status = useRemoteBaselineStatus()
   const phase = useUpdatePhase()
   if (status === null) {
     return null
   }
+  return <UpdateStateLineContent status={status} phase={phase} />
+}
+
+function UpdateStateLineContent({ status, phase }: { status: BaselineStatus, phase: UpdatePhase | null }) {
   const description = describeStatus(status)
+  const fetchTime = useFetchTime(status)
   return (
     <div className="flex items-center justify-between gap-3" data-testid="update-state-line">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
         {description.tone === "success" && <CheckIcon className="size-3 shrink-0 text-success" />}
         {description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
         <span className="truncate">
+          {"Incoming from "}
           <span className="text-foreground">{status.update?.upstream ?? status.baselineBranch}</span>
-          {`: ${description.short}`}
+          {`: ${description.short} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`}
         </span>
       </span>
       <Button variant="ghost" size="xs" disabled={phase !== null} data-testid="update-state-line-button" onClick={() => void runUpdateProject()}>
