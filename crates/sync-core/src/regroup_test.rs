@@ -1,9 +1,9 @@
-use crate::commit_grouper::stack::StackProblem;
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, regroup_commits_core, rename_branch_core, restack_branch_core, undo_rewrite_core};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use sync_types::stack::StackProblem;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

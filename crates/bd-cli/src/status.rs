@@ -7,10 +7,10 @@ use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::commit_grouper::stack::ParentState;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
 use sync_core::regroup::{describe_problem, problem_commits};
 use sync_types::GroupedBranchInfo;
+use sync_types::stack::ParentState;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct StatusArgs {
@@ -227,7 +227,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           parent: forest.and_then(|forest| forest.declared_parent(&branch.name)).map(str::to_string),
           parent_state: forest.and_then(|forest| forest.parent_state(&branch.name)).map(|state| match state {
             ParentState::Active => ParentStateName::Active,
-            ParentState::Missing => ParentStateName::Missing,
+            // the grouping alone tells only whether the parent has commits
+            ParentState::Integrated | ParentState::Unapplied | ParentState::Missing => ParentStateName::Missing,
           }),
           problems: forest.map_or_else(Vec::new, |forest| {
             forest

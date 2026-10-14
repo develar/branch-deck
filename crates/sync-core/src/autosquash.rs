@@ -3,8 +3,8 @@
 //! `prepare_squash` with a group per target.
 
 use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::stack::{leaf_of, stacks_enabled};
 use crate::commit_grouper::{AUTOSQUASH_MARKERS, branch_name_of, parse_subject, stack_branch_name_of};
+use crate::stack::{leaf_of, stacks_enabled};
 use anyhow::{Result, anyhow, bail, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};

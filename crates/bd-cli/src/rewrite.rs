@@ -8,10 +8,10 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use sync_core::commit_grouper::stack::StackForest;
 use sync_core::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, describe_problem, problem_commits, regroup_commits_core, rename_branch_core, restack_branch_core, undo_rewrite_core,
 };
+use sync_core::stack::StackForest;
 
 /// The options every rewrite takes
 #[derive(Debug, Default, clap::Args)]

@@ -7,6 +7,7 @@ use serde::Serialize;
 pub mod branch_integration;
 pub mod issue_navigation;
 pub mod pull_request;
+pub mod stack;
 
 /// Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count
 #[derive(Clone, Debug, Serialize)]

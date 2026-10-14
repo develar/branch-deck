@@ -1,4 +1,4 @@
-use crate::commit_grouper::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
+use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
 use git_ops::commit_list::Commit;
 use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
@@ -231,9 +231,6 @@ impl CommitGrouper {
     (grouped, stacks)
   }
 }
-
-#[path = "stack.rs"]
-pub mod stack;
 
 #[cfg(test)]
 #[path = "commit_grouper_test.rs"]

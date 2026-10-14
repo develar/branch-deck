@@ -5,11 +5,11 @@
 
 use crate::autosquash::plan_autosquash;
 use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::stack::{StackForest, StackProblem, stack_path, stacks_enabled};
 use crate::commit_grouper::{CommitGrouper, parse_subject};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
+use crate::stack::{StackForest, stack_path, stacks_enabled};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::sanitize_branch_name;
@@ -19,6 +19,7 @@ use git_ops::squash_commits::restore_branch_head;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
+use sync_types::stack::StackProblem;
 use tracing::{info, instrument};
 
 /// Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids]}`

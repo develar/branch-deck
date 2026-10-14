@@ -7,6 +7,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::sanitize_branch_name;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{HashMap, HashSet};
+use sync_types::stack::{DeclaredParent, ParentState, StackProblem};
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
 
@@ -67,38 +68,6 @@ pub fn leaf_of(prefix: &str) -> Option<String> {
   stack_of(prefix).ok().map(|(leaf, _)| leaf)
 }
 
-/// Why a branch of a stack can't be placed; it never fails the other branches
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StackProblem {
-  /// Commits declare different parents, in first-declared order
-  ConflictingParents(Vec<DeclaredParent>),
-  /// Following the declared parents leads back to the branch: the branches of the cycle, starting with this one
-  Cycle(Vec<String>),
-  /// `(a/a)`: the commits that declare the branch as its own parent
-  SelfParent(Vec<String>),
-  /// Another branch has the same name ignoring case (`Login` and `login`)
-  LeafCollision(String),
-  /// `(a//b)`: the commits whose prefix has an empty level
-  Syntax(Vec<String>),
-}
-
-/// A parent and the commits that declare it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeclaredParent {
-  pub parent: String,
-  pub commits: Vec<String>,
-}
-
-/// The state of a declared parent. Integrated and unapplied parents need the integration data of a sync, so the
-/// grouping knows only these two.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParentState {
-  /// The parent has commits
-  Active,
-  /// No commit is grouped into the parent
-  Missing,
-}
-
 /// A branch of the stack forest: one with commits, or an ancestor that only prefixes declare
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StackNode {
@@ -124,7 +93,8 @@ impl StackForest {
     self.nodes.get(branch)?.declared_parent.as_deref()
   }
 
-  /// The state of the declared parent; `None` for a branch without one
+  /// The state of the declared parent as far as the grouping knows it (`Active` or `Missing`); `None` for a branch
+  /// without one
   pub fn parent_state(&self, branch: &str) -> Option<ParentState> {
     let parent = self.declared_parent(branch)?;
     Some(if self.nodes.get(parent).is_some_and(|node| node.has_commits) {

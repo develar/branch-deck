@@ -1,6 +1,6 @@
 use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::stack::{StackForest, stacks_enabled};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
+use crate::stack::{StackForest, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
