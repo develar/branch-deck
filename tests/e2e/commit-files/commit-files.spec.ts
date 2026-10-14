@@ -38,14 +38,12 @@ simpleTest.describe("Commit files in the simple repository", () => {
     await waitForBranchSyncComplete(page, "test-branch")
     await expandBranch(page, findBranchRow(page, "test-branch"))
 
-    // the root commit adds its file too
-    for (const subject of ["foo 1", "foo 2"]) {
-      const row = getBranchCommitRow(page, "test-branch", subject)
-      await expect(row.getByTestId("commit-file-count")).toHaveText("1 file")
-      await expect(row.getByTestId("commit-line-counts")).toHaveText("+1 −0")
-      // muted in a row
-      await expect(row.getByTestId("commit-line-counts").locator(".text-success")).toHaveCount(0)
-    }
+    // the branch has one commit: "foo 1", the root commit, is origin/master (the root commit's files: the Rust tests)
+    const row = getBranchCommitRow(page, "test-branch", "foo 2")
+    await expect(row.getByTestId("commit-file-count")).toHaveText("1 file")
+    await expect(row.getByTestId("commit-line-counts")).toHaveText("+1 −0")
+    // muted in a row
+    await expect(row.getByTestId("commit-line-counts").locator(".text-success")).toHaveCount(0)
   })
 
   simpleTest("should show the meta line with the files in the commits of the branch preview", async ({ page }) => {
@@ -53,9 +51,9 @@ simpleTest.describe("Commit files in the simple repository", () => {
     await findBranchRow(page, "test-branch").hover()
     await page.keyboard.press("Space")
     const commits = page.getByTestId("branch-preview").getByTestId("branch-preview-commit")
-    await expect(commits).toHaveCount(2)
-    await expect(commits.getByTestId("commit-file-count")).toHaveText(["1 file", "1 file"])
-    await expect(commits.getByTestId("commit-line-counts")).toHaveText(["+1 −0", "+1 −0"])
+    await expect(commits).toHaveCount(1)
+    await expect(commits.getByTestId("commit-file-count")).toHaveText("1 file")
+    await expect(commits.getByTestId("commit-line-counts")).toHaveText("+1 −0")
   })
 })
 
