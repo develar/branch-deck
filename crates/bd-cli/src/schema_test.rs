@@ -16,7 +16,7 @@ fn resolve<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
 }
 
 /// Every key of `value` is a property of `schema` (or a key of a map), recursively through objects and arrays
-fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
+pub(crate) fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
   let schema = resolve(root, schema);
   match value {
     Value::Object(object) => {
@@ -45,7 +45,7 @@ fn schema_lists_every_output() {
   let outputs = output["outputs"].as_object().unwrap();
   assert_eq!(
     outputs.keys().map(String::as_str).collect::<Vec<_>>(),
-    ["check", "commits", "describe", "error", "rewrite", "status", "sync", "undo"]
+    ["check", "commits", "describe", "error", "push", "rewrite", "status", "sync", "undo"]
   );
   for (name, schema) in outputs {
     assert_eq!(schema["properties"]["schema"]["const"], json!(1), "{name}");

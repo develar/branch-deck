@@ -439,6 +439,24 @@ Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `cra
 
 Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
 
+#### Agent push (`bd push`)
+
+`bd push` syncs and pushes under the repository lock, so the refs it pushes are the ones it just built:
+
+1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), a
+   branch whose remote branch has commits it lacks unless `--force`, and a stacked branch whose parent is neither on
+   the remote nor pushed with it. Branches go parents first.
+2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… refs/heads/<b>:refs/heads/<b>…`
+   through `execute_remote_command_accepting` (exit 1, a rejected ref, still prints the porcelain report). Atomic: a
+   stack is pushed whole or not at all, and a rejection is `lease_rejected`.
+3. The lease is the commit bd last pushed for the ref, recorded in `refs/branch-deck/pushed/<branch>` by one
+   `update-ref --stdin` after the push. A background fetch moves `refs/remotes/…`, never this ref, so it can't defeat
+   the lease the way a plain `--force-with-lease` against the remote-tracking ref can. Without a record, the lease is
+   the remote-tracking ref, and without that, "must not exist". With `--force` it is the remote-tracking ref: the user
+   replaces what they fetched and saw.
+
+Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/remote_command.rs`.
+
 ### Index policy
 
 When a rewrite changes HEAD's tree, the index has to follow. Otherwise `git status` shows the rewrite reversed as

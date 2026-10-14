@@ -13,6 +13,7 @@ pub mod error;
 pub mod generated;
 pub mod numstat;
 pub mod output;
+pub mod push_command;
 pub mod rewrite;
 pub mod schema;
 pub mod status;
@@ -25,6 +26,7 @@ use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
 use crate::error::{CliError, ErrorCode};
 use crate::output::write_json;
+use crate::push_command::{PushArgs, push};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status};
@@ -79,6 +81,8 @@ enum Command {
   Check(CheckArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 on a conflict
   Sync,
+  /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
+  Push(PushArgs),
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
   Describe(DescribeArgs),
   /// The JSON Schema of every output
@@ -149,6 +153,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), SyncOutput::has_conflicts),
     Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| !output.ok),
+    Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
@@ -199,6 +204,8 @@ mod describe_test;
 mod diff_scan_test;
 #[cfg(test)]
 mod fixture_test;
+#[cfg(test)]
+mod push_test;
 #[cfg(test)]
 mod rewrite_test;
 #[cfg(test)]

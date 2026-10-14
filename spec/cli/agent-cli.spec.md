@@ -20,6 +20,8 @@ targets:
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/bd-cli/src/push_command.rs
+  - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
   - ../../crates/sync-core/src/regroup.rs
@@ -33,7 +35,7 @@ targets:
 
 # Agent CLI
 
-Status: Implemented (read, regroup, check, sync and describe; push comes later)
+Status: Implemented
 Date: 2026-10-14
 
 ## Summary
@@ -54,7 +56,6 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ## Non-goals
 
-- Pushing branches: it comes later.
 - Reordering, squashing, dropping or splitting commits.
 - A console binary on Windows; the CLI runs from the macOS app binary first.
 
@@ -74,8 +75,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
-- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo`, `check`, `sync`, `describe` and
-  `error` outputs, and the real outputs must use only the properties it declares.
+- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo`, `check`, `sync`, `push`,
+  `describe` and `error` outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -209,6 +210,23 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
 - The integration results of archived branches and the update check of the checked out branch must be included
   compactly.
+
+### `bd push`
+
+- `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
+  `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
+  must need `--yes`.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`, `parses_porcelain_lines`)
+- It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
+  without `--force`, and a stacked branch whose parent is neither on the remote nor pushed with it.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
+- The lease must be the commit bd last pushed, recorded in `refs/branch-deck/pushed/` at push time, so a background
+  fetch can't defeat it; a remote that moved since must be `lease_rejected` (exit 3) with nothing pushed or recorded,
+  and `--force` must lease on the fetched remote branch.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_rejects_the_lease_until_fetched_and_forced`)
+- Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
+  the head, the `bd describe` title and body, and a ready `gh pr create` command.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_needs_its_parent_on_the_remote`)
 
 ### `bd describe`
 

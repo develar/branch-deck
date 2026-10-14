@@ -11,7 +11,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
-use sync_core::repository_lock::{RepositoryLocked, lock_repository};
+use sync_core::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository};
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
@@ -127,10 +127,20 @@ impl ProgressReporter for CollectingReporter {
 }
 
 pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
-  let _lock = lock_repository(&context.git, &context.repository, context.lock_timeout).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
+  let _lock = lock(context)?;
+  sync_locked(context)
+}
+
+/// The repository lock, `locked` after the timeout
+pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
+  lock_repository(&context.git, &context.repository, context.lock_timeout).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
     Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
     None => CliError::from(e),
-  })?;
+  })
+}
+
+/// `bd sync` for a caller that holds the repository lock
+pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
   let reporter = CollectingReporter::default();
   let runtime = tokio::runtime::Builder::new_multi_thread()
     .enable_all()

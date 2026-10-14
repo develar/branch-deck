@@ -9,7 +9,7 @@
 `bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
 together), regroup the commits and sync them. It reads with `status`, `commits` and `schema`, rewrites commit messages
 with `group`, `rename`, `restack`, `unstack` and `undo`, rebuilds the virtual branches with `sync` and keeps their pull
-request text with `describe`, and tries a plan without writing refs with `check`. `push` comes later.
+request text with `describe`, tries a plan without writing refs with `check` and pushes with `push`.
 
 It is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked as `bd`, the CLI
 runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or plugin is created.
@@ -58,7 +58,7 @@ An error looks like this:
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline` |
 | 3 | stale, read again and retry | `head_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `push_refused`, `no_remote` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
@@ -294,6 +294,30 @@ detection of archived branches and the update check of the checked out branch. I
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
 - The exit code is 1 when any branch has a conflict; the summary is printed either way.
 
+### `bd push <branch>… | --all --yes [--force] [--remote R] [--dry-run]`
+
+Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
+repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)).
+
+```json
+{"schema":1,…,"remote":"origin","dry_run":false,
+ "branches":[{"name":"auth","remote_branch":"develar/virtual/auth","commit":"1b2c3d4e","status":"new",
+   "lease":null,"lease_source":"absent",
+   "pull_request":{"base":"master","head":"develar/virtual/auth","title":"Add login","body":"The login form.",
+     "command":"gh pr create --base master --head develar/virtual/auth --title 'Add login' --body-file -"}}]}
+```
+
+- Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has
+  commits it lacks (`behind`) without `--force`, and a stacked branch whose parent isn't on the remote or pushed with
+  it. `--all` needs `--yes`.
+- `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the commit bd last pushed
+  (`lease_source: recorded`, kept in `refs/branch-deck/pushed/`), else the fetched remote branch (`tracking`, also
+  with `--force`), else none (`absent`: the branch must not exist). A remote that moved since is `lease_rejected`
+  (exit 3): fetch, check and retry.
+- `pull_request.base` is the parent's remote branch, or the baseline without the remote (`master`). With a
+  `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
+  `--fill`.
+
 ### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
 
 Prints or sets the pull request text of a branch in git's own `branch.<prefix>/virtual/<branch>.description`, stored
@@ -323,7 +347,8 @@ Prints the workflow below as plain text.
    read again and retry. Then run `bd sync`; on a conflict (exit 1) regroup the commits the change needs into the same
    branch or its parent, and sync again.
 5. Run `bd describe <branch> --title … --body …` for each branch.
-6. Show the result to the user, and run `bd push` only after the user approves. *Not yet available.*
+6. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
+   lines it prints, piping each `body` into its command.
 
 The agent never reorders, squashes or drops commits: a plan only moves commits between branches. These are the same
 rules as `src/lib/agent-prompt.ts`. `bd undo` with the printed token reverts a rewrite.

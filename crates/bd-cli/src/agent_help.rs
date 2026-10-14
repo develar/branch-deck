@@ -36,7 +36,10 @@ Workflow:
    regroup so that the commits a change depends on are in the same branch or its parent, and sync again.
 5. `bd describe <branch> --title ... --body ...` (or --body-file) for each branch: the pull request text,
    kept in `branch.<name>.description`. `bd describe <branch>` prints it; --clear removes it.
-6. Show the result to the user. `bd push` only after the user approves. (not yet available)
+6. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes): it
+   syncs, pushes parents first with a lease per ref, and prints a ready `gh pr create` per branch (pipe
+   its `body` into it). `push_refused` (exit 4): a branch didn't sync, is behind its remote branch
+   (--force replaces it), or its parent isn't on the remote. `lease_rejected` (exit 3): fetch and retry.
 
 Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits
 between branches. Errors with exit 2 (invalid_plan, not_ahead_of_baseline) mean the plan must change.

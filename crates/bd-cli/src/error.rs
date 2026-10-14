@@ -35,6 +35,10 @@ pub enum ErrorCode {
   DetachedHead,
   /// Staged changes overlap the files the operation rewrites
   StagedOverlap,
+  /// A branch can't be pushed: not synced, behind its remote branch without --force, or its parent is not on the remote
+  PushRefused,
+  /// No remote to push to
+  NoRemote,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
@@ -50,7 +54,7 @@ impl ErrorCode {
       Self::Conflict => 1,
       Self::InvalidArguments | Self::NotARepository | Self::NoBranchPrefix | Self::UnknownBranch | Self::InvalidPlan | Self::NotAheadOfBaseline => 2,
       Self::HeadMoved | Self::LeaseRejected | Self::Locked => 3,
-      Self::NoBaseline | Self::OperationInProgress | Self::DetachedHead | Self::StagedOverlap => 4,
+      Self::NoBaseline | Self::OperationInProgress | Self::DetachedHead | Self::StagedOverlap | Self::PushRefused | Self::NoRemote => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError => 5,
     }
   }
