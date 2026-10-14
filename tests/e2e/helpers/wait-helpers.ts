@@ -124,9 +124,9 @@ export async function waitForConflictViewer(
   branchDetailsRow: Locator,
   timeout = 10000,
 ): Promise<Locator> {
-  // Wait for conflict text to appear
-  const conflictText = branchDetailsRow.locator("text=Cherry-pick conflict detected").first()
-  await expect(conflictText).toBeVisible({ timeout })
+  // Wait for the conflict title ("“<subject>” does not apply cleanly onto <base>") to appear
+  const conflictTitle = branchDetailsRow.getByTestId("conflict-title").first()
+  await expect(conflictTitle).toContainText("does not apply cleanly onto", { timeout })
 
   // Return the tab container for the conflict viewer
   const tabContainer = branchDetailsRow.locator("[role=\"tablist\"]").first()

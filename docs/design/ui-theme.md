@@ -37,7 +37,7 @@ flowchart TD
     W --> U["Unassigned commits island: Card"]
     W --> A["Archived branches island: CollapsibleCard built on Card"]
     T --> R["Rows, table header bg-muted/50, hover bg-muted"]
-    T --> P["Inner panels: rounded-lg, e.g. InfoCard"]
+    T --> P["Inner panels: rounded-lg, e.g. NestedPanel, InfoCard"]
 ```
 
 - **Window canvas.** `body` is `bg-muted` (base layer of `src/index.css`), the Islands main window.
@@ -92,6 +92,11 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   canvas.
 - **Nested panels inside a card** use `rounded-lg` (4px): `InfoCard`, code boxes, diff frames and warning boxes.
   `rounded-xl` is the most they get. They must stay visibly less round than the 10px island around them.
+  - A section with a header inside an island (the conflict viewer and the amend preview in the expanded row) is a
+    `NestedPanel` (`src/components/shared/NestedPanel.tsx`): `rounded-lg border border-border bg-card`, without the ring
+    and the shadow of a `Card`, its optional header a `SectionCardHeader` row. Never a `Card` inside a `Card`.
+  - A section shown both in the row and as a sub-window page is a `SectionPanel`: a `NestedPanel` in the row, a `Card`
+    island on the page (`island`).
 - **Never hardcode a radius** (`rounded-[12px]`, `rounded-md` on a card). To change the overall feel, change `--radius`
   and check every component.
 - **Colours** use semantic tokens only, as in the Code Style section of `AGENTS.md`.
@@ -152,7 +157,8 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Spacing**:
-  - islands in the main window are separated by `gap-6` (`BranchCreator`);
+  - islands in the main window are separated by `gap-6` (`BranchCreator`), and so are the islands of a sub-window
+    page, in a `Container` with `py-4` (`ConflictWindowPage`);
   - `IndexPage` has `py-4`, so the header island does not touch the title bar.
 
 ### Verification
@@ -182,6 +188,7 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
 - Islands containers:
   - `src/components/ui/card.tsx`;
   - `src/components/shared/CollapsibleCard.tsx`;
+  - `src/components/shared/NestedPanel.tsx`;
   - `src/components/shared/Callout.tsx`, `src/components/shared/HelpPopover.tsx`, `src/components/shared/InlineCode.tsx`,
     `src/components/shared/PreviewDialogFrame.tsx`;
   - `src/components/repository/ConfigurationHeader.tsx`;

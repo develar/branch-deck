@@ -27,6 +27,13 @@ targets:
   - ../../src/components/conflict/ConflictCommitContext.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx
   - ../../src/components/conflict/ConflictResolutionHint.tsx
+  - ../../src/components/conflict/DivergenceInsight.tsx
+  - ../../src/components/conflict/ConflictingFilesSection.tsx
+  - ../../src/components/conflict/GitDiffMergeView.tsx
+  - ../../src/components/conflict/ConflictMarkerExtension.tsx
+  - ../../src/components/conflict/ConflictWindowPage.tsx
+  - ../../src/components/shared/NestedPanel.tsx
+  - ../../src/lib/merge-conflict.ts
 ---
 
 # Commit Row
@@ -235,11 +242,27 @@ The commit hash popover shows the same header and body.
 
 - A row with a merge conflict must show the conflict viewer below its header.
 - The viewer must start with its title, the missing commits insight and a collapsed "How to resolve" hint.
+- The badge must say "Merge conflict". The title must name the commit and what it is copied onto: "“<subject>” does
+  not apply cleanly onto <base>", where the base is the parent of a stacked branch or the baseline, and "the amended
+  commit" for an amend conflict. The subject leaves out the grouping prefix. The sub-windows and the branch preview say
+  the same.
+  [@test] ../../src/lib/merge-conflict.test.ts (`names the subject without its grouping prefix and the branch it is copied onto`, `says "the baseline" before the first sync names it`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`)
+- The missing commits insight must be one callout in the row and in the missing-commits window: "N missing commits
+  modified the conflicting files", then the common ancestor and how far the source and the target moved from it.
 - The conflicting files must follow, and then the missing commits details.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
+- "Conflicts only" must never hide a conflicting file. A file without conflict markers (a modify/delete conflict) must
+  show its whole diff under the line "No conflict markers in this file: showing the whole diff", so the list is never
+  empty under a non-zero file count.
+  [@test] ../../src/lib/merge-conflict.test.ts (`keeps only the hunks with conflict markers`, `keeps the whole diff of a file without conflict markers, so no conflicting file disappears`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should list every conflicting file in the Diff View, also one without conflict markers`)
+- The 3-way tab must start with a collapsed "How to read this view".
 - A row with a generic error must show the error text in a destructive alert.
-- The conflict commit context must use the commit header, with the branch name as an extra meta item.
-- The conflict pages in a separate window must also show the "How to resolve" hint.
+- The conflict commit context of a sub-window must show the title over the meta line of the commit, with the branch
+  name as an extra meta item. An unknown branch must be left out, never shown as "Unknown".
+- The conflict pages in a separate window must also show the "How to resolve" hint. Their window titles must be
+  "Conflicting files · <branch>" and "Missing commits · <branch>".
 
 ## User Experience
 
@@ -287,6 +310,18 @@ The commit hash popover shows the same header and body.
 - A selected row has no accent bar.
 - A row that is not selectable has no hover tint and keeps the default cursor.
 - The selection actions show `N selected` in muted text, then an outline "Move to…" button in the primary colour.
+
+### Conflict view
+
+- In the expanded row the viewer is three `NestedPanel`s (`rounded-lg border border-border bg-card`, no ring and no
+  shadow), 16px apart: the title with the insight and the hint, the conflicting files, the missing commits. A sub-window
+  shows the same sections as `Card` islands in a `Container`, 24px apart.
+- The title is `text-sm font-medium` after a `destructive` `TriangleAlertIcon`.
+- The insight is a `warning` `Callout` with `FileDiffIcon`; the common ancestor is a hash with its popover.
+- The file without conflict markers states it in a muted `text-xs` line above its diff.
+- The 3-way panels are `min(600px, 60vh)` high; a divider turns `bg-border` on hover.
+- The conflict marker annotations are `text-xs`: the current side (HEAD, what the base already has) in `info`, the
+  separator in `warning`, the incoming side in `success`, the common ancestor muted.
 
 ### Branch table
 

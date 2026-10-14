@@ -5,7 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FileDiffList } from "@/components/conflict/FileDiffList"
 import { GitDiffMergeView } from "@/components/conflict/GitDiffMergeView"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import type { ConflictDetail, ConflictCommit, FileDiff, MergeConflictInfo } from "@/lib/bindings"
+import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
+import { filterConflictHunks } from "@/lib/merge-conflict"
 import { setConflictViewMode, setShowConflictsOnly, useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
 export interface ConflictingFilesSectionProps {
@@ -14,14 +15,23 @@ export interface ConflictingFilesSectionProps {
   conflictMarkerCommits?: Record<string, ConflictCommit>
 }
 
-/** Conflicting files as diffs with conflict markers (optionally only the conflicting hunks) or as a 3-way merge view. */
+/** A file of "Conflicts only" without conflict markers (a modify/delete conflict) shows its whole diff with this line */
+const WHOLE_FILE_NOTE = "No conflict markers in this file: showing the whole diff"
+
+/**
+ * Conflicting files as diffs with conflict markers (optionally only the conflicting hunks) or as a 3-way merge view.
+ * Every conflicting file is listed in both views: "Conflicts only" never hides a file.
+ */
 export function ConflictingFilesSection({ conflicts, conflictInfo, conflictMarkerCommits }: ConflictingFilesSectionProps) {
   const viewMode = useConflictViewerSettings(state => state.viewMode)
   const showConflictsOnly = useConflictViewerSettings(state => state.showConflictsOnly)
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
 
   const fileDiffs = useMemo(() => conflicts.map(file => file.fileDiff), [conflicts])
-  const conflictOnlyFileDiffs = useMemo(() => filterConflictHunks(fileDiffs), [fileDiffs])
+  const conflictOnly = useMemo(() => {
+    const files = filterConflictHunks(fileDiffs)
+    return { fileDiffs: files.map(file => file.diff), notes: files.map(file => (file.isWholeFile ? WHOLE_FILE_NOTE : null)) }
+  }, [fileDiffs])
 
   // Base UI marks the panels with `data-hidden` only; `data-state` is what the E2E tests read
   const panelState = (value: string) => (viewMode === value ? "active" : "inactive")
@@ -51,7 +61,8 @@ export function ConflictingFilesSection({ conflicts, conflictInfo, conflictMarke
             </div>
 
             <FileDiffList
-              fileDiffs={showConflictsOnly ? conflictOnlyFileDiffs : fileDiffs}
+              fileDiffs={showConflictsOnly ? conflictOnly.fileDiffs : fileDiffs}
+              fileNotes={showConflictsOnly ? conflictOnly.notes : undefined}
               keyPrefix="conflict"
               conflictMarkerCommits={conflictMarkerCommits}
               diffViewMode={diffViewMode}
@@ -65,15 +76,4 @@ export function ConflictingFilesSection({ conflicts, conflictInfo, conflictMarke
       </Tabs>
     </div>
   )
-}
-
-function hasConflictMarkers(hunk: string): boolean {
-  return hunk.includes("<<<<<<<") || hunk.includes("|||||||") || hunk.includes("=======") || hunk.includes(">>>>>>>")
-}
-
-/** Keeps only the hunks with conflict markers, and only the files that have such hunks */
-function filterConflictHunks(fileDiffs: readonly FileDiff[]): FileDiff[] {
-  return fileDiffs
-    .map(fileDiff => ({ ...fileDiff, hunks: fileDiff.hunks.filter(hasConflictMarkers) }))
-    .filter(fileDiff => fileDiff.hunks.length > 0)
 }

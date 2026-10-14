@@ -1,8 +1,7 @@
 import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
-import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
+import { SectionPanel } from "@/components/shared/NestedPanel"
 import type { ConflictDetail, ConflictCommit, MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
@@ -13,46 +12,45 @@ export interface ConflictingFileListCardProps {
   conflictInfo: MergeConflictInfo
   conflictMarkerCommits: Record<string, ConflictCommit>
   branchName?: string
-  /** Rendered in the `conflicting-files` sub-window: no "Open in Window" action */
+  /** The branch the commit is copied onto, for the title of the sub-window */
+  onto?: string
+  /** Rendered in the `conflicting-files` sub-window: an island, no "Open in Window" action */
   isInWindow?: boolean
 }
 
-export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarkerCommits, branchName, isInWindow = false }: ConflictingFileListCardProps) {
+/** The conflicting files of a commit: a nested panel in the expanded row, an island in the sub-window. */
+export function ConflictingFileListCard({ conflicts, conflictInfo, conflictMarkerCommits, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
   const openConflictingFilesWindow = () => {
-    const data: ConflictingFilesWindowData = {
-      conflict: conflictInfo,
-      branchName: branchName || "Unknown",
-    }
+    const data: ConflictingFilesWindowData = { conflict: conflictInfo, branchName, onto }
     openSubWindow({
       windowId: "conflicting-files",
       url: "/conflicting-files",
-      title: `Conflicting Files - ${branchName || "Unknown Branch"}`,
+      title: branchName ? `Conflicting files · ${branchName}` : "Conflicting files",
       data,
     }).catch((error: unknown) => notifyError("Failed to open window", error))
   }
 
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-none">
-      <div className="border-b border-border p-4 sm:px-6">
-        <SectionCardHeader
-          title="Conflicting Files"
-          count={conflicts.length}
-          itemSingular="file"
-          itemPlural="files"
-          badgeColor="warning"
-          actions={!isInWindow && (
-            <Button size="xs" variant="ghost" onClick={openConflictingFilesWindow}>
-              <AppWindowIcon data-icon="inline-start" />
-              Open in Window
-            </Button>
-          )}
-        />
-      </div>
-
+    <SectionPanel
+      island={isInWindow}
+      data-testid="conflicting-files"
+      header={{
+        title: "Conflicting Files",
+        count: conflicts.length,
+        itemSingular: "file",
+        itemPlural: "files",
+        badgeColor: "warning",
+        actions: !isInWindow && (
+          <Button size="xs" variant="ghost" onClick={openConflictingFilesWindow}>
+            <AppWindowIcon data-icon="inline-start" />
+            Open in Window
+          </Button>
+        ),
+      }}
+    >
       <div className="bd-padding-card">
         <ConflictingFilesSection conflicts={conflicts} conflictInfo={conflictInfo} conflictMarkerCommits={conflictMarkerCommits} />
       </div>
-
-    </Card>
+    </SectionPanel>
   )
 }

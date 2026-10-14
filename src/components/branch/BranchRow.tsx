@@ -171,7 +171,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
                 </Tooltip>
               </div>
               <Suspense fallback={null}>
-                <MergeConflictViewer conflict={activeInline.conflictInfo} branchName={name} />
+                <MergeConflictViewer conflict={activeInline.conflictInfo} branchName={name} onto="the amended commit" />
               </Suspense>
             </div>
           </td>
