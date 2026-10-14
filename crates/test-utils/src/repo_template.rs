@@ -673,17 +673,17 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
       // upstream commits, pushed by URL so the tracking ref stays until the fetch below
       git(&["checkout", "-q", "--detach"], None)?;
-      // another author, as on a shared upstream; it reached the upstream two days after it was written, so the conflict
-      // dialog and the prompt show both times
+      // another author, as on a shared upstream; it reached the upstream 15 hours after it was written, so the conflict
+      // dialog and the prompt show both times. Every time is before the fixed clock of the e2e pages (2024-01-02 10:00 UTC)
       commit_as(
         "Dana Lee <dana@example.com>",
         "Change line 2 upstream",
         &[(UPDATE_APP_FILE, "line 1\nline 2 upstream\nline 3\n")],
-        (1704121200, 1704294000),
+        (1704121200, 1704175200),
       )?;
-      commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704294300)?;
+      commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704175500)?;
       if scenario == UpdateScenario::Landed {
-        // as a Safe Push robot pushes the local commits below, days after they were written
+        // as a Safe Push robot pushes the local commits below, the morning after they were written
         for (message, path, content, author_time) in [
           ("Add login", "src/auth.txt", "login\n", 1704118500),
           ("Add index for JIRA-42", "src/search.txt", "index\n", 1704118600),
@@ -693,7 +693,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
           let output = Command::new("git")
             .args(["commit", "-q", "-m", message])
             .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
-            .env("GIT_COMMITTER_DATE", "1704294600 +0000")
+            .env("GIT_COMMITTER_DATE", "1704175800 +0000")
             .env("GIT_COMMITTER_NAME", "Patronus")
             .env("GIT_COMMITTER_EMAIL", "patronus@example.com")
             .current_dir(output_path)

@@ -273,8 +273,9 @@ The header shows whether an update would apply cleanly, from a check that every 
 - `pnpm test:unit` covers the state words and the prompt.
 - `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict` and
   `update_blocked`: a clone with a bare upstream at `.git/upstream.git`, already fetched, so the update works offline.
-  The upstream commit that conflicts landed two days after it was written, so the dialog and the prompt show both
-  times (`e2e_templates_have_the_expected_update_states` checks it).
+  The upstream commit that conflicts landed 15 hours after it was written, so the dialog and the prompt show both
+  times (`e2e_templates_have_the_expected_update_states` checks it); every template time is before the fixed clock of
+  the e2e pages, 2024-01-02 10:00 UTC.
 
 ## Open Questions / Risks
 
