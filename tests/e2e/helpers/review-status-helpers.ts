@@ -15,6 +15,8 @@ export async function pushBranchFromRow(page: Page, branchName: string, result: 
   await routePush(page, { [branchName]: result })
   await getPushButton(findBranchRow(page, branchName)).click()
   await expect(page.getByText(`Branch ${branchName} pushed successfully`)).toBeVisible()
+  // the pointer leaves the button: a disabled push button still shows its description on hover, over the next hover
+  await page.mouse.move(0, 0)
 }
 
 /** Hovers a status chip (pull request, Patronus robot) and returns its details popover */
