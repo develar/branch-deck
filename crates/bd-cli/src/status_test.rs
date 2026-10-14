@@ -228,3 +228,33 @@ fn stats_per_branch() {
   let (_, output) = run_in(&repo, &["status"]);
   assert_eq!(output["branches"][0].get("stats"), None);
 }
+
+#[test_log::test]
+fn stacks_in_status() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let mut ids = Vec::new();
+  for (index, subject) in ["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"]
+    .iter()
+    .enumerate()
+  {
+    write(&repo, &format!("f{index}.txt"), *subject);
+    ids.push(commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100));
+  }
+
+  let (exit_code, output) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["forest"], json!(["auth", "login", "c", "oauth"]));
+  let branch = |name: &str| output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap().clone();
+  assert_eq!((&branch("login")["parent"], &branch("login")["parent_state"]), (&json!("auth"), &json!("active")));
+  assert_eq!(branch("auth").get("parent"), None);
+  assert_eq!(branch("oauth")["parent_state"], json!("missing"));
+  assert_eq!(
+    branch("c")["problems"],
+    json!([{ "message": "c has conflicting parents x, y", "commits": [short(&ids[2]), short(&ids[3])] }])
+  );
+
+  // `bd commits` groups by the leaf too
+  let (_, commits) = run_in(&repo, &["commits"]);
+  assert_eq!(commits["commits"][1]["group"], json!("login"));
+}

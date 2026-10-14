@@ -43,7 +43,10 @@ fn schema_lists_every_output() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["schema"], json!(1));
   let outputs = output["outputs"].as_object().unwrap();
-  assert_eq!(outputs.keys().map(String::as_str).collect::<Vec<_>>(), ["commits", "error", "rewrite", "status", "undo"]);
+  assert_eq!(
+    outputs.keys().map(String::as_str).collect::<Vec<_>>(),
+    ["commits", "describe", "error", "rewrite", "status", "sync", "undo"]
+  );
   for (name, schema) in outputs {
     assert_eq!(schema["properties"]["schema"]["const"], json!(1), "{name}");
     assert!(schema["required"].as_array().unwrap().contains(&json!("schema")), "{name}");
@@ -86,6 +89,14 @@ fn outputs_match_schema() {
   assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &rewrite, "rewrite");
   let (_, undo) = run_in(&repo, &["undo", rewrite["undo_token"].as_str().unwrap()]);
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo");
+
+  let (_, describe) = run_in(&repo, &["describe", "PROJ-1", "--title", "Add b", "--body", "Body"]);
+  assert_covered(&schema["outputs"]["describe"], &schema["outputs"]["describe"], &describe, "describe");
+  let (_, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(sync.get("error"), None, "{sync}");
+  assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &sync, "sync");
+  let (_, status) = run_in(&repo, &["status", "--stats"]);
+  assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with stacks");
 
   let (_, error) = run_in(&repo, &["status", "--branch", "missing"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &error, "error");

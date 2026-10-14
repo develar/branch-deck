@@ -154,7 +154,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
   } else {
     HashMap::new()
   };
-  let fixups = fixup_targets(&head, &ordered);
+  let fixups = fixup_targets(&head, &ordered, grouping.stacks);
   let generated = if args.files || !args.include_generated {
     let paths = diffs
       .iter()
@@ -240,10 +240,10 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
 }
 
 /// Fixup commit id -> its kind and the target `plan_autosquash` resolves, `None` for an orphan
-fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)]) -> HashMap<String, (FixupKind, Option<String>)> {
+fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)], stacks: bool) -> HashMap<String, (FixupKind, Option<String>)> {
   let commits: Vec<Commit> = ordered.iter().map(|(commit, _)| (*commit).clone()).collect();
   // the CLI groups without stacked branches so far
-  let plan = plan_autosquash(head.to_string(), &commits, false);
+  let plan = plan_autosquash(head.to_string(), &commits, stacks);
   let mut targets: HashMap<String, (FixupKind, Option<String>)> = plan
     .groups
     .into_iter()

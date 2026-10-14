@@ -1,4 +1,5 @@
 use crate::baseline::detect_baseline_branch;
+use crate::commit_grouper::stack::{StackForest, stacks_enabled};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
@@ -18,15 +19,21 @@ pub struct BranchGrouping {
   pub commit_ids: Vec<String>,
   /// The parent of the oldest commit, which the virtual branches are rebuilt on; `None` without commits
   pub base: Option<String>,
+  /// Stacked branches are on (`branchdeck.stacks`)
+  pub stacks: bool,
+  /// How the branches stack; `None` with stacked branches off
+  pub forest: Option<StackForest>,
 }
 
 /// Group the commits ahead of the baseline by prefix or issue key: the first phase of a sync without its events, two
-/// to four git processes (baseline detection and one `log`). No integration detection, no update check, no network
+/// to five git processes (the stack setting, baseline detection and one `log`). No integration detection, no update
+/// check, no network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<BranchGrouping> {
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
 
-  let mut grouper = CommitGrouper::new();
+  let stacks = stacks_enabled(git_executor, repository_path)?;
+  let mut grouper = CommitGrouper::new_with_stacks(stacks);
   let mut commit_ids = Vec::new();
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
     commit_ids.push(commit.id.clone());
@@ -35,16 +42,21 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
   })?;
 
   let base = grouper.first_parent_id.take();
-  let GroupedCommits {
-    branches,
-    unassigned,
-    branch_emails,
-  } = grouper.finish();
+  let (
+    GroupedCommits {
+      branches,
+      unassigned,
+      branch_emails,
+    },
+    forest,
+  ) = grouper.finish_with_stacks();
   Ok(BranchGrouping {
     branches: prepare_branches_for_ui(&branches, &branch_emails),
     baseline_branch,
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,
     base,
+    stacks,
+    forest,
   })
 }

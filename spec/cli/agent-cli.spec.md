@@ -17,6 +17,8 @@ targets:
   - ../../crates/bd-cli/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-cli/src/describe.rs
+  - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
@@ -28,14 +30,15 @@ targets:
 
 # Agent CLI
 
-Status: Implemented (read and regroup; check, sync, describe and push come later)
+Status: Implemented (read, regroup, sync and describe; check and push come later)
 Date: 2026-10-14
 
 ## Summary
 
 `bd` lets a coding agent read what Branch Deck sees: the branches the commits ahead of the baseline group into, the
 unassigned commits, and every commit with its files and what ties it to the others. The agent clusters the commits
-into branches from that and applies the grouping with one validated rewrite of the commit messages. It is the `cli` subcommand of the app binary
+into branches from that, applies the grouping with one validated rewrite of the commit messages, syncs the virtual
+branches and writes their pull request text. It is the `cli` subcommand of the app binary
 (`branch-deck cli status`), or the binary symlinked as `bd`. Every output is one JSON object with a stable schema.
 How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli.md).
 
@@ -48,7 +51,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ## Non-goals
 
-- Syncing, describing and pushing branches from the CLI: they come later.
+- Pushing branches and a trial sync of a plan (`bd check`): they come later.
 - Reordering, squashing, dropping or splitting commits.
 - A console binary on Windows; the CLI runs from the macOS app binary first.
 
@@ -68,8 +71,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
-- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo` and `error` outputs, and the
-  real outputs must use only the properties it declares.
+- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo`, `sync`, `describe` and `error`
+  outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -91,6 +94,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits, and the branches otherwise.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
 - It must not run integration detection, an update check or a network command.
+- With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active` or `missing`) and
+  its stack `problems` with the commits that declare them, and the output must list the `forest` order, parents
+  first; `bd commits` must group by the leaf as well.
+  [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`)
+- Each branch with a `bd describe` text must show its title, read for all branches in one git process.
+  [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)
 - `--stats` must add per branch the distinct files, the generated files, added and deleted lines, the top three
   directories, the authors, the author date range, the issue keys and a diffstat of the synced branch against the sync
   base (`null` if it was never synced), for all branches in at most three more git processes.
@@ -168,6 +177,25 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with `head_moved` once the branch changed again.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+
+### `bd sync`
+
+- `bd sync` must run the app's sync (`sync_branches`) under the repository lock (`locked`, exit 3, when another
+  process holds it) and print per branch the status (`created`, `updated`, `unchanged`, `error`, `merge_conflict`),
+  the commit count, the new tip and the remote state, plus the unassigned count.
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`)
+- A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
+  exit code must be 1.
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
+- The integration results of archived branches and the update check of the checked out branch must be included
+  compactly.
+
+### `bd describe`
+
+- `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`.
+- `--title`, `--body` and `--body-file` must set it as `title`, a blank line and the body, keeping the part not
+  given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
+  [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
 
 ### `bd help agent`
 

@@ -14,7 +14,8 @@ Exit codes: 0 ok, 1 conflict, 2 invalid input, 3 stale (read again and retry), 4
 `bd schema` prints the JSON Schema of every output.
 
 Workflow:
-1. `bd status` for the branches and the unassigned commits, then `bd commits --files`, and
+1. `bd status` for the branches and the unassigned commits (with stacked branches on, also each
+   branch's `parent`, `parent_state`, `problems` and the `forest` order), then `bd commits --files`, and
    `bd commits --patch --branch <b>` for the clusters that are unclear.
 2. Cluster the commits by intent. `dependencies` ({from, to, files}: `from` touches lines `to` added) and
    `cluster_overlap` (files two branches both change) show which commits can't be separated: a commit
@@ -25,10 +26,13 @@ Workflow:
    fix the plan until it is accepted. `bd check` (a trial sync of the plan) is not yet available.
 4. `bd group --expect-head <head from bd status> < plan.json`. It rewrites commit messages only, in one
    rewrite, and prints the new groups and an `undo_token`. `head_moved` or `locked` (exit 3): read again
-   and retry. `bd sync` is not yet available: the user syncs in the app.
-   Also: `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`, all with
-   --dry-run and --expect-head; `bd undo <undo_token>` restores the previous HEAD.
-5. `bd describe <branch> --title ... --body ...` for each branch.  (not yet available)
+   and retry. Also: `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`, all
+   with --dry-run and --expect-head; `bd undo <undo_token>` restores the previous HEAD.
+   Then `bd sync`: it rebuilds the virtual branches and prints per branch created/updated/unchanged/
+   error/merge_conflict (the commit, the files and the commits it likely needs). Exit 1 on a conflict:
+   regroup so that the commits a change depends on are in the same branch or its parent, and sync again.
+5. `bd describe <branch> --title ... --body ...` (or --body-file) for each branch: the pull request text,
+   kept in `branch.<name>.description`. `bd describe <branch>` prints it; --clear removes it.
 6. Show the result to the user. `bd push` only after the user approves. (not yet available)
 
 Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits

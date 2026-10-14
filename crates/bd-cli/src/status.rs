@@ -1,12 +1,15 @@
 use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
+use crate::describe::read_descriptions;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
+use sync_core::commit_grouper::stack::ParentState;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
+use sync_core::regroup::{describe_problem, problem_commits};
 use sync_types::GroupedBranchInfo;
 
 #[derive(Debug, Default, clap::Args)]
@@ -41,6 +44,9 @@ pub struct StatusOutput {
   pub baseline: String,
   pub branch_count: usize,
   pub unassigned_count: usize,
+  /// With stacked branches on (`branchdeck.stacks`): the branches with commits, each after its parent
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub forest: Option<Vec<String>>,
   /// Newest first; omitted with --unassigned
   #[serde(skip_serializing_if = "Option::is_none")]
   pub branches: Option<Vec<BranchStatus>>,
@@ -63,9 +69,18 @@ pub struct BranchStatus {
   /// The virtual branch, `refs/heads/{prefix}/virtual/{name}`
   #[serde(rename = "ref")]
   pub reference: String,
-  /// The parent branch of a stacked branch (not available yet)
+  /// The parent its commits declare (`(parent/name)`), with stacked branches on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
+  /// Whether the declared parent has commits
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent_state: Option<ParentStateName>,
+  /// Why the branch can't be placed in the stack: conflicting parents, a cycle, a case collision, …
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub problems: Vec<StackIssue>,
+  /// The title of `branch.<name>.description` (`bd describe`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<DescriptionTitle>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub issue_key: Option<String>,
   /// The newest committer time of its commits, Unix seconds
@@ -81,6 +96,28 @@ pub struct BranchStatus {
   pub stats: Option<BranchStats>,
   /// Newest first; subjects without the `(prefix)`
   pub commits: Vec<CommitSummary>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParentStateName {
+  /// The parent has commits
+  Active,
+  /// No commit is grouped into the parent
+  Missing,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StackIssue {
+  pub message: String,
+  /// The commits that declare it
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub commits: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DescriptionTitle {
+  pub title: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -136,6 +173,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
   let grouping = read_grouping(context, args.branch.as_deref())?;
 
   let tips = read_virtual_tips(context)?;
+  let descriptions = read_descriptions(context)?;
+  let forest = grouping.forest.as_ref();
   let short = context.short_ids(
     grouping
       .branches
@@ -185,7 +224,24 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           tip: tips.get(&reference).map(|tip| short.get(tip).to_string()),
           name: branch.name.clone(),
           reference,
-          parent: None,
+          parent: forest.and_then(|forest| forest.declared_parent(&branch.name)).map(str::to_string),
+          parent_state: forest.and_then(|forest| forest.parent_state(&branch.name)).map(|state| match state {
+            ParentState::Active => ParentStateName::Active,
+            ParentState::Missing => ParentStateName::Missing,
+          }),
+          problems: forest.map_or_else(Vec::new, |forest| {
+            forest
+              .problems(&branch.name)
+              .iter()
+              .map(|problem| StackIssue {
+                message: describe_problem(&branch.name, problem),
+                commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
+              })
+              .collect()
+          }),
+          description: descriptions
+            .get(&reference_of(&branch.name))
+            .map(|description| DescriptionTitle { title: description.title.clone() }),
           pull_request: None,
           issue_key: branch.issue_key.clone(),
           latest_time: branch.latest_commit_time,
@@ -210,6 +266,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     baseline: grouping.baseline_branch.clone(),
     branch_count: grouping.branches.len(),
     unassigned_count: grouping.unassigned.len(),
+    forest: forest.map(|forest| forest.order.clone()),
     branches,
     unassigned,
   })

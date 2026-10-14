@@ -7,8 +7,9 @@
 ## Summary
 
 `bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
-together) and regroup the commits. It reads with `status`, `commits` and `schema`, and rewrites commit messages with
-`group`, `rename`, `restack`, `unstack` and `undo`. `check`, `sync`, `describe` and `push` come later.
+together), regroup the commits and sync them. It reads with `status`, `commits` and `schema`, rewrites commit messages
+with `group`, `rename`, `restack`, `unstack` and `undo`, rebuilds the virtual branches with `sync` and keeps their pull
+request text with `describe`. `check` and `push` come later.
 
 It is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked as `bd`, the CLI
 runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or plugin is created.
@@ -87,8 +88,13 @@ for all the commits.
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
-- `parent` (the parent of a stacked branch) and `pull_request` (from `sync_core::pull_requests`) are reserved, and
-  left out until stacks and pull request status exist.
+- With stacked branches on (`git config branchdeck.stacks true`), each branch has the `parent` its commits declare,
+  `parent_state` (`active` if the parent has commits, else `missing`) and `problems` (`{message, commits}`: conflicting
+  parents, a cycle, a self parent, a case collision, an empty stack level), and the output has `forest`: the branches
+  with commits, each after its parent. `effective_base` and `blocked_by` come with stacked syncs.
+- `description` is `{title}` of the branch's `bd describe` text, read for all branches with one
+  `git config --get-regexp`.
+- `pull_request` (from `sync_core::pull_requests`) is reserved, and left out until pull request status is wired.
 - `--stats` adds `stats` to each listed branch:
 
   ```json
@@ -235,9 +241,38 @@ Plans that `bd` computes, validated and written like `bd group`, with the same o
 Moves the branch back from the token's new HEAD to its previous HEAD, with CAS and the lock: `head_moved` once
 anything else changed the branch. Prints `{"schema":1,…,"head":"<restored>","undone":"<undone>"}`.
 
+### `bd sync`
+
+Rebuilds the virtual branches with `sync_core::sync::sync_branches`, the app's sync: it includes the integration
+detection of archived branches and the update check of the checked out branch. It holds the repository lock.
+
+```json
+{"schema":1,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
+ "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","status":"created","commit_count":2,
+   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0}},
+  {"name":"login","ref":"…","status":"merge_conflict","commit_count":1,"tip":null,
+   "conflict":{"commit":"9d0e1f2a","subject":"(login) Use the session","files":["src/session.rs"],
+     "missing_commits":["5f6a7b8c"]}}],
+ "archived":[{"name":"old-fix","status":"integrated","integrated_at":1700000000}],
+ "update":{"upstream":"origin/master","state":"up_to_date"}}
+```
+
+- `status` is `created`, `updated`, `unchanged`, `error` (with `error`) or `merge_conflict` (with `conflict`: the
+  commit whose cherry-pick conflicts, the files, and the commits of other branches the change likely needs).
+  `blocked` lists the commits not synced after an earlier failure.
+- `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
+- The exit code is 1 when any branch has a conflict; the summary is printed either way.
+
+### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
+
+Prints or sets the pull request text of a branch in git's own `branch.<prefix>/virtual/<branch>.description`, stored
+as `title`, a blank line and the body, as `git branch --edit-description` writes it. Without options it prints
+`{…,"branch","ref","description":{"title","body"}|null,"changed":false}`. `--title` or `--body` replace only that part;
+`--body-file -` reads stdin; `--clear` removes it. The branch must be a current group.
+
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"commits":{...},"error":{...},"rewrite":{...},"status":{...},"undo":{...}}}`;
+Prints `{"schema":1,"outputs":{"commits":…,"describe":…,"error":…,"rewrite":…,"status":…,"sync":…,"undo":…}}`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`.
 
 ### `bd help agent`
@@ -253,8 +288,9 @@ Prints the workflow below as plain text.
 3. Write the plan and run `bd group --dry-run < plan.json` until it is accepted. `bd check`, a trial sync of the plan
    that finds cherry-pick conflicts, is *not yet available*.
 4. Run `bd group --expect-head <head> < plan.json` with the HEAD `bd status` printed. On `head_moved` or `locked`,
-   read again and retry. Then the user syncs; `bd sync` is *not yet available*.
-5. Run `bd describe` for each branch. *Not yet available.*
+   read again and retry. Then run `bd sync`; on a conflict (exit 1) regroup the commits the change needs into the same
+   branch or its parent, and sync again.
+5. Run `bd describe <branch> --title … --body …` for each branch.
 6. Show the result to the user, and run `bd push` only after the user approves. *Not yet available.*
 
 The agent never reorders, squashes or drops commits: a plan only moves commits between branches. These are the same

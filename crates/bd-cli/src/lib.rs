@@ -6,6 +6,7 @@ pub mod branch_stats;
 pub mod commits;
 pub mod context;
 pub mod dependencies;
+pub mod describe;
 pub mod diff_scan;
 pub mod error;
 pub mod generated;
@@ -14,15 +15,18 @@ pub mod output;
 pub mod rewrite;
 pub mod schema;
 pub mod status;
+pub mod sync_command;
 
 use crate::agent_help::AGENT_HELP;
 use crate::commits::{CommitsArgs, commits};
 use crate::context::{Environment, RepoContext, RepoOptions};
+use crate::describe::{DescribeArgs, describe};
 use crate::error::{CliError, ErrorCode};
 use crate::output::write_json;
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status};
+use crate::sync_command::sync;
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -68,6 +72,10 @@ enum Command {
   Unstack(UnstackArgs),
   /// Undo a rewrite with the `undo_token` it printed
   Undo(UndoArgs),
+  /// Rebuild the virtual branches, as the app's sync does; exit code 1 on a conflict
+  Sync,
+  /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
+  Describe(DescribeArgs),
   /// The JSON Schema of every output
   Schema,
   /// `bd help agent`: the agent workflow; `bd help`: the usage
@@ -133,6 +141,18 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Restack(args) => context().and_then(|context| restack(&context, args)).and_then(|output| print(out, &output)),
     Command::Unstack(args) => context().and_then(|context| unstack(&context, args)).and_then(|output| print(out, &output)),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
+    Command::Sync => match context().and_then(|context| sync(&context)) {
+      // the summary is the output either way; a conflict only changes the exit code
+      Ok(output) => {
+        let exit_code = if output.has_conflicts() { ErrorCode::Conflict.exit_code() } else { 0 };
+        return match print(out, &output) {
+          Ok(()) => exit_code,
+          Err(error) => print_error(out, &error),
+        };
+      }
+      Err(error) => Err(error),
+    },
+    Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
@@ -165,6 +185,8 @@ mod commits_test;
 #[cfg(test)]
 mod dependencies_test;
 #[cfg(test)]
+mod describe_test;
+#[cfg(test)]
 mod diff_scan_test;
 #[cfg(test)]
 mod fixture_test;
@@ -174,3 +196,5 @@ mod rewrite_test;
 mod schema_test;
 #[cfg(test)]
 mod status_test;
+#[cfg(test)]
+mod sync_test;

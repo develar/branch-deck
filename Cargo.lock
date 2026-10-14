@@ -504,6 +504,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
