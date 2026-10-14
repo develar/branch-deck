@@ -11,7 +11,7 @@ export function openMergeRequest(url: string): void {
 }
 
 /**
- * "Create Merge Request…" of the branch menu, the step of the Safe Push form on its own: pushes the branch when the
+ * "Create Space Merge Request…" of the branch menu, the step of the Safe Push form on its own: pushes the branch when the
  * remote lacks its tip (Space opens a merge request of a pushed branch; the push asks first while a Safe Push of the
  * branch runs), creates the merge request into the target branch and opens it in the browser. A toast names it and
  * opens it again. A failed push creates nothing; a failure is an error toast.

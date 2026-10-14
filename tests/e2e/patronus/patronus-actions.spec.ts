@@ -132,7 +132,7 @@ test.describe("Patronus actions", () => {
     await row.getByRole("button", { name: "More actions for ABC-123" }).click()
     const rowMenu = page.getByRole("menu", { name: "More actions for ABC-123" })
     await expect(rowMenu.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
-    await expect(rowMenu.getByRole("menuitem", { name: "Create Merge Request…" })).toBeEnabled()
+    await expect(rowMenu.getByRole("menuitem", { name: "Create Space Merge Request…" })).toBeEnabled()
     await rowMenu.getByRole("menuitem", { name: "Safe Push…" }).click()
     await expect(form).toBeVisible()
     await verifyBranchState(row, "closed")
@@ -157,7 +157,7 @@ test.describe("Patronus actions", () => {
     const creates = await routeCommand(page, "create_patronus_merge_request", () => mergeRequest)
 
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Create Merge Request…" }).click()
+    await page.getByRole("menuitem", { name: "Create Space Merge Request…" }).click()
 
     // Space opens a merge request of a pushed branch
     const toast = page.locator("[data-slot=toast]", { hasText: "Created merge request IJ-CR-8" })

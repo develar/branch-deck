@@ -25,7 +25,7 @@ import { getPullRequest } from "@/stores/pull-requests"
  * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
  * rename (name an issue branch; an issue group is renamed without a rewrite) and ungroup, then commit actions (issue
  * reference, amend, unapply), then history (squash fixups, open or create the pull request), then Patronus (Safe Push,
- * Dry Run, Create Merge Request, the robot of the branch). An item that opens a form ends with "…". The right-click on
+ * Dry Run, Create Space Merge Request, the robot of the branch). An item that opens a form ends with "…". The right-click on
  * the row and the "⋯" of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
@@ -139,7 +139,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 }
 
 /**
- * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Merge Request…, then the restart, the cancel
+ * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Space Merge Request…, then the restart, the cancel
  * and the page of the branch's robot
  */
 function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
@@ -165,13 +165,13 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
 }
 
 /**
- * "Create Merge Request…": the step of the Safe Push form on its own, so the code owners approve before a start; it
+ * "Create Space Merge Request…": the step of the Safe Push form on its own, so the code owners approve before a start; it
  * pushes the branch first when the remote lacks its tip, which a blocked branch can't
  */
 function getCreateMergeRequestItem(branch: Branch): MenuItem {
   const blocked = branch.status === "Blocked"
   return {
-    label: "Create Merge Request…",
+    label: "Create Space Merge Request…",
     icon: GitPullRequestCreateIcon,
     disabled: blocked,
     description: blocked ? formatBlockedReason(branch) : "Pushes the branch if needed and opens its Space merge request, for the code-owner approvals.",

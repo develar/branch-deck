@@ -294,10 +294,10 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals, create the merge request and start with it`)
 - The start links the merge request of the branch (`spaceReview`), so its approvals count.
-- The Patronus group of the branch menu has "Create Merge Request…", the step of the form on its own, so the code
+- The Patronus group of the branch menu has "Create Space Merge Request…", the step of the form on its own, so the code
   owners can approve before a start: it pushes the branch when the remote lacks its tip (asking first while a Safe Push
   of the branch runs; a failed push creates nothing), creates the merge request into the target branch
-  (`POST /space/merge-requests`, as the form's "Create Merge Request") and opens it in the browser. While Patronus
+  (`POST /space/merge-requests`, as the form's "Create Space Merge Request") and opens it in the browser. While Patronus
   answers, a loading toast says "Creating a merge request of auth…"; then a `success` toast "Created merge request
   IJ-CR-8" offers "Open merge request". A failure is an error toast. A blocked branch can't (it can't be pushed): the
   item is disabled with the reason on hover.
