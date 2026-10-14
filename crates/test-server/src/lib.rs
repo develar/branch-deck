@@ -75,6 +75,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword_commits", post(tauri_command_bridge::reword_commits))
     .route("/invoke/move_commits_to_branch", post(tauri_command_bridge::move_commits_to_branch))
+    .route("/invoke/squash_commits", post(tauri_command_bridge::squash_commits))
+    .route("/invoke/restore_branch_head", post(tauri_command_bridge::restore_branch_head))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))

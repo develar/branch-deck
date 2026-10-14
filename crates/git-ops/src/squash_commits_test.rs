@@ -1,0 +1,283 @@
+use super::copy_commit::CopyCommitError;
+use super::ref_transaction::RefTransaction;
+use super::rewrite_plan::{History, PreparedRewrite};
+use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, write_file};
+use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
+use anyhow::Result;
+use test_log::test;
+use test_utils::git_test_utils::TestRepo;
+
+fn group(target: &str, folded: &[&str], message: SquashMessage) -> SquashGroup {
+  SquashGroup {
+    target: target.to_string(),
+    folded: folded.iter().map(|id| (*id).to_string()).collect(),
+    message,
+  }
+}
+
+fn text(message: &str) -> SquashMessage {
+  SquashMessage::Text(message.to_string())
+}
+
+fn prepare(repo: &TestRepo, groups: &[SquashGroup]) -> Result<PreparedRewrite, CopyCommitError> {
+  let history = History::read(repo.git_executor(), repo_path(repo))?;
+  prepare_squash(repo.git_executor(), repo_path(repo), &history, groups)
+}
+
+/// Squashes `folded` into `target`; returns the prepared rewrite (moved already)
+fn squash(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Result<PreparedRewrite> {
+  let prepared = prepare(repo, &[group(target, folded, text(message))])?;
+  prepared.apply(repo.git_executor(), repo_path(repo), RefTransaction::new(), "squash 2 commits")?;
+  Ok(prepared)
+}
+
+/// The squash is refused with an error containing `expected`, and nothing changed
+fn assert_refused(repo: &TestRepo, groups: &[SquashGroup], expected: &str) -> Result<()> {
+  let head_before = repo.head();
+  let error = prepare(repo, groups).expect_err("squash should be refused");
+  assert!(error.to_string().contains(expected), "{error}");
+  assert_eq!(repo.head(), head_before);
+  assert_no_temp_refs(repo)
+}
+
+/// "Base", then "Add a" (the target) and "Add b" (the folded commit, HEAD)
+fn base_a_b() -> (TestRepo, String, String) {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let target = repo.create_commit("Add a", "a.txt", "a");
+  let folded = repo.create_commit("Add b", "b.txt", "b");
+  (repo, target, folded)
+}
+
+fn git(repo: &TestRepo, args: &[&str]) -> Result<String> {
+  repo.git_executor().execute_command_raw(args, repo_path(repo))
+}
+
+fn subjects(repo: &TestRepo) -> Result<String> {
+  repo.git_executor().execute_command(&["log", "--format=%s", "HEAD"], repo_path(repo))
+}
+
+#[test]
+fn squashes_adjacent_commits_into_the_oldest() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let target = repo.create_commit_with_timestamp("(auth) Add login", "login.txt", "login", Some(1_700_000_000));
+  let folded = repo.create_commit("(auth) Add logout", "logout.txt", "logout");
+  repo.create_commit("Later", "later.txt", "later");
+  let author = log_format(&repo, &target, "%an <%ae> %ad")?;
+
+  let prepared = squash(&repo, &target, &[&folded], "(auth) Add login and logout\n\nBoth flows")?;
+
+  assert_eq!(subjects(&repo)?, "Later\n(auth) Add login and logout\nBase");
+  let squashed = prepared.replacement_of(&target).expect("the target is replaced").to_string();
+  assert_eq!(git(&repo, &["rev-parse", "HEAD~1"])?.trim(), squashed);
+  assert_eq!(log_format(&repo, &squashed, "%B")?, "(auth) Add login and logout\n\nBoth flows");
+  assert_eq!(log_format(&repo, &squashed, "%an <%ae> %ad")?, author);
+  assert_eq!(show(&repo, &squashed, "logout.txt")?, "logout");
+  assert_eq!(prepared.new_head(), repo.head());
+  assert_no_temp_refs(&repo)
+}
+
+#[test]
+fn keeps_the_commit_in_between_of_another_branch() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let target = repo.create_commit("(auth) Add login", "login.txt", "1\n");
+  repo.create_commit("(docs) Document", "docs.md", "docs");
+  let folded = repo.create_commit("(auth) Fix login", "login.txt", "2\n");
+  let head_tree = repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?;
+
+  squash(&repo, &target, &[&folded], "(auth) Add login\n")?;
+
+  assert_eq!(subjects(&repo)?, "(docs) Document\n(auth) Add login\nBase");
+  assert_eq!(show(&repo, "HEAD~1", "login.txt")?, "2");
+  assert_eq!(repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?, head_tree);
+  assert_no_temp_refs(&repo)
+}
+
+#[test]
+fn squashes_head_into_an_older_commit() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let target = repo.create_commit("Add a", "a.txt", "a");
+  repo.create_commit("Add b", "b.txt", "b");
+  let head = repo.create_commit("Add c", "c.txt", "c");
+
+  squash(&repo, &target, &[&head], "Add a and c\n")?;
+
+  assert_eq!(subjects(&repo)?, "Add b\nAdd a and c\nBase");
+  assert_eq!(show(&repo, "HEAD~1", "c.txt")?, "c");
+  assert_eq!(commit_count(&repo)?, 3);
+  assert_no_temp_refs(&repo)
+}
+
+#[test]
+fn squashes_several_groups_in_one_rewrite() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let a = repo.create_commit("Add a", "a.txt", "a");
+  let b = repo.create_commit("Add b", "b.txt", "b");
+  let a2 = repo.create_commit("Fix a", "a.txt", "a2");
+  let b2 = repo.create_commit("Fix b", "b.txt", "b2");
+
+  let groups = [group(&a, &[&a2], text("Add a\n")), group(&b, &[&b2], text("Add b\n"))];
+  prepare(&repo, &groups)?.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash")?;
+
+  assert_eq!(subjects(&repo)?, "Add b\nAdd a\nBase");
+  assert_eq!(show(&repo, "HEAD~1", "a.txt")?, "a2");
+  assert_eq!(show(&repo, "HEAD", "b.txt")?, "b2");
+  assert_no_temp_refs(&repo)
+}
+
+#[test]
+fn target_message_keeps_the_bytes_and_the_encoding() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  repo.set_config("i18n.commitEncoding", "ISO-8859-1").unwrap();
+  // "Caf\xe9" in Latin-1, written as is
+  let message = b"Caf\xe9\n";
+  let tree = repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?;
+  let head = repo.head();
+  let target = repo
+    .git_executor()
+    .execute_command_with_input_bytes(&["commit-tree", &tree, "-p", &head, "-F", "-"], repo_path(&repo), message)?;
+  let target = String::from_utf8(target)?.trim().to_string();
+  git(&repo, &["update-ref", "HEAD", &target])?;
+  let folded = repo.create_commit("fixup! Café", "a.txt", "a");
+
+  let prepared = prepare(&repo, &[group(&target, &[&folded], SquashMessage::Target)])?;
+  prepared.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash")?;
+
+  let raw = repo
+    .git_executor()
+    .execute_command_with_input_bytes(&["cat-file", "commit", "HEAD"], repo_path(&repo), b"")?;
+  assert!(raw.windows(20).any(|w| w == b"encoding ISO-8859-1\n"), "{}", String::from_utf8_lossy(&raw));
+  assert!(raw.ends_with(message));
+  assert_eq!(show(&repo, "HEAD", "a.txt")?, "a");
+  assert_no_temp_refs(&repo)
+}
+
+#[test]
+fn refuses_a_range_with_merges() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let branch = git(&repo, &["symbolic-ref", "--short", "HEAD"])?.trim().to_string();
+  let target = repo.create_commit("Add a", "a.txt", "a");
+  git(&repo, &["checkout", "-q", "-b", "side"])?;
+  repo.create_commit("Side", "side.txt", "side");
+  git(&repo, &["checkout", "-q", &branch])?;
+  let folded = repo.create_commit("Add b", "b.txt", "b");
+  git(&repo, &["merge", "-q", "--no-ff", "-m", "Merge side", "side"])?;
+
+  assert_refused(&repo, &[group(&target, &[&folded], text("Add a and b\n"))], "merge commit")
+}
+
+#[test]
+fn keeps_dirty_and_staged_changes_byte_for_byte() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base\n");
+  let target = repo.create_commit("Add a", "a.txt", "a\n");
+  let folded = repo.create_commit("Add b", "b.txt", "b\n");
+  repo.create_commit("Add c", "c.txt", "c\n");
+  // staged and unstaged changes, also on a squashed file, and an untracked file
+  stage_file(&repo, "a.txt", "a staged\n")?;
+  write_file(&repo, "a.txt", "a staged and dirty\n")?;
+  stage_file(&repo, "new.txt", "new\n")?;
+  write_file(&repo, "b.txt", "b dirty\n")?;
+  write_file(&repo, "untracked.txt", "untracked\n")?;
+  let snapshot = |repo: &TestRepo| -> Result<[String; 3]> {
+    Ok([
+      git(repo, &["status", "--porcelain=v2", "--untracked-files=all"])?,
+      git(repo, &["diff", "--cached", "--binary"])?,
+      git(repo, &["diff", "--binary"])?,
+    ])
+  };
+  let before = snapshot(&repo)?;
+
+  squash(&repo, &target, &[&folded], "Add a and b\n")?;
+
+  assert_eq!(subjects(&repo)?, "Add c\nAdd a and b\nBase");
+  assert_eq!(snapshot(&repo)?, before);
+  assert_eq!(std::fs::read_to_string(repo.path().join("a.txt"))?, "a staged and dirty\n");
+  Ok(())
+}
+
+#[test]
+fn branch_moved_after_prepare_changes_nothing() -> Result<()> {
+  let (repo, target, folded) = base_a_b();
+  let prepared = prepare(&repo, &[group(&target, &[&folded], text("Add a and b\n"))])?;
+  // a commit made meanwhile, e.g. in a terminal
+  let concurrent = repo.create_commit("Concurrent", "c.txt", "c");
+
+  let error = prepared
+    .apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash")
+    .expect_err("the branch moved");
+
+  assert!(error.to_string().contains("changed while rewriting"), "{error}");
+  assert_eq!(repo.head(), concurrent);
+  assert_no_temp_refs(&repo)
+}
+
+#[test]
+fn records_the_reflog_message() -> Result<()> {
+  let (repo, target, folded) = base_a_b();
+
+  squash(&repo, &target, &[&folded], "Add a and b\n")?;
+
+  assert_eq!(git(&repo, &["reflog", "-1", "--format=%gs"])?.trim(), "branch-deck: squash 2 commits");
+  Ok(())
+}
+
+#[test]
+fn validates_the_groups() -> Result<()> {
+  let repo = TestRepo::new();
+  let root = repo.create_commit("Base", "base.txt", "base");
+  let a = repo.create_commit("Add a", "a.txt", "a");
+  let b = repo.create_commit("Add b", "b.txt", "b");
+  let c = repo.create_commit("Add c", "c.txt", "c");
+
+  assert_refused(&repo, &[], "No commits")?;
+  assert_refused(&repo, &[group(&a, &[], text("Add a\n"))], "at least two")?;
+  assert_refused(&repo, &[group(&a, &[&b, &b], text("Add a\n"))], "squashed twice")?;
+  assert_refused(&repo, &[group(&a, &[&b], text("Add a\n")), group(&c, &[&b], text("Add c\n"))], "squashed twice")?;
+  assert_refused(&repo, &[group(&b, &[&a], text("Add b\n"))], "older than")?;
+  assert_refused(&repo, &[group(&a, &[&b], text("\n\nbody only"))], "subject")?;
+  // not on the first-parent line of HEAD
+  git(&repo, &["branch", "side", &root])?;
+  git(&repo, &["update-ref", "HEAD", &b])?;
+  assert_refused(&repo, &[group(&a, &[&c], text("Add a\n"))], "not on the current branch")
+}
+
+#[test]
+fn undo_restores_the_previous_head() -> Result<()> {
+  let (repo, target, folded) = base_a_b();
+  let previous_head = repo.head();
+  write_file(&repo, "a.txt", "dirty")?;
+  let prepared = squash(&repo, &target, &[&folded], "Add a and b\n")?;
+
+  restore_branch_head(repo.git_executor(), repo_path(&repo), prepared.new_head(), &previous_head, "undo squash")?;
+
+  assert_eq!(repo.head(), previous_head);
+  assert_eq!(git(&repo, &["reflog", "-1", "--format=%gs"])?.trim(), "branch-deck: undo squash");
+  assert_eq!(git(&repo, &["status", "--porcelain", "--untracked-files=no"])?.trim_end(), " M a.txt");
+  Ok(())
+}
+
+#[test]
+fn undo_is_refused_when_the_branch_moved() -> Result<()> {
+  let (repo, target, folded) = base_a_b();
+  let previous_head = repo.head();
+  let prepared = squash(&repo, &target, &[&folded], "Add a and b\n")?;
+  let new_head = prepared.new_head().to_string();
+  let later = repo.create_commit("Later", "c.txt", "c");
+
+  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash").expect_err("the branch moved");
+  assert!(error.to_string().contains("changed after the squash"), "{error}");
+  assert_eq!(repo.head(), later);
+
+  // another tree: the index and the working tree would no longer match
+  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &later, &previous_head, "undo squash").expect_err("the trees differ");
+  assert!(error.to_string().contains("other files"), "{error}");
+  assert_eq!(repo.head(), later);
+  Ok(())
+}

@@ -59,6 +59,16 @@ export function getBranchDetailsRow(page: Page, branchName: string): Locator {
   return page.locator(`[data-branch-name="${branchName}"] + tr`)
 }
 
+/** The row of a commit, by its subject, in the expanded details of a branch */
+export function getBranchCommitRow(page: Page, branchName: string, subject: string): Locator {
+  return getBranchDetailsRow(page, branchName).locator("[data-row-id]").filter({ hasText: subject })
+}
+
+/** The row of a commit, by its subject, in the unassigned commits card */
+export function getUnassignedCommitRow(page: Page, subject: string): Locator {
+  return page.getByTestId("unassigned-commits-section").locator("[data-row-id]").filter({ hasText: subject })
+}
+
 /**
  * Get the copy button from a branch row's actions cell
  */

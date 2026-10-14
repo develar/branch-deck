@@ -240,10 +240,32 @@ pub async fn move_commits_to_branch(
 ) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
   ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
 
-  sync_core::move_commits::move_commits_to_branch_core(&state.git_executor, &params).map(Json).map_err(|e| {
-    tracing::error!("Failed to move commits: {:#}", e);
-    (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
-  })
+  sync_core::move_commits::move_commits_to_branch_core(&state.git_executor, &params)
+    .map(Json)
+    .map_err(|e| command_failed("move commits", &e))
+}
+
+/// Fails with the error message as the body, see `move_commits_to_branch`
+pub async fn squash_commits(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::squash::SquashCommitsParams>,
+) -> Result<Json<sync_core::squash::SquashCommitsResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::squash::squash_commits_core(&state.git_executor, &params)
+    .map(Json)
+    .map_err(|e| command_failed("squash commits", &e))
+}
+
+pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::squash::RestoreBranchHeadParams>) -> Result<Json<()>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::squash::restore_branch_head_core(&state.git_executor, &params)
+    .map(Json)
+    .map_err(|e| command_failed("restore the branch head", &e))
+}
+
+fn command_failed(operation: &str, e: &anyhow::Error) -> (StatusCode, String) {
+  tracing::error!("Failed to {operation}: {e:#}");
+  (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
 }
 
 pub async fn browse_repository(

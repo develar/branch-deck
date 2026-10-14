@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon } from "lucide-react"
+import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon } from "lucide-react"
 import { getCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useRowSelection } from "@/hooks/useRowSelection"
@@ -8,6 +8,7 @@ import type { RowSelection } from "@/hooks/useRowSelection"
 import type { Commit } from "@/lib/bindings"
 import { findIssueKey, getCommitHash, parseSubject } from "@/lib/commit"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { hasKeyModifier } from "@/lib/preview-keys"
 import { getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 
@@ -31,6 +32,11 @@ export interface CommitMoveList<T extends Commit> {
   /** Label of the action removing the explicit prefix of the selection, or null if no selected commit has one */
   removePrefixLabel: string | null
   removePrefix: () => void
+  /** The commits of the open squash dialog, in list order; null while it is closed */
+  squashCommits: readonly T[] | null
+  /** Opens the squash dialog for the selection, or for `commits` (which then become the selection); needs two commits */
+  openSquash: (commits?: readonly T[]) => void
+  closeSquash: () => void
   contextMenuItems: (commits: T[]) => MenuItemGroups
   onKeyDown: (event: KeyboardEvent<HTMLTableElement>) => void
   onDragCommits: (commits: readonly T[]) => void
@@ -60,6 +66,7 @@ export function getRemovePrefixLabel(commits: readonly Commit[]): string | null 
 export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
   const sourceKey = sourceBranch ?? UNASSIGNED_SOURCE
   const [isTargetOpen, setIsTargetOpen] = useState(false)
+  const [squashCommits, setSquashCommits] = useState<readonly T[] | null>(null)
 
   const selection = useRowSelection<T>({
     items: commits,
@@ -107,6 +114,20 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
   }, [selectIds, sourceKey])
   const closeTarget = useCallback(() => setIsTargetOpen(false), [])
 
+  const openSquash = (targetCommits?: readonly T[]) => {
+    const squashed = targetCommits ?? selectedItems
+    if (squashed.length < 2) {
+      return
+    }
+    if (targetCommits !== undefined) {
+      selectIds(targetCommits.map(getCommitHash))
+      claimSelection(sourceKey)
+    }
+    setIsTargetOpen(false)
+    setSquashCommits(squashed)
+  }
+  const closeSquash = useCallback(() => setSquashCommits(null), [])
+
   const removePrefixFrom = (targetCommits: readonly T[]) => {
     void moveCommits(targetCommits, null).then((success) => {
       if (success) {
@@ -145,7 +166,10 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
     if (removeLabel !== null) {
       moveItems.push({ label: removeLabel, icon: UndoDotIcon, onSelect: () => removePrefixFrom(menuCommits) })
     }
-    return [moveItems, getCommitCopyMenuItems(menuCommits)]
+    const squashItems: MenuItem[] = isMultiple
+      ? [{ label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => openSquash(menuCommits) }]
+      : []
+    return [moveItems, squashItems, getCommitCopyMenuItems(menuCommits)]
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
@@ -158,6 +182,10 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
     if (isMoveKey && selectedCount > 0) {
       event.preventDefault()
       setIsTargetOpen(true)
+    }
+    else if (event.code === "KeyS" && !hasKeyModifier(event) && selectedCount > 1) {
+      event.preventDefault()
+      openSquash()
     }
   }
 
@@ -175,6 +203,9 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
     closeTarget,
     removePrefixLabel: getRemovePrefixLabel(selectedItems),
     removePrefix: () => removePrefixFrom(selectedItems),
+    squashCommits,
+    openSquash,
+    closeSquash,
     contextMenuItems,
     onKeyDown,
     onDragCommits,

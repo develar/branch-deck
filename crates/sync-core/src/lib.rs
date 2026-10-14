@@ -12,6 +12,7 @@ pub mod remote_command;
 pub mod remote_status;
 pub mod repository_validation;
 pub mod reword_commit;
+pub mod squash;
 pub mod sync;
 pub mod unapply_branch;
 pub mod uncommitted_changes;

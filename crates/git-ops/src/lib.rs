@@ -13,6 +13,7 @@ pub mod ref_transaction;
 pub mod reword_commits;
 pub mod rewrite_guard;
 pub mod rewrite_plan;
+pub mod squash_commits;
 
 #[cfg(test)]
 mod amend_operations_test;
@@ -43,3 +44,6 @@ mod rewrite_plan_test;
 
 #[cfg(test)]
 mod rewrite_test_utils;
+
+#[cfg(test)]
+mod squash_commits_test;

@@ -87,6 +87,7 @@ pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &st
     target,
     index_update: IndexUpdate::FromWorktree(files),
     temp_refs: vec![written.temp_ref],
+    replacements: vec![(original_commit_id.clone(), amended_commit_id.clone())],
   };
   if position > 0 {
     match replay_onto(git_executor, repo_path, &amended_commit_id, &original_commit_id, &prepared.target.head) {

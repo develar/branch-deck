@@ -55,6 +55,11 @@ export function splitSubjectPrefix(subject: string): { prefix: string | null, te
   return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
 }
 
+/** "1 commit", "3 commits" */
+export function formatCommitCount(count: number): string {
+  return count === 1 ? "1 commit" : `${count} commits`
+}
+
 /** Number of changed files, if the commit shape carries it. */
 export function getCommitFileCount(commit: CommitUnion): number | undefined {
   if ("fileDiffs" in commit && commit.fileDiffs?.length) {

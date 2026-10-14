@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
+import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import {
   KeyHint,
   PreviewDialogBody,
@@ -17,7 +18,7 @@ import {
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitFileCount, getCommitHash, getCommitSubject, groupFor, hasCommitMessageBody } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { isMac } from "@/lib/platform"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -174,7 +175,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
 
           <PreviewDialogFooter
             start={isEditing
-              ? <PrefixChangeHint before={commit.message} after={draft} />
+              ? <PrefixChangeHint before={commit.message} after={draft} action="Saving" />
               : <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>}
           >
             {isEditing
@@ -203,18 +204,5 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         </>
       )}
     </PreviewDialogFrame>
-  )
-}
-
-/** Warns that a changed subject moves the commit to another branch (or out of every branch). */
-function PrefixChangeHint({ before, after }: { before: string, after: string }) {
-  const branch = groupFor(after)?.branch ?? null
-  if (branch === (groupFor(before)?.branch ?? null)) {
-    return <span>The first line is the subject</span>
-  }
-  return (
-    <span data-testid="commit-prefix-change" className="text-warning">
-      {branch === null ? "Saving moves the commit to the unassigned commits" : `Saving moves the commit to the branch ${branch}`}
-    </span>
   )
 }

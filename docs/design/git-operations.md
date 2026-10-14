@@ -7,7 +7,7 @@
 ## Problem
 
 Branch Deck rewrites the checked-out branch: reword, move to another branch, add an issue reference, amend
-uncommitted changes into an older commit, and unapply (drop) a branch. The user is usually in the middle of their own
+uncommitted changes into an older commit, squash commits, and unapply (drop) a branch. The user is usually in the middle of their own
 work. The working tree and the index may hold uncommitted and staged changes that Branch Deck has no right to touch.
 `git rebase`, `git commit -a` and `git reset --mixed` all write to the working tree or the index. They stage what the
 user did not select, discard what the user staged, and depend on the user's `rebase.*` configuration.
@@ -39,12 +39,12 @@ flowchart TD
     A[Tauri command] --> G[rewrite_guard: no operation in progress, branch checked out, no merges in range]
     G --> R{What changes?}
     R -->|message only| W[commit_writer: cat-file --batch + fast-import, exact metadata]
-    R -->|content| P[merge-tree --write-tree + git replay: amend, drop]
+    R -->|content| P[merge-tree --write-tree + git replay: amend, drop, squash]
     W --> T[update-ref --stdin: CAS on the branch, temp refs deleted, reflog message]
     P --> F[index preflight on a copy of the index]
     F --> T
     T --> I{HEAD tree changed?}
-    I -->|no: reword, move| D[done: index and working tree untouched]
+    I -->|no: reword, move, squash| D[done: index and working tree untouched]
     I -->|drop| X[read-tree -m -i old new]
     I -->|amend| U[update-index the amended files from the working tree]
 ```
@@ -72,8 +72,8 @@ written.
 5. **Metadata**:
    - A message-only rewrite keeps the author and the committer (name, email, date and timezone) byte for byte, and
      the message bytes of every commit it does not reword.
-   - A content rewrite (amend, drop) keeps the author, and the committer becomes the current user and the current
-     time, as with `git rebase`.
+   - A content rewrite (amend, drop, squash) keeps the author, and the committer becomes the current user and the
+     current time, as with `git rebase`.
    - Signatures are stripped because they would no longer be valid.
 6. **Batch**: one process per operation phase, not one per item. Never parse translated text; rely on exit codes and
    on `--porcelain` and `-z` output.
@@ -175,6 +175,32 @@ shows as unstaged changes, and files that the dropped commits added become untra
 Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/sync-core/src/unapply_branch.rs`,
 `crates/branch-integration/src/archive.rs`.
 
+#### Squash
+
+The user selects commits; they are squashed into the oldest one, which keeps its place and its author. The newer ones
+leave the history, as fixups do with `rebase --autosquash`, and the commits in between stay. A squash is a rewrite
+plan with one `Replace` step per group (`SquashGroup`: a target, the folded commits and a `SquashMessage`, either a new
+text or the target's own message and encoding):
+
+1. Read the first-parent history and the positions of the commits; each must be on it, the folded ones newer than the
+   target. Read the target, the folded commits and their parents with one `cat-file --batch`.
+2. Replay the kept commits before the target, if an earlier step changed the history.
+3. Compute the squashed tree with `merge-tree --write-tree`, starting from the target's tree, then applying each
+   folded commit oldest first as a cherry-pick (`--merge-base=<its parent>`). A conflict refuses the squash, as does a
+   result without changes.
+4. Write the commit with `fast-import`: the target's author and the current user as committer.
+5. Replay the rest up to HEAD (`git replay`, as for a drop).
+6. Check, before any ref moves:
+   - the new HEAD tree equals the old one, so the index and the working tree are already right and a dirty tree is
+     fine;
+   - the commit count matches, because `replay` silently drops a commit that becomes empty.
+7. Move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
+
+**Undo** moves the branch back to the old HEAD with a CAS on the new one (`branch-deck: undo squash`). It is refused if
+the branch moved since, or if the two trees differ; equal trees mean the index and the working tree need no change.
+
+Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/sync-core/src/squash.rs`.
+
 #### Virtual branch sync
 
 Virtual branches never touch HEAD, the index or the working tree.
@@ -270,6 +296,7 @@ recovery hint (`git reset -q`).
 | Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `rev-list` + 1 `cat-file` + 1 `fast-import` + 1 `update-ref`, plus the guard |
 | Drop k commits from a range of n | up to n `merge-tree` + n `commit-tree` + `reset` | at most k `replay` + 1 `update-ref` + 1 `read-tree` |
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
+| Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per branch |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 
@@ -291,9 +318,10 @@ recovery hint (`git reset -q`).
   `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`,
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
-  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`
+  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
-  [Amend](../../spec/commit/amend.spec.md), [Unapply](../../spec/branch/unapply.spec.md)
+  [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
+  [Unapply](../../spec/branch/unapply.spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),
   [Async Patterns](async-patterns.md)
 - Git manuals: `git help replay`, `git help fast-import`, `git help merge-tree`, `git help read-tree` (two-way merge)

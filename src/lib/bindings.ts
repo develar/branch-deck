@@ -38,6 +38,13 @@ export const commands = {
 	 */
 	rewordCommits: (params: RewordCommitsRequest) => typedError<RewordCommitsResult, CommandError>(__TAURI_INVOKE("reword_commits", { params })),
 	/**
+	 *  Squashes commits of the current branch into the oldest of them in one history rewrite that keeps HEAD's tree; the
+	 *  index and the working tree are not touched.
+	 */
+	squashCommits: (params: SquashCommitsParams) => typedError<SquashCommitsResult, CommandError>(__TAURI_INVOKE("squash_commits", { params })),
+	/**  Undoes a squash: moves the current branch back to its previous commit, if it was not moved since */
+	restoreBranchHead: (params: RestoreBranchHeadParams) => typedError<null, CommandError>(__TAURI_INVOKE("restore_branch_head", { params })),
+	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
@@ -387,6 +394,13 @@ export type RemoteStatusUpdate = {
 	lastPushTime: number,
 };
 
+export type RestoreBranchHeadParams = {
+	repositoryPath: string,
+	/**  HEAD the squash left; the undo is refused if the branch moved since */
+	expectedHead: string,
+	previousHead: string,
+};
+
 export type RewordCommitsRequest = {
 	repositoryPath: string,
 	rewrites: CommitRewrite[],
@@ -395,6 +409,23 @@ export type RewordCommitsRequest = {
 export type RewordCommitsResult = {
 	/**  Request commit id -> new commit id; a commit that was not recreated maps to its own (full) id */
 	newCommitIds: { [key in string]: string },
+};
+
+export type SquashCommitsParams = {
+	repositoryPath: string,
+	/**  Commits on the current branch (the original commits of virtual branch commits), in any order */
+	commitIds: string[],
+	/**  The whole message of the squashed commit, the grouping prefix `(branch)` included */
+	message: string,
+};
+
+export type SquashCommitsResult = {
+	/**  The squashed commit, in place of the oldest selected one */
+	newCommitId: string,
+	/**  HEAD after the squash and before it, for an undo */
+	newHead: string,
+	previousHead: string,
+	squashedCount: number,
 };
 
 /**  Parameters for requesting branch name suggestions */

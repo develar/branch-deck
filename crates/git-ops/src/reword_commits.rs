@@ -94,7 +94,7 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
 }
 
 /// Message bytes ending with a newline, as `git commit-tree -m` stores them
-fn complete_line(message: &str) -> Vec<u8> {
+pub(crate) fn complete_line(message: &str) -> Vec<u8> {
   let mut bytes = message.as_bytes().to_vec();
   if !bytes.ends_with(b"\n") {
     bytes.push(b'\n');

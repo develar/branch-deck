@@ -1,19 +1,11 @@
 // @spec spec/branch/move-commits.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
 const ISSUE = "ABC-123"
-
-function branchCommit(page: Page, branchName: string, subject: string): Locator {
-  return getBranchDetailsRow(page, branchName).locator("[data-row-id]").filter({ hasText: subject })
-}
-
-function unassignedCommit(page: Page, subject: string): Locator {
-  return page.getByTestId("unassigned-commits-section").locator("[data-row-id]").filter({ hasText: subject })
-}
 
 /** Names of the branch rows in display order */
 async function branchOrder(page: Page): Promise<string[]> {
@@ -44,8 +36,8 @@ test.describe("Move commits", () => {
 
   test("should split commits out of an issue branch into a new branch nested under the issue", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await selectCommit(page, branchCommit(page, ISSUE, "Add tokens"))
-    await multiSelectCommit(page, branchCommit(page, ISSUE, "Add lexer"))
+    await selectCommit(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
+    await multiSelectCommit(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
     await expect(getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions")).toContainText("2 selected")
 
     await clickGroupIntoBranchButton(page)
@@ -62,13 +54,13 @@ test.describe("Move commits", () => {
     expect(order.indexOf("lexer")).toBe(order.indexOf(ISSUE) + 1)
     // revealed: expanded, the moved commits selected; the issue key stays in the messages
     await expect(lexerRow).toHaveAttribute("data-state", "open")
-    await expect(branchCommit(page, "lexer", "ABC-123: Add lexer")).toHaveAttribute("data-selected", "true")
-    await expect(branchCommit(page, "lexer", "ABC-123: Add tokens")).toHaveAttribute("data-selected", "true")
+    await expect(getBranchCommitRow(page, "lexer", "ABC-123: Add lexer")).toHaveAttribute("data-selected", "true")
+    await expect(getBranchCommitRow(page, "lexer", "ABC-123: Add tokens")).toHaveAttribute("data-selected", "true")
   })
 
   test("should move a commit to an existing branch from the context menu and undo it", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await openContextMenu(page, branchCommit(page, ISSUE, "Add parser"))
+    await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
     await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
     await clickContextMenuItem(page, "docs")
 
@@ -82,20 +74,20 @@ test.describe("Move commits", () => {
 
   test("should move a split commit back to its issue and a prefix commit to the unassigned commits", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await openContextMenu(page, branchCommit(page, ISSUE, "Add lexer"))
+    await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
     await clickContextMenuItem(page, "Move to Branch…")
     await submitInlineForm(inlineBranchCreator.getInput(page), "lexer")
     await verifyCommitCount(findBranchRow(page, "lexer"), "1 commit")
 
-    await openContextMenu(page, branchCommit(page, "lexer", "Add lexer"))
+    await openContextMenu(page, getBranchCommitRow(page, "lexer", "Add lexer"))
     await clickContextMenuItem(page, `Move Back to ${ISSUE}`)
     await expect(findBranchRow(page, "lexer")).toHaveCount(0)
     await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
 
     await expandBranch(page, findBranchRow(page, "docs"))
-    await openContextMenu(page, branchCommit(page, "docs", "Update documentation"))
+    await openContextMenu(page, getBranchCommitRow(page, "docs", "Update documentation"))
     await clickContextMenuItem(page, "Move to Unassigned")
-    await expect(unassignedCommit(page, "Update documentation")).toBeVisible()
+    await expect(getUnassignedCommitRow(page, "Update documentation")).toBeVisible()
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
   })
 
@@ -120,10 +112,10 @@ test.describe("Move commits", () => {
 
   test("should drag the selection onto a branch, but not onto its own branch", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await selectCommit(page, branchCommit(page, ISSUE, "Add tokens"))
-    await multiSelectCommit(page, branchCommit(page, ISSUE, "Add parser"))
+    await selectCommit(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
+    await multiSelectCommit(page, getBranchCommitRow(page, ISSUE, "Add parser"))
 
-    await startDrag(page, branchCommit(page, ISSUE, "Add tokens"))
+    await startDrag(page, getBranchCommitRow(page, ISSUE, "Add tokens"))
     await expect(findBranchRow(page, "docs")).toHaveAttribute("data-drop-target", "ready")
     // its own branch and the unassigned commits (no dragged commit has a prefix to remove) are not targets
     await expect(findBranchRow(page, ISSUE)).not.toHaveAttribute("data-drop-target")
@@ -136,7 +128,7 @@ test.describe("Move commits", () => {
   })
 
   test("should drag an unassigned commit onto the new branch zone", async ({ page }) => {
-    await startDrag(page, unassignedCommit(page, "Refactor build script"))
+    await startDrag(page, getUnassignedCommitRow(page, "Refactor build script"))
     const zone = page.getByTestId("new-branch-drop-zone")
     await expect(zone).toBeVisible()
     await dropOn(page, zone)

@@ -19,6 +19,7 @@ use commands::move_commits::move_commits_to_branch;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::reword_commit::reword_commits;
+use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::suggest_branch_name::suggest_branch_name_stream;
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
@@ -52,6 +53,8 @@ pub fn run() {
     move_commits_to_branch,
     add_issue_reference_to_commits,
     reword_commits,
+    squash_commits,
+    restore_branch_head,
     amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,

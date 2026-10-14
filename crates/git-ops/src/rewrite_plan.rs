@@ -24,9 +24,29 @@ pub struct PreparedRewrite {
   pub(crate) index_update: IndexUpdate,
   /// Refs keeping the new objects reachable until the branch moves
   pub(crate) temp_refs: Vec<String>,
+  /// `(replaced commit, its replacement)` of every `Replace` step, oldest first
+  pub(crate) replacements: Vec<(String, String)>,
 }
 
 impl PreparedRewrite {
+  /// The tip the branch moves to
+  #[must_use]
+  pub fn new_head(&self) -> &str {
+    &self.new_head
+  }
+
+  /// The tip the branch moves from
+  #[must_use]
+  pub fn old_head(&self) -> &str {
+    &self.target.head
+  }
+
+  /// The id of the commit that replaces `commit_id` (a `Replace` step)
+  #[must_use]
+  pub fn replacement_of(&self, commit_id: &str) -> Option<&str> {
+    self.replacements.iter().find(|(old, _)| old == commit_id).map(|(_, new)| new.as_str())
+  }
+
   /// Move the branch in one transaction with `transaction` (other ref changes of the same operation), then let the
   /// index follow. Nothing changes if a staged change would be lost or the branch moved meanwhile.
   #[instrument(skip(self, git_executor, transaction), fields(new_head = %self.new_head))]
@@ -205,6 +225,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     raw_commits: HashMap::new(),
     committer: String::new(),
     temp_refs: Vec::new(),
+    replacements: Vec::new(),
   };
   let new_head = match writer.write(&roles, oldest_position, checks) {
     Ok(new_head) => new_head,
@@ -213,7 +234,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
       return Err(e);
     }
   };
-  let temp_refs = writer.temp_refs;
+  let PlanWriter { temp_refs, replacements, .. } = writer;
 
   let old_tree = git_executor.resolve_tree_id(repo_path, &target.head)?;
   let new_tree = git_executor.resolve_tree_id(repo_path, &new_head)?;
@@ -223,6 +244,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     new_head,
     index_update: IndexUpdate::TwoWay { old_tree, new_tree },
     temp_refs,
+    replacements,
   })
 }
 
@@ -269,6 +291,7 @@ struct PlanWriter<'a> {
   raw_commits: HashMap<String, RawCommit>,
   committer: String,
   temp_refs: Vec<String>,
+  replacements: Vec<(String, String)>,
 }
 
 impl PlanWriter<'_> {
@@ -423,7 +446,9 @@ impl PlanWriter<'_> {
       }],
     )?;
     self.temp_refs.push(written.temp_ref);
-    written.ids.into_iter().next().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))
+    let new_id = written.ids.into_iter().next().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))?;
+    self.replacements.push((commit_id.clone(), new_id.clone()));
+    Ok(new_id)
   }
 
   /// `merge_trees`, refused with `conflict_message` on a conflict
