@@ -11,12 +11,13 @@
 //! 3. Agglomerative merges, the best pair first and on a tie the oldest; two anchors never merge, no merge goes over
 //!    `max_commits`, and the merging stops under `MERGE_THRESHOLD`.
 
-use crate::areas::area_of;
+use crate::areas::{DEFAULT_AREA_DEPTH, area_lines, area_of};
 use git_ops::model::sanitize_branch_name;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::BuildHasher;
 use sync_core::move_commits::validate_branch_name;
 use sync_utils::issue_pattern::issue_keys_in;
 
@@ -49,8 +50,6 @@ const OTHER_SCOPE: u32 = 5_000;
 /// adj: the two sides have neighbouring commits in the log
 const ADJACENT: u32 = 500;
 
-/// An area feature keeps this many directories
-const AREA_DEPTH: usize = 3;
 /// The weight of an area feature; a module, a package or a file weighs 1
 const AREA_WEIGHT: f64 = 0.5;
 /// The weight of a peripheral file: under `PERIPHERAL_SHARE` % of the commit's lines and outside its dominant area
@@ -58,7 +57,7 @@ const PERIPHERAL_WEIGHT: f64 = 0.2;
 const PERIPHERAL_SHARE: u32 = 5;
 /// The directories a module ends before; the package is the directory after them
 const MODULE_MARKERS: [&str; 7] = ["src", "testSrc", "test", "tests", "resources", "gen", ANONYMOUS_MARKER];
-/// What `anonymize` writes for every module marker
+/// What `anonymize` writes for a module marker of a file path; a hashed name is hexadecimal, so it never equals this
 pub const ANONYMOUS_MARKER: &str = "@";
 
 /// A name from a scope needs this share of the commits, in percent
@@ -148,6 +147,10 @@ pub struct Clustering {
   /// Ordered by their oldest commit
   pub clusters: Vec<Cluster>,
   pub warnings: Vec<Warning>,
+  /// The hard unit of each commit, an index into `unit_anchors`
+  pub unit_of: Vec<usize>,
+  /// The anchor of each hard unit, ordered by their oldest commit
+  pub unit_anchors: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,9 +211,11 @@ pub struct Repaired {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ClusterChange {
-  /// Exactly the commits of one branch now
+  /// Exactly the commits of one branch now, under its name
   Kept,
-  /// The whole commits of two or more branches now, maybe with unassigned ones
+  /// Exactly the commits of one branch now, under another name
+  Renamed,
+  /// The whole commits of two or more branches now, or of one with unassigned commits
   Merged,
   /// A part of one branch now
   Split,
@@ -219,8 +224,9 @@ pub enum ClusterChange {
 }
 
 /// Cluster `input`, then check the result with `check` and, while it finds conflicts, join each conflicting commit to
-/// the commits it needs as hard edges and cluster again, at most `MAX_REPAIR_ROUNDS` times. An edge between two
-/// anchors is never added, so such a conflict stays
+/// the commits it needs as hard edges and cluster again, at most `MAX_REPAIR_ROUNDS` times. An edge is added only
+/// between two hard units, so also inside a cluster whose units build apart (an issue group), and never between two
+/// anchors, so such a conflict stays
 pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mut check: impl FnMut(&Clustering) -> Result<Vec<Conflict>, E>) -> Result<Repaired, E> {
   let mut options = options.clone();
   let mut rounds = 0;
@@ -230,20 +236,21 @@ pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mu
     if conflicts.is_empty() || rounds == MAX_REPAIR_ROUNDS {
       return Ok(Repaired { clustering, rounds, conflicts });
     }
-    let mut cluster_of = vec![0; input.commits.len()];
-    for (index, cluster) in clustering.clusters.iter().enumerate() {
-      for &commit in &cluster.commits {
-        cluster_of[commit] = index;
-      }
-    }
+    let count = clustering.unit_of.len();
     let joinable = |a: usize, b: usize| {
-      let (a, b) = (cluster_of[a], cluster_of[b]);
-      a != b && !(clustering.clusters[a].anchor.is_some() && clustering.clusters[b].anchor.is_some())
+      let (a, b) = (clustering.unit_of[a], clustering.unit_of[b]);
+      a != b && !(clustering.unit_anchors[a].is_some() && clustering.unit_anchors[b].is_some())
     };
+    // one edge per pair of units: each joins two units, so the rounds end
+    let mut pairs: BTreeSet<(usize, usize)> = BTreeSet::new();
     let added: Vec<RepairEdge> = conflicts
       .iter()
       .flat_map(|conflict| conflict.needs.iter().map(|&needs| (conflict.commit, needs)))
-      .filter(|&(commit, needs)| commit < cluster_of.len() && needs < cluster_of.len() && joinable(commit, needs))
+      .filter(|&(commit, needs)| commit < count && needs < count && joinable(commit, needs))
+      .filter(|&(commit, needs)| {
+        let (a, b) = (clustering.unit_of[commit], clustering.unit_of[needs]);
+        pairs.insert((a.min(b), a.max(b)))
+      })
       .map(|(commit, needs)| RepairEdge { commit, needs, round: rounds + 1 })
       .collect();
     if added.is_empty() {
@@ -259,34 +266,69 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
   let mut features = FeatureTable::default();
   let commit_features: Vec<Vec<(u32, f64)>> = input.commits.iter().map(|commit| features.of_commit(&commit.files)).collect();
   let (mut groups, warnings) = hard_units(input, options, &commit_features);
+  let mut unit_of = vec![0; input.commits.len()];
+  for (unit, group) in groups.iter().enumerate() {
+    for &commit in &group.commits {
+      unit_of[commit] = unit;
+    }
+  }
+  let unit_anchors = groups.iter().map(|group| group.anchor.clone()).collect();
   let scorer = Scorer::new(&groups, &features, options.max_commits);
 
   let count = groups.len();
   let mut alive = vec![true; count];
-  // scores[i][j] for i < j
+  // scores[i][j] for i < j, and the best score of each row with its column, the lowest on a tie
   let mut scores: Vec<Vec<Option<Scored>>> = (0..count)
     .map(|i| (0..count).map(|j| if i < j { scorer.score(&groups[i], &groups[j]) } else { None }).collect())
     .collect();
-  loop {
-    let mut best: Option<(usize, usize, u32)> = None;
-    for i in (0..count).filter(|&i| alive[i]) {
-      for j in (i + 1..count).filter(|&j| alive[j]) {
-        if let Some(scored) = &scores[i][j]
-          && scored.score >= MERGE_THRESHOLD
-          && best.is_none_or(|(_, _, score)| scored.score > score)
-        {
-          best = Some((i, j, scored.score));
-        }
+  let row_best = |scores: &[Vec<Option<Scored>>], alive: &[bool], row: usize| {
+    let mut best: Option<(u32, usize)> = None;
+    for column in (row + 1..count).filter(|&column| alive[column]) {
+      if let Some(scored) = &scores[row][column]
+        && best.is_none_or(|(score, _)| scored.score > score)
+      {
+        best = Some((scored.score, column));
       }
     }
-    let Some((i, j, _)) = best else { break };
+    best
+  };
+  let mut best: Vec<Option<(u32, usize)>> = (0..count).map(|row| row_best(&scores, &alive, row)).collect();
+  loop {
+    // the best pair, on a tie the oldest: the lowest row of the highest score, at its lowest column
+    let mut pick: Option<(u32, usize, usize)> = None;
+    for row in (0..count).filter(|&row| alive[row]) {
+      if let Some((score, column)) = best[row]
+        && score >= MERGE_THRESHOLD
+        && pick.is_none_or(|(picked, _, _)| score > picked)
+      {
+        pick = Some((score, row, column));
+      }
+    }
+    let Some((_, i, j)) = pick else { break };
     let scored = scores[i][j].take().expect("the best pair has a score");
+    let link = scorer.link(&groups[i], &groups[j], &scored);
     let other = std::mem::take(&mut groups[j]);
-    groups[i].absorb(other, scored);
+    groups[i].absorb(other, link, scored.weak);
     alive[j] = false;
+    best[j] = None;
     for k in (0..count).filter(|&k| alive[k] && k != i) {
       let (low, high) = (i.min(k), i.max(k));
       scores[low][high] = scorer.score(&groups[low], &groups[high]);
+    }
+    best[i] = row_best(&scores, &alive, i);
+    for k in (0..i).filter(|&k| alive[k]) {
+      best[k] = match (best[k], &scores[k][i]) {
+        // the best column changed or is gone
+        (Some((_, column)), _) if column == i || column == j => row_best(&scores, &alive, k),
+        (Some((score, column)), Some(scored)) if scored.score > score || (scored.score == score && i < column) => Some((scored.score, i)),
+        (None, Some(scored)) => Some((scored.score, i)),
+        (kept, _) => kept,
+      };
+    }
+    for k in (i + 1..j).filter(|&k| alive[k]) {
+      if best[k].is_some_and(|(_, column)| column == j) {
+        best[k] = row_best(&scores, &alive, k);
+      }
     }
   }
 
@@ -296,7 +338,12 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
     .filter(|(_, alive)| *alive)
     .map(|(group, _)| group.into_cluster(input))
     .collect();
-  Clustering { clusters, warnings }
+  Clustering {
+    clusters,
+    warnings,
+    unit_of,
+    unit_anchors,
+  }
 }
 
 /// The interned path features, with the area each one comes from
@@ -326,15 +373,12 @@ impl FeatureTable {
   /// The features of a commit's files with their weights, sorted by id: per file its area, module, package and path
   fn of_commit(&mut self, files: &[FileLines]) -> Vec<(u32, f64)> {
     let total: u32 = files.iter().map(|file| file.lines).sum();
-    let mut area_lines: BTreeMap<&str, u32> = BTreeMap::new();
-    for file in files {
-      *area_lines.entry(area_of(&file.path, AREA_DEPTH)).or_default() += file.lines;
-    }
-    // the first of the areas with the most lines
-    let dominant = area_lines.iter().max_by_key(|&(area, lines)| (*lines, Reverse(*area))).map(|(area, _)| *area);
+    let dominant = area_lines(files.iter().map(|file| (file.path.as_str(), file.lines)), DEFAULT_AREA_DEPTH)
+      .first()
+      .map(|&(area, _)| area);
     let mut weights: BTreeMap<u32, f64> = BTreeMap::new();
     for file in files {
-      let area = area_of(&file.path, AREA_DEPTH);
+      let area = area_of(&file.path, DEFAULT_AREA_DEPTH);
       let peripheral = u64::from(file.lines) * 100 < u64::from(total) * u64::from(PERIPHERAL_SHARE) && Some(area) != dominant;
       let factor = if peripheral { PERIPHERAL_WEIGHT } else { 1.0 };
       let (module, package) = module_and_package(&file.path);
@@ -389,7 +433,7 @@ struct Group {
 }
 
 impl Group {
-  fn absorb(&mut self, other: Group, scored: Scored) {
+  fn absorb(&mut self, other: Group, link: Link, weak: bool) {
     self.commits.extend(other.commits);
     self.commits.sort_unstable();
     if self.anchor.is_none() {
@@ -403,8 +447,8 @@ impl Group {
     self.units += other.units;
     self.issue_units += other.issue_units;
     self.links.extend(other.links);
-    self.links.push(scored.link);
-    self.weak |= other.weak || scored.weak;
+    self.links.push(link);
+    self.weak |= other.weak || weak;
     self.repair_rounds.extend(other.repair_rounds);
   }
 
@@ -555,10 +599,13 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
   (groups, warnings)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct Scored {
   score: u32,
-  link: Link,
+  /// P decided it, not R
+  by_paths: bool,
+  /// The shared feature that weighs most
+  heaviest: Option<u32>,
   weak: bool,
 }
 
@@ -610,8 +657,8 @@ impl<'f> Scorer<'f> {
     if (a.anchor.is_some() && b.anchor.is_some()) || a.commits.len() + b.commits.len() > self.max_commits {
       return None;
     }
-    let (relation, link) = self.relation(a, b);
-    let (paths, shared_area) = self.paths(a, b);
+    let (relation, _) = self.relation(a, b);
+    let (paths, heaviest) = self.paths(a, b);
 
     let both_keys = !a.keys.is_empty() && !b.keys.is_empty();
     let projects = |group: &Group| group.keys.iter().map(|key| project_of(key).to_string()).collect::<BTreeSet<String>>();
@@ -637,12 +684,16 @@ impl<'f> Scorer<'f> {
     let without_adjacency = scale(base, factor);
     let score = without_adjacency + adjacent;
     let by_paths = paths > relation;
-    let link = match link {
-      Some(link) if !by_paths => link,
-      _ => Link::Paths(shared_area),
-    };
     let weak = without_adjacency < MERGE_THRESHOLD || (by_paths && score < MERGE_THRESHOLD + WEAK_MARGIN);
-    Some(Scored { score, link, weak })
+    Some(Scored { score, by_paths, heaviest, weak })
+  }
+
+  /// What the merge of `a` and `b` went by
+  fn link(&self, a: &Group, b: &Group, scored: &Scored) -> Link {
+    match self.relation(a, b) {
+      (_, Some(link)) if !scored.by_paths => link,
+      _ => Link::Paths(scored.heaviest.map_or_else(String::new, |id| self.features.areas[id as usize].clone())),
+    }
   }
 
   /// R and its link: the strongest of a mention of the other side's key, the same scope and a third key both name
@@ -666,8 +717,8 @@ impl<'f> Scorer<'f> {
     best
   }
 
-  /// P, the IDF-weighted Jaccard similarity of the features, and the area of the shared feature that weighs most
-  fn paths(&self, a: &Group, b: &Group) -> (u32, String) {
+  /// P, the IDF-weighted Jaccard similarity of the features, and the shared feature that weighs most
+  fn paths(&self, a: &Group, b: &Group) -> (u32, Option<u32>) {
     let (mut shared, mut all) = (0.0, 0.0);
     let mut heaviest: Option<(f64, u32)> = None;
     let (mut next_a, mut next_b) = (0, 0);
@@ -702,8 +753,7 @@ impl<'f> Scorer<'f> {
       }
     }
     let similarity = if all > 0.0 { shared / all } else { 0.0 };
-    let area = heaviest.map_or_else(String::new, |(_, id)| self.features.areas[id as usize].clone());
-    (to_units(similarity), area)
+    (to_units(similarity), heaviest.map(|(_, id)| id))
   }
 }
 
@@ -760,9 +810,10 @@ fn stem(word: &str) -> &str {
   }
 }
 
-/// The branch name of each cluster, in the order of `clustering.clusters`: its anchor, its single issue key, a scope
-/// of at least 60 % of its commits, `<area leaf>-<word>` for a word of at least half its subjects that is rare
-/// elsewhere, its most frequent key, or `cluster-N`. A name another cluster took, a group name now or an existing
+/// The branch name of each cluster, in the order of `clustering.clusters`: its anchor; the branch its commits come from,
+/// when it holds the most commits of that branch (with --fresh); its single issue key; a scope of at least 60 % of its
+/// commits; `<area leaf>-<word>` for a word of at least half its subjects that is rare elsewhere; its most frequent key;
+/// or `cluster-N`. A name another cluster took, a group name now or an existing
 /// virtual branch (`taken`) that the cluster's commits don't come from, or a case twin of one, gets `-2`, `-3`, …;
 /// the larger clusters choose first
 pub fn name_clusters(input: &ClusterInput, clustering: &Clustering, taken: &HashSet<String>) -> Vec<String> {
@@ -776,6 +827,20 @@ pub fn name_clusters(input: &ClusterInput, clustering: &Clustering, taken: &Hash
   }
 
   let clusters = &clustering.clusters;
+  // group -> (the cluster with the most of its commits, how many); the oldest cluster on a tie
+  let mut holders: HashMap<&str, (usize, usize)> = HashMap::new();
+  for (index, cluster) in clusters.iter().enumerate() {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for group in cluster.commits.iter().filter_map(|&commit| input.commits[commit].group.as_deref()) {
+      *counts.entry(group).or_default() += 1;
+    }
+    for (group, count) in counts {
+      let holder = holders.entry(group).or_insert((index, count));
+      if count > holder.1 {
+        *holder = (index, count);
+      }
+    }
+  }
   let mut order: Vec<usize> = (0..clusters.len()).collect();
   order.sort_by_key(|&index| (Reverse(clusters[index].commits.len()), index));
   let mut names = vec![String::new(); clusters.len()];
@@ -783,7 +848,11 @@ pub fn name_clusters(input: &ClusterInput, clustering: &Clustering, taken: &Hash
   for index in order {
     let cluster = &clusters[index];
     let from: HashSet<String> = cluster_groups(input, cluster).iter().map(|group| group.to_lowercase()).collect();
-    let base = name_candidates(input, cluster, &subjects_with)
+    let inherited = match cluster_groups(input, cluster).as_slice() {
+      [group] if holders.get(group).is_some_and(|&(holder, _)| holder == index) => Some(inherited_name(input, cluster, group)),
+      _ => None,
+    };
+    let base = name_candidates(input, cluster, inherited, &subjects_with)
       .into_iter()
       .find_map(|candidate| valid_name(&candidate))
       .unwrap_or_else(|| format!("cluster-{}", index + 1));
@@ -803,16 +872,29 @@ pub fn name_clusters(input: &ClusterInput, clustering: &Clustering, taken: &Hash
   names
 }
 
+/// The path of a group the cluster takes over: the prefix its commits have (a stack path with stacked branches on),
+/// else the group, an issue key
+fn inherited_name(input: &ClusterInput, cluster: &Cluster, group: &str) -> String {
+  cluster
+    .commits
+    .iter()
+    .map(|&commit| &input.commits[commit])
+    .find(|commit| commit.group.as_deref() == Some(group))
+    .and_then(|commit| commit.prefix.clone())
+    .unwrap_or_else(|| group.to_string())
+}
+
 /// The name of a candidate, or `None` when it can't be a branch name
 fn valid_name(candidate: &str) -> Option<String> {
   let name = sanitize_branch_name(candidate);
   validate_branch_name(&name).is_ok().then_some(name)
 }
 
-fn name_candidates(input: &ClusterInput, cluster: &Cluster, subjects_with: &HashMap<&str, usize>) -> Vec<String> {
+fn name_candidates(input: &ClusterInput, cluster: &Cluster, inherited: Option<String>, subjects_with: &HashMap<&str, usize>) -> Vec<String> {
   let commits: Vec<&CommitFeatures> = cluster.commits.iter().map(|&commit| &input.commits[commit]).collect();
   let mut candidates = Vec::new();
   candidates.extend(cluster.anchor.clone());
+  candidates.extend(inherited);
   if let [key] = cluster.keys.as_slice() {
     candidates.push(key.clone());
   }
@@ -875,14 +957,8 @@ fn distinctive_word(commits: &[&CommitFeatures], subjects_with: &HashMap<&str, u
 
 /// The area with the most lines of the commits; `.` without lines
 fn top_area(commits: &[&CommitFeatures]) -> String {
-  let mut lines: BTreeMap<&str, u32> = BTreeMap::new();
-  for file in commits.iter().flat_map(|commit| &commit.files) {
-    *lines.entry(area_of(&file.path, AREA_DEPTH)).or_default() += file.lines;
-  }
-  lines
-    .into_iter()
-    .max_by_key(|&(area, lines)| (lines, Reverse(area)))
-    .map_or_else(|| ".".to_string(), |(area, _)| area.to_string())
+  let files = commits.iter().flat_map(|commit| &commit.files).map(|file| (file.path.as_str(), file.lines));
+  area_lines(files, DEFAULT_AREA_DEPTH).first().map_or(".", |&(area, _)| area).to_string()
 }
 
 /// The groups now of the cluster's commits, by their oldest commit
@@ -898,8 +974,8 @@ pub fn cluster_groups<'a>(input: &'a ClusterInput, cluster: &Cluster) -> Vec<&'a
   groups
 }
 
-/// How the cluster compares with the groups now, and those groups
-pub fn cluster_change<'a>(input: &'a ClusterInput, cluster: &Cluster) -> (ClusterChange, Vec<&'a str>) {
+/// How the cluster named `name` compares with the groups now, and those groups
+pub fn cluster_change<'a>(input: &'a ClusterInput, cluster: &Cluster, name: &str) -> (ClusterChange, Vec<&'a str>) {
   let groups = cluster_groups(input, cluster);
   let members: HashSet<usize> = cluster.commits.iter().copied().collect();
   let whole = |group: &str| {
@@ -912,10 +988,13 @@ pub fn cluster_change<'a>(input: &'a ClusterInput, cluster: &Cluster) -> (Cluste
   };
   let unassigned = cluster.commits.iter().any(|&commit| input.commits[commit].group.is_none());
   let all_whole = groups.iter().all(|group| whole(group));
+  // a group of a stack path is its leaf
+  let same_name = groups.first().is_some_and(|group| name.rsplit('/').next() == Some(*group));
   let change = match groups.len() {
-    1 if all_whole && !unassigned => ClusterChange::Kept,
+    1 if all_whole && !unassigned && same_name => ClusterChange::Kept,
+    1 if all_whole && !unassigned => ClusterChange::Renamed,
     1 if !unassigned => ClusterChange::Split,
-    2.. if all_whole => ClusterChange::Merged,
+    1.. if all_whole => ClusterChange::Merged,
     _ => ClusterChange::New,
   };
   (change, groups)
@@ -966,31 +1045,40 @@ pub fn why(input: &ClusterInput, cluster: &Cluster) -> String {
   parts.join("; ")
 }
 
-/// `input` with every name hashed with `salt`: each path segment, prefix level, group and scope, and each issue key with
-/// its project hashed apart from its number (so keys of one project still share a project). Module markers become
+/// `input` with every name hashed by `keys`, a keyed hash whose key the caller never keeps (`RandomState::new()`):
+/// each path segment, prefix level, group and scope as 16 hexadecimal digits, and each issue key with its project hashed
+/// apart from the key (so keys of one project still share a project). The module markers of file paths become
 /// `ANONYMOUS_MARKER`, and the words go. Positions, lines and edges stay, so the clustering is the same
-pub fn anonymize(input: &ClusterInput, salt: u64) -> ClusterInput {
-  let segment = |text: &str| -> String {
+pub fn anonymize(input: &ClusterInput, keys: &impl BuildHasher) -> ClusterInput {
+  let name = |text: &str| -> String {
     if is_issue_key(text) {
-      return hashed_key(salt, text);
+      hashed_key(keys, text)
+    } else {
+      format!("{:016x}", keys.hash_one((b's', text)))
     }
-    if MODULE_MARKERS.contains(&text) {
-      return ANONYMOUS_MARKER.to_string();
-    }
-    format!("{:010x}", hash(salt, b's', text) & 0xff_ffff_ffff)
   };
-  let path = |text: &str| text.split('/').map(segment).collect::<Vec<_>>().join("/");
+  let names = |text: &str| text.split('/').map(name).collect::<Vec<_>>().join("/");
+  let file = |text: &str| {
+    let segments = text.split('/').map(|segment| {
+      if MODULE_MARKERS.contains(&segment) {
+        ANONYMOUS_MARKER.to_string()
+      } else {
+        name(segment)
+      }
+    });
+    segments.collect::<Vec<_>>().join("/")
+  };
   ClusterInput {
     commits: input
       .commits
       .iter()
       .map(|commit| CommitFeatures {
-        prefix: commit.prefix.as_deref().map(path),
-        group: commit.group.as_deref().map(path),
-        key: commit.key.as_deref().map(|key| hashed_key(salt, key)),
-        scope: commit.scope.as_deref().map(segment),
+        prefix: commit.prefix.as_deref().map(names),
+        group: commit.group.as_deref().map(names),
+        key: commit.key.as_deref().map(|key| hashed_key(keys, key)),
+        scope: commit.scope.as_deref().map(name),
         mentions: {
-          let mut mentions: Vec<String> = commit.mentions.iter().map(|key| hashed_key(salt, key)).collect();
+          let mut mentions: Vec<String> = commit.mentions.iter().map(|key| hashed_key(keys, key)).collect();
           mentions.sort();
           mentions
         },
@@ -998,9 +1086,9 @@ pub fn anonymize(input: &ClusterInput, salt: u64) -> ClusterInput {
         files: commit
           .files
           .iter()
-          .map(|file| FileLines {
-            path: path(&file.path),
-            lines: file.lines,
+          .map(|changed| FileLines {
+            path: file(&changed.path),
+            lines: changed.lines,
           })
           .collect(),
         words: Vec::new(),
@@ -1014,25 +1102,15 @@ fn is_issue_key(text: &str) -> bool {
   issue_keys_in(text).next() == Some(text)
 }
 
-/// `PROJECT-123` as five uppercase letters for the project and seven digits for the whole key
-fn hashed_key(salt: u64, key: &str) -> String {
-  let mut project = hash(salt, b'p', project_of(key));
-  let letters: String = (0..5)
+/// `PROJECT-123` as 14 uppercase letters for the hash of the project and the decimal hash of the whole key, 64 bits each
+fn hashed_key(keys: &impl BuildHasher, key: &str) -> String {
+  let mut project = keys.hash_one((b'p', project_of(key)));
+  let letters: String = (0..14)
     .map(|_| {
       let letter = char::from(b'A' + u8::try_from(project % 26).unwrap_or(0));
       project /= 26;
       letter
     })
     .collect();
-  format!("{letters}-{:07}", hash(salt, b'k', key) % 10_000_000)
-}
-
-/// FNV-1a over the salt, a domain byte and the text
-fn hash(salt: u64, domain: u8, text: &str) -> u64 {
-  let mut value: u64 = 0xcbf2_9ce4_8422_2325;
-  for byte in salt.to_le_bytes().into_iter().chain([domain]).chain(text.bytes()) {
-    value ^= u64::from(byte);
-    value = value.wrapping_mul(0x0100_0000_01b3);
-  }
-  value
+  format!("{letters}-{}", keys.hash_one((b'k', key)))
 }

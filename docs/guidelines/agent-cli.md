@@ -363,15 +363,22 @@ branch tips), their changes from the object cache without lock files, generated 
      have scopes and none in common. Kp: 0.7 when the keys differ in the same project.
    - adj: 0.05 when the two sides have neighbouring commits in the log and R or P is not 0.
 3. Merges, the best pair first and on a tie the oldest, until the best score is under 0.40 (`MERGE_THRESHOLD`). Two
-   anchors never merge, and no merge makes a cluster of more than `--max-commits` commits (default 40).
+   anchors never merge, and no merge makes a cluster of more than `--max-commits` commits (default 40). Each row of
+   the score matrix keeps its best column, so a merge rescores one row and one column. On synthetic input of commits
+   that all merge, 300 commits take 0.3 s and 1000 take 6.9 s in a debug build (1.1 s in a release build); commits
+   that don't merge take 16 ms and 0.14 s.
 
-Each cluster then gets a name, the first of: its prefix; its single issue key; a scope of at least 60 % of its commits;
-`<area leaf>-<word>`, for the subject word of at least half its subjects with the highest TF-IDF; its most frequent key;
-`cluster-N`. When another cluster, a group now or an existing virtual branch has the name (in any case), and the
+Each cluster then gets a name, the first of: its prefix; the branch its commits come from, when it holds the most
+commits of that branch (so `--fresh` keeps the names of the branches it finds again); its single issue key; a scope of
+at least 60 % of its commits; `<area leaf>-<word>`, for the subject word of at least half its subjects with the highest
+TF-IDF (issue keys and the conventional prefix are not words); its most frequent key; `cluster-N`. When another cluster, a group now or an existing virtual branch has the name (in any case), and the
 cluster's commits don't come from it, the name gets `-2`, `-3`, and so on.
 
-The trial sync builds the plan. A conflict joins the conflicting commit to its `missing_commits` as hard edges, and the
-clustering runs again, at most 5 times. A repair never joins two anchors, so a conflict between two prefixes stays.
+The trial sync builds the plan. A conflict joins the conflicting commit to its `missing_commits` as hard edges, or to
+the newest older commit outside its branch that changes a conflicting file when there are none, and the clustering
+runs again, at most 5 times. An edge joins two hard units, also two of one cluster that build apart (an issue group,
+below): the joined unit then goes into the plan. A repair never joins two anchors, so a conflict between two prefixes
+stays.
 
 ```json
 {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
@@ -387,7 +394,9 @@ clustering runs again, at most 5 times. A repair never joins two anchors, so a c
 - `plan` lists only the commits whose branch changes. A fixup that follows its target is left out, and a commit with a
   prefix that goes to the branch of its own issue key is in `unassign`. The commit ids appear only in `plan`. Give the
   plan to `bd group` as it is, or edit it and run `bd check`.
-- Per cluster: `change` against the groups now in `from` (`kept`, `merged`, `split` or `new`), `why` (one line to
+- Per cluster: `change` against the groups now in `from` (`kept`: one whole branch under its name; `renamed`: one
+  whole branch under another name; `merged`: two or more whole branches, or one with unassigned commits; `split`: a
+  part of one branch; `new`: anything else), `why` (one line to
   quote to the user, with the repair rounds), `weak` (a merge by paths near the threshold, or one that adjacency
   decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`).
 - A cluster of two or more whole issue branches stays out of the plan with `"via":"issue_group"`, because the plan
@@ -395,10 +404,11 @@ clustering runs again, at most 5 times. A repair never joins two anchors, so a c
 - `rewritten` counts the subjects the plan changes. `check` has the `bd check` result of each branch and the
   `repair_rounds`. `warnings` lists `anchor_dependency` and `unresolved_conflict`, with the branches.
 - The exit code is 1 when a branch of the plan still conflicts, as for `bd check`.
-- On the 73 commits and 11 branches of a large monorepo branch it keeps the 11 branches with an empty plan, in 0.6 s
+- On the 74 commits and 12 branches of a large monorepo branch it keeps the 12 branches with an empty plan, in 0.27 s
   warm (a debug build). With `--fresh` it finds the grouping a human made there with a pairwise precision of 1.0 and
-  a recall of 0.945; the golden test of `clustering_test.rs` checks its anonymized input (`--dump-input`, hidden, with
-  every name hashed with a salt that is not kept).
+  a recall of 0.945, and its plan rewrites 6 subjects. The golden test of `clustering_test.rs` checks its anonymized
+  input: `--dump-input` (hidden) prints the input with every name hashed by SipHash with a random key of the
+  operating system, which is not kept.
 
 ### `bd sync`
 

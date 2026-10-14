@@ -1,7 +1,7 @@
 //! `bd check`: would the branches build with this plan? A trial sync (`sync_core::check`) that writes objects only
 
 use crate::context::RepoContext;
-use crate::diff_scan::read_commit_diffs_cached;
+use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
@@ -82,14 +82,8 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   // the files of each commit, for the commits a conflict likely needs
   let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
   let has_conflict = report.branches.iter().any(|branch| matches!(branch.outcome, CheckOutcome::Conflict { .. }));
-  let files_of: HashMap<String, HashSet<String>> = if has_conflict {
-    read_commit_diffs_cached(&context.git, &context.repository, &cache, &ids)?
-      .into_iter()
-      .map(|diff| {
-        let files = diff.files.into_iter().flat_map(|change| std::iter::once(change.path).chain(change.old_path)).collect();
-        (diff.id, files)
-      })
-      .collect()
+  let files_of = if has_conflict {
+    changed_files(&read_commit_diffs_cached(&context.git, &context.repository, &cache, &ids)?)
   } else {
     HashMap::new()
   };
@@ -109,6 +103,21 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     branches,
     unassigned_count: report.unassigned,
   })
+}
+
+/// Commit id -> every path its changes name, old paths of renames included
+pub(crate) fn changed_files(diffs: &[CommitDiff]) -> HashMap<String, HashSet<String>> {
+  diffs
+    .iter()
+    .map(|diff| {
+      let files = diff
+        .files
+        .iter()
+        .flat_map(|change| std::iter::once(change.path.clone()).chain(change.old_path.clone()))
+        .collect();
+      (diff.id.clone(), files)
+    })
+    .collect()
 }
 
 /// The check of each branch of `report`; `files_of` holds the changed files of each commit, for the commits a conflict

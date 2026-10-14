@@ -145,6 +145,62 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
 }
 
 #[test_log::test]
+fn a_conflict_inside_an_issue_group_puts_it_into_the_plan() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n"), ("Cargo.lock", "line 1\nline 2\nline 3\n")]);
+  // the mention makes one cluster of two issue branches, which would build apart
+  let ids = commits(
+    &repo,
+    &[
+      ("XA-1 Add foo", &[("Cargo.lock", "line 1\nfoo\nline 2\nline 3\n"), ("a/foo.rs", "foo\n")]),
+      (
+        "XA-2 Add bar\n\nAfter XA-1.",
+        &[("Cargo.lock", "line 1\nfoo\nbar\nline 2\nline 3\n"), ("b/bar.rs", "bar\n")],
+      ),
+    ],
+  );
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["check"]["ok"], &output["check"]["repair_rounds"]), (&json!(true), &json!(1)));
+  let cluster = &output["clusters"][0];
+  assert_eq!((&cluster["commit_count"], cluster.get("via")), (&json!(2), None));
+  let name = cluster["name"].as_str().unwrap();
+  assert_eq!(output["plan"], json!({ "branches": { name: [short(&ids[0]), short(&ids[1])] }, "unassign": [] }));
+}
+
+#[test_log::test]
+fn fresh_keeps_the_name_of_a_branch_that_stays_whole() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  commits(&repo, &[("(feat) Add x", &[("x/a.rs", "a\n")]), ("(feat) Change x", &[("x/a.rs", "b\n")])]);
+  let (exit_code, output) = run_in(&repo, &["suggest", "--fresh"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }));
+  assert_eq!(clusters(&output), BTreeMap::from([("feat".to_string(), entry("kept", 2, None))]));
+}
+
+#[test_log::test]
+fn stacked_branches_and_an_empty_range() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (exit_code, empty) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{empty}");
+  assert_eq!(
+    (&empty["plan"], &empty["clusters"], &empty["check"]["ok"]),
+    (&json!({ "branches": {}, "unassign": [] }), &json!([]), &json!(true))
+  );
+
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commits(&repo, &[("(a) Add x", &[("x/a.rs", "a\n")]), ("(a/b) Add y", &[("y/b.rs", "b\n")])]);
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }));
+  assert_eq!(
+    clusters(&output),
+    BTreeMap::from([("a".to_string(), entry("kept", 1, None)), ("a/b".to_string(), entry("kept", 1, None))])
+  );
+  let b = output["check"]["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
+  assert_eq!((&b["parent"], &b["result"]), (&json!("a"), &json!("ok")));
+}
+
+#[test_log::test]
 fn prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   commits(&repo, &[("(a) Add shared", &[("shared.txt", "one\n")]), ("(b) Change shared", &[("shared.txt", "two\n")])]);
@@ -231,6 +287,8 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
       cluster(vec![5, 6], &["XYZ-1", "XYZ-2"], 2, 2),
     ],
     warnings: Vec::new(),
+    unit_of: Vec::new(),
+    unit_anchors: Vec::new(),
   };
   let names = ["feat".to_string(), "ABC-1".to_string(), "xyz".to_string()];
   let (branches, unassign) = plan_of(&input, &clustering, &names, false);

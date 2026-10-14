@@ -225,13 +225,13 @@ pub fn conventional_scope(subject: &str) -> Option<&str> {
 }
 
 /// Every issue key (`ABC-123` at word boundaries, as `find_issue_number` reads one) in `text`, any line, in order and
-/// with repeats
+/// with repeats. A key after a hyphen is part of a longer id (`IJ-CR-1234`), not a key
 pub fn issue_keys_in(text: &str) -> impl Iterator<Item = &str> {
   let bytes = text.as_bytes();
   let mut i = 0;
   std::iter::from_fn(move || {
     while i < bytes.len() {
-      let at_boundary = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+      let at_boundary = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'-');
       if !(at_boundary && bytes[i].is_ascii_uppercase()) {
         i += 1;
         continue;
@@ -397,7 +397,8 @@ mod tests {
     let keys = |text| issue_keys_in(text).collect::<Vec<_>>();
     assert_eq!(keys("IJAI-3016 subject\n\nAlso IJPL-258458 and (IJAI-3016)."), ["IJAI-3016", "IJPL-258458", "IJAI-3016"]);
     assert_eq!(keys("ABC-123-456 and DEF-7"), ["ABC-123", "DEF-7"]);
-    assert_eq!(keys("x-ABC-1 xABC-2 ABC-3x ABC- -4 abc-5"), ["ABC-1"]);
+    assert_eq!(keys("x-ABC-1 xABC-2 ABC-3x ABC- -4 abc-5 IJ-CR-1234"), Vec::<&str>::new());
+    assert_eq!(keys("(ABC-1), [DEF-2]/GHI-3"), ["ABC-1", "DEF-2", "GHI-3"]);
     assert_eq!(keys("Ünïcode ABC-9"), ["ABC-9"]);
     assert_eq!(keys(""), Vec::<&str>::new());
     // the subject parser is unchanged: only a key at the start counts there

@@ -470,6 +470,10 @@ the commits it misses.
 3. The tree cache carries a memo backed by the object cache: a merge of known trees returns the remembered tree or
    conflict, and a conflict is reported light (its files), without the conflict analysis.
 
+A `CheckSession` reads the snapshot (the guards, HEAD, the stack setting, the baseline and one `log`) and the branch
+tips once; `check_plan` is one session with one check. `bd suggest` checks up to 6 plans with one session, one per
+repair round, so the rounds repeat no `log`; each check still runs the git processes of building each branch.
+
 Code: `crates/sync-core/src/check.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/cache.rs`.
 
 Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.

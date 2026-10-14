@@ -105,7 +105,7 @@ fn outputs_match_schema() {
   assert_covered(&schema["outputs"]["commits_brief"], &schema["outputs"]["commits_brief"], &brief, "commits_brief");
   let (_, suggest) = run_in(&repo, &["suggest", "--fresh"]);
   assert_eq!(suggest.get("error"), None, "{suggest}");
-  assert_ne!(suggest["plan"]["branches"], json!({}));
+  assert_ne!(suggest["clusters"], json!([]));
   assert_covered(&schema["outputs"]["suggest"], &schema["outputs"]["suggest"], &suggest, "suggest");
   let (_, version) = run_in(&repo, &["version"]);
   assert_covered(&schema["outputs"]["version"], &schema["outputs"]["version"], &version, "version");

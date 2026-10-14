@@ -4,10 +4,10 @@
 //! (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use crate::check_command::{CheckedBranch, checked_branches, missing_commits};
+use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits};
 use crate::clustering::{
-  ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, Warning, anonymize, cluster_change, cluster_with_repair,
-  is_issue_only, name_clusters, subject_words, why,
+  ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Warning, anonymize, cluster_change,
+  cluster_with_repair, is_issue_only, name_clusters, subject_words, why,
 };
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
@@ -22,11 +22,12 @@ use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::RandomState;
 use sync_core::check::{CheckOutcome, CheckReport, CheckSession};
 use sync_core::commit_grouper::parse_subject;
 use sync_core::regroup::{RegroupPlan, Snapshot};
 use sync_core::stack::stack_path;
-use sync_utils::issue_pattern::{find_issue_number, find_issue_range, issue_keys_in, parse_semantic_prefix};
+use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic_prefix};
 
 #[derive(Debug, clap::Args)]
 pub struct SuggestArgs {
@@ -143,16 +144,13 @@ struct Checked {
   report: CheckReport,
 }
 
-/// `bd suggest --dump-input`: the input with every name hashed with a random salt, which is not printed
+/// `bd suggest --dump-input`: the input with every name hashed by `SipHash` with a random key of the operating system,
+/// which is neither kept nor printed
 pub fn suggest_input_dump(context: &RepoContext) -> Result<SuggestInputDump, CliError> {
   let reading = Reading::read(context)?;
-  let salt = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos() & u128::from(u64::MAX)).unwrap_or(0))
-    ^ u64::from(std::process::id());
   Ok(SuggestInputDump {
     schema: SchemaVersion,
-    input: anonymize(&reading.input, salt),
+    input: anonymize(&reading.input, &RandomState::new()),
   })
 }
 
@@ -162,18 +160,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   let commit_ids: Vec<&str> = snapshot.commits.iter().map(|commit| commit.id.as_str()).collect();
   let position_of: HashMap<&str, usize> = commit_ids.iter().enumerate().map(|(position, id)| (*id, position)).collect();
   // every changed file, generated ones too: a conflict may be in a lock file
-  let files_of: HashMap<String, HashSet<String>> = diffs
-    .diffs
-    .iter()
-    .map(|diff| {
-      let files = diff
-        .files
-        .iter()
-        .flat_map(|change| std::iter::once(change.path.clone()).chain(change.old_path.clone()))
-        .collect();
-      (diff.id.clone(), files)
-    })
-    .collect();
+  let files_of = changed_files(&diffs.diffs);
   let taken: HashSet<String> = session
     .tips()
     .keys()
@@ -223,7 +210,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     .iter()
     .zip(&names)
     .map(|(cluster, name)| {
-      let (change, from) = cluster_change(&input, cluster);
+      let (change, from) = cluster_change(&input, cluster, name);
       let via = (!args.rewrite_issues && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
       SuggestedCluster {
         name: name.clone(),
@@ -240,14 +227,23 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     .collect();
   let checked = checked_branches(&report, &files_of, &short);
   let mut warnings = warnings_of(&repaired.clustering);
-  for branch in checked.iter().filter(|branch| branch.result != "ok") {
+  for (branch, result) in report.branches.iter().zip(&checked).filter(|(_, checked)| checked.result != "ok") {
+    let conflict = match &branch.outcome {
+      CheckOutcome::Conflict { commit, .. } => position_of
+        .get(commit.as_str())
+        .and_then(|&position| repaired.conflicts.iter().find(|conflict| conflict.commit == position)),
+      _ => None,
+    };
+    let reason = match conflict {
+      Some(conflict) if conflict.needs.is_empty() => "no older commit ahead of the baseline changes the conflicting files".to_string(),
+      Some(_) if repaired.rounds == MAX_REPAIR_ROUNDS => format!("the {MAX_REPAIR_ROUNDS} repair rounds ran out"),
+      Some(_) => "the commits it needs have another prefix: stack the branch on theirs, or move them".to_string(),
+      None => format!("the repair joins only conflicting commits, and the branch is {}", result.result),
+    };
     warnings.push(SuggestWarning {
       kind: "unresolved_conflict".to_string(),
       branches: vec![branch.name.clone()],
-      message: format!(
-        "{} is {} after {} repair rounds: the commits it needs are in another prefix branch, or a merge cannot place it",
-        branch.name, branch.result, repaired.rounds
-      ),
+      message: format!("{} is {} after {} repair rounds: {reason}", branch.name, result.result, repaired.rounds),
     });
   }
 
@@ -297,9 +293,6 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
         };
         path.filter(|path| !path.is_empty())
       });
-      // `fix(vm): ABC-1 x` and `ABC-1 x`: the key and the conventional prefix are not words
-      let rest = find_issue_range(parsed.rest).map_or(parsed.rest, |(_, end)| &parsed.rest[end..]);
-      let rest = rest.trim_start_matches([':', ' ']);
       let semantic = parse_semantic_prefix(parsed.rest);
       let key = find_issue_number(parsed.rest).map(str::to_string);
       let body = commit.message.split_once('\n').map_or("", |(_, body)| body);
@@ -327,12 +320,18 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
             })
             .collect()
         }),
-        words: subject_words(semantic.map_or(rest, |semantic| semantic.rest)),
+        words: name_words(semantic.map_or(parsed.rest, |semantic| semantic.rest)),
       }
     })
     .collect();
   let dependencies = compute_dependencies(linked).into_iter().map(|edge| [edge.from, edge.to]).collect();
   ClusterInput { commits, dependencies }
+}
+
+/// The words of a subject after its conventional prefix, without its issue keys: `fix(vm): ABC-1 x` gives `x`
+fn name_words(text: &str) -> Vec<String> {
+  let without_keys = issue_keys_in(text).fold(text.to_string(), |text, key| text.replacen(key, " ", 1));
+  subject_words(&without_keys)
 }
 
 /// The plan of a clustering: per branch name the commits that move there, and the commits that lose their prefix to

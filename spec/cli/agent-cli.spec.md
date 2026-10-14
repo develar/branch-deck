@@ -243,7 +243,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd suggest` must print a plan for `bd group` with only the commits whose branch changes (a fixup that follows its
   target left out, a prefixed commit that goes to its own issue branch in `unassign`), the clusters with their name,
-  commit count, `change` (`kept`, `merged`, `split`, `new`) against the groups now in `from`, `why`, `weak`, issue keys
+  commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `from`, `why`, `weak`, issue keys
   and areas, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
@@ -255,25 +255,29 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
   best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40.
-  [@test] ../../crates/bd-cli/src/clustering_test.rs (`the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak`, `the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
   [@test] ../../crates/sync-utils/src/issue_pattern.rs (`semantic_prefixes_with_and_without_parentheses`, `issue_keys_anywhere_in_a_text`)
 - With `--fresh`, on the anonymized input of a large monorepo branch, the clusters must match the grouping a human
   made with a pairwise precision of at least 0.95 and a recall of at least 0.85, and keep the issue projects and the
   named pairs of groups apart.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`golden_monorepo_branch`)
-- A conflict of the check must join the conflicting commit to the commits it needs and cluster again, at most 5 times,
-  never joining two prefixes; the exit code must be 1 when a branch still conflicts.
+- A conflict of the check must join the hard unit of the conflicting commit to the units it needs, also inside an
+  issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
+  still conflicts.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
-- A name must be the cluster's prefix, its single issue key, a scope of at least 60 % of its commits, `<area
-  leaf>-<word>`, its most frequent key or `cluster-N`, in this order; a name another cluster, a group now or a virtual
-  branch has, in any case, must get `-2`, `-3`, unless the cluster's commits come from it.
-  [@test] ../../crates/bd-cli/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `subject_words_drop_stopwords_and_endings`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_conflict_inside_an_issue_group_puts_it_into_the_plan`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+- A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
+  single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or
+  `cluster-N`, in this order; a name another cluster, a group now or a virtual branch has, in any case, must get `-2`,
+  `-3`, unless the cluster's commits come from it. `kept` must mean one whole branch under its own name.
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `a_cluster_takes_the_name_of_the_branch_it_holds_most_of`, `changes_against_the_groups_now`, `subject_words_drop_stopwords_and_endings`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`fresh_keeps_the_name_of_a_branch_that_stays_whole`, `stacked_branches_and_an_empty_range`)
 - A cluster of two or more whole issue branches must stay out of the plan with `"via": "issue_group"`, unless
   `--rewrite-issues`.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`)
-- `--dump-input` (hidden) must print the input of the clustering with every name hashed with a salt it does not keep,
-  and without subjects, bodies, ids and authors, so that the dump clusters as the repository does.
+- `--dump-input` (hidden) must print the input of the clustering with every name hashed by a keyed hash (SipHash) with
+  a random key that is not kept, and without subjects, bodies, ids and authors, so that the dump clusters as the
+  repository does; only the module markers of file paths may become one marker.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`anonymize_keeps_the_clustering_and_no_name`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`the_dump_hides_every_name`)
 

@@ -1,11 +1,12 @@
 use crate::clustering::{
-  ANONYMOUS_MARKER, Cluster, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, FileLines, Link, MAX_REPAIR_ROUNDS, Warning, anonymize, cluster,
-  cluster_with_repair, name_clusters, subject_words, why,
+  ANONYMOUS_MARKER, Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, FileLines, Link, MAX_REPAIR_ROUNDS, Repaired, Warning, anonymize,
+  cluster, cluster_change, cluster_with_repair, is_issue_only, name_clusters, subject_words, why,
 };
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::convert::Infallible;
+use std::hash::{BuildHasherDefault, DefaultHasher, RandomState};
 
 fn files(files: &[(&str, u32)]) -> Vec<FileLines> {
   files.iter().map(|&(path, lines)| FileLines { path: path.to_string(), lines }).collect()
@@ -197,20 +198,33 @@ fn the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair() {
   assert_eq!(groups(&cluster(&input, &ClusterOptions::default())), [vec![0, 1, 2]]);
 }
 
+/// Repair with a check that finds commit 1 conflicting until it shares a hard unit with commit 0
+fn repair_until_joined(input: &ClusterInput) -> Repaired {
+  cluster_with_repair(input, &ClusterOptions::default(), |clustering| {
+    let apart = clustering.unit_of[0] != clustering.unit_of[1];
+    Ok::<_, Infallible>(if apart { vec![Conflict { commit: 1, needs: vec![0] }] } else { Vec::new() })
+  })
+  .unwrap()
+}
+
 #[test]
 fn repair_joins_a_conflicting_commit_to_what_it_needs() {
   let pair = input(vec![keyed("ABC-1", "one/a.txt"), keyed("XYZ-1", "two/b.txt")]);
-  let repaired = cluster_with_repair(&pair, &ClusterOptions::default(), |clustering| {
-    let apart = clustering.clusters.len() > 1;
-    Ok::<_, Infallible>(if apart { vec![Conflict { commit: 1, needs: vec![0] }] } else { Vec::new() })
-  })
-  .unwrap();
+  let repaired = repair_until_joined(&pair);
   assert_eq!(
     (groups(&repaired.clustering), repaired.rounds, repaired.conflicts.clone()),
     (vec![vec![0, 1]], 1, Vec::new())
   );
   assert_eq!(repaired.clustering.clusters[0].repair_rounds, [1]);
   assert_eq!(why(&pair, &repaired.clustering.clusters[0]), "1 unit; joined by repair round 1 after a conflict; area one");
+
+  // a conflict inside one cluster of two issue units that build apart (an issue group) joins them too
+  let group = input(vec![keyed("ABC-1", "one/a.txt"), mentioning(keyed("ABC-2", "two/b.txt"), &["ABC-1"])]);
+  let first = cluster(&group, &ClusterOptions::default());
+  assert_eq!((groups(&first), is_issue_only(&group, &first.clusters[0])), (vec![vec![0, 1]], true));
+  let repaired = repair_until_joined(&group);
+  assert_eq!((repaired.rounds, repaired.clustering.clusters[0].units), (1, 1));
+  assert!(!is_issue_only(&group, &repaired.clustering.clusters[0]), "the plan must build them together");
 
   // two anchors are never joined: the conflict stays
   let anchors = input(vec![prefixed("a", "one/a.txt"), prefixed("b", "two/b.txt")]);
@@ -237,6 +251,16 @@ fn repair_joins_a_conflicting_commit_to_what_it_needs() {
     (repaired.rounds, checks, repaired.clustering.clusters[0].commits.len()),
     (MAX_REPAIR_ROUNDS, MAX_REPAIR_ROUNDS + 1, MAX_REPAIR_ROUNDS + 1)
   );
+}
+
+/// A clustering made by hand, without its units
+fn manual(clusters: Vec<Cluster>) -> Clustering {
+  Clustering {
+    clusters,
+    warnings: Vec::new(),
+    unit_of: Vec::new(),
+    unit_anchors: Vec::new(),
+  }
 }
 
 fn single(commits: Vec<usize>) -> Cluster {
@@ -296,13 +320,76 @@ fn names_in_order_of_preference_with_collisions() {
     },
     single(vec![12]),
   ];
-  let clustering = Clustering { clusters, warnings: Vec::new() };
+  let clustering = manual(clusters);
   // an existing virtual branch that none of the commits comes from
   let taken = HashSet::from(["docs-tidy".to_string()]);
   assert_eq!(
     name_clusters(&input, &clustering, &taken),
     ["feat", "ABC-1", "vm", "shared-unload", "ABC-3", "cluster-6", "FEAT-2", "docs-tidy-2"]
   );
+}
+
+#[test]
+fn a_cluster_takes_the_name_of_the_branch_it_holds_most_of() {
+  // with --fresh the prefixes join nothing, but a cluster still takes over the branch its commits come from
+  let input = input(vec![
+    prefixed("feat", "a/x.txt"),
+    prefixed("feat", "a/y.txt"),
+    prefixed("feat", "b/z.txt"),
+    // a stacked branch: the group is the leaf of the prefix
+    CommitFeatures {
+      key: Some("ABC-1".to_string()),
+      group: Some("c".to_string()),
+      ..prefixed("p/c", "c/w.txt")
+    },
+  ]);
+  let clustering = manual(vec![single(vec![0, 1]), single(vec![2]), single(vec![3])]);
+  let names = name_clusters(&input, &clustering, &HashSet::new());
+  assert_eq!(names, ["feat", "cluster-2", "p/c"]);
+  let changes: Vec<ClusterChange> = clustering
+    .clusters
+    .iter()
+    .zip(&names)
+    .map(|(cluster, name)| cluster_change(&input, cluster, name).0)
+    .collect();
+  assert_eq!(
+    changes,
+    [ClusterChange::Split, ClusterChange::Split, ClusterChange::Kept],
+    "the group of a stack path is its leaf"
+  );
+}
+
+#[test]
+fn changes_against_the_groups_now() {
+  let input = input(vec![prefixed("a", "a/x.txt"), prefixed("a", "a/y.txt"), prefixed("b", "b/z.txt"), touching("c/v.txt")]);
+  let change = |commits: Vec<usize>, name: &str| cluster_change(&input, &single(commits), name).0;
+  assert_eq!(change(vec![0, 1], "a"), ClusterChange::Kept);
+  assert_eq!(change(vec![0, 1], "renamed"), ClusterChange::Renamed);
+  assert_eq!(change(vec![0], "a"), ClusterChange::Split);
+  assert_eq!(change(vec![0, 1, 3], "a"), ClusterChange::Merged, "a whole branch with an unassigned commit");
+  assert_eq!(change(vec![0, 1, 2], "a"), ClusterChange::Merged);
+  assert_eq!(change(vec![0, 2], "a"), ClusterChange::New);
+  assert_eq!(change(vec![3], "c"), ClusterChange::New);
+}
+
+#[test]
+fn a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak() {
+  // P is ln 2 / (ln 2 + ln 3) = 0.387: under the threshold alone, over it with the 0.05 of neighbours
+  let shared = CommitFeatures {
+    files: files(&[("m/src/p/s.kt", 10)]),
+    ..CommitFeatures::default()
+  };
+  let wider = CommitFeatures {
+    files: files(&[("m/src/p/s.kt", 10), ("n/src/q/o.kt", 10)]),
+    ..CommitFeatures::default()
+  };
+  let clustering = cluster(&input(vec![shared.clone(), wider.clone()]), &ClusterOptions::default());
+  assert_eq!(groups(&clustering), [vec![0, 1]]);
+  assert!(clustering.clusters[0].weak);
+  assert_eq!(clustering.clusters[0].links, [Link::Paths("m/src/p".to_string())]);
+  // not neighbours: no merge
+  let apart = cluster(&input(vec![shared, touching("z/far.txt"), wider]), &ClusterOptions::default());
+  assert_eq!(groups(&apart), [vec![0], vec![1], vec![2]]);
 }
 
 #[test]
@@ -331,7 +418,8 @@ fn anonymize_keeps_the_clustering_and_no_name() {
     scoped("vm", "tools/vm/src/pool.rs"),
   ]);
   input.dependencies = vec![[4, 3]];
-  let anonymous = anonymize(&input, 42);
+  let fixed = BuildHasherDefault::<DefaultHasher>::default();
+  let anonymous = anonymize(&input, &fixed);
   assert_eq!(
     groups(&cluster(&anonymous, &ClusterOptions::default())),
     groups(&cluster(&input, &ClusterOptions::default()))
@@ -353,7 +441,14 @@ fn anonymize_keeps_the_clustering_and_no_name() {
   assert_eq!(anonymous.commits[0].mentions, [anonymous.commits[1].key.clone().unwrap()]);
   assert_eq!(anonymous.commits[2].prefix.as_deref().unwrap().split('/').count(), 2);
   assert_eq!(anonymous.commits[0].words, Vec::<String>::new());
-  assert_ne!(anonymize(&input, 43), anonymous, "the salt changes every name");
+  assert_ne!(anonymize(&input, &RandomState::new()), anonymous, "a random key changes every name");
+
+  // only the directories of file paths are module markers: the scopes `test` and `gen` and the prefix `src` stay names
+  let markers = super::clustering_test::input(vec![scoped("test", "a/x.txt"), scoped("gen", "b/y.txt"), prefixed("src", "c/z.txt")]);
+  let anonymous = anonymize(&markers, &fixed);
+  assert_ne!(anonymous.commits[0].scope, anonymous.commits[1].scope);
+  assert_ne!(anonymous.commits[2].prefix.as_deref(), Some(ANONYMOUS_MARKER));
+  assert_eq!(anonymous.commits[0].scope.as_ref().map(String::len), Some(16), "64 bits");
 }
 
 /// The anonymized input of a large monorepo branch (`bd suggest --fresh --dump-input`) and the grouping a human made of
