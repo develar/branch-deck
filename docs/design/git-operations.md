@@ -320,8 +320,9 @@ Details:
   tips>`. Two more `log --reverse --no-merges --no-renames --name-only -z -- <files>` runs, with
   `GIT_LITERAL_PATHSPECS=1`, tell which commits change the files: one over the local range, one over `B..U` with
   `--max-count=50` (a monorepo upstream has thousands). At most 50 files go on the command line, which Windows limits
-  to 32K characters. The result names the files, the commits and the upstream commits with their authors, with H, U and
-  B, for the dialog and the agent prompt; nothing has changed.
+  to 32K characters. The result names the files, the commits and the upstream commits with their authors and
+  committers and both times (`%an %at %cn %ct`: the committer time of an upstream commit is about when it landed), with
+  H, U and B, for the dialog and the agent prompt; nothing has changed.
 - **Dirty working tree.** Two-way `read-tree -m -u` updates a path only where `H` and `N` differ, and only if the index
   and the working tree still match `H` there. Uncommitted or staged changes on any other path stay byte for byte. A
   dirty or staged path that the update changes, an untracked file where it adds one, or an untracked file inside a

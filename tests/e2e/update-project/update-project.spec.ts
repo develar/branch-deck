@@ -6,7 +6,8 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
-// at `.git/upstream.git` that changed line 2 of src/app.txt and added docs/guide.md; already fetched.
+// at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-03) and
+// added docs/guide.md; already fetched.
 
 function updateButton(page: Page): Locator {
   return page.getByTestId("update-project-button")
@@ -98,8 +99,9 @@ test.describe("Update Project", () => {
     // each file with the commits of both sides that change it
     const file = dialog.getByTestId("update-conflict-file")
     await expect(file).toHaveAttribute("data-path", "src/app.txt")
-    await expect(file.locator("li[data-side=local]")).toHaveText([/^yours[0-9a-f]{8}feature-auth Change line 2$/])
-    await expect(file.locator("li[data-side=upstream]")).toHaveText([/^origin\/master[0-9a-f]{8}Change line 2 upstreamDana Lee, /])
+    // yours with the author time; the upstream one landed two days after it was written: both times
+    await expect(file.locator("li[data-side=local]")).toHaveText([/^yours[0-9a-f]{8}feature-auth Change line 2\d+ years ago$/])
+    await expect(file.locator("li[data-side=upstream]")).toHaveText([/^origin\/master[0-9a-f]{8}Change line 2 upstreamDana Lee · authored \d+ years ago · landed \d+ years ago$/])
     // every commit to rebase, collapsed
     const commits = dialog.getByTestId("update-conflict-commits")
     await expect(commits).toBeHidden()
@@ -111,7 +113,7 @@ test.describe("Update Project", () => {
     await expect(page.getByText("Prompt copied")).toBeVisible()
     const prompt = await readClipboard(page)
     expect(prompt).toContain("Rebase the branch `master` of the Git repository at ")
-    expect(prompt).toMatch(/- src\/app.txt\n {2}- changed by my [0-9a-f]{8}\n {2}- changed upstream by [0-9a-f]{8} Change line 2 upstream \(Dana Lee\)/)
+    expect(prompt).toMatch(/- src\/app.txt\n {2}- changed by my [0-9a-f]{8}\n {2}- changed upstream by [0-9a-f]{8} Change line 2 upstream \(Dana Lee, authored 2024-01-01, in origin\/master since 2024-01-03\)/)
     expect(prompt).toMatch(/- [0-9a-f]{8} \(feature-auth\) Add login\n- [0-9a-f]{8} \(feature-auth\) Change line 2/)
     expect(prompt).toContain("Don't push.")
 

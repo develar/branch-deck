@@ -1,4 +1,5 @@
 import type { UpdateCommit } from "@/lib/bindings"
+import { formatRelativeTime } from "@/lib/time"
 
 /** A likely conflicting file of an update, with the commits on both sides that change it */
 export interface ConflictFile {
@@ -22,4 +23,19 @@ export function groupConflictFiles(files: readonly string[], commits: readonly U
 export function splitPath(path: string): { name: string, directory: string } {
   const slash = path.lastIndexOf("/")
   return { name: path.slice(slash + 1), directory: path.slice(0, slash + 1) }
+}
+
+/** An upstream commit whose committer time is further than this from its author time shows both */
+const LANDED_LATER_SECONDS = 60 * 60
+
+/**
+ * Who wrote an upstream commit and when, and when it landed in the upstream (its committer time) when that differs by
+ * more than an hour: "Dana Lee · authored 13 days ago · landed 2 hours ago", else "Dana Lee, 13 days ago".
+ */
+export function describeUpstreamCommit(commit: UpdateCommit): string {
+  const authored = formatRelativeTime(commit.time * 1000)
+  if (Math.abs(commit.committerTime - commit.time) <= LANDED_LATER_SECONDS) {
+    return `${commit.author}, ${authored}`
+  }
+  return `${commit.author} · authored ${authored} · landed ${formatRelativeTime(commit.committerTime * 1000)}`
 }

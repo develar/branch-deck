@@ -2,6 +2,8 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { PullRequest, PullRequestAvailability } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import type { GitHubRepository } from "@/lib/pull-request"
+import { gitHubRepositoryOf } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
@@ -59,6 +61,15 @@ export function usePullRequest(branchName: string): PullRequest | undefined {
 export function getPullRequest(branchName: string): PullRequest | undefined {
   const key = currentKey()
   return key === null ? undefined : pullRequestsStore.getState().repositories[key]?.pullRequests[branchName]
+}
+
+/**
+ * The GitHub repository of the selected repository while `gh` lists its pull requests, null otherwise (see
+ * `gitHubRepositoryOf`); for menus and toasts built on demand, e.g. a link to create a pull request
+ */
+export function getGitHubRepository(): GitHubRepository | null {
+  const key = currentKey()
+  return key === null ? null : gitHubRepositoryOf(pullRequestsStore.getState().repositories[key]?.availability ?? null)
 }
 
 // ---- refresh ----

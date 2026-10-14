@@ -4,6 +4,9 @@ import type { PullRequest, PullRequestAvailability, PullRequestsResult } from ".
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"
 
+/** The GitHub repository that `get_pull_requests` names, and that the pull requests are on */
+export const GITHUB_REPOSITORY = { owner: "JetBrains", name: "ultimate" }
+
 /**
  * An open pull request of a virtual branch that waits for a review, without checks. The empty `headRefOid` makes the
  * test server answer with the local tip of the branch, so the pull request is up to date unless a test sets one.
@@ -12,7 +15,7 @@ export function pullRequest(branchName: string, number: number, patch: Partial<P
   return {
     number,
     title: `Pull request of ${branchName}`,
-    url: `https://github.com/JetBrains/ultimate/pull/${number}`,
+    url: `https://github.com/${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}/pull/${number}`,
     state: "open",
     isDraft: false,
     reviewDecision: "reviewRequired",
@@ -28,7 +31,7 @@ export function pullRequest(branchName: string, number: number, patch: Partial<P
 /** The answer of `get_pull_requests` for these pull requests, keyed by their branch */
 export function availablePullRequests(...pullRequests: PullRequest[]): PullRequestsResult {
   return {
-    availability: { status: "available" },
+    availability: { status: "available", ...GITHUB_REPOSITORY },
     pullRequests: Object.fromEntries(pullRequests.map(it => [it.headRefName.slice(`${BRANCH_PREFIX}/virtual/`.length), it])),
   }
 }

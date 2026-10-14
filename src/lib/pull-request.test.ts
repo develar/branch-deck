@@ -69,7 +69,7 @@ describe("formatAvailabilityHint", () => {
     expect(formatAvailabilityHint({ status: "ghMissing" })).toBe("Install the GitHub CLI (gh) to see pull requests")
     expect(formatAvailabilityHint({ status: "notAuthenticated" })).toBe("Run gh auth login to see pull requests")
     expect(formatAvailabilityHint({ status: "error", message: "error connecting to api.github.com" })).toBe("GitHub: error connecting to api.github.com")
-    expect(formatAvailabilityHint({ status: "available" })).toBeNull()
+    expect(formatAvailabilityHint({ status: "available", owner: "o", name: "r" })).toBeNull()
     expect(formatAvailabilityHint({ status: "notGitHub" })).toBeNull()
     expect(formatAvailabilityHint(null)).toBeNull()
   })

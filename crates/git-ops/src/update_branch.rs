@@ -37,6 +37,10 @@ pub struct UpdateCommit {
   pub author: String,
   /// Author time, Unix seconds
   pub time: u32,
+  /// Who wrote the commit object: the author, or whoever rebased or landed it (a Safe Push robot)
+  pub committer: String,
+  /// Committer time, Unix seconds: for an upstream commit, about when it reached the upstream
+  pub committer_time: u32,
   /// The likely conflicting files that the commit changes; empty for most commits
   pub files: Vec<String>,
 }
@@ -609,7 +613,7 @@ const MAX_UPSTREAM_COMMITS: usize = 50;
 const MAX_ATTRIBUTED_FILES: usize = 50;
 
 /// `\x01` starts a commit, NUL ends a field; `%s` holds neither
-const COMMIT_FORMAT: &str = "--format=%x01%H%x00%an%x00%at%x00%s";
+const COMMIT_FORMAT: &str = "--format=%x01%H%x00%an%x00%at%x00%cn%x00%ct%x00%s";
 
 /// The local commits of `revs`, oldest first, and the upstream commits since `base` that changed the likely conflicting
 /// `files`; each commit lists the files of `files` it changes
@@ -662,7 +666,8 @@ fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[
   Ok(parse_commits(&output))
 }
 
-/// `\x01<id>\0<author>\0<time>\0<subject>\0`, then with `--name-only` a newline and `<file>\0` per file, per commit
+/// `\x01<id>\0<author>\0<author time>\0<committer>\0<committer time>\0<subject>\0`, then with `--name-only` a newline
+/// and `<file>\0` per file, per commit
 fn parse_commits(output: &str) -> Vec<UpdateCommit> {
   output
     .split('\x01')
@@ -670,7 +675,7 @@ fn parse_commits(output: &str) -> Vec<UpdateCommit> {
     .map(|record| {
       let mut fields = record.split('\0');
       let mut next = || fields.next().unwrap_or_default().to_string();
-      let (id, author, time, subject) = (next(), next(), next(), next());
+      let (id, author, time, committer, committer_time, subject) = (next(), next(), next(), next(), next(), next());
       let files = fields
         .map(|file| file.trim_start_matches('\n'))
         .filter(|file| !file.is_empty())
@@ -681,6 +686,8 @@ fn parse_commits(output: &str) -> Vec<UpdateCommit> {
         subject,
         author,
         time: time.parse().unwrap_or_default(),
+        committer,
+        committer_time: committer_time.parse().unwrap_or_default(),
         files,
       }
     })

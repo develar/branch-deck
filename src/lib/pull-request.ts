@@ -80,6 +80,20 @@ export function formatReviewer(reviewer: Reviewer): string {
   return `${reviewer.login} ${reviewerStateText[reviewer.state]}`
 }
 
+/** A repository on github.com: `github.com/<owner>/<name>` */
+export interface GitHubRepository {
+  readonly owner: string
+  readonly name: string
+}
+
+/**
+ * The repository that `origin` pushes to, while `gh` lists its pull requests; null otherwise (not on GitHub, no `gh`,
+ * not logged in, a failed refresh, or not asked yet).
+ */
+export function gitHubRepositoryOf(availability: PullRequestAvailability | null): GitHubRepository | null {
+  return availability?.status === "available" ? { owner: availability.owner, name: availability.name } : null
+}
+
 /**
  * A quiet hint why pull requests are not shown, null when they are (or the repository is not on GitHub, which needs no
  * hint). Never a toast: GitHub status is an extra.

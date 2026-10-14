@@ -619,11 +619,13 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     pub fn build(self, output_path: &Path) -> Result<()> {
       let scenario = self.0;
       fs::create_dir_all(output_path)?;
-      let git = |args: &[&str], timestamp: Option<i64>| -> Result<()> {
+      // `dates`: the author and the committer time
+      let git = |args: &[&str], dates: Option<(i64, i64)>| -> Result<()> {
         let mut command = Command::new("git");
-        if let Some(timestamp) = timestamp {
-          let date = format!("{timestamp} +0000");
-          command.env("GIT_AUTHOR_DATE", &date).env("GIT_COMMITTER_DATE", &date);
+        if let Some((author_time, committer_time)) = dates {
+          command
+            .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
+            .env("GIT_COMMITTER_DATE", format!("{committer_time} +0000"));
         }
         let output = command.args(args).current_dir(output_path).output()?;
         anyhow::ensure!(output.status.success(), "git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr));
@@ -637,14 +639,14 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         fs::write(full, content)?;
         Ok(())
       };
-      let commit_as = |author: &str, message: &str, files: &[(&str, &str)], timestamp: i64| -> Result<()> {
+      let commit_as = |author: &str, message: &str, files: &[(&str, &str)], dates: (i64, i64)| -> Result<()> {
         for (path, content) in files {
           write(path, content)?;
           git(&["add", "--", path], None)?;
         }
-        git(&["commit", "-q", &format!("--author={author}"), "-m", message], Some(timestamp))
+        git(&["commit", "-q", &format!("--author={author}"), "-m", message], Some(dates))
       };
-      let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| commit_as("Test User <test@example.com>", message, files, timestamp);
+      let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| commit_as("Test User <test@example.com>", message, files, (timestamp, timestamp));
 
       git(&["init", "-q", "--initial-branch=master"], None)?;
       disable_background_maintenance(output_path);
@@ -669,23 +671,24 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
       // upstream commits, pushed by URL so the tracking ref stays until the fetch below
       git(&["checkout", "-q", "--detach"], None)?;
-      // another author, as on a shared upstream
+      // another author, as on a shared upstream; it reached the upstream two days after it was written, so the conflict
+      // dialog and the prompt show both times
       commit_as(
         "Dana Lee <dana@example.com>",
         "Change line 2 upstream",
         &[(UPDATE_APP_FILE, "line 1\nline 2 upstream\nline 3\n")],
-        1704121200,
+        (1704121200, 1704294000),
       )?;
-      commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704121500)?;
+      commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704294300)?;
       if scenario == UpdateScenario::Landed {
-        // as a Safe Push robot pushes the local commits below
+        // as a Safe Push robot pushes the local commits below, days after they were written
         for (message, path, content, author_time) in [("Add login", "src/auth.txt", "login\n", 1704118500), ("Add index", "src/search.txt", "index\n", 1704118600)] {
           write(path, content)?;
           git(&["add", "--", path], None)?;
           let output = Command::new("git")
             .args(["commit", "-q", "-m", message])
             .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
-            .env("GIT_COMMITTER_DATE", "1704122000 +0000")
+            .env("GIT_COMMITTER_DATE", "1704294600 +0000")
             .env("GIT_COMMITTER_NAME", "Patronus")
             .env("GIT_COMMITTER_EMAIL", "patronus@example.com")
             .current_dir(output_path)

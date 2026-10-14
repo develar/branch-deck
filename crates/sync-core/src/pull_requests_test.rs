@@ -321,7 +321,14 @@ fn lists_pull_requests_of_the_push_remote_repository() {
   );
 
   let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::Available);
+  // the repository the branches are pushed to, for a link to create a pull request
+  assert_eq!(
+    result.availability,
+    PullRequestAvailability::Available {
+      owner: "JetBrains".to_string(),
+      name: "ultimate-push".to_string()
+    }
+  );
   assert_eq!(result.pull_requests.keys().collect::<Vec<_>>(), vec!["auth", "done", "draft-work"]);
 
   let args = std::fs::read_to_string(&args_file).unwrap();

@@ -849,7 +849,9 @@ export type PullRequest = {
 };
 
 /**  Whether pull requests can be listed for the repository */
-export type PullRequestAvailability = { status: "available" } | 
+export type PullRequestAvailability = 
+/**  The github.com repository that `origin` pushes to, e.g. `JetBrains/ultimate` */
+{ status: "available"; owner: string; name: string } | 
 /**  The `gh` CLI is not installed */
 { status: "ghMissing" } | 
 /**  `gh` is not logged in (`gh auth login`) */
@@ -1187,6 +1189,10 @@ export type UpdateCommit = {
 	author: string,
 	/**  Author time, Unix seconds */
 	time: number,
+	/**  Who wrote the commit object: the author, or whoever rebased or landed it (a Safe Push robot) */
+	committer: string,
+	/**  Committer time, Unix seconds: for an upstream commit, about when it reached the upstream */
+	committerTime: number,
 	/**  The likely conflicting files that the commit changes; empty for most commits */
 	files: string[],
 };

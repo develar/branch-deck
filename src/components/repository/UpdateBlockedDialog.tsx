@@ -14,7 +14,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
-import { groupConflictFiles, splitPath } from "@/lib/update-conflict"
+import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/update-conflict"
 import type { ConflictFile } from "@/lib/update-conflict"
 import { fileCount, lastFetchTime } from "@/lib/update-state"
 import { useSelectedProject } from "@/stores/repository"
@@ -48,24 +48,25 @@ function PathList({ paths, testId }: { paths: readonly string[], testId: string 
   )
 }
 
-/** The cells of a commit in a row of a subgrid: the hash, the subject, and the author with the time, if asked */
-function CommitCells({ commit, showAuthor = false }: { commit: UpdateCommit, showAuthor?: boolean }) {
+/** The cells of a commit in a row of a subgrid: the hash, the subject, and the `meta` cell (author, times), if given */
+function CommitCells({ commit, meta }: { commit: UpdateCommit, meta?: string }) {
   return (
     <>
       <span className="font-mono text-xs text-muted-foreground">{formatShortHash(commit.id)}</span>
       <span className="min-w-0 truncate">
         <CommitSubject subject={commit.subject} clamp={false} />
       </span>
-      {showAuthor && (
-        <span className="text-xs whitespace-nowrap text-muted-foreground">
-          {`${commit.author}, ${formatRelativeTime(commit.time * 1000)}`}
-        </span>
+      {meta !== undefined && (
+        <span className="text-xs whitespace-nowrap text-muted-foreground">{meta}</span>
       )}
     </>
   )
 }
 
-/** A file with the commits on both sides that change it: the user's, then the upstream's with their authors */
+/**
+ * A file with the commits on both sides that change it: the user's with their author time, then the upstream's with
+ * their authors, and when they landed if that was later
+ */
 function ConflictFileItem({ file, upstream }: { file: ConflictFile, upstream: string }) {
   const rows = [
     ...file.local.map((commit, index) => ({ commit, side: "local", label: index === 0 ? "yours" : "" })),
@@ -79,7 +80,7 @@ function ConflictFileItem({ file, upstream }: { file: ConflictFile, upstream: st
           {rows.map(({ commit, side, label }) => (
             <li key={`${side}-${commit.id}`} data-side={side} className="col-span-full grid grid-cols-subgrid items-baseline">
               <span className="text-xs text-muted-foreground">{label}</span>
-              <CommitCells commit={commit} showAuthor={side === "upstream"} />
+              <CommitCells commit={commit} meta={side === "upstream" ? describeUpstreamCommit(commit) : formatRelativeTime(commit.time * 1000)} />
             </li>
           ))}
         </ul>

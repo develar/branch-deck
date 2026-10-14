@@ -96,7 +96,8 @@ pub enum ReviewerState {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum PullRequestAvailability {
-  Available,
+  /// The github.com repository that `origin` pushes to, e.g. `JetBrains/ultimate`
+  Available { owner: String, name: String },
   /// The `gh` CLI is not installed
   GhMissing,
   /// `gh` is not logged in (`gh auth login`)
@@ -104,9 +105,7 @@ pub enum PullRequestAvailability {
   /// The push remote is not on github.com
   NotGitHub,
   /// `gh` failed, e.g. offline or timed out
-  Error {
-    message: String,
-  },
+  Error { message: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
