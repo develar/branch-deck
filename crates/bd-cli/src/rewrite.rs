@@ -90,7 +90,7 @@ pub struct RewriteOutput {
   /// The unassigned commits afterwards, oldest first
   pub unassigned: Vec<String>,
   /// Stack problems that already existed: reported, not refused
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<ProblemReport>,
   /// With --dry-run: the subjects that change
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -117,7 +117,7 @@ pub struct ForestBranch {
   pub parent: Option<String>,
   /// `false` for an ancestor only prefixes declare
   pub has_commits: bool,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<String>,
 }
 
@@ -125,7 +125,7 @@ pub struct ForestBranch {
 pub struct ProblemReport {
   pub branch: String,
   pub message: String,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub commits: Vec<String>,
 }
 

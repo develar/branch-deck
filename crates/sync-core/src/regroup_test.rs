@@ -96,26 +96,36 @@ fn the_current_grouping_as_a_plan_rewrites_nothing() {
     let repo = repo(stacks);
     let ids = commits(
       &repo,
-      &["(lexer) Add lexer", "ABC-1 Add parser", "fixup! ABC-1 Add parser", "ABC-1: Parse lists", "Tidy up"],
+      &[
+        "(lexer) Add lexer",
+        "ABC-1 Add parser",
+        "fixup! ABC-1 Add parser",
+        "ABC-1: Parse lists",
+        "Tidy up",
+        "(lexer/tokens) Add tokens",
+      ],
     );
     let head = repo.head();
-    let current = plan(&[("lexer", &[&ids[0]]), ("ABC-1", &[&ids[1], &ids[2], &ids[3]])], &[&ids[4]]);
+    // the plan names each branch by its path: with stacked branches on, `lexer/tokens` is the child `tokens`
+    let current = plan(&[("lexer", &[&ids[0]]), ("ABC-1", &[&ids[1], &ids[2], &ids[3]]), ("lexer/tokens", &[&ids[5]])], &[&ids[4]]);
     let outcome = regroup(&repo, &current).unwrap();
     assert_eq!(outcome.changed_count(), 0, "stacks: {stacks}");
     assert_eq!(outcome.new_head, head);
     assert_eq!(repo.head(), head);
-    assert_eq!(groups(&outcome), [Some("lexer"), Some("ABC-1"), Some("ABC-1"), Some("ABC-1"), None]);
+    let tokens = if stacks { "tokens" } else { "lexer/tokens" };
+    assert_eq!(groups(&outcome), [Some("lexer"), Some("ABC-1"), Some("ABC-1"), Some("ABC-1"), None, Some(tokens)]);
 
     // another branch name still gets the prefix, and the fixup follows
     regroup(&repo, &plan(&[("parser", &[&ids[1]])], &[])).unwrap();
     assert_eq!(
-      subjects(&repo, 5),
+      subjects(&repo, 6),
       [
         "(lexer) Add lexer",
         "(parser) ABC-1 Add parser",
         "fixup! (parser) ABC-1 Add parser",
         "ABC-1: Parse lists",
-        "Tidy up"
+        "Tidy up",
+        "(lexer/tokens) Add tokens"
       ]
     );
   }

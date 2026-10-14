@@ -24,7 +24,7 @@ pub struct BranchStats {
   /// The distinct files its commits change
   pub files: usize,
   /// How many of `files` are lock files or generated files
-  #[serde(skip_serializing_if = "is_zero")]
+  #[serde(default, skip_serializing_if = "is_zero")]
   pub generated_files: usize,
   /// Added lines summed over the commits; lock files and generated files don't count without --include-generated
   pub additions: u32,

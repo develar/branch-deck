@@ -15,11 +15,16 @@ fn resolve<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
   schema
 }
 
-/// Every key of `value` is a property of `schema` (or a key of a map), recursively through objects and arrays
+/// Every key of `value` is a property of `schema` (or a key of a map), and every key the schema requires is in `value`,
+/// recursively through objects and arrays
 pub(crate) fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
   let schema = resolve(root, schema);
   match value {
     Value::Object(object) => {
+      // an output leaves an empty optional field out, so the schema must not require it
+      for key in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        assert!(object.contains_key(key), "{path}.{key} is required by the schema but missing");
+      }
       for (key, child) in object {
         // a map declares its values with `additionalProperties`
         let property = schema["properties"].get(key).unwrap_or(&schema["additionalProperties"]);

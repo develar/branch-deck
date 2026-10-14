@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, commit_all, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{PREFIX, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
@@ -16,10 +16,7 @@ fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
   git(&repo, &["init", "--bare", "-q", remote.path().to_str().unwrap()]);
   disable_background_maintenance(remote.path());
   git(&repo, &["remote", "set-url", "origin", remote.path().to_str().unwrap()]);
-  for (index, subject) in subjects.iter().enumerate() {
-    write(&repo, &format!("f{index}.txt"), *subject);
-    commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100);
-  }
+  commit_subjects(&repo, subjects);
   (repo, remote)
 }
 

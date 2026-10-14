@@ -80,6 +80,16 @@ pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   repo.head()
 }
 
+/// One commit per subject, each adding its own file, 100 s apart; returns their ids
+pub fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
+  let mut ids = Vec::new();
+  for (index, subject) in subjects.iter().enumerate() {
+    write(repo, &format!("f{index}.txt"), *subject);
+    ids.push(commit_all(repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100));
+  }
+  ids
+}
+
 pub fn write(repo: &TestRepo, path: &str, content: impl AsRef<[u8]>) {
   let path = repo.path().join(path);
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();

@@ -57,7 +57,7 @@ pub struct CheckedBranch {
   pub conflict: Option<CheckConflict>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
@@ -70,7 +70,7 @@ pub struct CheckConflict {
   pub subject: String,
   pub files: Vec<String>,
   /// Older commits outside the branch and its ancestors that change these files: what the change likely needs
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub missing_commits: Vec<String>,
 }
 

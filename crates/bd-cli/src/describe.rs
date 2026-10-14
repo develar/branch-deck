@@ -49,7 +49,7 @@ pub struct DescribeOutput {
 pub struct Description {
   pub title: String,
   /// Omitted when empty
-  #[serde(skip_serializing_if = "String::is_empty")]
+  #[serde(default, skip_serializing_if = "String::is_empty")]
   pub body: String,
 }
 

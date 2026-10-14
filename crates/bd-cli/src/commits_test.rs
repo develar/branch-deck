@@ -1,6 +1,6 @@
 use crate::commits::resolve_ids;
 use crate::error::ErrorCode;
-use crate::fixture_test::{commit_all, git, numbered_lines, repo_with_baseline, run_in, write};
+use crate::fixture_test::{commit_all, commit_subjects, git, numbered_lines, repo_with_baseline, run_in, write};
 use git_ops::rewrite_plan::short_id;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -270,6 +270,35 @@ fn brief_view_with_units_and_areas() {
     let (exit_code, output) = run_in(&repo, args);
     assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("invalid_arguments")), "{args:?}");
   }
+}
+
+#[test_log::test]
+fn brief_keeps_a_prefix_that_says_more_than_the_group() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commit_subjects(
+    &repo,
+    &["(auth) Add auth", "(auth/login) Add login", "(Foo Bar) Odd prefix", "(auth) ABC-1 Check the token"],
+  );
+  let (exit_code, output) = run_in(&repo, &["commits", "--brief"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let brief: Vec<(&Value, &Value, Option<&Value>)> = output["commits"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|commit| (&commit["subject"], &commit["group"], commit.get("issue_key")))
+    .collect();
+  assert_eq!(
+    brief,
+    [
+      (&json!("Add auth"), &json!("auth"), None),
+      // `login` is the leaf: the stack path stays, so a plan of the parent path keeps it
+      (&json!("(auth/login) Add login"), &json!("login"), None),
+      // the grouper sanitizes the prefix to `Foo-Bar`
+      (&json!("(Foo Bar) Odd prefix"), &json!("Foo-Bar"), None),
+      (&json!("ABC-1 Check the token"), &json!("auth"), Some(&json!("ABC-1"))),
+    ]
+  );
 }
 
 #[test_log::test]

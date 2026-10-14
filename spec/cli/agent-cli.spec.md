@@ -122,9 +122,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   directories, the authors, the author date range, the issue keys and a diffstat of the synced branch against the sync
   base (`null` if it was never synced), for all branches in at most three more git processes.
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
-- `--brief` must print per branch only the name, the commit count, the issue key and the newest subject, with
-  stacked branches on also the parent, `blocked_by`, the problems and the forest, then the unassigned commits; it
-  must not go with `--branch` or `--stats`.
+- `--brief` must print per branch only the name, the commit count, the issue key when it is not the name, and the
+  newest subject, with stacked branches on also the parent, `blocked_by`, the problems and the forest, then the
+  unassigned commits; it must not go with `--branch` or `--stats`.
   [@test] ../../crates/bd-cli/src/status_test.rs (`brief_status`, `brief_status_keeps_the_stack_state`)
 
 ### `bd commits`
@@ -147,15 +147,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--unassigned` the unassigned commits, with the edges that involve them; an unknown id must be
   `not_ahead_of_baseline`, an ambiguous one `invalid_arguments`, and the filters and `--branch` must exclude each other.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`commit_ids_and_unassigned_filter_the_listing`, `an_ambiguous_id_is_invalid`)
-- `--brief` must print per commit only the id, the subject without the prefix, the group, the issue key when it is not
-  the group, the fixup kind and target, and the areas; the dependencies as `{from, to}`; and `units`, the connected
-  components of two or more commits of the dependencies and the fixups, over every commit, each oldest first. On the
-  74 commits of a large monorepo branch it must stay under 20 KB.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`brief_view_with_units_and_areas`)
+- `--brief` must print per commit only the id, the subject (without a prefix that is exactly the group; a stack path
+  or a sanitized prefix stays), the group, the issue key when it is not the group, the fixup kind and target, and the
+  areas; the dependencies as `{from, to}`; and `units`, the connected components of two or more commits of the
+  dependencies and the fixups, over every commit, each oldest first.
+  [@test] ../../crates/bd-cli/src/commits_test.rs (`brief_view_with_units_and_areas`, `brief_keeps_a_prefix_that_says_more_than_the_group`)
 - An area must be the first `--depth` directories of a path (default 3; `.` at the top level); a commit must list at
   most three areas by added plus deleted lines, without those under 5 % of its lines except the first, and without
-  hub files (`.idea/modules.xml`, `MODULE.bazel`, `*-file-list.txt`, `README*`, `CHANGELOG*`). `--depth` must need
-  `--brief`.
+  the hub files of `HUB_FILES` (`crates/bd-cli/src/generated.rs`). `--depth` must need `--brief`.
   [@test] ../../crates/bd-cli/src/areas_test.rs (`an_area_keeps_at_most_depth_directories`, `hub_files_match_by_name`, `top_areas_by_lines_without_hub_files`)
 
 ### Generated files
@@ -181,8 +180,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   prefixes of all its commits in one message-only rewrite; ids may be abbreviated.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
-- A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so the
-  current grouping as a plan rewrites no commit.
+- A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
+  that names the current branch of each commit (its stack path with stacked branches on) rewrites no commit without a
+  prefix or with a canonical prefix.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`the_current_grouping_as_a_plan_rewrites_nothing`)
 - The plan must be validated against every subject ahead of the baseline before anything is written: unknown ids and
   ids not ahead of the baseline are `not_ahead_of_baseline`; duplicate or contradicting ids, a malformed plan, invalid

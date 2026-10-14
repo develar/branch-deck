@@ -84,6 +84,7 @@ pub struct StatusBrief {
 pub struct BriefBranch {
   pub name: String,
   pub commit_count: usize,
+  /// The issue key of its subjects; omitted when it is `name`, an issue branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub issue_key: Option<String>,
   /// The subject of its newest commit, without the `(prefix)`
@@ -95,7 +96,7 @@ pub struct BriefBranch {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
   /// Why the branch can't be placed in the stack
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
 }
 
@@ -126,7 +127,7 @@ pub struct BranchStatus {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
   /// Why the branch can't be placed in the stack: conflicting parents, a cycle, a case collision, …
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
   /// The title of `branch.<name>.description` (`bd describe`)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -201,7 +202,7 @@ impl StackBlockSummary {
 pub struct StackIssue {
   pub message: String,
   /// The commits that declare it
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub commits: Vec<String>,
 }
 
@@ -274,8 +275,9 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
   let (head_id, head_branch) = read_head(context)?;
   let grouping = read_grouping(context, args.branch.as_deref())?;
 
-  let tips = read_virtual_tips(context)?;
-  let descriptions = read_descriptions(context)?;
+  // the brief view prints neither
+  let tips = if args.brief { HashMap::new() } else { read_virtual_tips(context)? };
+  let descriptions = if args.brief { HashMap::new() } else { read_descriptions(context)? };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
   let short = context.short_ids(
@@ -389,9 +391,9 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
       .into_iter()
       .map(|branch| BriefBranch {
         newest: branch.commits.into_iter().next().map_or_default(|commit| commit.subject),
+        issue_key: branch.issue_key.filter(|key| *key != branch.name),
         name: branch.name,
         commit_count: branch.commit_count,
-        issue_key: branch.issue_key,
         parent: branch.parent,
         blocked_by: branch.blocked_by,
         problems: branch.problems,

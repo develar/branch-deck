@@ -28,13 +28,13 @@ pub struct SyncOutput {
   pub branches: Vec<SyncedBranch>,
   pub unassigned_count: usize,
   /// The archived branches that integration detection checked
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub archived: Vec<ArchivedBranch>,
   /// Whether the checked out branch can be updated onto the last fetched baseline; omitted for a local baseline
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateSummary>,
   /// Commits that landed in the baseline with an update (here or elsewhere) and that the app hasn't dismissed
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed: Vec<LandedSummary>,
 }
 
@@ -70,7 +70,7 @@ pub struct SyncedBranch {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<ConflictSummary>,
   /// Commits not synced because an earlier commit of the branch failed
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub blocked: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
@@ -83,7 +83,7 @@ pub struct ConflictSummary {
   pub subject: String,
   pub files: Vec<String>,
   /// Commits of other branches that the conflicting change likely needs
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub missing_commits: Vec<String>,
 }
 
@@ -98,7 +98,7 @@ pub struct RemoteSummary {
   /// it, as `--expect-remote` does
   pub head: Option<String>,
   /// The newest of the `behind` commits, newest first, at most ten
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped_commits: Vec<DroppedCommitSummary>,
   /// `head` in full, for the lease
   #[serde(skip)]
@@ -161,12 +161,12 @@ pub struct UpdateSummary {
   /// `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked`; `error` when the check failed
   pub state: String,
   /// The files a conflicting update touches, or the local changes that block it
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
   /// Local commits the fetched baseline already has: the update drops them
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landing: Vec<LandedSummary>,
 }
 

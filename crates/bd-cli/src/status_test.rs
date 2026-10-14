@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, commit_all, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, with_header, write};
+use crate::fixture_test::{PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, with_header, write};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -23,14 +23,7 @@ fn grouped_repo() -> (TestRepo, Vec<String>) {
 fn stacked_repo() -> (TestRepo, Vec<String>) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
-  let mut ids = Vec::new();
-  for (index, subject) in ["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"]
-    .iter()
-    .enumerate()
-  {
-    write(&repo, &format!("f{index}.txt"), *subject);
-    ids.push(commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100));
-  }
+  let ids = commit_subjects(&repo, &["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"]);
   (repo, ids)
 }
 
@@ -299,7 +292,8 @@ fn brief_status() {
   let mut expected = full.clone();
   expected["branches"] = json!([
     { "name": "auth", "commit_count": 2, "newest": "Add logout" },
-    { "name": "ABC-12", "commit_count": 1, "issue_key": "ABC-12", "newest": "ABC-12 Fix crash" },
+    // the issue key is the name
+    { "name": "ABC-12", "commit_count": 1, "newest": "ABC-12 Fix crash" },
   ]);
   assert_eq!(output, expected);
 

@@ -79,7 +79,7 @@ pub struct CommitEntry {
   /// The full subject, `(prefix)` included
   pub subject: String,
   /// The message after the subject; omitted when empty
-  #[serde(skip_serializing_if = "String::is_empty")]
+  #[serde(default, skip_serializing_if = "String::is_empty")]
   pub body: String,
   /// `Name <email>`
   pub author: String,
@@ -131,10 +131,10 @@ pub struct FileEntry {
   /// Deleted lines; omitted for a binary file
   #[serde(skip_serializing_if = "Option::is_none")]
   pub deletions: Option<u32>,
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub binary: bool,
   /// A lock file, or marked `linguist-generated` or `-diff` in the attributes
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub generated: bool,
 }
 
@@ -171,7 +171,8 @@ pub struct CommitsBrief {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct BriefCommit {
   pub id: String,
-  /// The subject without the `(prefix)`, which `group` names (as in `bd status`); a `fixup!` marker stays
+  /// The subject without the `(prefix)` when the prefix is `group`; a stack path or a prefix the grouper sanitizes
+  /// stays, and so does a `fixup!` marker
   pub subject: String,
   /// The branch the commit is grouped into; `null` for an unassigned commit
   pub group: Option<String>,
@@ -181,10 +182,10 @@ pub struct BriefCommit {
   /// For a `fixup!`, `squash!` or `amend!` commit: what it folds into
   #[serde(skip_serializing_if = "Option::is_none")]
   pub fixup: Option<BriefFixup>,
-  /// The directories (cut to --depth) with the most added plus deleted lines, at most three; without hub files
-  /// (`.idea/modules.xml`, `MODULE.bazel`, `*-file-list.txt`, `README*`, `CHANGELOG*`), and without lock files and
-  /// generated files unless --include-generated
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  /// The directories (cut to --depth) with the most added plus deleted lines, at most three, without those under 5 % of
+  /// the lines except the first; hub files (`HUB_FILES` of `generated.rs`) don't count, and lock files and generated
+  /// files only with --include-generated
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub areas: Vec<DirLines>,
 }
 
@@ -474,7 +475,7 @@ pub fn commits_brief(context: &RepoContext, args: &CommitsArgs) -> Result<Commit
     .filter(|(commit, group)| reading.scope.contains(&commit.id, *group))
     .map(|&(commit, group)| BriefCommit {
       id: short.get(&commit.id).to_string(),
-      subject: with_branch_prefix(&commit.subject, None),
+      subject: brief_subject(&commit.subject, group),
       group: group.map(str::to_string),
       issue_key: find_issue_number(parse_subject(&commit.subject).rest).filter(|key| Some(*key) != group).map(str::to_string),
       fixup: reading.fixup_kind_and_target(commit, &short).map(|(kind, target)| BriefFixup { kind, target }),
@@ -516,10 +517,19 @@ pub fn commits_brief(context: &RepoContext, args: &CommitsArgs) -> Result<Commit
   })
 }
 
+/// The subject without its prefix when the prefix is exactly `group`: a stack path (`group` is its leaf) or a prefix
+/// the grouper sanitizes (`(Foo Bar)` is in `Foo-Bar`) stays, so that a plan made from the brief view rewrites neither
+fn brief_subject(subject: &str, group: Option<&str>) -> String {
+  if group.is_some() && parse_subject(subject).prefix == group {
+    with_branch_prefix(subject, None)
+  } else {
+    subject.to_string()
+  }
+}
+
 /// Fixup commit id -> its kind and the target `plan_autosquash` resolves, `None` for an orphan
 fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)], stacks: bool) -> HashMap<String, (FixupKind, Option<String>)> {
   let commits: Vec<Commit> = ordered.iter().map(|(commit, _)| (*commit).clone()).collect();
-  // the CLI groups without stacked branches so far
   let plan = plan_autosquash(head.to_string(), &commits, stacks);
   let mut targets: HashMap<String, (FixupKind, Option<String>)> = plan
     .groups

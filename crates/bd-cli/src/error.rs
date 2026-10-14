@@ -131,7 +131,7 @@ pub struct ErrorBody {
   pub commits: Vec<String>,
   /// The branches whose remote branch has commits they lack, with their remote status: the rejected ones of
   /// `lease_rejected` as bd fetched them, the ones behind of `push_refused`
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub branches: Vec<ErrorBranch>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,

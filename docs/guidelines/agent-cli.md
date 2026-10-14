@@ -46,7 +46,9 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - Every object starts with `"schema": 1`. The version goes up only when a field changes meaning or disappears. New
   optional fields don't change it.
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
-  an unassigned commit.
+  an unassigned commit. In a `--brief` view a field is also left out when another field says it: `issue_key` when it
+  is the `group` (`bd commits --brief`) or the `name` (`bd status --brief`) of an issue branch, and the `(prefix)` of a
+  subject when it is exactly the `group`.
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 
@@ -124,15 +126,17 @@ access. It runs about ten short git processes, with one `log` for all the commit
     `-U0` pass and cache as `bd commits`), one `diff-tree --stdin` with a `<tip> <base>` line per synced branch, and
     one `check-attr`.
 - `--brief` prints `StatusBrief` (`status_brief` in `bd schema`), small enough to read whole: about 2 KB for the 12
-  branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB. Per branch it lists `name`,
-  `commit_count`, `issue_key` and `newest`, the subject of the newest commit. With stacked branches on, it keeps
-  `parent`, `blocked_by`, `problems` and `forest`. `unassigned` lists the ids and subjects. It reads what `bd status`
-  reads, and works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
+  branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
+  - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
+    of the newest commit. With stacked branches on, it keeps `parent`, `blocked_by`, `problems` and `forest`.
+  - `unassigned` lists the ids and subjects.
+  - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
+  - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
 
   ```json
   {"schema":1,…,"head":{"id":"ff366ae0","branch":"master"},"baseline":"origin/master","branch_count":2,
    "unassigned_count":1,"branches":[{"name":"auth","commit_count":2,"newest":"Add logout"},
-    {"name":"ABC-12","commit_count":1,"issue_key":"ABC-12","newest":"ABC-12 Fix crash"}],
+    {"name":"ABC-12","commit_count":1,"newest":"ABC-12 Fix crash"}],
    "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
   ```
 
@@ -166,8 +170,8 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 - Lock files and generated files don't count in `dependencies` and `cluster_overlap` (see below);
   `--include-generated` keeps them. `--files` still lists them, with `"generated": true`.
 - `--brief` prints `CommitsBrief` (`commits_brief` in `bd schema`): what an agent needs to cluster, small enough to
-  read whole. For the 74 commits of a large monorepo branch it is 19.5 KB, where `--files` is 278 KB. `--files` and
-  `--patch` don't go with it; the filters do.
+  read whole. Measured on the 74 commits of a large monorepo branch, it is 19.5 KB, where `--files` is 278 KB.
+  `--files` and `--patch` don't go with it; the filters do.
 
   ```json
   {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
@@ -180,8 +184,9 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   ```
 
   - Per commit it lists `id`, `subject`, `group`, `issue_key`, `fixup` and `areas`, without the body, the author and
-    the files. It leaves out what another field says: the subject has no `(prefix)` (`group` names the branch, as in
-    `bd status`), and `issue_key` is left out when it is the `group`.
+    the files. It leaves out what another field says: the subject drops a `(prefix)` that is exactly the `group`, and
+    `issue_key` is left out when it is the `group`. A stack path, whose leaf is the `group`, and a prefix the grouper
+    sanitizes (`(Foo Bar)` is in `Foo-Bar`) stay in the subject, so a plan made from the brief view keeps them.
   - `dependencies` are `{from, to}`, without the files.
   - `units` are the commits that must stay together: the connected components of the dependencies and of the fixups
     with their targets, over every commit. Only components of two or more commits are listed, ordered by their oldest
@@ -198,8 +203,8 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   commit has no other lines.
 - Lock files and generated files don't count without `--include-generated`. Hub files never count: changes in many
   unrelated areas touch them, so they say nothing about where a commit belongs. `HUB_FILES` in
-  `crates/bd-cli/src/generated.rs` matches `.idea/modules.xml`, `MODULE.bazel`, `*-file-list.txt`, `README*` and
-  `CHANGELOG*` by file name.
+  `crates/bd-cli/src/generated.rs` lists them: module and build registries, file lists and top-level docs. It matches
+  by file name, and a pattern with a `/` (`.idea/modules.xml`) by the end of the path.
 - `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw -p -U0`
@@ -265,7 +270,9 @@ Moves commits between branches by their subject prefixes, in one message-only hi
 - A path is a branch name, or `parent/leaf` with stacked branches on (`git config branchdeck.stacks true`). Ids may
   be abbreviated. `unassign` removes the prefix: the commit falls back to its issue branch or becomes unassigned.
 - A commit without a prefix that the plan puts into the branch of its own issue key keeps its subject: it is in that
-  branch already. So the current grouping as a plan rewrites nothing.
+  branch already. So a plan that names the current branch of each commit (its stack path with stacked branches on, not
+  the leaf) rewrites no commit that has no prefix or a canonical one. A prefix the grouper sanitizes, such as
+  `(Foo Bar)` in `Foo-Bar`, is rewritten to the name.
 - Before anything is written, the plan is applied in memory to every subject ahead of the baseline and validated:
   - unknown ids and ids not ahead of the baseline are `not_ahead_of_baseline`;
   - duplicate ids, ids both in a branch and in `unassign`, invalid names, a fixup sent away from its target and a

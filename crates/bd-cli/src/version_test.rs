@@ -12,7 +12,8 @@ fn version_and_dash_dash_version() {
   assert_eq!(output["schema"], json!(1));
   assert_eq!(output["version"], json!(VERSION));
   assert!(output["git"].as_str().is_some_and(|git| git.starts_with("2.")), "{output}");
-  assert!(VERSION.split('.').count() == 3 && VERSION != "0.1.0", "the app version, not the crate version: {VERSION}");
+  // the app version, not the crate version; a pre-release such as 0.12.0-beta.1 is fine
+  assert!(VERSION != "0.1.0" && VERSION.starts_with(|c: char| c.is_ascii_digit()), "{VERSION}");
 
   // the same JSON, outside a repository too
   let (exit_code, flag) = run_json(&environment(directory.path()), &["--version"]);
