@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyBranchState, verifyCommitCount } from "../helpers/branch-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
@@ -40,8 +40,9 @@ testWithIssueLinks.describe("Activity", () => {
     })
     const row = findBranchRow(page, "ABC-123")
     await getPushButton(row).click()
-    const forcePush = row.getByRole("button", { name: "Force Push (1)" })
-    await forcePush.click()
+    // it drops Ann's commit: the click asks first, the Force Push in the description pushes
+    await row.getByRole("button", { name: "Force Push (1)" }).click()
+    await confirmForcePush(page, "Force Push (1)")
     await expect(row.getByRole("button", { name: "Push", exact: true })).toBeDisabled()
 
     const popover = await openActivity(page)
