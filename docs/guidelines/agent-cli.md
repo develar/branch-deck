@@ -327,8 +327,9 @@ rebuilds the virtual branches, under the same repository lock.
 - `groups` and `unassigned` list every commit ahead of the baseline afterwards, with the new ids, oldest first.
 - `issue_groups` (only when they change) lists every issue group afterwards with its keys. A write of the issue groups
   drops the keys that group no commit.
-- `undo_token` is `H1..H2` for a rewrite, `groups:G1..G2` for a change of the issue groups only, and
-  `H1..H2+groups:G1..G2` for both; `G1` is zeros when there were no issue groups before.
+- `undo_token` holds full ids: `<previous head>..<new head>` for a rewrite, `groups:<previous>..<new>` (commits of
+  the issue groups) for a change of the issue groups only, and both joined by `+`. The previous issue groups commit is
+  zeros when there were no issue groups before. Pass the token to `bd undo` as printed.
 - `--dry-run` writes nothing and adds `changes` (`{id, from, to}` subjects) and, with stacked branches on, `forest`
   (`{name, parent, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
 - `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
