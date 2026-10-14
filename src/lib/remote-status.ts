@@ -1,11 +1,11 @@
 import type { DroppedCommit } from "@/lib/bindings"
-import { getPushAction } from "@/lib/push-summary"
+import { formatPushCount, getPushAction } from "@/lib/push-summary"
 import { formatTimestamp } from "@/lib/time"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
 
 export interface StatusTexts {
-  /** Compact display text, e.g. "1 (3)↑ · 2↓" | "0 (3)↑" | "2↓" | "up to date" | "not pushed" */
+  /** Compact display text, e.g. "3↑" | "1 (3)↑ · 2↓" | "0 (3)↑" | "2↓" | "up to date" | "not pushed" */
   text: string
   /** Full descriptive text */
   tooltip: string
@@ -21,66 +21,70 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
-const remoteDiffText = "you removed or changed locally"
+/** The one sentence of a branch the remote has as it is */
+const upToDateText = "Everything is pushed."
+
+/** A branch only rebased onto a newer baseline: the remote has its commits by content */
+const onlyRebasedText = "The branch was only rebased onto the baseline: the remote has its commits."
 
 /** A rebased branch is not a fast-forward of its remote: the push replaces the remote commits, nothing is lost */
 const rebasedText = "The branch was rebased onto the baseline: the push replaces the remote commits with their rebased copies."
 
-export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, lastPushTime, myCommitsAhead, fastForward } = remote
-  const my = myCommitsAhead ?? 0
+const createText = "The branch isn't on the remote yet: the push creates it."
 
-  const addPushTime = (tooltip: string): string => lastPushTime > 0
-    ? `${tooltip}\n\nLast pushed: ${formatTimestamp(lastPushTime)}`
-    : tooltip
+/** "3 commits to push." when they are all the user's, "2 of 3 commits to push are yours." otherwise */
+function formatCommitsToPush(mine: number, count: number): string {
+  if (mine === count) {
+    return `${plural(count, "commit", "commits")} to push.`
+  }
+  if (mine === 0) {
+    return count === 1 ? "1 commit to push, not yours." : `${count} commits to push, none of them yours.`
+  }
+  return `${mine} of ${count} commits to push ${mine === 1 ? "is" : "are"} yours.`
+}
+
+/** "The remote has 2 commits your branch doesn't (by Ann and Bob)." */
+function formatRemoteHas(remote: RemoteStatus): string {
+  return `The remote has ${plural(remote.commitsBehind, "commit", "commits")} your branch doesn't${formatByAuthors(remote.droppedCommits)}.`
+}
+
+export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts {
+  const { exists, commitsAhead, commitsBehind, lastPushTime, fastForward } = remote
+  const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
+
+  const withPushTime = (lines: readonly string[]): string => {
+    const tooltip = lines.join("\n")
+    return lastPushTime > 0 ? `${tooltip}\n\nPushed ${formatTimestamp(lastPushTime)}` : tooltip
+  }
 
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
   if (exists && commitsAhead === 0 && commitsBehind === 0) {
-    const tooltip = fastForward
-      ? "Everything is in sync with the remote."
-      : "The remote has all the commits; the branch was only rebased onto the baseline."
-    return { text: "up to date", tooltip: addPushTime(tooltip) }
+    return { text: "up to date", tooltip: withPushTime(fastForward ? [upToDateText] : [upToDateText, onlyRebasedText]) }
   }
 
   // not pushed / first push
   if (!exists) {
-    const text = "not pushed"
-    if (commitsAhead > 0) {
-      const tooltip = my > 0
-        ? `You have ${my} of your commits not on remote (${commitsAhead} total). Push to create the remote branch.`
-        : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes). Push to create the remote branch.`
-      return { text, tooltip: addPushTime(tooltip) }
-    }
-    return { text, tooltip: addPushTime("This branch isn't on the remote yet. Push to create it.") }
+    const lines = commitsAhead > 0 ? [formatCommitsToPush(mine, commitsAhead), createText] : [createText]
+    return { text: "not pushed", tooltip: withPushTime(lines) }
   }
 
-  // diverged (both ahead and behind)
-  if (commitsAhead > 0 && commitsBehind > 0) {
-    const tooltip = my > 0
-      ? `You have ${my} of your commits not on remote (${commitsAhead} total).\nRemote includes ${plural(commitsBehind, "commit", "commits")} ${remoteDiffText}.`
-      : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes).\nRemote includes ${plural(commitsBehind, "commit", "commits")} ${remoteDiffText}.`
-    return { text: `${my} (${commitsAhead})↑ · ${commitsBehind}↓`, tooltip: addPushTime(tooltip) }
-  }
-
-  // ahead only
+  const lines: string[] = []
   if (commitsAhead > 0) {
-    const ahead = my > 0
-      ? `You have ${my} of your commits not on remote (${commitsAhead} total).`
-      : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes).`
-    const tooltip = fastForward ? ahead : `${ahead}\n${rebasedText}`
-    return { text: `${my} (${commitsAhead})↑`, tooltip: addPushTime(tooltip) }
+    lines.push(formatCommitsToPush(mine, commitsAhead))
   }
-
-  // behind only
   if (commitsBehind > 0) {
-    return {
-      text: `${commitsBehind}↓`,
-      tooltip: addPushTime(`Remote includes ${plural(commitsBehind, "commit", "commits")} ${remoteDiffText}.`),
-    }
+    lines.push(formatRemoteHas(remote))
   }
+  else if (!fastForward) {
+    lines.push(rebasedText)
+  }
+  return { text: formatPushCount(mine, commitsAhead, commitsBehind), tooltip: withPushTime(lines) }
+}
 
-  // shouldn't happen
-  return { text: "unknown", tooltip: addPushTime("Unknown") }
+/** " (by Ann and Bob)" after a count of commits; nothing without authors */
+function formatByAuthors(commits: readonly DroppedCommit[]): string {
+  const authors = formatAuthors(commits)
+  return authors === "" ? "" : ` (by ${authors})`
 }
 
 /** "Ann", "Ann and Bob", "Ann, Bob and Cy", "Ann, Bob and 2 others": the distinct authors, in the order of the commits */
@@ -115,9 +119,7 @@ export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus):
   const title = `${branchName} changed on the remote`
   const { commitsBehind, droppedCommits } = remote
   if (commitsBehind > 0) {
-    const authors = formatAuthors(droppedCommits)
-    const by = authors === "" ? "" : ` (by ${authors})`
-    return { title, description: `${plural(commitsBehind, "commit", "commits")} you don't have${by}. Nothing was pushed.`, action }
+    return { title, description: `${plural(commitsBehind, "commit", "commits")} you don't have${formatByAuthors(droppedCommits)}. Nothing was pushed.`, action }
   }
   if (action === null) {
     return { title, description: "The remote has the branch's commits now. Nothing was pushed.", action }

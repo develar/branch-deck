@@ -45,7 +45,9 @@ test.describe("Outgoing indicator", () => {
     expect(await rows.evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name")))).toEqual(tableOrder)
 
     const row = getOverviewRow(popover, "JIRA-456")
-    await expect(row).toContainText("3 (3)↑")
+    // all 3 are the user's: the count is not repeated in parentheses
+    await expect(row).toContainText("3↑")
+    await expect(row).not.toContainText("(3)↑")
     await expect(row).toContainText("new")
     await expect(row.getByRole("button", { name: "Create Remote" })).toBeEnabled()
     await expect(popover.getByTestId("outgoing-legend")).toHaveText("push")
@@ -78,7 +80,7 @@ test.describe("Outgoing indicator", () => {
     const row = getOverviewRow(popover, "ABC-123")
     await row.getByRole("button", { name: "Create Remote" }).click()
     await expect(row).toHaveAttribute("data-state", "force")
-    await expect(row).toContainText("1 (1)↑ · 1↓")
+    await expect(row).toContainText("1↑ · 1↓")
     await expect(row).toContainText("force")
     await expect(row.getByRole("button", { name: "Force Push (1)" })).toBeEnabled()
     await expect(popover.getByTestId("outgoing-legend")).toHaveText("pushdrops remote commits")
@@ -111,7 +113,8 @@ test.describe("Push progress", () => {
     // the pointer stays on the button after the click: its popover is open
     const progress = page.getByTestId("push-progress")
     await expect(progress).toContainText("Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s")
-    await expect(progress).toContainText("1.23 MiB · 2.40 MiB/s")
+    // git's line says the amount already: no second line repeats it
+    await expect(progress).not.toContainText("1.23 MiB · 2.40 MiB/s")
 
     release()
     await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
@@ -138,8 +141,9 @@ test.describe("Force push", () => {
     await getPushButton(row).click()
     const forcePush = row.getByRole("button", { name: "Force Push (1)" })
     await expect(forcePush).toBeEnabled()
-    // the description lists what the force push drops
+    // the description says what the force push does, then lists what it drops
     await forcePush.hover()
+    await expect(page.getByText("Force push replaces the remote branch. 1 commit to push. The remote has 1 commit your branch doesn't (by Ann).")).toBeVisible()
     const dropped = page.getByTestId("dropped-commits")
     await expect(dropped).toContainText("Fix login")
     await expect(dropped).toContainText("Ann · c0ffee01 · 3 hours ago")

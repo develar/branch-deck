@@ -33,7 +33,8 @@ Compare content, not hashes, with Git's cherry-pick algorithm:
 - **"My commits"** are the commits ahead authored by the user.
 - **Fast-forward** says whether the remote branch is an ancestor of the local one. A rebased branch is not, so its push
   is a force push; it follows the refs, not the result of the last sync, and stays the same across restarts.
-- **UI display** always shows the user's commit count explicitly ("0 (n)↑" format).
+- **UI display** shows the user's share only when it differs: `n↑` when all n commits are the user's, `mine (n)↑`
+  otherwise (`0 (n)↑`: none is theirs).
 
 ## Design
 
@@ -110,9 +111,14 @@ Key components:
 ## UI Display Considerations
 
 ### Commit Count Display
-- Always show user's commit count explicitly: "0 (n)↑" format instead of just "n↑"
-- Use consistent terminology: "no local authored changes" instead of confusing phrases
-- Avoid misleading messages about "commits you removed" when they're just rebased
+- `n↑` when the n commits to push are all the user's, `mine (n)↑` only when some are others' (`0 (n)↑` when none is
+  theirs): in a single-author repository the total in parentheses only repeated the count. `formatPushCount` in
+  `src/lib/push-summary.ts` writes it for the status text of the row and the outgoing overview alike.
+- The push labels count the commits the push sends (`Push (3)`, `Force Push (3)`), whoever authored them; the
+  description says the user's share: "2 of 3 commits to push are yours."
+- The commits behind are named for what they are, the remote's: "The remote has 2 commits your branch doesn't (by Ann
+  and Bob).", never "commits you removed": after a rebase the patch-equivalent copies don't count, so what remains is
+  someone else's work or the user's own dropped commit, and the authors tell which.
 
 ### Colours
 One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`),

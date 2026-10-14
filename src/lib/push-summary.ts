@@ -123,10 +123,22 @@ export function summarizePushState(branches: readonly SummaryInput[]): PushSumma
   return summary
 }
 
-/** `3 (5)↑`, then `· 2↓` for the remote commits a force push drops, as the status text of a branch row. */
+/**
+ * The size of a push, as the status text of a branch row: `3↑` when the 3 commits are the user's, `1 (3)↑` when some
+ * are others' (`0 (3)↑`: none is theirs), then `· 2↓` for the remote commits the push drops; `2↓` alone when it sends
+ * no commit.
+ */
+export function formatPushCount(mine: number, count: number, behind: number): string {
+  const ahead = mine === count ? `${count}↑` : `${mine} (${count})↑`
+  if (behind === 0) {
+    return ahead
+  }
+  return count === 0 ? `${behind}↓` : `${ahead} · ${behind}↓`
+}
+
+/** The size of an outgoing push, `formatPushCount` */
 export function formatOutgoingCount(branch: OutgoingBranch): string {
-  const ahead = `${branch.mine} (${branch.count})↑`
-  return branch.behind > 0 ? `${ahead} · ${branch.behind}↓` : ahead
+  return formatPushCount(branch.mine, branch.count, branch.behind)
 }
 
 function plural(n: number, one: string, many: string): string {
