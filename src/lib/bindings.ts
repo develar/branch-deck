@@ -426,7 +426,10 @@ export type MoveCommitsParams = {
 };
 
 export type MoveCommitsResult = {
-	/**  The commits whose message changed, in request order; a commit already in the target branch is not listed */
+	/**
+	 *  The commits whose message changed, in request order, then the fixups that moved with them; a commit already in
+	 *  the target branch is not listed
+	 */
 	moved: MovedCommit[],
 };
 
