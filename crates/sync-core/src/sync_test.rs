@@ -509,6 +509,19 @@ async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()
   assert!(matches!(events[1], SyncEvent::UnassignedCommits { .. }), "{:?}", events[1]);
   assert!(matches!(&events[2], SyncEvent::BranchesGrouped { branches, .. } if branches.len() == 4), "{:?}", events[2]);
   assert_eq!(events.iter().filter(|e| matches!(e, SyncEvent::BranchesGrouped { .. })).count(), 1);
+  // phase 2: one update check, nothing to update from for a local baseline
+  let baseline_statuses: Vec<_> = events.iter().filter(|e| matches!(e, SyncEvent::BaselineStatus { .. })).collect();
+  assert!(
+    matches!(
+      baseline_statuses.as_slice(),
+      [SyncEvent::BaselineStatus {
+        update: None,
+        check_error: None,
+        ..
+      }]
+    ),
+    "{baseline_statuses:?}"
+  );
 
   let created = events
     .iter()

@@ -38,9 +38,14 @@ pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, e
   ensure_no_operation_in_progress(git_executor, repo_path)?;
   let branch = get_current_branch(git_executor, repo_path)?;
   let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repo_path)?;
+  ensure_no_merges(git_executor, repo_path, &head, exclude)?;
+  Ok(RewriteTarget { branch, head })
+}
 
+/// Fails if `head ^exclude...` contains a merge commit
+pub fn ensure_no_merges(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, exclude: &[&str]) -> Result<()> {
   let exclude: Vec<String> = exclude.iter().map(|rev| format!("^{rev}")).collect();
-  let mut args = vec!["rev-list", "--min-parents=2", "-n1", &head];
+  let mut args = vec!["rev-list", "--min-parents=2", "-n1", head];
   args.extend(exclude.iter().map(String::as_str));
   args.push("--");
   let merge = git_executor.execute_command(&args, repo_path)?;
@@ -50,7 +55,7 @@ pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, e
       &merge[..merge.len().min(8)]
     ));
   }
-  Ok(RewriteTarget { branch, head })
+  Ok(())
 }
 
 /// Fails if git is in the middle of a rebase, merge, cherry-pick or revert: rewriting history then would corrupt it.
@@ -88,6 +93,30 @@ pub fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) ->
   Ok(output)
 }
 
+/// A copy of the user's index in a temporary directory, for a dry run with `GIT_INDEX_FILE`; removed on drop
+pub struct IndexCopy {
+  _dir: tempfile::TempDir,
+  path: String,
+}
+
+impl IndexCopy {
+  pub fn new(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self> {
+    let index_path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?;
+    let dir = tempfile::Builder::new().prefix("branchdeck-index-").tempdir()?;
+    let copy = dir.path().join("index");
+    if Path::new(&index_path).exists() {
+      std::fs::copy(&index_path, &copy).map_err(|e| anyhow!("Failed to copy the index: {e}"))?;
+    }
+    let path = copy.to_str().ok_or_else(|| anyhow!("Temporary index path is not valid UTF-8"))?.to_string();
+    Ok(Self { _dir: dir, path })
+  }
+
+  #[must_use]
+  pub fn path(&self) -> &str {
+    &self.path
+  }
+}
+
 /// How the user's index follows the branch after a rewrite
 #[derive(Debug)]
 pub enum IndexUpdate {
@@ -108,14 +137,8 @@ impl IndexUpdate {
     if old_tree == new_tree {
       return Ok(());
     }
-    let index_path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?;
-    let dir = tempfile::Builder::new().prefix("branchdeck-index-").tempdir()?;
-    let copy = dir.path().join("index");
-    if Path::new(&index_path).exists() {
-      std::fs::copy(&index_path, &copy).map_err(|e| anyhow!("Failed to copy the index: {e}"))?;
-    }
-    let copy = copy.to_str().ok_or_else(|| anyhow!("Temporary index path is not valid UTF-8"))?;
-    let (output, exit_code) = git_executor.execute_command_with_status_env(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path, &[("GIT_INDEX_FILE", copy)])?;
+    let copy = IndexCopy::new(git_executor, repo_path)?;
+    let (output, exit_code) = git_executor.execute_command_with_status_env(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path, &[("GIT_INDEX_FILE", copy.path())])?;
     if exit_code != 0 {
       debug!(output = %output, "index update preflight failed");
       let paths: Vec<&str> = output.lines().filter_map(|line| line.split('\'').nth(1)).collect();

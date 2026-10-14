@@ -2,6 +2,7 @@ use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::issue_navigation::load_issue_navigation_config;
+use crate::update_project::check_baseline_update;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
@@ -19,7 +20,7 @@ use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Where the sync takes the issue navigation configuration from
 pub enum IssueConfigSource {
@@ -310,7 +311,14 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   .await
   .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
 
-  // Phase 2: integration detection and branch processing run concurrently
+  // Phase 2: integration detection, the update check and branch processing run concurrently
+  let update_check = tokio::task::spawn_blocking({
+    let git_executor = git_executor.clone();
+    let repository_path = repository_path.to_string();
+    let baseline_branch = baseline_branch.clone();
+    let progress = progress.clone();
+    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, &progress)
+  });
   let active_branches: HashSet<String> = branches.keys().cloned().collect();
   let detection = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
@@ -355,7 +363,25 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   };
 
   // join (not try_join) so a failure on one side doesn't orphan the other
-  let (processing_result, detection_result) = tokio::join!(processing, detection);
+  let (processing_result, detection_result, update_check_result) = tokio::join!(processing, detection, update_check);
   processing_result?;
+  update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))?
+}
+
+/// Check the update of the checked out branch onto the baseline and send `BaselineStatus`. A failed check is logged and
+/// reported in the event, it never fails the sync; only a failure to send the event does.
+fn send_baseline_status(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: String, progress: &dyn ProgressReporter) -> Result<()> {
+  let (update, check_error) = match check_baseline_update(git_executor, repository_path, &baseline_branch) {
+    Ok(update) => (update, None),
+    Err(e) => {
+      warn!(error = %format!("{e:#}"), "update check failed");
+      (None, Some(format!("{e:#}")))
+    }
+  };
+  progress.send(SyncEvent::BaselineStatus {
+    baseline_branch,
+    update,
+    check_error,
+  })
 }

@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from "react"
 import { CircleAlertIcon, Settings2Icon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -8,10 +9,15 @@ import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
 import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
+import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
+import { useTauriListen } from "@/hooks/useTauriListen"
 import { formatRelativeTime } from "@/lib/time"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
+import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
+
+const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
 
 export function ConfigurationHeader() {
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -21,6 +27,18 @@ export function ConfigurationHeader() {
   const selectedProject = useSelectedProject()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const lastSyncTime = selectedProject?.lastSyncTime
+  const refusedUpdate = useRefusedUpdate()
+  // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
+  const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)
+  if (refusedUpdate !== null && !isRefusedDialogMounted) {
+    setRefusedDialogMounted(true)
+  }
+  // the menu item Update Project (⌘T); for a local baseline the update says there is nothing to update from
+  useTauriListen("update-project", () => {
+    if (pathValidation.valid) {
+      void runUpdateProject()
+    }
+  })
 
   return (
     <Card className="gap-0 py-0" data-testid="configuration-header">
@@ -59,9 +77,15 @@ export function ConfigurationHeader() {
           )}
         </div>
 
-        {/* actions */}
+        {/* actions: incoming and outgoing together, the last sync time next to Sync */}
         <div className="flex items-center gap-3">
-          {pathValidation.valid && <OutgoingIndicator />}
+          {pathValidation.valid && (
+            // hidden while empty: an empty flex item would still take a gap
+            <div className="flex items-center gap-1 empty:hidden">
+              <UpdateProjectButton />
+              <OutgoingIndicator footer={<UpdateStateLine />} />
+            </div>
+          )}
           {lastSyncTime && !isSyncing && pathValidation.valid
             ? (
                 <div className="text-xs text-muted-foreground">
@@ -80,6 +104,11 @@ export function ConfigurationHeader() {
           <SyncButton />
         </div>
       </div>
+      {isRefusedDialogMounted && (
+        <Suspense fallback={null}>
+          <UpdateBlockedDialog check={refusedUpdate} onClose={closeRefusedUpdate} />
+        </Suspense>
+      )}
     </Card>
   )
 }

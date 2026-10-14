@@ -75,9 +75,12 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
 - All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false`
   and strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF`; callers don't add `--no-pager`.
-- **Never write to the working tree**: no `checkout`, `switch`, `reset`, `rebase`, `stash`, `commit`, `cherry-pick`,
-  `merge`, `restore`, `clean`, `apply` without `--cached`, `git history`; `crates/git-executor/src/worktree_safety_test.rs`
-  enforces it. Reading worktree files into a temporary `GIT_INDEX_FILE` is fine.
+- **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
+  `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
+  `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
+  `GIT_INDEX_FILE` is fine. The single exception is Update Project's guarded two-way `read-tree -m -u` in
+  `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure);
+  the scan counts its `-u` argument lists. Don't add another one; see "Update project" in the design doc.
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.

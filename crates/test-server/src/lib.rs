@@ -79,6 +79,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/restore_branch_head", post(tauri_command_bridge::restore_branch_head))
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
     .route("/invoke/squash_fixup_commits", post(tauri_command_bridge::squash_fixup_commits))
+    .route("/invoke/update_project", post(tauri_command_bridge::update_project))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
@@ -157,6 +158,17 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
       templates::archived_branches().build(&repo_path)
     }));
   }
+  for (name, template) in [
+    ("behind_upstream", templates::behind_upstream()),
+    ("update_conflict", templates::update_conflict()),
+    ("update_blocked", templates::update_blocked()),
+  ] {
+    let repo_path = target_dir.join(name);
+    futures.push(tokio::task::spawn_blocking(move || {
+      tracing::info!("Creating test repository template: {name}");
+      template.build(&repo_path)
+    }));
+  }
   {
     let repo_path = target_dir.join("amend_changes");
     futures.push(tokio::task::spawn_blocking(move || {
@@ -216,6 +228,12 @@ pub enum RepositoryTemplate {
   ArchivedBranches,
   #[serde(rename = "amend_changes")]
   AmendChanges,
+  #[serde(rename = "behind_upstream")]
+  BehindUpstream,
+  #[serde(rename = "update_conflict")]
+  UpdateConflict,
+  #[serde(rename = "update_blocked")]
+  UpdateBlocked,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "NO_REPO")]
@@ -237,6 +255,9 @@ impl RepositoryTemplate {
       RepositoryTemplate::LongSubjects => "long_subjects",
       RepositoryTemplate::ArchivedBranches => "archived_branches",
       RepositoryTemplate::AmendChanges => "amend_changes",
+      RepositoryTemplate::BehindUpstream => "behind_upstream",
+      RepositoryTemplate::UpdateConflict => "update_conflict",
+      RepositoryTemplate::UpdateBlocked => "update_blocked",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",
       RepositoryTemplate::NoRepo => "NO_REPO",
     }

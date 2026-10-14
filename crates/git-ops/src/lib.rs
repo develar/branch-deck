@@ -14,6 +14,8 @@ pub mod reword_commits;
 pub mod rewrite_guard;
 pub mod rewrite_plan;
 pub mod squash_commits;
+pub mod update_branch;
+pub mod worktree_update;
 
 #[cfg(test)]
 mod amend_operations_test;

@@ -8,6 +8,8 @@ const ProjectMetadataSchema = z.object({
   path: z.string(),
   cachedBranchPrefix: z.string().optional().transform(val => val === "" ? undefined : val),
   lastSyncTime: z.number().optional(),
+  /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
+  lastFetchTime: z.number().optional(),
   lastBranchCount: z.number().optional(),
   issueNavigationConfig: z.any().optional(), // TODO: create proper schema
 })

@@ -284,6 +284,18 @@ pub async fn squash_fixup_commits(
     .map_err(|e| command_failed("squash fixup commits", &e))
 }
 
+/// Fails with the error message as the body, see `move_commits_to_branch`. The progress channel is not mocked; the
+/// fetch reads the upstream from a directory of the template, so the update works offline.
+pub async fn update_project(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::update_project::UpdateProjectParams>,
+) -> Result<Json<sync_core::update_project::UpdateProjectResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::update_project::update_project_core(&state.git_executor, &params, &|_| {})
+    .map(Json)
+    .map_err(|e| command_failed("update the project", &e))
+}
+
 fn command_failed(operation: &str, e: &anyhow::Error) -> (StatusCode, String) {
   tracing::error!("Failed to {operation}: {e:#}");
   (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))

@@ -7,8 +7,8 @@
 ## Problem
 
 Branch Deck rewrites the checked-out branch: reword, move to another branch, add an issue reference, amend
-uncommitted changes into an older commit, squash commits, and unapply (drop) a branch. The user is usually in the middle of their own
-work. The working tree and the index may hold uncommitted and staged changes that Branch Deck has no right to touch.
+uncommitted changes into an older commit, squash commits, unapply (drop) a branch, and update it onto its upstream. The
+user is usually in the middle of their own work. The working tree and the index may hold uncommitted and staged changes that Branch Deck has no right to touch.
 `git rebase`, `git commit -a` and `git reset --mixed` all write to the working tree or the index. They stage what the
 user did not select, discard what the user staged, and depend on the user's `rebase.*` configuration.
 
@@ -50,14 +50,22 @@ flowchart TD
 ```
 
 Every path ends at one ref transaction. Only a content rewrite reaches the index step, and the working tree is never
-written.
+written, except by Update Project (its own section below).
 
 ### Invariants
 
-1. **Never write to the working tree.** No `checkout`, `switch`, `reset`, `rebase`, `stash`, `commit`, `cherry-pick`,
-   `merge`, `restore`, `clean`, `apply` without `--cached`, and no `git history`. Reading working-tree files into a
-   temporary index (`GIT_INDEX_FILE`) is allowed. `crates/git-executor/src/worktree_safety_test.rs` scans the
-   production sources and fails on such a subcommand.
+1. **Never write to the working tree.** No `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`,
+   `commit`, `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, no `read-tree -u` or `--reset`, and
+   no `git history`. Reading working-tree files into a temporary index (`GIT_INDEX_FILE`) is allowed.
+   `crates/git-executor/src/worktree_safety_test.rs` scans the production sources and fails on such an argument list.
+
+   **The one exception is Update Project** (see "Update project" below), which must bring the upstream's files into
+   the working tree. It does that with a single two-way `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes
+   only the paths whose content differs between the two trees. Three guards come first: a dry run of the same command
+   on a copy of the index, a check for ignored files where the update adds a file, and the CAS ref move. Uncommitted
+   and staged changes on the other paths survive byte for byte; any overlap refuses the whole update before anything
+   moves. The exemption lives in `crates/git-ops/src/worktree_update.rs` only; the safety scan allows `-u` there and
+   asserts the number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
    error is returned, never ignored.
@@ -228,6 +236,72 @@ the target's branch (grouper rules), the unassigned targets, or one fixup. The b
 Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
 `branch_name_of`).
 
+#### Update project
+
+Update Project (`⌘T`) brings the checked out branch onto its upstream, as `git pull --rebase` does, but it works with
+a dirty working tree when that is safe and never leaves a half-done rebase. The local commits are replayed in memory,
+and the branch and the files move only after every check passed. The same check, without the network and without the
+final steps, runs inside every sync, so the header can say whether the update would apply cleanly.
+
+| Step | Command | On failure |
+|---|---|---|
+| 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
+| 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
+| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>` | error, nothing changed |
+| 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U` |
+| 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none: the merge base suffices |
+| 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
+| 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
+| 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
+| 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
+| 9. Move | `update-ref --stdin`: `update refs/heads/<b> N H`, `branch-deck: update project` | error: the branch moved meanwhile, nothing changed |
+| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh` | roll back: `update refs/heads/<b> H N`, `branch-deck: update project rolled back` |
+
+Details:
+
+- **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
+  where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
+  elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
+  and nothing for a ref that did not move. The fetch runs through `execute_remote_command` (Key Decision 7).
+- **Force-pushed upstream.** After an upstream force-push, `HEAD ^U` also contains the commits the upstream dropped,
+  and replaying them conflicts or brings them back. As `pull --rebase` does, they are excluded with the old tip from
+  the forced fetch line and with the fork point from the tracking ref's reflog; the fork point also covers a forced
+  fetch made in a terminal before the check inside a sync.
+- **Conflict.** `replay` reports a conflict only by its exit code. The files come from `merge-tree --write-tree
+  --name-only -z --no-messages U H` (`<tree>\0<file>\0…`, exit 1). If only the replay of single commits conflicts, they
+  are the paths both `diff-tree B U` and `diff-tree B H` change. The commits are `log --reverse HEAD ^U ^<previous
+  tips>`. The result names both, with H, U and B, for the dialog and the agent prompt; nothing has changed.
+- **Dirty working tree.** Two-way `read-tree -m -u` updates a path only where `H` and `N` differ, and only if the index
+  and the working tree still match `H` there. Uncommitted or staged changes on any other path stay byte for byte. A
+  dirty or staged path that the update changes, an untracked file where it adds one, or an untracked file inside a
+  directory it replaces makes git refuse; the dry run on the index copy finds that before anything moves, and
+  `Blocked` lists those paths (`status --porcelain=v1 -z --no-renames --untracked-files=all` ∩ the changed paths). The
+  copy is refreshed first, so a file that was only touched (same content, new stat data) does not block.
+- **Ignored files.** `read-tree -u` overwrites an ignored file where the update adds one, silently, as `checkout`
+  does. Step 8 refuses that instead: an added path that exists on disk (or has a file in place of one of its
+  directories) blocks the update.
+- **Order and rollback.** The branch moves before the files, with a CAS on H: if a commit landed meanwhile, the move
+  fails and nothing was written. `read-tree` checks every path again before it writes any file, so a file changed
+  between the dry run and step 10 fails it with nothing written; the branch then moves back with a second CAS
+  transaction and the update reports "Files changed during the update; nothing was changed".
+- **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
+  The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
+- **Metadata.** The replayed commits keep their author; the committer is the current user, as with any content rewrite.
+- **The check inside sync** runs steps 0, 1 and 3 to 8 against the last fetched tracking ref and sends
+  `SyncEvent::BaselineStatus` after `BranchesGrouped`, concurrently with the branch rebuilds. Its replay sets
+  `GIT_COMMITTER_DATE=@0 +0000`, so checking the same state again writes no new objects; such a plan can't be applied.
+  A failed check (a rebase in progress, a detached HEAD) is logged and reported in the event, never as a sync error.
+  `fetched_at` is the time git last wrote `FETCH_HEAD` (a fetch elsewhere); the app keeps the time of its own fetch.
+
+**Residual risk.** `read-tree -u` validates every path before it writes the first file, but writing can still fail
+midway, e.g. when a smudge filter (Git LFS) fails or the disk fills up. The branch then moves back to H, and the files
+already written show up as uncommitted changes that bring in the upstream's version; `git status` and the reflog
+(`branch-deck: update project`) show what happened. Submodules are not updated (`--no-recurse-submodules`); a changed
+gitlink shows as a modified submodule until the user updates it.
+
+Code: `crates/git-ops/src/update_branch.rs` (check and apply), `crates/git-ops/src/worktree_update.rs` (the exempt
+`read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, the check inside sync).
+
 #### Virtual branch sync
 
 Virtual branches never touch HEAD, the index or the working tree.
@@ -284,24 +358,34 @@ recovery hint (`git reset -q`).
    **Rationale**: `replay` dies with "replaying merge commits is not supported yet!", and the writer recreates a
    single parent. The previous `rebase --autosquash` fallback touched the working tree and flattened the merges.
 
-4. **Decision**: do not use `git history` (2.54+, experimental).
+4. **Decision**: Update Project writes the working tree with a guarded two-way `read-tree -m -u`, the only exception to
+   invariant 1.
+   **Rationale**:
+   - `pull --rebase`, `rebase --autostash` and `stash` + `checkout` write every file of the rebase, stop halfway on a
+     conflict and leave the user in a rebase, or a stash pop conflict, that the app can't finish;
+   - replaying in memory first turns a conflict into a result with nothing changed, and the dry run on an index copy
+     proves the files can follow before the branch moves;
+   - two-way `read-tree` touches only the paths that differ between the old and the new HEAD, so unrelated local
+     changes survive without being stashed.
+
+5. **Decision**: do not use `git history` (2.54+, experimental).
    **Rationale**:
    - `drop` updates the index and the working tree;
    - `reword` opens an editor and changes one commit per run;
    - it does not support merges.
 
-5. **Decision**: our own transaction, rather than `replay --ref-action=update` or `fast-import` updating the branch.
+6. **Decision**: our own transaction, rather than `replay --ref-action=update` or `fast-import` updating the branch.
    **Rationale**:
    - only our transaction checks the old value of the checked-out branch;
    - it writes a reflog message;
    - it combines related refs atomically;
    - it deletes the temporary ref in the same step.
 
-6. **Decision**: push with `--force-with-lease=refs/heads/<branch>`.
+7. **Decision**: push with `--force-with-lease=refs/heads/<branch>`.
    **Rationale**: a virtual branch is rebuilt on every sync, so the push must force. The lease still refuses to
    overwrite a remote branch that someone else updated since the last fetch or push.
 
-7. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
+8. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
    `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds
    `-c credential.interactive=false -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and `GCM_INTERACTIVE=never`
    on top of the executor's `GIT_TERMINAL_PROMPT=0`.
@@ -326,6 +410,7 @@ recovery hint (`git reset -q`).
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per branch |
+| Update check of n local commits (every sync) | none | about 12 processes whatever n: guards, 1 `replay`, the dry run on an index copy, 1 `diff-tree` |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 
 ## Follow-ups
@@ -347,11 +432,13 @@ recovery hint (`git reset -q`).
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
-  `crates/sync-core/src/autosquash.rs`
+  `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
+  `crates/sync-core/src/update_project.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
   [Squash Fixups](../../spec/commit/fixups.spec.md),
-  [Unapply](../../spec/branch/unapply.spec.md)
+  [Unapply](../../spec/branch/unapply.spec.md), [Update Project](../../spec/repository/update-project.spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),
   [Async Patterns](async-patterns.md)
-- Git manuals: `git help replay`, `git help fast-import`, `git help merge-tree`, `git help read-tree` (two-way merge)
+- Git manuals: `git help replay`, `git help fast-import`, `git help merge-tree`, `git help read-tree` (two-way merge,
+  `-u`, `-n`), `git help fetch` (`--porcelain`), `git help merge-base` (`--fork-point`)

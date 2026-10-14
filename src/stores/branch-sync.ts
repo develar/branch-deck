@@ -2,13 +2,13 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { AutosquashPlan, BranchError, BranchOrigin, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
+import type { AutosquashPlan, BranchError, BranchOrigin, BranchSyncStatus, Commit, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UpdateCheck } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
-import { getLoadingPromise, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
+import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
 export interface SyncOptions {
@@ -70,6 +70,17 @@ export interface Branch {
 
 type MutableBranch = { -readonly [K in keyof Branch]: Branch[K] }
 
+/** Whether the checked out branch can be updated onto the last fetched baseline, as the last sync checked it. */
+export interface BaselineStatus {
+  /** The repository the sync checked */
+  readonly repositoryPath: string
+  readonly baselineBranch: string
+  /** null for a local baseline (nothing to update from) or a failed check */
+  readonly update: UpdateCheck | null
+  /** Why the check failed, e.g. a rebase in progress */
+  readonly checkError: string | null
+}
+
 export interface BranchSyncState {
   isSyncing: boolean
   syncError: string | null
@@ -87,6 +98,8 @@ export interface BranchSyncState {
   unassignedCommits: Commit[]
   /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
   autosquashPlan: AutosquashPlan | null
+  /** null until a sync reported it */
+  baselineStatus: BaselineStatus | null
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -99,6 +112,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   pushingBranches: {},
   unassignedCommits: [],
   autosquashPlan: null,
+  baselineStatus: null,
 }))
 
 // ---- hooks ----
@@ -204,6 +218,24 @@ export function useAutosquashPlan(): AutosquashPlan | null {
 
 export function getAutosquashPlan(): AutosquashPlan | null {
   return branchSyncStore.getState().autosquashPlan
+}
+
+/** The update state of the selected repository; null before its first sync */
+export function useBaselineStatus(): BaselineStatus | null {
+  const repositoryPath = useSelectedProject()?.path
+  return useStore(branchSyncStore, state => state.baselineStatus?.repositoryPath === repositoryPath ? state.baselineStatus : null)
+}
+
+/** Replaces the update check of the selected repository, e.g. with the result of an update */
+export function setBaselineUpdate(repositoryPath: string, update: UpdateCheck): void {
+  branchSyncStore.setState(state => ({
+    baselineStatus: {
+      repositoryPath,
+      baselineBranch: state.baselineStatus?.baselineBranch ?? update.upstream,
+      update,
+      checkError: null,
+    },
+  }))
 }
 
 export function getBranch(name: string): Branch | undefined {
@@ -316,12 +348,12 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
       }
     }
 
+    const vcsRequest = vcsRequestFactory.createRequest()
     const channel = new Channel<SyncEvent>()
     channel.onmessage = (event) => {
-      handleSyncEvent(event, options)
+      handleSyncEvent(event, vcsRequest.repositoryPath, options)
     }
 
-    const vcsRequest = vcsRequestFactory.createRequest()
     const result = await commands.syncBranches(vcsRequest, channel)
     if (result.status === "error") {
       branchSyncStore.setState({ syncError: result.error.message || "Failed to sync branches" })
@@ -376,7 +408,7 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
   branchSyncStore.setState({ autosquashPlan: result.data })
 }
 
-function handleSyncEvent(event: SyncEvent, options?: SyncOptions): void {
+function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: SyncOptions): void {
   switch (event.type) {
     case "issueNavigationConfig": {
       const project = getSelectedProject()
@@ -411,6 +443,9 @@ function handleSyncEvent(event: SyncEvent, options?: SyncOptions): void {
       if (!isBranchPushing(event.data.branchName)) {
         setBranchRemoteStatus(event.data.branchName, toRemoteStatus(event.data))
       }
+      break
+    case "baselineStatus":
+      branchSyncStore.setState({ baselineStatus: { repositoryPath, ...event.data } })
       break
     case "commitsBlocked":
       // not displayed

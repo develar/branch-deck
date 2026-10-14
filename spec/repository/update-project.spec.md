@@ -1,0 +1,186 @@
+---
+name: Update Project
+description: Requirements for Update Project, which fetches the baseline and rebases the checked out branch onto it without touching unrelated local changes, the header state of the update, and the hand-off of a conflict to a coding agent.
+style: plain-1
+targets:
+  - ../../crates/git-ops/src/update_branch.rs
+  - ../../crates/git-ops/src/worktree_update.rs
+  - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/sync-core/src/sync.rs
+  - ../../crates/git-executor/src/worktree_safety_test.rs
+  - ../../src-tauri/src/commands/update_project.rs
+  - ../../src-tauri/src/menu.rs
+  - ../../src/components/repository/UpdateProjectButton.tsx
+  - ../../src/components/repository/UpdateBlockedDialog.tsx
+  - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/stores/update-project.ts
+  - ../../src/stores/branch-sync.ts
+  - ../../src/lib/update-state.ts
+  - ../../src/lib/agent-prompt.ts
+---
+
+# Update Project
+
+Status: Implemented
+Date: 2026-10-14
+
+## Summary
+
+Update Project (`⌘T`, as in IntelliJ) fetches the baseline (e.g. `origin/master`) and brings the checked out branch
+onto it: a fast-forward without local commits, otherwise a rebase of the local commits. It works with uncommitted and
+staged changes as long as the upstream doesn't change those files. A conflict or an overlap changes nothing; a dialog
+explains it and copies a ready prompt for a coding agent that does the rebase.
+
+The header shows whether an update would apply cleanly, from a check that every sync runs against the last fetch.
+
+## Goals
+
+- Update without leaving the app, and without stashing local work that the update doesn't touch.
+- Know before updating whether it conflicts.
+- Never leave a half-done rebase: either the update applies as a whole, or nothing changes.
+
+## Non-goals
+
+- No count of incoming commits anywhere: a monorepo gets hundreds, and only conflicts matter. The state is up to date,
+  applies cleanly, conflicts in N files, or blocked by uncommitted changes.
+- Branch Deck does not resolve conflicts and does not launch an agent; it copies a prompt.
+- No merge of the upstream (`pull --no-rebase`), no update of submodules.
+
+## Requirements
+
+### Check
+
+- The check must not use the network: it compares the branch with the tracking ref of the last fetch.
+- It must refuse (an error, not a state) while a rebase, merge, cherry-pick or revert is in progress, on a detached HEAD,
+  and when the local commits contain a merge.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`check_refuses_while_a_rebase_is_in_progress`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`merges_in_the_local_commits_are_refused`)
+- A local baseline has nothing to update from: no check, and an update says so.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`local_baseline_has_nothing_to_update`)
+- The state must be one of:
+  - up to date: the upstream has nothing the branch lacks;
+  - clean, as a fast-forward or a rebase;
+  - conflict, with the files that likely conflict and the local commits, oldest first;
+  - blocked, with the local paths that overlap the update: uncommitted or staged changes on a file the upstream
+    changes, an untracked file where it adds one, an ignored file where it adds one.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_touched_path_blocks_and_changes_nothing`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`staged_touched_path_blocks`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`untracked_file_that_upstream_adds_blocks`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`ignored_file_that_upstream_adds_blocks`)
+- A file that was only touched (same content, new modification time) must not block.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`touched_only_file_passes_thanks_to_the_refresh`)
+- Commits that an upstream force-push removed must not be replayed: the old tip of a forced fetch and the fork point of
+  the tracking ref's reflog are excluded, as `git pull --rebase` does.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`check_after_a_forced_fetch_elsewhere_uses_the_fork_point`)
+- Every sync must run the check and report it once, after the branches are grouped; a failed check is reported with
+  its reason and must not fail the sync.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_the_baseline_status`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_a_failed_check_without_failing`)
+  [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_precedes_per_branch_events`)
+- Repeated checks of the same state must not write new objects; a check made for a sync can't be applied.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_check_cannot_be_applied`)
+
+### Update
+
+- The update must fetch only the baseline's remote branch, so the push lease of the virtual branches still compares
+  against what the last push saw, then check again and apply a clean result.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
+- A fast-forward must move the branch and update the files.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`fast_forward_updates_the_working_tree`)
+- A rebase must keep the author of every local commit; the committer is the current user.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`rebase_keeps_the_author_and_makes_the_current_user_the_committer`)
+- Uncommitted, staged and untracked changes on paths the update doesn't change must survive byte for byte, the staged
+  version staged.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_and_staged_files_on_untouched_paths_survive_byte_identical`)
+- A local commit whose changes are already upstream is dropped and reported, not an error.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`commit_already_upstream_is_dropped_and_reported`)
+- Conflict and blocked are results: the branch, the index, the working tree and the reflog stay as they were.
+- Up to date must write no reflog entry.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`up_to_date_writes_no_reflog_entry`)
+- The branch moves with a CAS ref transaction (`branch-deck: update project`) before the files; if the files can't
+  follow (one changed since the check), the branch moves back (`branch-deck: update project rolled back`) and the update
+  reports that nothing was changed.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
+- The working tree is written by `crates/git-ops/src/worktree_update.rs` only; the safety scan fails on any other
+  `read-tree -u`, `--reset` or `checkout-index`, and on a change of the number of exempt argument lists.
+  [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
+  [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`scanner_finds_read_tree_updates`)
+
+### Header
+
+- The Update button sits in the header before the outgoing indicator: incoming and outgoing together, the time of the
+  last sync next to Sync. It is hidden for a local baseline and before the first sync.
+- It shows the state, never a count:
+  - up to date: muted, no state icon, tooltip "Up to date with origin/master";
+  - clean: a `success` check, tooltip "Rebases cleanly onto origin/master" ("Fast-forwards to origin/master");
+  - conflict: a `warning` icon, tooltip "Conflicts in N files: …" (at most three names);
+  - blocked: a `warning` icon, tooltip "Your uncommitted changes in … overlap origin/master";
+  - a failed check: muted with a question mark, tooltip "Can't check the update: <reason>".
+  [@test] ../../src/lib/update-state.test.ts (`names the state, never a count of upstream commits`)
+  [@test] ../../src/lib/update-state.test.ts (`names at most three files`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
+- The tooltip must say when the baseline was last fetched: Branch Deck's own fetch or one elsewhere (`FETCH_HEAD`),
+  whichever is newer, and the shortcut.
+  [@test] ../../src/lib/update-state.test.ts (`takes the newer of Branch Deck's fetch and one elsewhere`)
+- A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
+  "Fetching…", "Checking…", "Updating…".
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
+- After an applied update a toast says "Updated master: rebased 2 commits onto origin/master" or "…: fast-forwarded to
+  origin/master" (with the commits dropped as already upstream), and a sync follows without expanding or scrolling.
+  Up to date says "master is already up to date with origin/master".
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
+- The footer of the outgoing overview must show the same state in one line, "origin/master: rebases cleanly", with an
+  Update button.
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
+
+### Conflict and blocked dialog
+
+- A conflict or a block after a click opens a dialog in the frame of the previews: it says nothing was changed and
+  when the baseline was fetched.
+- A conflict lists the files that likely conflict and the local commits, oldest first.
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
+- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block.
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
+- The primary button "Copy Prompt for Agent" copies a prompt and confirms with the toast "Prompt copied". Both cases
+  offer it: an overlap of uncommitted changes with the upstream needs the same merge as a conflict.
+- The conflict prompt must contain the repository path, the branch, the upstream with the ids of HEAD, the upstream
+  and the merge base and the fetch time, the local commits oldest first, the likely conflicting files, the rules (keep
+  every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push, stash untracked changes
+  first and pop them at the end) and the steps (rebase, resolve keeping the upstream change and the intent of the
+  commit, build and test, continue, report each resolution).
+  [@test] ../../src/lib/agent-prompt.test.ts (`names the repository, the branch, the upstream and the exact ids`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`lists the local commits oldest first and the likely conflicting files`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`states the rules and the steps`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`leaves out the file list when the conflicting files are unknown`)
+- The blocked prompt asks to stash, update, pop and merge, keeping the uncommitted changes uncommitted.
+  [@test] ../../src/lib/agent-prompt.test.ts (`asks to stash, update and restore uncommitted changes that block the update`)
+
+## User Experience
+
+- The button is `ghost` `sm` with `ArrowDownIcon` and "Update"; the state icon follows the label (`CheckIcon`
+  `text-success`, `TriangleAlertIcon` `text-warning`). Up to date mutes the label instead of adding an icon.
+- The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body lists files and commits in mono, the
+  footer shows `master ← origin/master`, `Esc Close` and the primary button.
+
+## Testing / Local Run
+
+- `cargo nextest run --workspace --exclude model-ai` covers the check, the update and the scan
+  (`crates/sync-core/src/update_project_test.rs`, `crates/git-executor/src/worktree_safety_test.rs`).
+- `pnpm test:unit` covers the state words and the prompt.
+- `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict` and
+  `update_blocked`: a clone with a bare upstream at `.git/upstream.git`, already fetched, so the update works offline.
+
+## Open Questions / Risks
+
+- A write can still fail midway (a Git LFS smudge filter, a full disk) after git validated every path; the branch moves
+  back and the written files show as uncommitted changes. See "Update project" in the design doc.
+- The check inside every sync costs about twelve git processes and a copy of the index; on a very large index the copy
+  and the refresh dominate.
+- The e2e mock does not forward the progress channel, so the steps of a running update are not tested in the page.
+
+## References
+
+- [Git Operations](../../docs/design/git-operations.md): "Update project", the exception to invariant 1.
+- [Outgoing Commits](outgoing.spec.md): the overview whose footer shows the update state.

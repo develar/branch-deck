@@ -1,6 +1,7 @@
 use crate::issue_navigation::IssueNavigationConfig;
 use git_ops::commit_list::Commit;
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
+use git_ops::update_branch::UpdateCheck;
 use serde::Serialize;
 
 pub mod branch_integration;
@@ -67,6 +68,15 @@ pub enum SyncEvent {
   /// Sent when remote branch status is checked
   #[serde(rename_all = "camelCase")]
   RemoteStatusUpdate(RemoteStatusUpdate),
+  /// Sent once after `BranchesGrouped`: whether the checked out branch can be updated onto the last fetched baseline
+  /// (checked without the network). Both fields `None` for a local baseline, which has nothing to update from.
+  #[serde(rename_all = "camelCase")]
+  BaselineStatus {
+    baseline_branch: String,
+    update: Option<UpdateCheck>,
+    /// Why the check failed, e.g. a rebase in progress; the sync itself does not fail
+    check_error: Option<String>,
+  },
 }
 
 #[derive(Clone, Debug, Serialize)]

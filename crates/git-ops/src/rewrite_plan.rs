@@ -130,13 +130,19 @@ pub(crate) fn short_id(id: &str) -> &str {
 /// Replay the commits of `revs` (a revision range of linear history, e.g. `A..B`) onto `onto` with `git replay`;
 /// returns the new tip. The replayed commits keep their authors; the committer is the current user. Commits that
 /// become empty are dropped. `None` on a conflict.
-#[instrument(skip(git_executor))]
 pub fn replay_range(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, revs: &[&str]) -> Result<Option<String>, CopyCommitError> {
+  replay_range_with_env(git_executor, repo_path, onto, revs, &[])
+}
+
+/// `replay_range` with extra environment variables, e.g. a fixed `GIT_COMMITTER_DATE` for a replay whose commits are
+/// only inspected: the same input then writes the same objects
+#[instrument(skip(git_executor))]
+pub fn replay_range_with_env(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, revs: &[&str], env: &[(&str, &str)]) -> Result<Option<String>, CopyCommitError> {
   let onto_arg = format!("--onto={onto}");
   let ref_arg = format!("--ref={REPLAY_REF}");
   let mut args = vec!["replay", "--ref-action=print", &onto_arg, &ref_arg];
   args.extend_from_slice(revs);
-  let (output, exit_code) = git_executor.execute_command_with_status(&args, repo_path)?;
+  let (output, exit_code) = git_executor.execute_command_with_status_env(&args, repo_path, env)?;
   match exit_code {
     0 => {
       // `update <ref> <new> <old>`

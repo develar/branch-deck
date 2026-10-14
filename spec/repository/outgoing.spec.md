@@ -92,6 +92,9 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 - A legend must name the colours of the states present ("push" for a push and a first push, "force push"), and, when
   some commits are not the user's, the solid "yours" and the light "others'".
   [@test] ../../src/lib/push-summary.test.ts (`has a swatch per colour present`)
+- Below the rows, after a rule, the overview shows the update state of the baseline with an Update button
+  ([Update Project](update-project.spec.md)).
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
 - A click on a branch name must close the overview, expand the branch row and scroll it into view.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
 - The push button must push as the button of the row does, with the same label, description and disabled states, but
@@ -136,8 +139,6 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 
 ## Open Questions / Risks
 
-- Step 6 (Update Project) passes the update state of the baseline as `footer` of `OutgoingIndicator`; the overview shows
-  it below the rows, after a rule.
 - Step 8 (pull requests) passes `renderPullRequest(branchName)` for the chip of a row, between the state word and the
   push button, and adds a dot to the indicator when a pull request has changes requested or failing checks. The
   indicator must then also show when a pull request is open and nothing is outgoing.

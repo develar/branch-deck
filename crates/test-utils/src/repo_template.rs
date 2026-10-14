@@ -526,6 +526,107 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     }
   }
 
+  /// What the upstream of an `UpdateTemplate` has done to the clone
+  #[derive(Clone, Copy, PartialEq, Eq)]
+  pub enum UpdateScenario {
+    /// The local commits rebase cleanly; an unrelated file has uncommitted changes, which the update keeps
+    BehindUpstream,
+    /// A local commit changes the line that the upstream changed
+    Conflict,
+    /// The local commits rebase cleanly, but the file the upstream changed has uncommitted changes
+    Blocked,
+  }
+
+  /// A clone whose `master` tracks `origin/master` of an upstream that has moved on. The upstream is a bare repository
+  /// at `.git/upstream.git`, the remote URL is relative, so a copy of the template fetches from its own upstream,
+  /// offline. The upstream commits are already fetched, so a sync shows the update state at once.
+  pub struct UpdateTemplate(UpdateScenario);
+
+  pub fn behind_upstream() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::BehindUpstream)
+  }
+
+  pub fn update_conflict() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::Conflict)
+  }
+
+  pub fn update_blocked() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::Blocked)
+  }
+
+  pub const UPDATE_APP_FILE: &str = "src/app.txt";
+
+  impl UpdateTemplate {
+    pub fn build(self, output_path: &Path) -> Result<()> {
+      let scenario = self.0;
+      fs::create_dir_all(output_path)?;
+      let git = |args: &[&str], timestamp: Option<i64>| -> Result<()> {
+        let mut command = Command::new("git");
+        if let Some(timestamp) = timestamp {
+          let date = format!("{timestamp} +0000");
+          command.env("GIT_AUTHOR_DATE", &date).env("GIT_COMMITTER_DATE", &date);
+        }
+        let output = command.args(args).current_dir(output_path).output()?;
+        anyhow::ensure!(output.status.success(), "git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr));
+        Ok(())
+      };
+      let write = |path: &str, content: &str| -> Result<()> {
+        let full = output_path.join(path);
+        if let Some(parent) = full.parent() {
+          fs::create_dir_all(parent)?;
+        }
+        fs::write(full, content)?;
+        Ok(())
+      };
+      let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| -> Result<()> {
+        for (path, content) in files {
+          write(path, content)?;
+          git(&["add", "--", path], None)?;
+        }
+        git(&["commit", "-q", "-m", message], Some(timestamp))
+      };
+
+      git(&["init", "-q", "--initial-branch=master"], None)?;
+      git(&["config", "user.name", "Test User"], None)?;
+      git(&["config", "user.email", "test@example.com"], None)?;
+      git(&["config", "branchdeck.branchPrefix", "user-name"], None)?;
+      commit(
+        "Initial commit",
+        &[
+          ("README.md", "# Update Project\n"),
+          (UPDATE_APP_FILE, "line 1\nline 2\nline 3\n"),
+          ("src/config.txt", "debug=false\n"),
+        ],
+        1704117600,
+      )?;
+
+      git(&["init", "-q", "--bare", "--initial-branch=master", ".git/upstream.git"], None)?;
+      git(&["remote", "add", "origin", ".git/upstream.git"], None)?;
+      git(&["push", "-q", "origin", "master"], None)?;
+      git(&["branch", "-q", "--set-upstream-to=origin/master", "master"], None)?;
+
+      // upstream commits, pushed by URL so the tracking ref stays until the fetch below
+      git(&["checkout", "-q", "--detach"], None)?;
+      commit("Change line 2 upstream", &[(UPDATE_APP_FILE, "line 1\nline 2 upstream\nline 3\n")], 1704121200)?;
+      commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704121500)?;
+      git(&["push", "-q", ".git/upstream.git", "HEAD:refs/heads/master"], None)?;
+      git(&["checkout", "-q", "master"], None)?;
+
+      commit("(feature-auth) Add login", &[("src/auth.txt", "login\n")], 1704118500)?;
+      if scenario == UpdateScenario::Conflict {
+        commit("(feature-auth) Change line 2", &[(UPDATE_APP_FILE, "line 1\nline 2 local\nline 3\n")], 1704118800)?;
+      }
+      git(&["fetch", "-q", "origin"], None)?;
+
+      match scenario {
+        UpdateScenario::BehindUpstream => write("src/config.txt", "debug=true\n")?,
+        UpdateScenario::Blocked => write(UPDATE_APP_FILE, "line 1\nline 2\nline 3\nlocal edit\n")?,
+        UpdateScenario::Conflict => {}
+      }
+      Ok(())
+    }
+  }
+
   /// Repository with archived branches (integrated, partially integrated, and not integrated)
   /// Implements its own build to create archived refs under user-name/archived/<date>/...
   pub struct ArchivedBranchesTemplate;

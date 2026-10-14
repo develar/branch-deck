@@ -31,6 +31,8 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   };
 
   let sync_branches = MenuItemBuilder::with_id("sync_branches", "Sync Branches").accelerator("CmdOrCtrl+R").build(app)?;
+  // the IntelliJ shortcut
+  let update_project = MenuItemBuilder::with_id("update_project", "Update Project").accelerator("CmdOrCtrl+T").build(app)?;
   let auto_sync_checkbox = CheckMenuItemBuilder::with_id("auto_sync_on_focus", "Auto-sync on Focus")
     .checked(false) // Updated by frontend after settings load
     .build(app)?;
@@ -38,7 +40,12 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   // Store checkbox reference in MenuState for programmatic access
   app.state::<MenuState>().set_auto_sync_checkbox(auto_sync_checkbox.clone());
 
-  let file_menu = &SubmenuBuilder::new(app, "File").item(&sync_branches).separator().item(&auto_sync_checkbox).build()?;
+  let file_menu = &SubmenuBuilder::new(app, "File")
+    .item(&sync_branches)
+    .item(&update_project)
+    .separator()
+    .item(&auto_sync_checkbox)
+    .build()?;
 
   #[cfg(not(target_os = "linux"))]
   let edit_menu_builder = SubmenuBuilder::new(app, "Edit").items(&[
@@ -121,6 +128,12 @@ pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
       let result = app.emit("sync-branches", ());
       if result.is_err() {
         tracing::error!(error = ?result.err(), "error while triggering sync branches");
+      }
+    }
+    "update_project" => {
+      let result = app.emit("update-project", ());
+      if result.is_err() {
+        tracing::error!(error = ?result.err(), "error while triggering update project");
       }
     }
     "auto_sync_on_focus" => {

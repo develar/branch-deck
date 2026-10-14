@@ -52,6 +52,11 @@ export const commands = {
 	 */
 	squashFixupCommits: (params: SquashFixupsParams) => typedError<SquashFixupsResult, CommandError>(__TAURI_INVOKE("squash_fixup_commits", { params })),
 	/**
+	 *  Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
+	 *  is a result with nothing changed. `progress` receives the step the update is at.
+	 */
+	updateProject: (params: UpdateProjectParams, progress: Channel<UpdatePhase>) => typedError<UpdateProjectResult, CommandError>(__TAURI_INVOKE("update_project", { params, progress })),
+	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
@@ -98,6 +103,16 @@ export type AmendUncommittedToBranchParams = {
 	branchName: string,
 	originalCommitId: string,
 	files: string[],
+};
+
+/**  What an applied update did */
+export type AppliedUpdate = {
+	kind: UpdateKind,
+	newHead: string,
+	/**  Local commits replayed onto the upstream */
+	replayed: number,
+	/**  Local commits whose changes are already upstream: `git replay` drops a commit that becomes empty */
+	droppedAlreadyUpstream: number,
 };
 
 /**  What squashing the fixups of a range does, with the HEAD it was computed for */
@@ -587,7 +602,17 @@ export type SyncEvent =
 	branchNames: string[],
 } } | 
 /**  Sent when remote branch status is checked */
-{ type: "remoteStatusUpdate"; data: RemoteStatusUpdate };
+{ type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
+/**
+ *  Sent once after `BranchesGrouped`: whether the checked out branch can be updated onto the last fetched baseline
+ *  (checked without the network). Both fields `None` for a local baseline, which has nothing to update from.
+ */
+{ type: "baselineStatus"; data: {
+	baselineBranch: string,
+	update: UpdateCheck | null,
+	/**  Why the check failed, e.g. a rebase in progress; the sync itself does not fail */
+	checkError: string | null,
+} };
 
 export type UnapplyBranchParams = {
 	repositoryPath: string,
@@ -613,6 +638,27 @@ export type UncommittedFileChange = {
 	unstaged: boolean,
 };
 
+/**  The result of checking the branch against its upstream */
+export type UpdateCheck = {
+	/**  The checked out branch, short name */
+	branch: string,
+	/**  The upstream as the user knows it, e.g. `origin/master` */
+	upstream: string,
+	head: string,
+	upstreamHead: string,
+	/**  The merge base of HEAD and the upstream */
+	base: string,
+	state: UpdateState,
+	/**  When the upstream was last fetched (Unix seconds), if known */
+	fetchedAt: number | null,
+};
+
+/**  A local commit that would be replayed */
+export type UpdateCommit = {
+	id: string,
+	subject: string,
+};
+
 export type UpdateInfo = {
 	current_version: string,
 	/**  Empty when no update is available */
@@ -620,6 +666,42 @@ export type UpdateInfo = {
 	is_update_available: boolean,
 	status: UpdateStatus,
 };
+
+/**  How the branch reaches the upstream */
+export type UpdateKind = 
+/**  No local commits: the branch moves to the upstream */
+"fastForward" | 
+/**  The local commits are replayed onto the upstream */
+"rebase";
+
+/**  The step an update is at */
+export type UpdatePhase = "fetching" | "checking" | "updating";
+
+export type UpdateProjectParams = {
+	repositoryPath: string,
+};
+
+export type UpdateProjectResult = {
+	/**  The check against the fetched upstream; on a conflict or a block nothing was changed */
+	check: UpdateCheck,
+	/**  What the update changed; `None` when up to date, conflicting or blocked */
+	applied: AppliedUpdate | null,
+};
+
+/**  Whether the branch can be updated, relative to the last fetch of the upstream */
+export type UpdateState = 
+/**  The upstream has nothing the branch lacks */
+{ status: "upToDate" } | 
+/**  The update applies without conflicts and without touching local changes */
+{ status: "clean"; kind: UpdateKind } | 
+/**  Replaying the local commits onto the upstream conflicts; nothing was changed */
+{ status: "conflict"; 
+/**  The files that likely conflict */
+files: string[]; 
+/**  The local commits, oldest first */
+commits: UpdateCommit[] } | 
+/**  Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed */
+{ status: "blocked"; paths: string[] };
 
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string };
 

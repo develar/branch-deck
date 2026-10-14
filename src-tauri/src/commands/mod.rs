@@ -14,4 +14,5 @@ pub mod suggest_branch_name;
 pub mod sync_branches;
 pub mod unapply_branch;
 pub mod uncommitted_changes;
+pub mod update_project;
 pub mod window_management;
