@@ -15,7 +15,10 @@ export async function pushBranchFromRow(page: Page, branchName: string, result: 
   await routePush(page, { [branchName]: result })
   await getPushButton(findBranchRow(page, branchName)).click()
   await expect(page.getByText(`Branch ${branchName} pushed successfully`)).toBeVisible()
-  // the pointer leaves the button: a disabled push button still shows its description on hover, over the next hover
+  // the click opened the description of the push button, which stays open (the progress, then the result) until Escape
+  // or a click elsewhere; left open, it competes with the next hover of a review chip
+  await page.keyboard.press("Escape")
+  await expect(page.getByTestId("push-description")).toBeHidden()
   await page.mouse.move(0, 0)
 }
 
