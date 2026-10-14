@@ -9,8 +9,10 @@ use tower_http::services::{ServeDir, ServeFile};
 /// with SPA fallback support.
 ///
 /// This function:
-/// 1. Locates the project root by looking for `Cargo.toml` and `dist/index.html`
-/// 2. Serves static files from `dist`
+/// 1. Locates the workspace root: the first ancestor of the executable whose `Cargo.toml` has a `[workspace]` table.
+///    The search stops there, so a git worktree under `.claude/worktrees/` never serves the main checkout's `dist`.
+/// 2. Serves static files from `<root>/dist`, read per request: Playwright starts this server before its global setup
+///    has built the frontend, so a missing `dist` is only logged
 /// 3. Serves `dist/index.html` for any path that is not a file, so client-side routes
 ///    such as `/conflicting-files` and `/missing-commits` resolve to the SPA
 ///
@@ -22,24 +24,29 @@ use tower_http::services::{ServeDir, ServeFile};
 ///
 /// Panics if:
 /// - Cannot determine the current executable path
-/// - Cannot find the project root with a built `dist` directory (in production mode); run `pnpm build`
+/// - Cannot find the workspace root (in production mode)
 ///
 /// # Test Mode Behavior
 ///
-/// In test mode (`#[cfg(test)]`), if the `dist` directory cannot be found, this function
+/// In test mode (`#[cfg(test)]`), if the workspace root cannot be found, this function
 /// will create a minimal fallback `ServeDir` service using a temporary directory instead of panicking.
 /// This allows unit tests to run without requiring the frontend build output.
 pub fn serve_static_files() -> ServeDir<ServeFile> {
-  // Find the project root by looking for Cargo.toml
   let current_exe = std::env::current_exe().expect("Failed to get current executable path");
-  let project_root_opt = current_exe
-    .ancestors()
-    .find(|p| p.join("Cargo.toml").exists() && p.join("dist").join("index.html").exists());
+  let workspace_root = current_exe.ancestors().find(|p| is_workspace_root(p));
 
-  let static_dir = match project_root_opt {
-    Some(project_root) => {
-      let static_dir = project_root.join("dist");
-      tracing::info!("Serving static files from: {:?}", static_dir);
+  let static_dir = match workspace_root {
+    Some(workspace_root) => {
+      let static_dir = workspace_root.join("dist");
+      if static_dir.join("index.html").exists() {
+        tracing::info!("Serving static files from: {:?}", static_dir);
+      } else {
+        tracing::warn!(
+          "{:?} has no index.html yet, run `pnpm build` in {:?}; requests fail until it exists",
+          static_dir,
+          workspace_root
+        );
+      }
       static_dir
     }
     None => {
@@ -48,12 +55,12 @@ pub fn serve_static_files() -> ServeDir<ServeFile> {
         // In test mode, create a temporary directory to avoid panicking
         let temp_dir = std::env::temp_dir().join("branch-deck-test-static");
         std::fs::create_dir_all(&temp_dir).ok(); // Ignore errors
-        tracing::warn!("Could not find dist directory during tests, using fallback: {:?}", temp_dir);
+        tracing::warn!("Could not find the workspace root during tests, using fallback: {:?}", temp_dir);
         temp_dir
       }
       #[cfg(not(test))]
       {
-        panic!("Failed to find project root with dist/index.html, run `pnpm build` first");
+        panic!("Failed to find the workspace root (a Cargo.toml with [workspace]) above {}", current_exe.display());
       }
     }
   };
@@ -61,4 +68,9 @@ pub fn serve_static_files() -> ServeDir<ServeFile> {
   // Serve static files and fall back to index.html for SPA routing
   let index_html = static_dir.join("index.html");
   ServeDir::new(static_dir).fallback(ServeFile::new(index_html))
+}
+
+/// Whether `dir` has a `Cargo.toml` with a `[workspace]` table
+fn is_workspace_root(dir: &std::path::Path) -> bool {
+  std::fs::read_to_string(dir.join("Cargo.toml")).is_ok_and(|manifest| manifest.lines().any(|line| line.trim() == "[workspace]"))
 }
