@@ -118,6 +118,7 @@ The arrows step through the branches of the table, and P pushes the shown branch
 ## References
 
 - [Pull Requests](pull-requests.spec.md): the pull request section above the commits, the chip in the meta line and `O`.
+- [Patronus](patronus.spec.md): the robot section above the commits and the robot chip in the meta line.
 - [Commit Row](../commit/commit-row.spec.md): the commit preview, its keys and the focus rules of Space.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)
 - The preview follows macOS Quick Look, as the commit preview does.

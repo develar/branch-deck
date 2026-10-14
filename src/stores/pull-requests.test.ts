@@ -26,12 +26,7 @@ vi.mock("@/lib/bindings", () => ({
   },
 }))
 
-vi.mock("@/stores/repository", () => ({
-  getSelectedProject: () => ({ path: "/repo" }),
-  getEffectiveBranchPrefix: () => "user",
-  useSelectedProject: () => ({ path: "/repo" }),
-  useEffectiveBranchPrefix: () => "user",
-}))
+vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 
 function pullRequest(headRefOid: string): PullRequest {
   return {

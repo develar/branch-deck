@@ -13,6 +13,13 @@ export const commands = {
 	 *  availability says why
 	 */
 	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, CommandError>(__TAURI_INVOKE("get_pull_requests", { params })),
+	/**
+	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
+	 *  `since`. When Patronus can't be asked, the availability says why.
+	 */
+	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("get_patronus_robots", { params })),
+	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
+	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
@@ -390,6 +397,15 @@ export type GetFileContentForDiffParams = {
 	filePath: string,
 };
 
+export type GetPatronusRobotsParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  Unix seconds: only the robots started since then (an incremental refresh); null = the last 7 days */
+	since: number | null,
+	/**  Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures */
+	background: boolean,
+};
+
 export type GetPullRequestsParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -427,6 +443,12 @@ export type IssueNavigationConfig = {
 export type IssueNavigationLink = {
 	issueRegexp: string,
 	linkRegexp: string,
+};
+
+/**  A running robot whose status the app knows */
+export type KnownRobotStatus = {
+	id: string,
+	status: PatronusRobotStatus,
 };
 
 /**
@@ -532,6 +554,58 @@ export type ParentState =
 /**  No commit is grouped into the parent */
 "Missing";
 
+/**  Whether Patronus can be asked for the repository */
+export type PatronusAvailability = { status: "available" } | 
+/**  The push remote is not a Space repository (`git.jetbrains.team`) */
+{ status: "notPatronus" } | 
+/**  No Space token: the Safe Push CLI has not logged in, its token expired, or Patronus rejected it */
+{ status: "notLoggedIn" } | 
+/**  Patronus failed or could not be reached */
+{ status: "error"; message: string };
+
+export type PatronusPushMode = 
+/**  Only the checks: nothing is pushed */
+"dryRun" | "rebase" | "rebaseAutosquash" | "squashAll" | "merge" | "unknown";
+
+/**  One Patronus run: it rebases the source branch onto the target, runs the checks and, unless it is a dry run, pushes */
+export type PatronusRobot = {
+	id: string,
+	/**  The subject of the first commit, or the title given at the start */
+	name: string,
+	status: PatronusRobotStatus,
+	pushMode: PatronusPushMode,
+	/**
+	 *  The virtual branch (without the `{prefix}/virtual/` namespace) the robot was started on; null for a robot on
+	 *  another branch or on a temporary ref (a Safe Push from the IDE or the CLI), matched by its revision instead
+	 */
+	branchName: string | null,
+	/**  The commit Patronus took from the source branch at the start */
+	sourceRevision: string | null,
+	/**  e.g. `master` */
+	targetBranch: string,
+	/**  Unix seconds */
+	startTime: number,
+	/**  Unix seconds, null while running */
+	finishTime: number | null,
+	cancellationReason: string | null,
+	/**  The robot page in the Patronus web UI */
+	url: string,
+};
+
+export type PatronusRobotStatus = "running" | 
+/**  Running, a cancel was asked for */
+"canceling" | "canceled" | "failure" | 
+/**  The checks passed; the changes are pushed unless it was a dry run */
+"success" | 
+/**  A status this version does not know */
+"unknown";
+
+export type PatronusRobotsResult = {
+	availability: PatronusAvailability,
+	/**  The robots of the user in the repository, newest first; empty unless available */
+	robots: PatronusRobot[],
+};
+
 /**  A commit folded into its target */
 export type PlannedFixup = {
 	commitId: string,
@@ -546,6 +620,12 @@ export type PlannedGroup = {
 	/**  The virtual branch the target is grouped into; `None` for an unassigned target */
 	branch: string | null,
 	folded: PlannedFixup[],
+};
+
+export type PollPatronusRobotsParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	robots: KnownRobotStatus[],
 };
 
 /**  A GitHub pull request of a virtual branch, as `gh pr list` reports it */
@@ -610,6 +690,8 @@ export type PushBranchParams = {
 export type RemoteStatusUpdate = {
 	branchName: string,
 	remoteExists: boolean,
+	/**  The commit the remote branch points to; null when it does not exist */
+	remoteTip: string | null,
 	/**  Commits of the branch whose content the remote lacks, oldest first; all the commits of a branch not on the remote */
 	unpushedCommits: string[],
 	/**  Commits of the remote whose content the branch lacks: a push drops them */

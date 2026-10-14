@@ -5,6 +5,7 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
+import { hoverStatusChip, openBranchPreview, openOutgoingOverview, switchBranchPreview } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -40,18 +41,8 @@ function getChip(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("pull-request-chip")
 }
 
-async function hoverChip(page: Page, branchName: string): Promise<Locator> {
-  await getChip(page, branchName).hover()
-  const popover = page.getByTestId("pull-request-popover")
-  await expect(popover).toBeVisible()
-  return popover
-}
-
-async function openOverview(page: Page): Promise<Locator> {
-  await page.getByTestId("outgoing-indicator").hover()
-  const popover = page.getByTestId("outgoing-popover")
-  await expect(popover).toBeVisible()
-  return popover
+function hoverChip(page: Page, branchName: string): Promise<Locator> {
+  return hoverStatusChip(page, getChip(page, branchName), "pull-request-popover")
 }
 
 test.describe("Pull request chip", () => {
@@ -126,10 +117,7 @@ test.describe("Pull request chip", () => {
   })
 
   test("should show the pull request in the branch preview and open it with O", async ({ page }) => {
-    await findBranchRow(page, "ABC-123").hover()
-    await page.keyboard.press("Space")
-    const preview = page.getByTestId("branch-preview")
-    await expect(preview.getByTestId("branch-preview-body")).toBeFocused()
+    const preview = await openBranchPreview(page, "ABC-123")
 
     const section = preview.getByTestId("branch-preview-pull-request")
     await expect(section.getByTestId("pull-request-state")).toHaveText("Changes requested")
@@ -141,11 +129,7 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([CHANGES_REQUESTED.url])
 
     // a branch without a pull request has no section
-    await page.keyboard.press("Space")
-    await expect(preview).toHaveCount(0)
-    await findBranchRow(page, "feature-auth").hover()
-    await page.keyboard.press("Space")
-    await expect(preview.getByRole("heading")).toHaveText("feature-auth")
+    await switchBranchPreview(page, preview, "feature-auth")
     await expect(preview.getByTestId("branch-preview-pull-request")).toHaveCount(0)
     await expect(preview.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
   })
@@ -154,7 +138,7 @@ test.describe("Pull request chip", () => {
 test.describe("Pull requests in the outgoing overview", () => {
   test("should show the chips in a column and a dot for a pull request that waits for the author", async ({ page }) => {
     await expect(page.getByTestId("outgoing-attention-dot")).toBeVisible()
-    const popover = await openOverview(page)
+    const popover = await openOutgoingOverview(page)
     const row = popover.locator("[data-testid=outgoing-branch][data-branch-name=ABC-123]")
     await expect(row.getByTestId("pull-request-chip")).toHaveText("#761")
     await expect(popover.locator("[data-testid=outgoing-branch][data-branch-name=feature-auth]").getByTestId("pull-request-chip")).toHaveCount(0)
@@ -163,7 +147,7 @@ test.describe("Pull requests in the outgoing overview", () => {
 
   test("should refresh from the overview", async ({ page, repo }) => {
     const calls = await repo.getPullRequestCalls()
-    const popover = await openOverview(page)
+    const popover = await openOutgoingOverview(page)
     await popover.getByTestId("pull-request-refresh").click()
     await expect.poll(() => repo.getPullRequestCalls()).toBe(calls + 1)
     await expect(popover.getByTestId("pull-request-refresh")).toBeEnabled()
@@ -174,7 +158,7 @@ baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should hint quietly when gh is not logged in", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "notAuthenticated" }) })
     await syncAndWaitForBranches()
-    const popover = await openOverview(page)
+    const popover = await openOutgoingOverview(page)
     await expect(popover.getByTestId("pull-request-status-line")).toContainText("Run gh auth login to see pull requests")
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(0)
     // never a toast
@@ -184,7 +168,7 @@ baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should say nothing for a repository that is not on GitHub", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links")
     await syncAndWaitForBranches()
-    const popover = await openOverview(page)
+    const popover = await openOutgoingOverview(page)
     await expect(popover.getByTestId("pull-request-status-line")).toHaveCount(0)
   })
 
@@ -199,7 +183,7 @@ baseTest.describe("Pull requests without GitHub", () => {
     await expect(indicator).toHaveAccessibleName("Nothing to push, 1 pull request open")
     await expect(indicator.getByTestId("outgoing-review-count")).toHaveText("1")
     await expect(indicator.getByTestId("outgoing-attention-dot")).toBeVisible()
-    const popover = await openOverview(page)
+    const popover = await openOutgoingOverview(page)
     await expect(popover.getByRole("heading")).toHaveText("Nothing to push, 1 pull request open")
     await expect(popover.locator("[data-testid=outgoing-review-branch][data-branch-name=test-branch]").getByTestId("pull-request-chip")).toHaveText("#800")
   })

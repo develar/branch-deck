@@ -2,13 +2,14 @@ import type { ComponentType } from "react"
 import { CircleCheckIcon, CircleDotIcon, CircleXIcon, ExternalLinkIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import type { ChecksState, PullRequest } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import type { PullRequestChipState, PullRequestIconKind } from "@/lib/pull-request"
+import type { PullRequestIconKind } from "@/lib/pull-request"
 import { formatChecks, formatReviewer, getPullRequestChipState, openPullRequest } from "@/lib/pull-request"
+import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
-import { useBranch } from "@/stores/branch-sync"
+import { useBranchTip } from "@/stores/branch-sync"
 import { usePullRequest } from "@/stores/pull-requests"
 
 const icons: Readonly<Record<PullRequestIconKind, ComponentType<{ className?: string }>>> = {
@@ -18,22 +19,10 @@ const icons: Readonly<Record<PullRequestIconKind, ComponentType<{ className?: st
   closed: GitPullRequestClosedIcon,
 }
 
-const textColors: Readonly<Record<PullRequestChipState["color"], string>> = {
-  success: "text-success",
-  error: "text-destructive",
-  info: "text-info",
-  neutral: "text-muted-foreground",
-}
-
 const checksIcons: Readonly<Record<ChecksState, { icon: ComponentType<{ className?: string }>, className: string }>> = {
   passing: { icon: CircleCheckIcon, className: "text-success" },
   failing: { icon: CircleXIcon, className: "text-destructive" },
   pending: { icon: CircleDotIcon, className: "text-warning" },
-}
-
-/** The commit the local virtual branch points to; undefined before the sync created it */
-function useLocalTip(branchName: string): string | undefined {
-  return useBranch(branchName)?.commits[0]?.hash
 }
 
 /**
@@ -43,7 +32,7 @@ function useLocalTip(branchName: string): string | undefined {
  */
 export function PullRequestChip({ branchName }: { branchName: string }) {
   const pullRequest = usePullRequest(branchName)
-  const localTip = useLocalTip(branchName)
+  const localTip = useBranchTip(branchName)
   if (pullRequest === undefined) {
     return null
   }
@@ -51,41 +40,26 @@ export function PullRequestChip({ branchName }: { branchName: string }) {
   const chip = getPullRequestChipState(pullRequest, localTip)
   const Icon = icons[chip.icon]
   return (
-    <Popover>
-      <PopoverTrigger
-        openOnHover
-        delay={300}
-        render={(
-          <button
-            type="button"
-            data-testid="pull-request-chip"
-            data-kind={chip.icon}
-            data-color={chip.color}
-            data-checks-failing={chip.checksFailing || undefined}
-            data-outdated={chip.outdated || undefined}
-            aria-label={`Pull request #${pullRequest.number}: ${chip.label}`}
-            className={cn(
-              "inline-flex h-5 shrink-0 items-center gap-1 rounded-lg border border-transparent px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
-              textColors[chip.color],
-              chip.icon === "draft" && "border-dashed border-muted-foreground/50",
-            )}
-            onClick={(event) => {
-              // the row toggles on click
-              event.stopPropagation()
-              openPullRequest(pullRequest)
-            }}
-          />
-        )}
-      >
-        <Icon className="size-3.5" />
-        {`#${pullRequest.number}`}
-        {chip.checksFailing && <span aria-hidden data-testid="pull-request-checks-dot" className="size-1.5 rounded-full bg-destructive" />}
-        {chip.outdated && <span aria-hidden data-testid="pull-request-outdated-dot" className="size-1.5 rounded-full bg-warning" />}
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 gap-3 p-3" data-testid="pull-request-popover">
-        <PullRequestDetails pullRequest={pullRequest} localTip={localTip} />
-      </PopoverContent>
-    </Popover>
+    <StatusChip
+      label={`Pull request #${pullRequest.number}: ${chip.label}`}
+      color={chip.color}
+      className={cn(chip.icon === "draft" && "border-dashed border-muted-foreground/50")}
+      data={{
+        "data-testid": "pull-request-chip",
+        "data-kind": chip.icon,
+        "data-color": chip.color,
+        "data-checks-failing": chip.checksFailing || undefined,
+        "data-outdated": chip.outdated || undefined,
+      }}
+      details={<PullRequestDetails pullRequest={pullRequest} localTip={localTip} />}
+      detailsTestId="pull-request-popover"
+      onActivate={() => openPullRequest(pullRequest)}
+    >
+      <Icon className="size-3.5" />
+      {`#${pullRequest.number}`}
+      {chip.checksFailing && <StatusChipDot color="error" testId="pull-request-checks-dot" />}
+      {chip.outdated && <StatusChipDot color="warning" testId="pull-request-outdated-dot" />}
+    </StatusChip>
   )
 }
 
@@ -107,11 +81,11 @@ export function PullRequestDetails({ pullRequest, localTip }: PullRequestDetails
     <div className="flex flex-col gap-3 text-sm" data-testid="pull-request-details">
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2 text-xs">
-          <span className={cn("flex items-center gap-1 font-medium tabular-nums", textColors[chip.color])}>
+          <span className={cn("flex items-center gap-1 font-medium tabular-nums", statusChipTextColors[chip.color])}>
             <Icon className="size-3.5" />
             {`#${pullRequest.number}`}
           </span>
-          <span className={cn("whitespace-nowrap", textColors[chip.color])} data-testid="pull-request-state">{chip.label}</span>
+          <span className={cn("whitespace-nowrap", statusChipTextColors[chip.color])} data-testid="pull-request-state">{chip.label}</span>
         </div>
         <p className="leading-snug font-medium break-words" data-testid="pull-request-title">{pullRequest.title}</p>
       </div>
@@ -173,7 +147,7 @@ function ChecksIcon({ state }: { state: ChecksState }) {
 /** The pull request of the branch in the branch preview, above the commits; nothing without one */
 export function BranchPullRequestSection({ branchName }: { branchName: string }) {
   const pullRequest = usePullRequest(branchName)
-  const localTip = useLocalTip(branchName)
+  const localTip = useBranchTip(branchName)
   if (pullRequest === undefined) {
     return null
   }

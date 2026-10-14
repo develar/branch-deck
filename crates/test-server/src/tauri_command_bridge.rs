@@ -342,6 +342,51 @@ pub async fn get_pull_requests(
   Ok(Json(result))
 }
 
+/// The fixture set by `POST /repositories/{id}/patronus`; Patronus is never called in E2E
+pub async fn get_patronus_robots(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::patronus::GetPatronusRobotsParams>,
+) -> Result<Json<sync_types::patronus::PatronusRobotsResult>, StatusCode> {
+  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  repo.patronus_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+  let result = repo.patronus.read().expect("patronus fixture lock").clone();
+  drop(repo);
+  Ok(Json(resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result)))
+}
+
+/// The fixture robots whose status differs from the one the app knows, as Patronus `fetch-updates` answers
+pub async fn poll_patronus_robots(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::patronus::PollPatronusRobotsParams>,
+) -> Result<Json<sync_types::patronus::PatronusRobotsResult>, StatusCode> {
+  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  repo.patronus_poll_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+  let mut result = repo.patronus.read().expect("patronus fixture lock").clone();
+  drop(repo);
+  result
+    .robots
+    .retain(|robot| params.robots.iter().any(|known| known.id == robot.id && known.status != robot.status));
+  Ok(Json(resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result)))
+}
+
+/// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch
+fn resolve_patronus_revisions(
+  state: &AppState,
+  repository_path: &str,
+  branch_prefix: &str,
+  mut result: sync_types::patronus::PatronusRobotsResult,
+) -> sync_types::patronus::PatronusRobotsResult {
+  for robot in &mut result.robots {
+    if let (Some(""), Some(branch_name)) = (robot.source_revision.as_deref(), robot.branch_name.as_deref()) {
+      let full_ref = format!("refs/heads/{branch_prefix}/virtual/{branch_name}");
+      robot.source_revision = state.git_executor.execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], repository_path).ok();
+    }
+  }
+  result
+}
+
 fn command_failed(operation: &str, e: &anyhow::Error) -> (StatusCode, String) {
   tracing::error!("Failed to {operation}: {e:#}");
   (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))

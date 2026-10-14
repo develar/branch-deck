@@ -16,6 +16,7 @@ use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
+use commands::patronus::{PatronusState, get_patronus_robots, poll_patronus_robots};
 use commands::pull_requests::get_pull_requests;
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
@@ -47,6 +48,8 @@ pub fn run() {
   let ts_builder = Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
     get_pull_requests,
+    get_patronus_robots,
+    poll_patronus_robots,
     sync_branches,
     get_branch_prefix_from_git_config,
     browse_repository,
@@ -132,6 +135,7 @@ pub fn run() {
       ));
 
       let current_version = app.package_info().version.to_string();
+      app.manage(PatronusState::new(&current_version));
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 

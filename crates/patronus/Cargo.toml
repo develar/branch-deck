@@ -1,0 +1,23 @@
+[package]
+name = "patronus"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+git-ops = { path = "../git-ops" }
+sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[lints]
+workspace = true

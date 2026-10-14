@@ -80,6 +80,9 @@ flowchart TD
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
+- **Remote tip**: `git rev-parse --verify --quiet refs/remotes/origin/branch` says whether the remote branch exists and
+  returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The
+  [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
 - **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H %ae ^baseline
   origin/branch...local`; the user's commits are the ones whose author email matches.
 - **Commits behind (patch-aware)**: `git rev-list --cherry-pick --left-only --count origin/branch...local`
@@ -133,7 +136,8 @@ When branches are rebased onto latest master, the remote still has old pre-rebas
 ## Performance Considerations
 
 - **Constraint**: Must not slow down status calculation
-- **Solution**: two walks per branch (ahead with mine, behind) and a `merge-base` only when nothing is behind; the
+- **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine, behind) and a `merge-base` only
+  when nothing is behind; the
   `^baseline` exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push.
   The commits ahead no longer carry baseline hashes to the UI.
 

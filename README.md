@@ -36,6 +36,8 @@ repositories: all operations run through the Git CLI.
   can be undone.
 - **GitHub pull requests**: the PR number, review state and checks of each branch, read with the
   [`gh`](https://cli.github.com) CLI.
+- **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
+  merged, and whether it tests the commit the branch is at. Read with the token of the Safe Push CLI.
 - **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a
   branch, split or unapply a branch.
 - **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation

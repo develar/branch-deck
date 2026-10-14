@@ -170,4 +170,6 @@ indicator and the row bars of the overview. The hue says how risky the push is, 
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md): how ahead, behind and mine are computed.
 - [Branch Preview](../branch/branch-preview.spec.md): the same push button and labels.
 - [Pull Requests](../branch/pull-requests.spec.md): the chip column, the attention dot and the pull request footer line.
+- [Patronus](../branch/patronus.spec.md): the robot chip in the same column, the attention dot of a failed robot and the
+  Patronus footer line.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

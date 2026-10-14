@@ -10,7 +10,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
 use git_ops::update_branch::{AppliedUpdate, CheckPurpose, UpdateCheck, UpdateState, UpstreamRef, apply_update, check_update};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
+use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument};
 
 /// The remote branch the baseline tracks
@@ -121,14 +122,6 @@ fn last_fetch_time(git_executor: &GitCommandExecutor, repo_path: &str) -> Option
   u32::try_from(modified.duration_since(UNIX_EPOCH).ok()?.as_secs()).ok()
 }
 
-fn now() -> u32 {
-  SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .ok()
-    .and_then(|duration| u32::try_from(duration.as_secs()).ok())
-    .unwrap_or(0)
-}
-
 /// Check the checked out branch against the last fetched state of its baseline, without the network.
 /// `None` for a local baseline: there is nothing to update from.
 #[instrument(skip(git_executor))]
@@ -232,7 +225,7 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
     }
   };
   let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_line).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
-  let fetched_at = now();
+  let fetched_at = unix_now();
 
   on_progress(UpdatePhase::Checking.into());
   let mut plan = check_update(

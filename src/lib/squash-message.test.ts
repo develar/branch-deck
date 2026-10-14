@@ -52,6 +52,7 @@ describe("countPushedCommits", () => {
     myCommitsAhead: unpushedCommits.length,
     fastForward: true,
     lastPushTime: 0,
+    remoteTip: null,
   })
 
   it("counts the synced commits that are not ahead of the remote branch", () => {

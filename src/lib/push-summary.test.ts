@@ -12,7 +12,7 @@ interface BranchOptions {
 function branch(name: string, { remote = {}, hasError = false, commitCount = 3 }: BranchOptions = {}) {
   const remoteStatus: RemoteStatus | null = remote === null
     ? null
-    : { exists: true, unpushedCommits: [], commitsAhead: 0, commitsBehind: 0, myCommitsAhead: 0, fastForward: true, lastPushTime: 0, ...remote }
+    : { exists: true, unpushedCommits: [], commitsAhead: 0, commitsBehind: 0, myCommitsAhead: 0, fastForward: true, lastPushTime: 0, remoteTip: null, ...remote }
   return { name, remoteStatus, hasError, commitCount }
 }
 

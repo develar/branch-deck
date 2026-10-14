@@ -5,6 +5,7 @@ pub mod branch_prefix;
 pub mod clear_model_cache;
 pub mod menu_commands;
 pub mod move_commits;
+pub mod patronus;
 pub mod pull_requests;
 pub mod push;
 pub mod repository_browser;

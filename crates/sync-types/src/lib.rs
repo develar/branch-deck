@@ -6,6 +6,7 @@ use serde::Serialize;
 
 pub mod branch_integration;
 pub mod issue_navigation;
+pub mod patronus;
 pub mod pull_request;
 pub mod stack;
 
@@ -16,6 +17,8 @@ pub mod stack;
 pub struct RemoteStatusUpdate {
   pub branch_name: String,
   pub remote_exists: bool,
+  /// The commit the remote branch points to; null when it does not exist
+  pub remote_tip: Option<String>,
   /// Commits of the branch whose content the remote lacks, oldest first; all the commits of a branch not on the remote
   pub unpushed_commits: Vec<String>,
   /// Commits of the remote whose content the branch lacks: a push drops them

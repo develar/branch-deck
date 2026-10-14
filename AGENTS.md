@@ -75,6 +75,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`spec/repository/update-project.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
+- **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
+  and the window is focused (`spec/branch/patronus.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children (`spec/branch/stacked-branches.spec.md`).
 
@@ -235,6 +237,7 @@ crates/
 ├── sync-core/       # Branch sync logic
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
+├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── model-ai/        # AI model inference & domain logic
 ├── model-core/      # Core AI types (e.g. candle, tokenizers)
 ├── model-tauri/     # Tauri integration for AI models

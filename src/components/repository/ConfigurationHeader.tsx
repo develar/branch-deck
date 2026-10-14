@@ -6,8 +6,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchPrefixField } from "@/components/repository/BranchPrefixField"
+import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
+import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
@@ -16,14 +18,21 @@ import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { formatRelativeTime } from "@/lib/time"
 import { useBranchSync } from "@/stores/branch-sync"
+import { usePatronusNeedsAttention } from "@/stores/patronus"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
 
 const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
 
-function renderPullRequestChip(branchName: string) {
-  return <PullRequestChip branchName={branchName} />
+/** The review status of a branch in the outgoing overview: its pull request and its Patronus robot (the shield only) */
+function renderReviewChips(branchName: string) {
+  return (
+    <>
+      <PullRequestChip branchName={branchName} />
+      <PatronusChip branchName={branchName} compact />
+    </>
+  )
 }
 
 export function ConfigurationHeader() {
@@ -36,6 +45,7 @@ export function ConfigurationHeader() {
   const lastSyncTime = selectedProject?.lastSyncTime
   const refusedUpdate = useRefusedUpdate()
   const pullRequestOverview = usePullRequestOverview()
+  const patronusNeedsAttention = usePatronusNeedsAttention()
   // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
   const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)
   if (refusedUpdate !== null && !isRefusedDialogMounted) {
@@ -92,13 +102,14 @@ export function ConfigurationHeader() {
             <div className="flex items-center gap-1 empty:hidden">
               <UpdateProjectButton />
               <OutgoingIndicator
-                renderPullRequest={renderPullRequestChip}
+                renderPullRequest={renderReviewChips}
                 reviewBranches={pullRequestOverview.openBranches}
-                needsAttention={pullRequestOverview.needsAttention}
+                needsAttention={pullRequestOverview.needsAttention || patronusNeedsAttention}
                 footer={(
                   <>
                     <UpdateStateLine />
                     <PullRequestStatusLine />
+                    <PatronusStatusLine />
                   </>
                 )}
               />

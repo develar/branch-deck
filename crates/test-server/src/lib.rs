@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use sync_core::baseline::detect_baseline_branch;
+use sync_types::patronus::{PatronusAvailability, PatronusRobotsResult};
 use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -67,6 +68,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/pull-requests", post(set_pull_requests).get(get_pull_request_fixture))
+    .route("/repositories/{id}/patronus", post(set_patronus).get(get_patronus_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -86,6 +88,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/squash_fixup_commits", post(tauri_command_bridge::squash_fixup_commits))
     .route("/invoke/update_project", post(tauri_command_bridge::update_project))
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
+    .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
+    .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
@@ -385,6 +389,9 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     download_cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     pull_requests: std::sync::RwLock::new(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
+    patronus: std::sync::RwLock::new(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)),
+    patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
+    patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
   };
   state.repositories.insert(id.to_string(), repo);
 }
@@ -440,6 +447,26 @@ pub async fn set_pull_requests(
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   *repo.pull_requests.write().expect("pull request fixture lock") = result;
   Ok(StatusCode::OK)
+}
+
+/// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch
+pub async fn set_patronus(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(result): Json<PatronusRobotsResult>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  *repo.patronus.write().expect("patronus fixture lock") = result;
+  Ok(StatusCode::OK)
+}
+
+/// How often the app listed and polled the robots
+pub async fn get_patronus_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let ordering = std::sync::atomic::Ordering::SeqCst;
+  Ok(Json(
+    serde_json::json!({ "listCalls": repo.patronus_list_calls.load(ordering), "pollCalls": repo.patronus_poll_calls.load(ordering) }),
+  ))
 }
 
 /// How often the app asked for pull requests

@@ -36,6 +36,8 @@ export interface RemoteStatus {
   fastForward: boolean
   /** Unix timestamp, 0 = never pushed */
   lastPushTime: number
+  /** The commit the remote branch points to; null when it does not exist */
+  remoteTip: string | null
 }
 
 export type BranchStatus = "Syncing" | BranchSyncStatus
@@ -316,6 +318,16 @@ export function useBranch(name: string): Branch | undefined {
   return useStore(branchSyncStore, state => state.branches[name])
 }
 
+/** The commit the local virtual branch points to; undefined before the sync created it. Not re-rendered by other changes of the branch. */
+export function useBranchTip(name: string): string | undefined {
+  return useStore(branchSyncStore, state => state.branches[name]?.commits[0]?.hash)
+}
+
+/** The commit the remote branch points to; null when it is not on the remote or its status is not loaded yet */
+export function useBranchRemoteTip(name: string): string | null {
+  return useStore(branchSyncStore, state => state.branches[name]?.remoteStatus?.remoteTip ?? null)
+}
+
 export function useIsBranchPushing(name: string): boolean {
   return useStore(branchSyncStore, state => state.pushingBranches[name] === true)
 }
@@ -433,7 +445,7 @@ export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus):
   updateBranch(name, branch => ({ ...branch, remoteStatus }))
 }
 
-type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "fastForward" | "lastPushTime">
+type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "fastForward" | "lastPushTime"> & Partial<Pick<RemoteStatusUpdate, "remoteTip">>
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
   return {
@@ -444,6 +456,7 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     myCommitsAhead: update.myUnpushedCount ?? 0,
     fastForward: update.fastForward,
     lastPushTime: update.lastPushTime ?? 0,
+    remoteTip: update.remoteTip ?? null,
   }
 }
 

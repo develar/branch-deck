@@ -1,4 +1,4 @@
-import type { PullRequestsResult } from "../../../src/lib/bindings"
+import type { PatronusRobotsResult, PullRequestsResult } from "../../../src/lib/bindings"
 
 export class TestRepositoryBuilder {
   private baseUrl = "http://localhost:3030"
@@ -70,21 +70,38 @@ export class TestRepositoryBuilder {
 
   /** Sets what `get_pull_requests` answers from now on (E2E never runs gh) */
   async setPullRequests(result: PullRequestsResult): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/pull-requests`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(result),
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to set pull requests: ${response.status} ${await response.text()}`)
-    }
+    await this.setFixture("pull-requests", result)
   }
 
   /** How often the app asked for pull requests */
   async getPullRequestCalls(): Promise<number> {
-    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/pull-requests`)
-    const data = await response.json() as { calls: number }
-    return data.calls
+    return (await this.getFixture<{ calls: number }>("pull-requests")).calls
+  }
+
+  /** Sets what `get_patronus_robots` and `poll_patronus_robots` answer from now on (E2E never calls Patronus) */
+  async setPatronus(result: PatronusRobotsResult): Promise<void> {
+    await this.setFixture("patronus", result)
+  }
+
+  /** How often the app listed and polled the Patronus robots */
+  async getPatronusCalls(): Promise<{ listCalls: number, pollCalls: number }> {
+    return this.getFixture("patronus")
+  }
+
+  private async setFixture(name: string, value: unknown): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to set the ${name} fixture: ${response.status} ${await response.text()}`)
+    }
+  }
+
+  private async getFixture<T>(name: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/${name}`)
+    return await response.json() as T
   }
 
   async cleanup(): Promise<void> {

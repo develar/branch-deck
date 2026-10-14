@@ -100,7 +100,7 @@ function OutgoingRow({ branch, max, onReveal, renderPullRequest }: OutgoingRowPr
       <OutgoingRowBar branch={branch} max={max} />
       <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">{formatOutgoingCount(branch)}</span>
       <span className="text-xs text-muted-foreground">{stateWord[branch.state]}</span>
-      {renderPullRequest !== undefined && <span className="flex items-center">{renderPullRequest(branch.name)}</span>}
+      {renderPullRequest !== undefined && <span className="flex items-center gap-1">{renderPullRequest(branch.name)}</span>}
       <span className="flex justify-end">
         <OutgoingPushButton name={branch.name} />
       </span>
@@ -116,7 +116,7 @@ function ReviewRow({ name, onReveal, renderPullRequest }: { name: string, onReve
       <span />
       <span className="text-xs text-muted-foreground">pushed</span>
       <span />
-      {renderPullRequest !== undefined && <span className="flex items-center">{renderPullRequest(name)}</span>}
+      {renderPullRequest !== undefined && <span className="flex items-center gap-1">{renderPullRequest(name)}</span>}
       <span />
     </div>
   )

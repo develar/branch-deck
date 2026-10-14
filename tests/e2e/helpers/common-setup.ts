@@ -33,9 +33,12 @@ export async function setupTestRepository(
 
   await repoBuilder.init()
 
-  // the first sync asks for the pull requests
+  // the first sync asks for the pull requests and the Patronus robots
   if (parsedOptions.pullRequests !== undefined) {
     await repoBuilder.setPullRequests(parsedOptions.pullRequests)
+  }
+  if (parsedOptions.patronus !== undefined) {
+    await repoBuilder.setPatronus(parsedOptions.patronus)
   }
 
   // Set initial store values if provided BEFORE navigating

@@ -70,7 +70,12 @@ pub fn compute_remote_status_for_branch(
   let baseline_exclusion = format!("^{baseline_branch}");
   let parent_exclusion = parent_ref.map(|parent_ref| format!("^{parent_ref}"));
 
-  if !git_executor.ref_exists(repository_path, &format!("refs/remotes/{remote_ref}")) {
+  // one process for both: whether the remote branch exists, and its tip
+  let (remote_tip, exit_code) = git_executor.execute_command_with_status(
+    &["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("refs/remotes/{remote_ref}")],
+    repository_path,
+  )?;
+  if exit_code != 0 {
     let mut args = vec![baseline_exclusion.as_str()];
     args.extend(parent_exclusion.as_deref());
     args.push(local_ref);
@@ -78,6 +83,7 @@ pub fn compute_remote_status_for_branch(
     return Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: false,
+      remote_tip: None,
       my_unpushed_count: walked.mine,
       unpushed_commits: walked.commits,
       commits_behind: 0,
@@ -111,6 +117,7 @@ pub fn compute_remote_status_for_branch(
   Ok(RemoteStatusUpdate {
     branch_name: branch_name.to_string(),
     remote_exists: true,
+    remote_tip: Some(remote_tip.trim().to_string()),
     my_unpushed_count: unpushed.mine,
     unpushed_commits: unpushed.commits,
     commits_behind: behind,

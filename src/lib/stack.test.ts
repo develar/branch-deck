@@ -46,7 +46,7 @@ describe("describePrefixChange", () => {
 
 describe("push summary with stacked branches", () => {
   it("leaves out a blocked branch: it offers no push", () => {
-    const remoteStatus = { exists: false, unpushedCommits: [], commitsAhead: 1, commitsBehind: 0, myCommitsAhead: 1, fastForward: true, lastPushTime: 0 }
+    const remoteStatus = { exists: false, unpushedCommits: [], commitsAhead: 1, commitsBehind: 0, myCommitsAhead: 1, fastForward: true, lastPushTime: 0, remoteTip: null }
     const summary = summarizePushState([
       { name: "auth", remoteStatus, hasError: false, commitCount: 1, status: "Created" },
       { name: "login", remoteStatus, hasError: false, commitCount: 1, status: "Blocked" },
@@ -56,7 +56,7 @@ describe("push summary with stacked branches", () => {
 })
 
 describe("pull request bases of stacked branches", () => {
-  const unpushed: RemoteStatus = { exists: true, unpushedCommits: ["c1"], commitsAhead: 1, commitsBehind: 0, myCommitsAhead: 1, fastForward: true, lastPushTime: 0 }
+  const unpushed: RemoteStatus = { exists: true, unpushedCommits: ["c1"], commitsAhead: 1, commitsBehind: 0, myCommitsAhead: 1, fastForward: true, lastPushTime: 0, remoteTip: null }
   const pushed: RemoteStatus = { ...unpushed, unpushedCommits: [], commitsAhead: 0, myCommitsAhead: 0 }
   const branches: Record<string, Branch> = {
     auth: testBranch("auth", null, { remoteStatus: unpushed }),

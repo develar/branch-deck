@@ -16,7 +16,9 @@ targets:
   - ../../src/components/repository/PullRequestStatusLine.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/usePullRequestOverview.ts
-  - ../../src/hooks/usePullRequestRefresh.ts
+  - ../../src/hooks/useReviewStatusRefresh.ts
+  - ../../src/lib/refresh-gate.ts
+  - ../../src/components/branch/StatusChip.tsx
   - ../../src/lib/git/push.ts
 ---
 
@@ -100,8 +102,12 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 
 - The pull requests are kept in memory per repository and branch prefix; nothing is persisted.
 - At most one request per repository is in flight. A push or a manual refresh during a request asks once more after it;
-  a sync or a focus during a request adds nothing.
+  a sync or a focus during a request adds nothing. The gate is shared with [Patronus](patronus.spec.md)
+  (`src/lib/refresh-gate.ts`), each with its own policy.
   [@test] ../../src/stores/pull-requests.test.ts (`keeps one request in flight; a push during it asks again after it`)
+  [@test] ../../src/lib/refresh-gate.test.ts (`runs one task per key; a follow-up reason asks once more after it, with its reason`)
+- A repository that answered "not on GitHub" is asked again only by the refresh button: a sync or a focus does not run
+  `git remote get-url` for it again.
 - After every successful sync, GitHub is asked again if the last request started at least 60 s ago.
   [@test] ../../src/stores/pull-requests.test.ts (`asks once a minute at most after syncs`)
 - On window focus, GitHub is asked again if the pull requests are older than 2 minutes. Nothing runs while the window is
@@ -198,4 +204,5 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 
 - [Outgoing Commits](../repository/outgoing.spec.md)
 - [Branch Preview](branch-preview.spec.md)
+- [Patronus](patronus.spec.md): the other review status, shown next to the chip
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md)

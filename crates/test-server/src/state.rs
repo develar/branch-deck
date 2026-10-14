@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, RwLock};
+use sync_types::patronus::PatronusRobotsResult;
 use sync_types::pull_request::PullRequestsResult;
 
 pub struct AppState {
@@ -32,4 +33,9 @@ pub struct TestRepository {
   pub pull_requests: RwLock<PullRequestsResult>,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
+  /// What `get_patronus_robots` answers (E2E never calls Patronus); not on Space until a test sets it
+  pub patronus: RwLock<PatronusRobotsResult>,
+  /// How often the app listed and polled the robots, so a test can check the request policy
+  pub patronus_list_calls: AtomicU32,
+  pub patronus_poll_calls: AtomicU32,
 }

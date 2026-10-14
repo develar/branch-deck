@@ -34,6 +34,12 @@ export const SetupRepoOptionsSchema = z.object({
    * Default: undefined - the repository is not on GitHub
    */
   pullRequests: z.any().optional(),
+
+  /**
+   * What `get_patronus_robots` answers (a `PatronusRobotsResult`, see `patronus-helpers.ts`), set before the first sync
+   * Default: undefined - the repository is not on Space
+   */
+  patronus: z.any().optional(),
 })
 
 /**

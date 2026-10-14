@@ -11,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
+import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
@@ -34,6 +35,7 @@ import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { useBranchRobot } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
@@ -43,8 +45,8 @@ export interface BranchPreviewDialogProps {
   name: string | null
   onNameChange: (name: string) => void
   onClose: () => void
-  /** The pull request of the branch (title, review decision, reviewers, checks), shown above the commits */
-  renderPullRequestSection?: (branch: Branch) => ReactNode
+  /** The pull request (title, review decision, reviewers, checks) and the Patronus robot of the branch, shown above the commits */
+  renderReviewSections?: (branch: Branch) => ReactNode
 }
 
 /**
@@ -54,7 +56,7 @@ export interface BranchPreviewDialogProps {
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
-export function BranchPreviewDialog({ names, name, onNameChange, onClose, renderPullRequestSection }: BranchPreviewDialogProps) {
+export function BranchPreviewDialog({ names, name, onNameChange, onClose, renderReviewSections }: BranchPreviewDialogProps) {
   const open = name !== null
   // the last shown branch stays while the closing animation runs
   const [shownName, setShownName] = useState(name)
@@ -121,7 +123,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
           <PreviewDialogBody ref={bodyRef} itemKey={branch.name} data-testid="branch-preview-body">
             <div className="flex flex-col gap-5">
               <BranchErrorNotice branch={branch} />
-              {renderPullRequestSection?.(branch)}
+              {renderReviewSections?.(branch)}
               <ol data-testid="branch-preview-commits" className="flex flex-col divide-y divide-border">
                 {branch.commits.map(commit => <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} />)}
               </ol>
@@ -150,11 +152,12 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 }
 
 /**
- * Commit count, latest commit time, the status of the row (with its description on hover), the last push time and the
- * pull request chip.
+ * Commit count, latest commit time, the status of the row (with its description on hover), the last push time, the
+ * pull request chip and the Patronus chip.
  */
 function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
+  const robot = useBranchRobot(branch.name)
   const status = getStatusBadge(branch)
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = [<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>]
@@ -175,6 +178,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   }
   if (pullRequest) {
     items.push(<PullRequestChip branchName={branch.name} />)
+  }
+  if (robot) {
+    items.push(<PatronusChip branchName={branch.name} />)
   }
 
   return (

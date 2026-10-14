@@ -1,7 +1,7 @@
 cargo-features = ["profile-rustflags"]
 
 [workspace]
-members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-types", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli", "crates/object-cache"]
+members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-types", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli", "crates/object-cache", "crates/patronus"]
 resolver = "2"
 
 [workspace.package]
@@ -37,6 +37,7 @@ indexmap = "2.14.2"
 dashmap = "6.2.1"
 futures = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
+axum = "0.8.9"
 
 # Caching
 moka = { version = "0.12", features = ["sync"] }

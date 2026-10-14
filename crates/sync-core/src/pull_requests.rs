@@ -1,6 +1,7 @@
 //! Read-only GitHub pull request status of the virtual branches, through the `gh` CLI (one `gh pr list` per call).
 //! `gh` is not git: it never touches the repository, and every failure is an availability, not an error.
 
+use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
+use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
 
 #[derive(Debug, Deserialize)]
@@ -94,31 +96,12 @@ pub struct GitHubRepository {
 /// The github.com repository of a remote URL: `git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`,
 /// `https://github.com/o/r(.git)`; None for another host or a local path.
 pub fn parse_github_repository(url: &str) -> Option<GitHubRepository> {
-  let url = url.trim();
-  let (authority, path) = if let Some((_, rest)) = url.split_once("://") {
-    // scheme://[user@]host[:port]/path
-    let (authority, path) = rest.split_once('/')?;
-    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    (host.split_once(':').map_or(host, |(host, _)| host), path)
-  } else {
-    // scp-like [user@]host:path; a slash before the colon makes it a local path
-    let (authority, path) = url.split_once(':')?;
-    if authority.contains('/') {
-      return None;
-    }
-    (authority.rsplit_once('@').map_or(authority, |(_, host)| host), path)
-  };
+  let remote = parse_remote_url(url)?;
   // `ssh.github.com` is SSH over port 443
-  if !authority.eq_ignore_ascii_case("github.com") && !authority.eq_ignore_ascii_case("ssh.github.com") {
+  if !remote.host.eq_ignore_ascii_case("github.com") && !remote.host.eq_ignore_ascii_case("ssh.github.com") {
     return None;
   }
-
-  let path = path.trim_matches('/');
-  let path = path.strip_suffix(".git").unwrap_or(path);
-  let (owner, name) = path.split_once('/')?;
-  if owner.is_empty() || name.is_empty() || name.contains('/') {
-    return None;
-  }
+  let (owner, name) = split_owner_and_name(remote.path)?;
   Some(GitHubRepository {
     owner: owner.to_string(),
     name: name.to_string(),
@@ -332,7 +315,7 @@ fn to_pull_request(gh: GhPullRequest) -> PullRequest {
     head_ref_oid: gh.head_ref_oid,
     base_ref_name: gh.base_ref_name,
     checks: summarize_checks(&gh.status_check_rollup.unwrap_or_default()),
-    updated_at: gh.updated_at.as_deref().and_then(parse_utc_timestamp).unwrap_or(0),
+    updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
     reviewers: collect_reviewers(gh.latest_reviews.unwrap_or_default(), gh.review_requests.unwrap_or_default()),
   }
 }
@@ -430,24 +413,4 @@ fn collect_reviewers(reviews: Vec<GhReview>, requests: Vec<GhReviewRequest>) -> 
     });
   }
   reviewers
-}
-
-/// Unix seconds of a GitHub timestamp, `2026-10-14T09:30:00Z`
-fn parse_utc_timestamp(value: &str) -> Option<u32> {
-  let (date, time) = value.strip_suffix('Z')?.split_once('T')?;
-  let mut date_parts = date.splitn(3, '-').map(str::parse::<i64>);
-  let (year, month, day) = (date_parts.next()?.ok()?, date_parts.next()?.ok()?, date_parts.next()?.ok()?);
-  // fractional seconds are dropped
-  let time = time.split_once('.').map_or(time, |(whole, _)| whole);
-  let mut time_parts = time.splitn(3, ':').map(str::parse::<i64>);
-  let (hour, minute, second) = (time_parts.next()?.ok()?, time_parts.next()?.ok()?, time_parts.next()?.ok()?);
-
-  // days from the civil date (Howard Hinnant's algorithm)
-  let shifted_year = if month <= 2 { year - 1 } else { year };
-  let era = shifted_year.div_euclid(400);
-  let year_of_era = shifted_year - era * 400;
-  let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-  let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-  let days = era * 146_097 + day_of_era - 719_468;
-  u32::try_from(days * 86_400 + hour * 3_600 + minute * 60 + second).ok()
 }

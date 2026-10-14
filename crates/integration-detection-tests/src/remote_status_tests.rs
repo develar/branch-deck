@@ -478,6 +478,7 @@ async fn test_new_branch_counts_commits_by_author() {
   let result = feature_status(&scenario);
 
   assert!(!result.remote_exists);
+  assert_eq!(result.remote_tip, None);
   assert_eq!(result.unpushed_commits.len(), 2);
   assert_eq!(result.unpushed_commits.last(), Some(&tip), "oldest first");
   assert_eq!(result.my_unpushed_count, 1, "the other author's commit is not mine");
@@ -510,4 +511,5 @@ async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
   assert_eq!(result.my_unpushed_count, 1);
   assert_eq!(result.commits_behind, 0);
   assert!(!result.fast_forward);
+  assert_eq!(result.remote_tip.as_deref(), Some(first.as_str()), "the remote still has the commit before the rebase");
 }

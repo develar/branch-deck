@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { Card } from "@/components/ui/card"
 import { BranchRow } from "@/components/branch/BranchRow"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
+import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
@@ -105,7 +106,12 @@ export function BranchTableCard() {
             name={previewName}
             onNameChange={setPreviewName}
             onClose={() => setPreviewName(null)}
-            renderPullRequestSection={branch => <BranchPullRequestSection branchName={branch.name} />}
+            renderReviewSections={branch => (
+              <>
+                <BranchPullRequestSection branchName={branch.name} />
+                <BranchPatronusSection branchName={branch.name} />
+              </>
+            )}
           />
         </Suspense>
       )}

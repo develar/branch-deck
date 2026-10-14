@@ -11,12 +11,14 @@ pub mod fetch_progress;
 pub mod grouping;
 pub mod issue_navigation;
 pub mod move_commits;
+pub mod patronus;
 pub mod pull_requests;
 pub mod push;
 pub mod push_lease;
 pub mod regroup;
 pub mod remote_command;
 pub mod remote_status;
+pub mod remote_url;
 pub mod repository_lock;
 pub mod repository_validation;
 pub mod reword_commit;
@@ -30,6 +32,8 @@ pub mod update_project;
 
 #[cfg(test)]
 mod branch_prefix_test;
+#[cfg(test)]
+mod patronus_test;
 #[cfg(test)]
 mod pull_requests_test;
 #[cfg(test)]
