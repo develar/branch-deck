@@ -23,7 +23,7 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
-import { getPushButtonState } from "@/hooks/usePushButton"
+import { getPushButtonState, useUnpushedParent } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushBranch } from "@/lib/git/push"
@@ -69,7 +69,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const isPushing = useIsBranchPushing(currentName ?? "")
   const processing = useIsRowProcessing(currentName ?? "")
   // as the push button of the row: only a branch that synced without an error has something to push
-  const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, isSyncing, isPushing)
+  const unpushedParent = useUnpushedParent(branch)
+  const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, isSyncing, isPushing, unpushedParent)
   const canPush = push !== null && !push.disabled && !processing
   const pullRequest = usePullRequest(currentName ?? "")
 

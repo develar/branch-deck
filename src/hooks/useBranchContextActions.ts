@@ -1,13 +1,16 @@
-import { ArchiveXIcon, CombineIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
+import { pushStack } from "@/lib/git/push"
+import { copyText, getPullRequestBase } from "@/lib/git/stacked-push-toast"
+import { stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getAutosquashPlan, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getBranch, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 import { getPullRequest } from "@/stores/pull-requests"
 
@@ -17,6 +20,13 @@ import { getPullRequest } from "@/stores/pull-requests"
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
+  if (isStacksEnabled()) {
+    groups[0]!.push({
+      label: "Copy PR Base",
+      icon: CopyIcon,
+      onSelect: () => copyText(getPullRequestBase(branch)),
+    })
+  }
 
   const pullRequest = getPullRequest(branch.name)
   const openPullRequestItem: MenuItem | null = pullRequest === undefined
@@ -122,6 +132,11 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   ]
   if (parent !== null) {
     items.push({ label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) })
+  }
+  // the parents that have work for the remote are pushed first, so the pull request shows only the branch's commits
+  const pushOrder = stackPushOrder(branch.name, getBranch)
+  if (pushOrder.length > 1) {
+    items.push({ label: `Push Stack (${pushOrder.length} branches)`, icon: UploadIcon, disabled: branch.status === "Blocked", onSelect: () => void pushStack(branch.name) })
   }
   return items
 }

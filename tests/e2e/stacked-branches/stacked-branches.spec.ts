@@ -2,6 +2,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
+import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
@@ -127,5 +128,36 @@ test.describe("Stacked branches", () => {
 
     await expect.poll(() => tree(page)).toEqual(["auth@0", "guide@1", "session@1", "login@1", "oauth@2"])
     await expect(findBranchRow(page, "guide")).toHaveAttribute("data-state", "open")
+  })
+
+  test("should push a stack parents first and name the pull request base", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    // the E2E server has no remote: answer the pushes and record their order
+    const pushes: { branchName: string, parentBranch?: string | null }[] = []
+    await page.route("**/invoke/push_branch", async (route) => {
+      const params = route.request().postDataJSON() as { branchName: string, parentBranch?: string | null }
+      pushes.push({ branchName: params.branchName, parentBranch: params.parentBranch })
+      await route.fulfill({ json: { branchName: params.branchName, remoteExists: true, unpushedCommits: [], commitsBehind: 0, myUnpushedCount: 0, fastForward: true, lastPushTime: 1704139200 } })
+    })
+
+    // not pushed yet: the parent goes first
+    await getPushButton(findBranchRow(page, "oauth")).hover()
+    await expect(page.getByText("Push login first: its commits aren't on the remote yet.")).toBeVisible()
+
+    await openContextMenu(page, findBranchRow(page, "oauth"))
+    await clickContextMenuItem(page, "Push Stack (3 branches)")
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
+    expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
+    await expect(page.getByText("Pull request base: login")).toBeVisible()
+    // the toasts of the stack pile up; hovering expands them
+    const toast = page.locator("[data-slot=toast]", { hasText: "Pull request base: login" })
+    await toast.hover()
+    await toast.getByRole("button", { name: "Copy gh pr create" }).click()
+    expect(await readClipboard(page)).toBe("gh pr create --base user-name/virtual/login --head user-name/virtual/oauth")
+
+    await openContextMenu(page, findBranchRow(page, "auth"))
+    await clickContextMenuItem(page, "Copy PR Base")
+    await expect.poll(() => readClipboard(page)).toBe("master")
   })
 })

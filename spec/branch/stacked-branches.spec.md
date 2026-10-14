@@ -31,6 +31,7 @@ targets:
   - ../../src/lib/push-summary.ts
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/StackBaseLabel.tsx
+  - ../../src/lib/git/stacked-push-toast.tsx
 ---
 
 # Stacked Branches
@@ -55,7 +56,7 @@ renames branches.
 
 ## Non-goals
 
-- Set the base of a pull request, a "Push Stack" action (later).
+- Create or retarget the pull request itself: Branch Deck copies the `gh` command.
 - Stacked branches in the `bd` CLI (later).
 
 ## Requirements
@@ -130,6 +131,18 @@ renames branches.
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
 - Only an `Integrated` result of a stacked child may be cached; another one is detected again on the next sync.
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_integrated`)
+
+### Pull requests
+
+- The pull request base of a stacked branch must be its parent's pushed branch; of a root, the baseline as the remote
+  names it (`master`). "Copy PR Base" in the branch menu must copy it.
+  [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`)
+- After a push, the toast must name the base and offer to copy `gh pr create --base … --head …`; for an open pull
+  request whose parent was integrated, it must say to retarget it and offer `gh pr edit … --base …`.
+- The push button of a branch whose parent has unpushed work must say to push the parent first. "Push Stack" must push
+  the ancestors with unpushed work, root first, then the branch, and stop at a failure.
+  [@test] ../../src/lib/stack.test.ts (`pushes the ancestors that have work for the remote first, root first`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
 
 ### Messages
 

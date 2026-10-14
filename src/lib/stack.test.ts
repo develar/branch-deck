@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { describePrefixChange } from "@/lib/stack"
+import { describePrefixChange, pullRequestBaseOf, stackPushOrder } from "@/lib/stack"
+import type { Branch, RemoteStatus } from "@/stores/branch-sync"
+import { testBranch } from "@/stores/test-branch"
 
 const table: Record<string, StackBranchInfo> = {
   auth: { declaredParent: null, commitCount: 2 },
@@ -50,5 +52,27 @@ describe("push summary with stacked branches", () => {
       { name: "login", remoteStatus, hasError: false, commitCount: 1, status: "Blocked" },
     ])
     expect(summary.branches.map(branch => branch.name)).toEqual(["auth"])
+  })
+})
+
+describe("pull request bases of stacked branches", () => {
+  const unpushed: RemoteStatus = { exists: true, unpushedCommits: ["c1"], commitsAhead: 1, commitsBehind: 0, myCommitsAhead: 1, fastForward: true, lastPushTime: 0 }
+  const pushed: RemoteStatus = { ...unpushed, unpushedCommits: [], commitsAhead: 0, myCommitsAhead: 0 }
+  const branches: Record<string, Branch> = {
+    auth: testBranch("auth", null, { remoteStatus: unpushed }),
+    login: testBranch("login", "auth", { remoteStatus: pushed }),
+    oauth: testBranch("oauth", "login", { remoteStatus: unpushed }),
+  }
+
+  it("targets the parent's branch, or the baseline on the remote", () => {
+    const fullName = (name: string) => `user/virtual/${name}`
+    expect(pullRequestBaseOf(branches.oauth!, "origin/master", fullName)).toBe("user/virtual/login")
+    expect(pullRequestBaseOf(branches.auth!, "origin/master", fullName)).toBe("master")
+    expect(pullRequestBaseOf(branches.auth!, "main", fullName)).toBe("main")
+  })
+
+  it("pushes the ancestors that have work for the remote first, root first", () => {
+    expect(stackPushOrder("oauth", name => branches[name])).toEqual(["auth", "oauth"])
+    expect(stackPushOrder("auth", name => branches[name])).toEqual(["auth"])
   })
 })

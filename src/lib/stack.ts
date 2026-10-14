@@ -1,4 +1,5 @@
 import { groupFor } from "@/lib/commit"
+import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that is missing); null if not blocked */
@@ -58,4 +59,44 @@ export function describePrefixChange(before: string, after: string, action: stri
     return { text: parent === null ? `${action} unstacks ${to.branch}` : `${action} stacks ${to.branch}${onParent}`, warning: true }
   }
   return { text: `${action} moves the commit to the branch ${to.branch}${onParent}`, warning: true }
+}
+
+/** The branch name a remote knows the baseline by: `origin/master` is `master` there */
+function baselineOnRemote(baselineBranch: string): string {
+  const slash = baselineBranch.indexOf("/")
+  return slash === -1 ? baselineBranch : baselineBranch.slice(slash + 1)
+}
+
+/**
+ * The base of the pull request of a branch: the full branch name of the branch it is built on, or the baseline.
+ * `fullName` turns a virtual branch name into the pushed one.
+ */
+export function pullRequestBaseOf(branch: Branch, baselineBranch: string, fullName: (name: string) => string): string {
+  const base = branch.stack?.effectiveBase ?? null
+  return base === null ? baselineOnRemote(baselineBranch) : fullName(base)
+}
+
+/** Whether a push of the branch has work for the remote; false while its remote status is unknown */
+export function needsPush(branch: Branch): boolean {
+  const action = getPushAction(branch)
+  return action !== null && action !== "upToDate" && branch.status !== "Blocked" && !branch.hasError
+}
+
+/**
+ * The branches a "Push Stack" of `name` pushes, root first: its ancestors in the branch table that have work for the
+ * remote, then the branch itself. `branchOf` looks a branch up.
+ */
+export function stackPushOrder(name: string, branchOf: (name: string) => Branch | undefined): string[] {
+  const chain: string[] = []
+  const seen = new Set<string>()
+  let current = branchOf(name)
+  while (current !== undefined && !seen.has(current.name)) {
+    seen.add(current.name)
+    if (current.name === name || needsPush(current)) {
+      chain.push(current.name)
+    }
+    const parent = current.stack?.effectiveBase ?? null
+    current = parent === null ? undefined : branchOf(parent)
+  }
+  return chain.reverse()
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { BranchStack } from "@/lib/bindings"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants } from "@/stores/branch-sync"
+import { testBranch } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
@@ -9,42 +9,11 @@ vi.mock("@/stores/repository", async () => (await import("@/stores/test-store-mo
 vi.mock("@/stores/settings/repositorySettings", async () => (await import("@/stores/test-store-mocks")).repositorySettingsMock)
 vi.mock("@/stores/archived-branches", async () => (await import("@/stores/test-store-mocks")).archivedBranchesMock)
 
-function stack(declaredParent: string | null): BranchStack {
-  return {
-    declaredParent,
-    parentState: declaredParent === null ? null : "Active",
-    effectiveBase: declaredParent,
-    blockedBy: null,
-    problems: [],
-    prBaseChanged: false,
-    childPrecedesParent: false,
-  }
-}
-
 /** `[name, declared parent, issue key]`, newest first */
 function setBranches(...specs: [name: string, parent: string | null, issueKey?: string | null][]): void {
   const branches: Record<string, Branch> = {}
   for (const [name, parent, issueKey = null] of specs) {
-    branches[name] = {
-      name,
-      commits: [],
-      commitIndex: {},
-      commitCount: 1,
-      status: "Unchanged",
-      statusText: "",
-      processedCount: 0,
-      hasError: false,
-      autoExpandRequested: false,
-      autoScrollRequested: false,
-      latestCommitTime: 0,
-      summary: "",
-      remoteStatus: null,
-      allCommitsHaveIssueReferences: false,
-      myEmail: null,
-      origin: issueKey === name ? "Issue" : "Prefix",
-      issueKey,
-      stack: stack(parent),
-    }
+    branches[name] = testBranch(name, parent, { issueKey, origin: issueKey === name ? "Issue" : "Prefix" })
   }
   branchSyncStore.setState({ branches, branchOrder: specs.map(([name]) => name), stacksEnabled: true })
 }
