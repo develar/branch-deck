@@ -17,6 +17,11 @@ targets:
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/BranchActions.tsx
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/useStackActions.ts
+  - ../../src/components/branch/InlineUngroupConfirm.tsx
+  - ../../src/components/branch/InlineRenameBranchInput.tsx
+  - ../../crates/sync-core/src/stack_operations.rs
 ---
 
 # Stacked Branches
@@ -40,7 +45,6 @@ the other branches still sync. The backend is done; the branch table does not sh
 
 ## Non-goals
 
-- Rename, ungroup or unapply a parent together with its children (later).
 - Show the stack in the branch table, or set the base of a pull request (later).
 - Stacked branches in the `bd` CLI (later).
 
@@ -134,6 +138,13 @@ the other branches still sync. The backend is done; the branch table does not sh
   issue as a chip. Without stacked branches the table is as before.
   [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`)
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
+- The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
+  parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`)
+  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restacks_and_unstacks_a_branch`, `renaming_a_parent_renames_it_in_its_children`)
+- Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name the children
+  they block. See [Move Commits](move-commits.spec.md).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
 - A blocked branch must show a muted `blocked by <parent>` status with the reason as its tooltip, a disabled push
   button, and, expanded, an info alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)

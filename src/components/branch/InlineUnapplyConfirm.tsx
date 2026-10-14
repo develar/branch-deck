@@ -1,7 +1,8 @@
 import { ArchiveXIcon, TriangleAlertIcon } from "lucide-react"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { unapplyBranch } from "@/hooks/useUnapplyBranch"
-import { useBranch } from "@/stores/branch-sync"
+import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
+import { getStackChildren, useBranch } from "@/stores/branch-sync"
 import { closeInline, useIsRowProcessing } from "@/stores/inline-row-action"
 
 export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
@@ -9,6 +10,7 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
   const processing = useIsRowProcessing(branchName)
   const commitCount = branch?.commits.length ?? 0
   const canUnapply = branch !== undefined && commitCount > 0 && !processing
+  const children = getStackChildren(branchName)
 
   return (
     <InlineForm
@@ -35,6 +37,7 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
             The commits will be preserved in the unapplied branch, but removed from your current working branch.
             This action can be undone by reapplying the commits later.
           </p>
+          {children.length > 0 && <StackChildrenNote parent={branchName} children={children} />}
         </div>
       </div>
     </InlineForm>

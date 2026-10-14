@@ -39,7 +39,7 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
 }
 
 /** Restores the messages the moved commits had before, in one history rewrite. */
-async function undoMove(moved: readonly MovedCommit[]): Promise<void> {
+export async function undoMove(moved: readonly MovedCommit[]): Promise<void> {
   const result = await invokeCommand(() => commands.rewordCommits({
     repositoryPath: getSelectedProject()?.path ?? "",
     rewrites: moved.map(it => ({ commitId: it.newId, message: it.previousMessage })),

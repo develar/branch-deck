@@ -30,7 +30,8 @@ function ContextMenuEntry({ item }: { item: MenuItem }) {
   if (item.children !== undefined) {
     return (
       <ContextMenuSub>
-        <ContextMenuSubTrigger disabled={item.disabled}>
+        {/* the generated trigger has no gap between the icon and the label, unlike the items */}
+        <ContextMenuSubTrigger disabled={item.disabled} className="gap-2">
           {item.icon && <item.icon />}
           <span className="truncate">{item.label}</span>
         </ContextMenuSubTrigger>

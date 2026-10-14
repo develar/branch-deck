@@ -1,12 +1,13 @@
-import { ArchiveXIcon, CombineIcon, GitPullRequestIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, TagIcon, UngroupIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { restackBranch } from "@/hooks/useStackActions"
 import { getListFixups } from "@/lib/autosquash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { getAutosquashPlan } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 import { getPullRequest } from "@/stores/pull-requests"
 
@@ -43,10 +44,14 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     nameActions.push({
       label: ungroupLabel === "Remove Prefix" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
-      onSelect: () => void moveCommits(branch.commits, null),
+      // the branches stacked on it lose their parent: confirm with them listed
+      onSelect: () => getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null),
     })
   }
   groups.push(nameActions)
+  if (isStacksEnabled()) {
+    groups.push(getStackMenuItems(branch))
+  }
 
   const commitActions: MenuItem[] = [
     {
@@ -96,6 +101,29 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     groups.push(historyActions)
   }
   return groups
+}
+
+/** The most branches "Stack On…" lists; the newest come first */
+const STACK_TARGET_LIMIT = 20
+
+/** "Stack On…" (any other branch that isn't stacked on this one) and "Unstack" */
+function getStackMenuItems(branch: Branch): MenuItem[] {
+  const parent = branch.stack?.declaredParent ?? null
+  const excluded = new Set([branch.name, ...getStackDescendants(branch.name)])
+  const targets = branchSyncStore.getState().branchOrder.filter(name => !excluded.has(name) && name !== parent).slice(0, STACK_TARGET_LIMIT)
+  const items: MenuItem[] = [
+    {
+      label: "Stack On…",
+      icon: LayersIcon,
+      disabled: targets.length === 0,
+      onSelect: () => {},
+      children: targets.map(target => ({ label: target, onSelect: () => void restackBranch(branch.name, target) })),
+    },
+  ]
+  if (parent !== null) {
+    items.push({ label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) })
+  }
+  return items
 }
 
 export function useBranchContextActions(setExpanded: (name: string, expanded: boolean) => void) {

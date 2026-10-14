@@ -95,6 +95,10 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   commits of the branch to the new name; an existing name merges the branches.
 - The branch menu of a prefix branch must offer "Ungroup", which removes the prefix of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
+- With [stacked branches](stacked-branches.spec.md) on, Rename must rename the branch in the prefixes of the branches
+  stacked on it too (`rename_branch`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
+  branch that others stack on must confirm and name them: they are blocked until it has commits again.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
 
 ### Drag and drop
 
@@ -126,6 +130,9 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`, `heads the branches of an issue without a branch of its own with an issue row`, `shows a single branch of an issue without a branch of its own with a chip`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
 - A prefix branch of an issue must show the issue summary: the subject after the issue key.
+- With stacked branches on, issue families are formed from the stack roots only; a stacked branch stays under its
+  parent and shows its issue as a chip when the parent's issue is another one.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`)
 
 ## User Experience
 
