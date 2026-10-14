@@ -17,6 +17,8 @@ export default tseslint.config(
       "playwright-report/**",
       "**/migration-backup/**",
       "**/.tools/**",
+      // agent worktrees are separate checkouts with their own tsconfig
+      ".claude/**",
     ],
   },
   js.configs.recommended,
