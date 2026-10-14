@@ -149,6 +149,8 @@ impl From<anyhow::Error> for RegroupError {
 pub struct Snapshot {
   pub head: String,
   pub stacks: bool,
+  /// The branch the commits are ahead of, e.g. `origin/master`
+  pub baseline: String,
   /// Oldest first
   pub commits: Vec<Commit>,
   /// Commit id -> its group now
@@ -294,10 +296,7 @@ fn regroup_with(
   } else {
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
   };
-  ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
-  get_current_branch(git_executor, repository_path).map_err(|e| RegroupError::DetachedHead(format!("{e:#}")))?;
-
-  let snapshot = read_snapshot(git_executor, repository_path)?;
+  let snapshot = read_guarded_snapshot(git_executor, repository_path)?;
   if let Some(expected) = &options.expect_head
     && !(expected.len() >= 4 && snapshot.head.starts_with(expected.as_str()))
   {
@@ -331,13 +330,31 @@ fn regroup_with(
   Ok(outcome)
 }
 
+/// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
+pub(crate) fn read_guarded_snapshot(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Snapshot, RegroupError> {
+  ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
+  get_current_branch(git_executor, repository_path).map_err(|e| RegroupError::DetachedHead(format!("{e:#}")))?;
+  read_snapshot(git_executor, repository_path)
+}
+
 fn read_snapshot(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Snapshot, RegroupError> {
   let head = read_head(git_executor, repository_path)?;
   let stacks = stacks_enabled(git_executor, repository_path)?;
   let baseline = detect_baseline_branch(git_executor, repository_path, "master")?;
   let commits = get_commit_list(git_executor, repository_path, &baseline)?;
   let groups = group_commits(&commits, stacks).0;
-  Ok(Snapshot { head, stacks, commits, groups })
+  Ok(Snapshot {
+    head,
+    stacks,
+    baseline,
+    commits,
+    groups,
+  })
+}
+
+/// `plan` applied to the snapshot in memory and validated, as a dry run of `regroup_commits_core` does
+pub(crate) fn plan_in_memory(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
+  apply_in_memory(snapshot, resolve_plan(snapshot, plan)?)
 }
 
 /// Commit id -> group, and the forest with stacked branches on

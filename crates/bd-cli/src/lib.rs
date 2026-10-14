@@ -5,6 +5,7 @@ pub mod agent_help;
 pub mod areas;
 pub mod branch_stats;
 pub mod check_command;
+pub mod clustering;
 pub mod commits;
 pub mod context;
 pub mod dependencies;
@@ -19,6 +20,7 @@ pub mod push_command;
 pub mod rewrite;
 pub mod schema;
 pub mod status;
+pub mod suggest;
 pub mod sync_command;
 pub mod version;
 
@@ -34,6 +36,7 @@ use crate::push_command::{PushArgs, push};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
+use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use crate::sync_command::{SyncOutput, sync};
 use crate::version::{VERSION, version};
 use clap::error::ErrorKind;
@@ -86,6 +89,9 @@ enum Command {
   Unstack(UnstackArgs),
   /// Undo a rewrite with the `undo_token` it printed
   Undo(UndoArgs),
+  /// Suggest a grouping of the commits into branches: a plan for `bd group`, checked by a trial sync; exit code 1 when a
+  /// branch of it still conflicts
+  Suggest(SuggestArgs),
   /// Would the branches build with this plan (stdin or --plan)? A trial sync that writes objects only; exit code 1 when
   /// a branch conflicts or is blocked
   Check(CheckArgs),
@@ -175,6 +181,8 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), SyncOutput::has_conflicts),
+    Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
+    Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| !output.check.ok),
     Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| !output.ok),
     Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
@@ -226,6 +234,8 @@ mod areas_test;
 #[cfg(test)]
 mod check_test;
 #[cfg(test)]
+mod clustering_test;
+#[cfg(test)]
 mod commits_test;
 #[cfg(test)]
 mod dependencies_test;
@@ -245,6 +255,8 @@ mod rewrite_test;
 mod schema_test;
 #[cfg(test)]
 mod status_test;
+#[cfg(test)]
+mod suggest_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]

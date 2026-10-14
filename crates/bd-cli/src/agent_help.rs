@@ -17,7 +17,8 @@ Exit codes: 0 ok, 1 conflict, 2 invalid input, 3 stale (read again and retry), 4
 `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 
 Workflow:
-1. `bd status --brief` for the branches and the unassigned commits, then `bd commits --brief`: per
+1. `bd suggest`: a plan to start from, clustered and already checked; it writes no refs (--fresh ignores prefixes).
+   `bd status --brief` for the branches and the unassigned commits, then `bd commits --brief`: per
    commit its group, issue key, fixup target and top `areas`, and `units`, the commits that must stay
    together. `bd status` adds each branch's commits (with stacked branches on, also `parent_state` and
    `effective_base`), `bd commits --files` the files; `bd commits --patch <id>...` (or `--branch <b>`,

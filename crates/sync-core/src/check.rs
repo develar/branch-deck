@@ -3,15 +3,14 @@
 //! HEAD or working tree changes, and no repository lock. Merges and commit trees go through the object cache, so trying
 //! variants of a plan repeats no `merge-tree`.
 
-use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, build_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::grouping::branch_tips;
-use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, regroup_commits_core};
+use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, Snapshot, plan_in_memory, read_guarded_snapshot};
 use crate::stack::{empty_parent_states, place_branches, read_only_detection};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
-use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::commit_list::Commit;
 use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
 use git_ops::model::{BranchError, BranchKind, strip_branch_namespace, to_final_branch_name};
 use object_cache::cache::ObjectCache;
@@ -79,106 +78,150 @@ pub fn check_plan(
   plan: Option<&RegroupPlan>,
   cache: &ObjectCache,
 ) -> Result<CheckReport, RegroupError> {
-  let options = RegroupOptions {
-    dry_run: true,
-    ..RegroupOptions::default()
-  };
-  let regroup = regroup_commits_core(git_executor, repository_path, plan.unwrap_or(&RegroupPlan::default()), &options)?;
+  CheckSession::open(git_executor, repository_path, branch_prefix, cache)?.check(plan)
+}
 
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
-  let messages: HashMap<&str, &str> = regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.message.as_str())).collect();
-  let mut grouper = CommitGrouper::new_with_stacks(regroup.stacks);
-  for mut commit in get_commit_list(git_executor, repository_path, &baseline_branch)? {
-    if let Some(message) = messages.get(commit.id.as_str()) {
-      apply_message(&mut commit, message);
-    }
-    grouper.add_commit(commit);
-  }
-  let base = grouper.first_parent_id.take();
-  let (GroupedCommits { branches, unassigned, .. }, forest) = grouper.finish_with_stacks();
+/// What every check of a repository reads once: the commits ahead of the baseline as they group now, the baseline and
+/// the branch tips. A `check` of a plan then runs git only for the merges the object cache misses and, with stacked
+/// branches on, for the detection notes of parents without commits; so trying many plans repeats no `log`
+pub struct CheckSession {
+  git_executor: GitCommandExecutor,
+  repository_path: String,
+  branch_prefix: String,
+  cache: ObjectCache,
+  snapshot: Snapshot,
+  /// Full name (without `refs/heads/`) -> tip of the branches under the prefix; empty without commits
+  tips: HashMap<String, String>,
+}
 
-  let tips = if branches.is_empty() {
-    HashMap::new()
-  } else {
-    branch_tips(git_executor, repository_path, branch_prefix)?
-  };
-  let placements = match &forest {
-    Some(forest) => Some(place_branches(
-      forest,
-      &empty_parent_states(git_executor, repository_path, branch_prefix, &tips, forest, read_only_detection(&baseline_branch))?,
-    )),
-    None => None,
-  };
-  let order: Vec<String> = forest.as_ref().map_or_else(|| branches.keys().cloned().collect(), |forest| forest.order.clone());
-
-  let progress = CollectingReporter::default();
-  let context = BranchSyncContext {
-    repository_path: repository_path.to_string(),
-    branch_prefix: branch_prefix.to_string(),
-    baseline_branch: baseline_branch.clone(),
-    total_branches: branches.len(),
-    progress: progress.clone(),
-    git_executor: git_executor.clone(),
-    tree_id_cache: TreeIdCache::with_merge_memo(Arc::new(CacheMemo { cache: cache.clone() })),
-    existing_tips: tips
-      .into_iter()
-      .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
-      .collect(),
-  };
-
-  let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());
-  for (branch_idx, name) in order.iter().enumerate() {
-    let Some(commits) = branches.get(name) else { continue };
-    let placement = placements.as_ref().and_then(|placements| placements.get(name));
-    let built_on = placement.and_then(|stack| stack.effective_base.clone());
-    let parent_outcome = built_on
-      .as_ref()
-      .and_then(|parent| checks.iter().find(|check| &check.name == parent))
-      .map(|check| &check.outcome);
-    let outcome = if let Some(stack) = placement.filter(|stack| !stack.problems.is_empty()) {
-      CheckOutcome::Problems(stack.problems.clone())
-    } else if let Some(block) = placement.and_then(|stack| stack.blocked_by.as_ref()) {
-      CheckOutcome::Blocked {
-        parent: block.parent.clone(),
-        reason: block.reason,
-      }
+impl CheckSession {
+  /// Read the snapshot after the guards of a regroup (no operation in progress, HEAD on a branch) and the branch tips
+  #[instrument(skip(git_executor, cache))]
+  pub fn open(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache) -> Result<Self, RegroupError> {
+    let snapshot = read_guarded_snapshot(git_executor, repository_path)?;
+    let tips = if snapshot.commits.is_empty() {
+      HashMap::new()
     } else {
-      match (parent_outcome, &built_on) {
-        (Some(CheckOutcome::Ok { head }), Some(parent)) => build(&context, &progress, name, commits, branch_idx, head, to_final_branch_name(branch_prefix, parent).ok()),
-        (Some(outcome), Some(parent)) => CheckOutcome::Blocked {
-          parent: parent.clone(),
-          reason: match outcome {
-            CheckOutcome::Conflict { .. } => BlockReason::Conflict,
-            CheckOutcome::Blocked { .. } => BlockReason::Blocked,
-            _ => BlockReason::Error,
-          },
-        },
-        _ => match &base {
-          Some(base) => build(&context, &progress, name, commits, branch_idx, base, None),
-          None => CheckOutcome::Error {
-            message: "The oldest commit ahead of the baseline has no parent".to_string(),
-          },
-        },
-      }
+      branch_tips(git_executor, repository_path, branch_prefix)?
     };
-    checks.push(BranchCheck {
-      name: name.clone(),
-      commits: commits.iter().map(|commit| commit.id.clone()).collect(),
-      declared_parent: placement.and_then(|stack| stack.declared_parent.clone()),
-      built_on,
-      outcome,
-    });
+    Ok(Self {
+      git_executor: git_executor.clone(),
+      repository_path: repository_path.to_string(),
+      branch_prefix: branch_prefix.to_string(),
+      cache: cache.clone(),
+      snapshot,
+      tips,
+    })
   }
 
-  Ok(CheckReport {
-    head: regroup.previous_head.clone(),
-    baseline_branch,
-    base,
-    stacks: regroup.stacks,
-    regroup,
-    branches: checks,
-    unassigned: unassigned.len(),
-  })
+  /// The commits ahead of the baseline, oldest first, and their groups now
+  pub fn snapshot(&self) -> &Snapshot {
+    &self.snapshot
+  }
+
+  /// Full name (without `refs/heads/`) -> tip of the branches under the prefix
+  pub fn tips(&self) -> &HashMap<String, String> {
+    &self.tips
+  }
+
+  /// Check `plan` (or the current grouping without one) against the snapshot
+  #[instrument(skip_all)]
+  pub fn check(&self, plan: Option<&RegroupPlan>) -> Result<CheckReport, RegroupError> {
+    let (git_executor, repository_path, branch_prefix) = (&self.git_executor, self.repository_path.as_str(), self.branch_prefix.as_str());
+    let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&RegroupPlan::default()))?;
+    let baseline_branch = self.snapshot.baseline.clone();
+    let messages: HashMap<&str, &str> = regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.message.as_str())).collect();
+    let mut grouper = CommitGrouper::new_with_stacks(regroup.stacks);
+    for commit in &self.snapshot.commits {
+      let mut commit = commit.clone();
+      if let Some(message) = messages.get(commit.id.as_str()) {
+        apply_message(&mut commit, message);
+      }
+      grouper.add_commit(commit);
+    }
+    let base = grouper.first_parent_id.take();
+    let (GroupedCommits { branches, unassigned, .. }, forest) = grouper.finish_with_stacks();
+
+    let placements = match &forest {
+      Some(forest) => Some(place_branches(
+        forest,
+        &empty_parent_states(git_executor, repository_path, branch_prefix, &self.tips, forest, read_only_detection(&baseline_branch))?,
+      )),
+      None => None,
+    };
+    let order: Vec<String> = forest.as_ref().map_or_else(|| branches.keys().cloned().collect(), |forest| forest.order.clone());
+
+    let progress = CollectingReporter::default();
+    let context = BranchSyncContext {
+      repository_path: repository_path.to_string(),
+      branch_prefix: branch_prefix.to_string(),
+      baseline_branch: baseline_branch.clone(),
+      total_branches: branches.len(),
+      progress: progress.clone(),
+      git_executor: git_executor.clone(),
+      tree_id_cache: TreeIdCache::with_merge_memo(Arc::new(CacheMemo { cache: self.cache.clone() })),
+      existing_tips: self
+        .tips
+        .iter()
+        .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
+        .map(|(name, tip)| (name.clone(), tip.clone()))
+        .collect(),
+    };
+
+    let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());
+    for (branch_idx, name) in order.iter().enumerate() {
+      let Some(commits) = branches.get(name) else { continue };
+      let placement = placements.as_ref().and_then(|placements| placements.get(name));
+      let built_on = placement.and_then(|stack| stack.effective_base.clone());
+      let parent_outcome = built_on
+        .as_ref()
+        .and_then(|parent| checks.iter().find(|check| &check.name == parent))
+        .map(|check| &check.outcome);
+      let outcome = if let Some(stack) = placement.filter(|stack| !stack.problems.is_empty()) {
+        CheckOutcome::Problems(stack.problems.clone())
+      } else if let Some(block) = placement.and_then(|stack| stack.blocked_by.as_ref()) {
+        CheckOutcome::Blocked {
+          parent: block.parent.clone(),
+          reason: block.reason,
+        }
+      } else {
+        match (parent_outcome, &built_on) {
+          (Some(CheckOutcome::Ok { head }), Some(parent)) => build(&context, &progress, name, commits, branch_idx, head, to_final_branch_name(branch_prefix, parent).ok()),
+          (Some(outcome), Some(parent)) => CheckOutcome::Blocked {
+            parent: parent.clone(),
+            reason: match outcome {
+              CheckOutcome::Conflict { .. } => BlockReason::Conflict,
+              CheckOutcome::Blocked { .. } => BlockReason::Blocked,
+              _ => BlockReason::Error,
+            },
+          },
+          _ => match &base {
+            Some(base) => build(&context, &progress, name, commits, branch_idx, base, None),
+            None => CheckOutcome::Error {
+              message: "The oldest commit ahead of the baseline has no parent".to_string(),
+            },
+          },
+        }
+      };
+      checks.push(BranchCheck {
+        name: name.clone(),
+        commits: commits.iter().map(|commit| commit.id.clone()).collect(),
+        declared_parent: placement.and_then(|stack| stack.declared_parent.clone()),
+        built_on,
+        outcome,
+      });
+    }
+
+    Ok(CheckReport {
+      head: regroup.previous_head.clone(),
+      baseline_branch,
+      base,
+      stacks: regroup.stacks,
+      regroup,
+      branches: checks,
+      unassigned: unassigned.len(),
+    })
+  }
 }
 
 /// The commit as the plan rewords it: grouping reads the subject, the copy writes the message

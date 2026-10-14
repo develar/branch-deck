@@ -7,6 +7,7 @@ use crate::output::SchemaVersion;
 use crate::push_command::PushOutput;
 use crate::rewrite::{RewriteOutput, UndoOutput};
 use crate::status::{StatusBrief, StatusOutput};
+use crate::suggest::SuggestOutput;
 use crate::sync_command::SyncOutput;
 use crate::version::VersionOutput;
 use schemars::{Schema, schema_for};
@@ -36,6 +37,7 @@ pub fn schema_output() -> SchemaOutput {
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
       ("status".to_string(), schema_for!(StatusOutput)),
       ("status_brief".to_string(), schema_for!(StatusBrief)),
+      ("suggest".to_string(), schema_for!(SuggestOutput)),
       ("sync".to_string(), schema_for!(SyncOutput)),
       ("undo".to_string(), schema_for!(UndoOutput)),
       ("version".to_string(), schema_for!(VersionOutput)),
