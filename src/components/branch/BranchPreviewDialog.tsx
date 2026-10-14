@@ -24,6 +24,7 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
+import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { ClosePreviewContext, openRowForm } from "@/hooks/useOpenRowForm"
 import { getPushButtonState } from "@/hooks/usePushButton"
@@ -82,6 +83,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const canStartRobot = usePatronusAvailable() && push !== null && !processing && !isStartBlocked(getBranchRobot(currentName ?? ""), branch?.commits[0]?.hash)
 
   const bodyRef = useRef<HTMLDivElement>(null)
+  // the meta line of each commit shows its files
+  useCommitFiles(open && branch !== undefined ? branch.commits.map(getCommitHash) : [])
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, index, names.length, next => onNameChange(names[next]!), onClose)) {
@@ -241,6 +244,8 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
 
 function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
   const subject = getCommitSubject(commit)
+  const hash = getCommitHash(commit)
+  const fileStats = useCommitFileStats(hash)
   return (
     <li data-testid="branch-preview-commit" className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-1">
@@ -248,7 +253,13 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
           <CommitSubject subject={subject} clamp={false} />
           {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
         </div>
-        <CommitMetadata hash={getCommitHash(commit)} newHash={commit.hash} authorTime={commit.authorTime} committerTime={commit.committerTime} />
+        <CommitMetadata
+          hash={hash}
+          newHash={commit.hash}
+          authorTime={commit.authorTime}
+          committerTime={commit.committerTime}
+          fileStats={fileStats}
+        />
       </div>
       {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} className="text-sm leading-6" />}
     </li>

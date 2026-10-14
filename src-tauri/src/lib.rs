@@ -15,6 +15,7 @@ use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
+use commands::commit_files::{get_commit_file_diff, get_commit_files, get_commits_files};
 use commands::fetch_baseline::fetch_baseline;
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
@@ -91,6 +92,9 @@ pub fn run() {
     unapply_branch,
     get_uncommitted_changes,
     get_file_content_for_diff,
+    get_commit_files,
+    get_commits_files,
+    get_commit_file_diff,
     update_menu_checkbox,
     install_agent_cli,
     model_tauri::commands::download_model,

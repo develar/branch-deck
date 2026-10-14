@@ -55,7 +55,8 @@ The commit hash popover shows the same header and body.
 ## Non-goals
 
 - The row does not render Markdown. It recognizes git conventions and code tokens only.
-- The row does not show a diff or a file list.
+- The row does not show a diff or a file list. Its meta line counts the files, and the preview lists them:
+  see [Commit Files](commit-files.spec.md).
 - This spec does not cover the branch status column or the branch actions: see [Branch Row](../branch/branch-row.spec.md).
 
 ## Requirements
@@ -64,7 +65,8 @@ The commit hash popover shows the same header and body.
 
 - A commit row must show the subject line above the meta line.
 - The meta line must start with the short hash.
-- The meta line may then show the author, the time, the file count and extra items, in this order.
+- The meta line may then show the author, the time, the file count with the line counts
+  ([Commit Files](commit-files.spec.md)) and extra items, in this order.
 - The meta line must separate its items with `·`.
 - A synced commit must show `hash → newHash` when the two hashes differ.
 - The subject must wrap to two lines at most.
@@ -97,7 +99,8 @@ The commit hash popover shows the same header and body.
   same text as its tooltip.
 - The message button must open the preview of its commit.
 - The row must not render the body.
-- The preview must show the whole subject, the meta line and the body.
+- The preview must show the whole subject, the meta line and the body, then the changed files
+  ([Commit Files](commit-files.spec.md)).
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
 - Space must open the preview of the commit row under the pointer.
 - ↑ and ↓ must show the previous and the next commit of the same list, and the preview must show the position as `2 / 3`.
@@ -261,6 +264,7 @@ The commit hash popover shows the same header and body.
 - A newly shown commit starts at the top of its body.
 - The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,
   in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
+- The footer then shows a ghost `xs` button `F Files`, which shows or hides the changed files.
 - An editable preview ends the footer with a ghost `xs` button `E Edit`.
 - While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
   The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and

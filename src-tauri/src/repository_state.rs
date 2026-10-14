@@ -1,16 +1,21 @@
+use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
+use object_cache::cache::ObjectCache;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_types::issue_navigation::IssueNavigationConfig;
 use tracing::{debug, instrument};
 
-/// Per-repository issue navigation config (`.idea/vcs.xml`), cached for an hour.
+/// Per-repository issue navigation config (`.idea/vcs.xml`), cached for an hour, and the object cache of each
+/// repository.
 ///
 /// Cloning is cheap and shares the underlying cache, so a clone can be moved into `spawn_blocking`.
 #[derive(Clone)]
 pub struct RepositoryStateCache {
   cache: Cache<String, Arc<Option<IssueNavigationConfig>>>,
+  object_caches: Cache<String, ObjectCache>,
 }
 
 impl RepositoryStateCache {
@@ -20,7 +25,11 @@ impl RepositoryStateCache {
       .time_to_live(Duration::from_secs(3600)) // 1 hour TTL
       .build();
 
-    Self { cache }
+    Self {
+      cache,
+      // never stale: the environment of a directory stays open in the process anyway
+      object_caches: Cache::new(100),
+    }
   }
 
   /// Returns the cached config, loading it on a miss. Reads the file system: call from a blocking context.
@@ -33,6 +42,27 @@ impl RepositoryStateCache {
       debug!(found = config.is_some(), "Loaded issue navigation config");
       Arc::new(config)
     })
+  }
+
+  /// The object cache of the repository (`$GIT_COMMON_DIR/branch-deck/cache`), shared with `bd`. The first call for a
+  /// path resolves the common git directory with one `rev-parse`: call from a blocking context. A failure gives a
+  /// disabled cache and is not remembered
+  #[instrument(skip(self, git))]
+  pub fn object_cache(&self, git: &GitCommandExecutor, repository_path: &str) -> ObjectCache {
+    if let Some(cache) = self.object_caches.get(repository_path) {
+      return cache;
+    }
+    match git.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path) {
+      Ok(git_common_dir) => {
+        let cache = ObjectCache::open(Path::new(&git_common_dir));
+        self.object_caches.insert(repository_path.to_string(), cache.clone());
+        cache
+      }
+      Err(e) => {
+        debug!(error = %e, "no git common dir, the object cache is disabled");
+        ObjectCache::disabled()
+      }
+    }
   }
 }
 

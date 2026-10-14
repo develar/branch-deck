@@ -116,6 +116,12 @@ export const commands = {
 	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  Get file content for diff display when user expands a file in the UI */
 	getFileContentForDiff: (params: GetFileContentForDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_file_content_for_diff", { params })),
+	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
+	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_commit_files", { params })),
+	/**  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses */
+	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], CommandError>(__TAURI_INVOKE("get_commits_files", { params })),
+	/**  The patch of one file of a commit, when the file is expanded in the commit preview */
+	getCommitFileDiff: (params: GetCommitFileDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_commit_file_diff", { params })),
 	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
 	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
 	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("download_model", { progress })),
@@ -304,6 +310,30 @@ export type Commit = {
 	committerTime: number,
 };
 
+/**  A changed file of a commit */
+export type CommitFile = {
+	/**  The path after the commit */
+	path: string,
+	status: FileStatus,
+	/**  The path before a rename or copy */
+	oldPath: string | null,
+	/**  Added lines; 0 for a binary file */
+	additions: number,
+	/**  Deleted lines; 0 for a binary file */
+	deletions: number,
+	/**  Git counts no lines for the file (`-` in `--numstat`) */
+	binary: boolean,
+};
+
+/**  The changed files of a commit against its first parent, with the sums of their line counts */
+export type CommitFiles = {
+	commitId: string,
+	/**  In git's order: by path */
+	files: CommitFile[],
+	additions: number,
+	deletions: number,
+};
+
 /**
  *  Simple commit information with hash and message.
  *  Used for passing commit data between frontend and backend.
@@ -431,6 +461,11 @@ export type FileInfo = {
 	content: string,
 };
 
+/**  How a file changed, from the status letter of `--raw` */
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | 
+/**  A file became a symlink or a submodule, or the other way round */
+"typeChanged";
+
 /**  How a commit is squashed into its target; the first marker of the subject decides (`fixup! squash! X` is a fixup) */
 export type FixupKind = 
 /**  `fixup!`: the target keeps its message */
@@ -446,6 +481,25 @@ export type GetAutosquashPlanParams = {
 
 export type GetBranchPrefixParams = {
 	repositoryPath: string,
+};
+
+export type GetCommitFileDiffParams = {
+	repositoryPath: string,
+	commitId: string,
+	/**  The path after the commit */
+	path: string,
+	/**  The path before a rename or copy, so the patch shows the changes and not a new file */
+	oldPath: string | null,
+};
+
+export type GetCommitFilesParams = {
+	repositoryPath: string,
+	commitId: string,
+};
+
+export type GetCommitsFilesParams = {
+	repositoryPath: string,
+	commitIds: string[],
 };
 
 export type GetFileContentForDiffParams = {

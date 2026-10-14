@@ -1,28 +1,43 @@
 import { useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
 import { DiffModeEnum, DiffView } from "@git-diff-view/react"
-import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
 import { Callout } from "@/components/shared/Callout"
 import { useIsDark } from "@/hooks/useIsDark"
-import { commands } from "@/lib/bindings"
-import type { FileDiff, UncommittedFileChange } from "@/lib/bindings"
-import { subtleBadgeVariant } from "@/lib/ui-types"
-import type { UIColor } from "@/lib/ui-types"
-import { vcsRequestFactory } from "@/stores/repository"
+import type { FileDiff } from "@/lib/bindings"
+import type { CommandResult } from "@/lib/command"
+import { invokeCommand } from "@/lib/command"
 import type { ConflictDiffViewMode } from "@/stores/settings/conflictViewer"
 
+/** A file of the list */
+export interface OnDemandFile {
+  /** The path after the change: the key of its diff, and what the copy button copies */
+  path: string
+  /** The header text; the path by default (`old → new` for a rename) */
+  label?: string
+  /** Before the chevron: the status badge, the line counts; must not be interactive */
+  actions: ReactNode
+  /** Shown instead of a diff, which is not loaded (a binary file) */
+  notice?: string
+}
+
 export interface OnDemandFileDiffListProps {
-  files: readonly UncommittedFileChange[]
+  files: readonly OnDemandFile[]
   keyPrefix: string
   diffViewMode?: ConflictDiffViewMode
+  /** Reads the diff of a file, when its item is first expanded */
+  loadDiff: (file: OnDemandFile) => Promise<CommandResult<FileDiff>>
 }
 
 type FileDiffState = { kind: "loading" } | { kind: "error", message: string } | { kind: "loaded", diff: FileDiff }
 
-/** Accordion of changed files; the diff of a file is loaded from the working tree when its item is first expanded. */
-export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified" }: OnDemandFileDiffListProps) {
+/**
+ * Accordion of changed files (the uncommitted changes, the files of a commit); the diff of a file is loaded when its
+ * item is first expanded.
+ */
+export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified", loadDiff }: OnDemandFileDiffListProps) {
   const isDark = useIsDark()
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   // keyed by file path
@@ -34,23 +49,18 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
     setDiffStates(previous => new Map(previous).set(filePath, state))
   }
 
-  const loadFileContent = async (filePath: string) => {
-    requestedRef.current.add(filePath)
-    setDiffState(filePath, { kind: "loading" })
-    try {
-      const vcsRequest = vcsRequestFactory.createRequest()
-      const result = await commands.getFileContentForDiff({ repositoryPath: vcsRequest.repositoryPath, filePath })
-      if (result.status === "error") {
-        throw new Error(result.error.message)
-      }
-      setDiffState(filePath, { kind: "loaded", diff: result.data })
+  const loadFileContent = async (file: OnDemandFile) => {
+    requestedRef.current.add(file.path)
+    setDiffState(file.path, { kind: "loading" })
+    const result = await invokeCommand(() => loadDiff(file))
+    if (result.status === "ok") {
+      setDiffState(file.path, { kind: "loaded", diff: result.data })
+      return
     }
-    catch (error) {
-      console.error("Failed to load file content:", error)
-      // a failed load is retried on the next expand
-      requestedRef.current.delete(filePath)
-      setDiffState(filePath, { kind: "error", message: `Failed to load content: ${String(error)}` })
-    }
+    console.error("Failed to load file content:", result.error)
+    // a failed load is retried on the next expand
+    requestedRef.current.delete(file.path)
+    setDiffState(file.path, { kind: "error", message: `Cannot load the diff: ${result.error.message}` })
   }
 
   const handleValueChange = (value: unknown[]) => {
@@ -60,70 +70,52 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
 
     for (const item of newlyExpanded) {
       const file = files[Number.parseInt(item.replace("item-", ""), 10)]
-      if (file && !requestedRef.current.has(file.filePath)) {
-        void loadFileContent(file.filePath)
+      if (file && file.notice === undefined && !requestedRef.current.has(file.path)) {
+        void loadFileContent(file)
       }
     }
   }
 
   return (
-    <div className="bd-padding-card">
-      <AccordionPrimitive.Root multiple value={expandedItems} onValueChange={handleValueChange} className="flex flex-col gap-2">
-        {files.map((file, index) => {
-          const state = diffStates.get(file.filePath)
-          return (
-            <AccordionPrimitive.Item
-              key={`${keyPrefix}-${index}`}
-              value={`item-${index}`}
-              className="overflow-hidden rounded-lg border border-border"
-            >
-              <CollapsibleFileHeader
-                fileName={file.filePath}
-                actions={<Badge variant={subtleBadgeVariant(getStatusColor(file.status))}>{file.status}</Badge>}
-              />
-              <AccordionPrimitive.Panel className="border-t border-border">
-                {state?.kind === "loading" && (
-                  <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                    <Spinner className="size-4" />
-                    Loading file content…
-                  </p>
-                )}
-                {state?.kind === "error" && (
-                  <div className="p-4">
-                    <Callout tone="destructive" title={state.message} />
-                  </div>
-                )}
-                {state?.kind === "loaded" && (
-                  <DiffView
-                    data={state.diff}
-                    diffViewMode={diffViewMode === "unified" ? DiffModeEnum.Unified : DiffModeEnum.Split}
-                    diffViewWrap
-                    diffViewHighlight
-                    diffViewFontSize={12}
-                    diffViewTheme={isDark ? "dark" : "light"}
-                  />
-                )}
-              </AccordionPrimitive.Panel>
-            </AccordionPrimitive.Item>
-          )
-        })}
-      </AccordionPrimitive.Root>
-    </div>
+    <AccordionPrimitive.Root multiple value={expandedItems} onValueChange={handleValueChange} className="flex flex-col gap-2">
+      {files.map((file, index) => {
+        const state = diffStates.get(file.path)
+        return (
+          <AccordionPrimitive.Item
+            key={`${keyPrefix}-${index}`}
+            value={`item-${index}`}
+            className="overflow-hidden rounded-lg border border-border"
+          >
+            <CollapsibleFileHeader fileName={file.path} label={file.label} actions={file.actions} />
+            <AccordionPrimitive.Panel className="border-t border-border">
+              {file.notice !== undefined && <p className="p-4 text-sm text-muted-foreground">{file.notice}</p>}
+              {state?.kind === "loading" && (
+                <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                  Loading file content…
+                </p>
+              )}
+              {state?.kind === "error" && (
+                <div className="p-4">
+                  <Callout tone="destructive" title={state.message} />
+                </div>
+              )}
+              {state?.kind === "loaded" && (state.diff.hunks.length === 0
+                ? <p className="p-4 text-sm text-muted-foreground">No changed lines</p>
+                : (
+                    <DiffView
+                      data={state.diff}
+                      diffViewMode={diffViewMode === "unified" ? DiffModeEnum.Unified : DiffModeEnum.Split}
+                      diffViewWrap
+                      diffViewHighlight
+                      diffViewFontSize={12}
+                      diffViewTheme={isDark ? "dark" : "light"}
+                    />
+                  ))}
+            </AccordionPrimitive.Panel>
+          </AccordionPrimitive.Item>
+        )
+      })}
+    </AccordionPrimitive.Root>
   )
-}
-
-function getStatusColor(status: string): UIColor {
-  switch (status) {
-    case "added":
-      return "success"
-    case "modified":
-      return "info"
-    case "deleted":
-      return "error"
-    case "renamed":
-    case "copied":
-      return "neutral"
-    default:
-      return "info"
-  }
 }
