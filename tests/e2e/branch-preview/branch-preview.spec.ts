@@ -127,6 +127,7 @@ test.describe("Branch preview", () => {
           unpushedCommits: [],
           commitsBehind: 0,
           myUnpushedCount: 0,
+          fastForward: true,
           // the time of the newest commit: the page runs on a fixed clock
           lastPushTime: 1704139200,
         },

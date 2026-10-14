@@ -21,16 +21,23 @@ function plural(n: number, one: string, many: string): string {
 
 const remoteDiffText = "you removed or changed locally"
 
+/** A rebased branch is not a fast-forward of its remote: the push replaces the remote commits, nothing is lost */
+const rebasedText = "The branch was rebased onto the baseline: the push replaces the remote commits with their rebased copies."
+
 export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, lastPushTime, myCommitsAhead } = remote
+  const { exists, commitsAhead, commitsBehind, lastPushTime, myCommitsAhead, fastForward } = remote
   const my = myCommitsAhead ?? 0
 
   const addPushTime = (tooltip: string): string => lastPushTime > 0
     ? `${tooltip}\n\nLast pushed: ${formatTimestamp(lastPushTime)}`
     : tooltip
 
+  // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
   if (exists && commitsAhead === 0 && commitsBehind === 0) {
-    return { text: "up to date", tooltip: addPushTime("Everything is in sync with the remote.") }
+    const tooltip = fastForward
+      ? "Everything is in sync with the remote."
+      : "The remote has all the commits; the branch was only rebased onto the baseline."
+    return { text: "up to date", tooltip: addPushTime(tooltip) }
   }
 
   // not pushed / first push
@@ -55,9 +62,10 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
 
   // ahead only
   if (commitsAhead > 0) {
-    const tooltip = my > 0
+    const ahead = my > 0
       ? `You have ${plural(my, "of your commit", "of your commits")} not on remote (${commitsAhead} total).`
       : `${plural(commitsAhead, "commit", "commits")} to push (no local authored changes).`
+    const tooltip = fastForward ? ahead : `${ahead}\n${rebasedText}`
     return { text: `${my} (${commitsAhead})↑`, tooltip: addPushTime(tooltip) }
   }
 

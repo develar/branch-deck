@@ -3,6 +3,8 @@ import type { Page } from "@playwright/test"
 export interface PushResult {
   unpushedCommits?: string[]
   commitsBehind?: number
+  /** Defaults to no remote commit the branch lacks */
+  fastForward?: boolean
 }
 
 /** Answers `push_branch` in the page (the E2E server has no remote): the remote status after the push. */
@@ -18,6 +20,7 @@ export async function routePush(page: Page, results: Record<string, PushResult>)
         unpushedCommits,
         commitsBehind: result.commitsBehind ?? 0,
         myUnpushedCount: unpushedCommits.length,
+        fastForward: result.fastForward ?? (result.commitsBehind ?? 0) === 0,
         lastPushTime: 1704139200,
       },
     })

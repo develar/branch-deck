@@ -202,7 +202,7 @@ async fn test_my_commits_count_excludes_baseline_commits() {
     &events,
     "feature-a",
     1,
-    2,
+    1,
     0,
     "commit_a is patch-equivalent to remote, commit_c is new and needs to be pushed, commit_b is in baseline",
   );
@@ -245,9 +245,9 @@ async fn test_real_io_mockk_update_bug_scenario() {
     &events,
     "io-mockk-update",
     0,
-    2,
     0,
-    "Both commits are patch-equivalent to remote after rebase onto master with commit_a",
+    0,
+    "Both commits are on the remote by content: the remote has nothing to receive",
   );
 }
 
@@ -270,7 +270,6 @@ async fn test_compute_remote_status_directly() {
     "user/virtual/test",
     "test",
     Some(&scenario.user_email),
-    1,             // total_commits_in_branch
     "origin/main", // baseline_branch
   )
   .unwrap();
@@ -279,6 +278,7 @@ async fn test_compute_remote_status_directly() {
   assert_eq!(result.unpushed_commits.len(), 0, "Should be up to date after push");
   assert_eq!(result.my_unpushed_count, 0, "Should be up to date after push");
   assert_eq!(result.commits_behind, 0, "Should be up to date after push");
+  assert!(result.fast_forward);
 }
 
 /// Test scenario where a NEW commit is added after baseline merge.
@@ -319,7 +319,7 @@ async fn test_new_commit_after_baseline_merge() {
     &events,
     "feature",
     1,
-    3,
+    1,
     0,
     "commit_a is in baseline, commit_b is patch-equivalent, new improved commit should be counted",
   );
@@ -357,15 +357,16 @@ async fn test_rebased_branch_shows_zero_unpushed() {
     "user/virtual/grpc",
     "grpc",
     Some(&scenario.user_email),
-    1,
     "origin/main",
   )
   .unwrap();
 
   // After rebase, content should be recognized as equivalent despite different SHAs
   assert_eq!(result.my_unpushed_count, 0, "After rebase, should show 0 unpushed commits since content is equivalent");
-  assert_eq!(result.unpushed_commits.len(), 2, "Should have 2 commits ahead (master update + rebased grpc commit)");
+  // the master update is on the remote already, the rebased grpc commit is on it by content: nothing to push
+  assert_eq!(result.unpushed_commits, Vec::<String>::new(), "The remote has every commit by content");
   assert_eq!(result.commits_behind, 0, "Should be 0 behind - remote grpc commit is patch-equivalent after rebase");
+  assert!(!result.fast_forward, "The rebased branch replaces the remote commits");
 }
 
 /// Test unrelated commits from same author are not counted as "my commits"
@@ -441,8 +442,72 @@ async fn test_unrelated_commits_from_same_author_not_counted() {
     &events,
     "parallel-load-state",
     0,
-    1,
+    0,
     0,
     "BAZEL commits are in baseline, parallel commit is patch-equivalent - should count 0",
   );
+}
+
+/// A branch not on the remote sends its commits, the baseline excluded; mine counts only the user's commits
+#[test(tokio::test)]
+async fn test_new_branch_counts_commits_by_author() {
+  let scenario = TestScenario::new().with_author("user@example.com", "Test User");
+  scenario.setup_development_branch();
+
+  scenario.local_repo.create_commit("(feature) Mine", "mine.txt", "mine");
+  configure_test_author(&scenario.local_repo, "other@example.com", "Other User");
+  let tip = scenario.local_repo.create_commit("(feature) Theirs", "theirs.txt", "theirs");
+  scenario.local_repo.create_branch_at("user/virtual/feature", &tip).unwrap();
+
+  let result = compute_remote_status_for_branch(
+    &scenario.git_executor,
+    scenario.local_repo.path().to_str().unwrap(),
+    "user/virtual/feature",
+    "feature",
+    Some(&scenario.user_email),
+    "origin/main",
+  )
+  .unwrap();
+
+  assert!(!result.remote_exists);
+  assert_eq!(result.unpushed_commits.len(), 2);
+  assert_eq!(result.unpushed_commits.last(), Some(&tip), "oldest first");
+  assert_eq!(result.my_unpushed_count, 1, "the other author's commit is not mine");
+}
+
+/// A pushed branch rebased onto a newer baseline with a new commit: the push sends only that commit and replaces the
+/// remote commits with their rebased copies
+#[test(tokio::test)]
+async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
+  let scenario = TestScenario::new().with_author("user@example.com", "Test User");
+  scenario.setup_development_branch();
+
+  let first = scenario.local_repo.create_commit("(feature) First", "first.txt", "first");
+  scenario.local_repo.checkout("main").unwrap();
+  scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+
+  configure_test_author(&scenario.local_repo, "other@example.com", "Other User");
+  scenario.local_repo.create_commit("Baseline change", "baseline.txt", "baseline");
+  scenario.local_repo.push("origin", "main").unwrap();
+
+  scenario.configure_author();
+  scenario.local_repo.checkout("user/virtual/feature").unwrap();
+  scenario.local_repo.rebase("origin/main").unwrap();
+  let second = scenario.local_repo.create_commit("(feature) Second", "second.txt", "second");
+
+  let result = compute_remote_status_for_branch(
+    &scenario.git_executor,
+    scenario.local_repo.path().to_str().unwrap(),
+    "user/virtual/feature",
+    "feature",
+    Some(&scenario.user_email),
+    "origin/main",
+  )
+  .unwrap();
+
+  assert_eq!(result.unpushed_commits, vec![second]);
+  assert_eq!(result.my_unpushed_count, 1);
+  assert_eq!(result.commits_behind, 0);
+  assert!(!result.fast_forward);
 }

@@ -225,15 +225,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
 
   // Compute and emit remote status for this branch
   let local_ref = full_branch_name.clone(); // e.g., "prefix/virtual/name"
-  if let Ok(remote_status) = compute_remote_status_for_branch(
-    git_executor,
-    repository_path,
-    &local_ref,
-    &branch_name,
-    my_email.as_deref(),
-    u32::try_from(total_commits_in_branch).unwrap_or(u32::MAX),
-    baseline_branch,
-  ) {
+  if let Ok(remote_status) = compute_remote_status_for_branch(git_executor, repository_path, &local_ref, &branch_name, my_email.as_deref(), baseline_branch) {
     let _ = progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }
 

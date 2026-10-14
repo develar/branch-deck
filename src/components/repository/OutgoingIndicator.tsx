@@ -23,9 +23,9 @@ export interface OutgoingIndicatorProps {
 }
 
 /**
- * Header button with the commits waiting to be pushed and a bar of one segment per branch: the hue says what its push
- * does, the solid part is the user's commits. Hover or click opens the overview. With nothing to push it shows the open
- * pull requests instead, and it is hidden when there are none either.
+ * Header button with the commits waiting to be pushed and a bar of one segment per branch: the hue says whether its push
+ * drops remote commits, the solid part is the user's commits. Hover or click opens the overview. With nothing to push it
+ * shows the open pull requests instead, and it is hidden when there are none either.
  */
 export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], needsAttention = false, footer }: OutgoingIndicatorProps) {
   const summary = usePushSummary()
@@ -84,18 +84,18 @@ export function OutgoingIndicator({ renderPullRequest, reviewBranches = [], need
 }
 
 /**
- * A segment per branch (or per state for many branches), its width proportional to the commits; the user's commits are
+ * A segment per branch (or per hue for many branches), its width proportional to the commits; the user's commits are
  * solid, the others' light. The segments of the branches are apart, the two parts of a segment touch.
  */
 function OutgoingBar({ summary }: { summary: PushSummary }) {
   return (
     <span aria-hidden className="ml-1 flex h-1.5 w-16 gap-0.5 overflow-hidden" data-testid="outgoing-bar">
       {getOutgoingBarSegments(summary).map((segment) => {
-        const fill = outgoingBarFill(segment.state)
+        const fill = outgoingBarFill(segment.hue)
         return (
           <span
             key={segment.key}
-            data-state={segment.state}
+            data-hue={segment.hue}
             className={cn("flex h-full min-w-0.5 basis-0 overflow-hidden rounded-sm", fill.others)}
             style={{ flexGrow: segment.weight }}
           >

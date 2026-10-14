@@ -32,6 +32,8 @@ export interface RemoteStatus {
   commitsAhead: number
   commitsBehind: number
   myCommitsAhead: number
+  /** The remote branch is an ancestor of the local one; a rebased branch is not, its push is a force push */
+  fastForward: boolean
   /** Unix timestamp, 0 = never pushed */
   lastPushTime: number
 }
@@ -302,7 +304,7 @@ export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus):
   updateBranch(name, branch => ({ ...branch, remoteStatus }))
 }
 
-type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "lastPushTime">
+type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "fastForward" | "lastPushTime">
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
   return {
@@ -311,6 +313,7 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     commitsAhead: update.unpushedCommits.length,
     commitsBehind: update.commitsBehind,
     myCommitsAhead: update.myUnpushedCount ?? 0,
+    fastForward: update.fastForward,
     lastPushTime: update.lastPushTime ?? 0,
   }
 }

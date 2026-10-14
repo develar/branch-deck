@@ -27,7 +27,6 @@ export async function pushBranch(branchName: string): Promise<void> {
       repositoryPath: request.repositoryPath,
       branchPrefix: request.branchPrefix,
       branchName,
-      totalCommits: branch.commitCount,
       myEmail: branch.myEmail,
       baselineBranch: branchSyncStore.getState().baselineBranch!,
     })

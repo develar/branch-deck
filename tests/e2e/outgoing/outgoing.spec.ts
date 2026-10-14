@@ -28,10 +28,10 @@ test.describe("Outgoing indicator", () => {
     const indicator = getIndicator(page)
     await expect(indicator).toHaveAccessibleName(`${TOTAL} commits to push in ${BRANCH_COUNT} branches`)
     await expect(indicator.getByTestId("outgoing-total")).toHaveText(String(TOTAL))
-    const segments = indicator.getByTestId("outgoing-bar").locator("[data-state]")
+    const segments = indicator.getByTestId("outgoing-bar").locator("[data-hue]")
     await expect(segments).toHaveCount(BRANCH_COUNT)
-    // nothing is pushed yet: every push creates the remote branch
-    await expect(indicator.getByTestId("outgoing-bar").locator("[data-state=create]")).toHaveCount(BRANCH_COUNT)
+    // nothing is pushed yet: every push creates the remote branch, a safe push
+    await expect(indicator.getByTestId("outgoing-bar").locator("[data-hue=primary]")).toHaveCount(BRANCH_COUNT)
   })
 
   test("should list the outgoing branches in the overview on hover", async ({ page }) => {
@@ -80,11 +80,11 @@ test.describe("Outgoing indicator", () => {
     await expect(row).toContainText("1 (1)↑ · 1↓")
     await expect(row).toContainText("force")
     await expect(row.getByRole("button", { name: "Force Push (1)" })).toBeEnabled()
-    await expect(popover.getByTestId("outgoing-legend")).toHaveText("pushforce push")
+    await expect(popover.getByTestId("outgoing-legend")).toHaveText("pushdrops remote commits")
 
     const indicator = getIndicator(page)
     await expect(indicator.getByTestId("outgoing-total")).toHaveText(String(TOTAL - 3 - 4 + 1))
-    await expect(indicator.getByTestId("outgoing-bar").locator("[data-state=force]")).toHaveCount(1)
+    await expect(indicator.getByTestId("outgoing-bar").locator("[data-hue=warning]")).toHaveCount(1)
   })
 })
 

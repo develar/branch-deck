@@ -7,7 +7,7 @@ use tracing::instrument;
 #[inline]
 fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> u32 {
   // Only check reflog if we need the push time
-  if let Ok(lines) = git_executor.execute_command_lines(&["--no-pager", "reflog", "show", "--date=unix", remote_ref], repository_path) {
+  if let Ok(lines) = git_executor.execute_command_lines(&["reflog", "show", "--date=unix", remote_ref], repository_path) {
     for line in lines {
       if line.contains("update by push") {
         // Extract unix timestamp from format: "hash refs/remotes/origin/branch@{unix_timestamp}: update by push"
@@ -23,8 +23,32 @@ fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, 
   0
 }
 
+/// The commits of a `rev-list` walk, oldest first, and how many of them the user authored
+struct WalkedCommits {
+  commits: Vec<String>,
+  mine: u32,
+}
+
+fn walk(git_executor: &GitCommandExecutor, repository_path: &str, args: &[&str], my_email: Option<&str>) -> Result<WalkedCommits> {
+  let mut command = vec!["rev-list", "--reverse", "--no-commit-header", "--format=%H %ae"];
+  command.extend_from_slice(args);
+  let mut walked = WalkedCommits { commits: Vec::new(), mine: 0 };
+  for line in git_executor.execute_command_lines(&command, repository_path)? {
+    let (hash, email) = line.split_once(' ').unwrap_or((&line, ""));
+    if my_email.is_some_and(|my_email| email.eq_ignore_ascii_case(my_email)) {
+      walked.mine += 1;
+    }
+    walked.commits.push(hash.to_string());
+  }
+  Ok(walked)
+}
+
 /// Compute remote status for a single local virtual branch.
 /// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix).
+///
+/// The sync rebuilds a virtual branch on the latest baseline, so its hashes change while its work stays the same.
+/// The status compares content, not hashes: the baseline commits are on the remote already, and a rebased copy of a
+/// pushed commit is patch-equivalent to it. Only the commits whose content the remote lacks are unpushed.
 #[instrument(
   skip(git_executor),
   fields(
@@ -38,59 +62,50 @@ pub fn compute_remote_status_for_branch(
   local_ref: &str,
   branch_name: &str,
   my_email: Option<&str>,
-  total_commits_in_branch: u32,
-  baseline_branch: &str, // Used to exclude commits already in master
+  baseline_branch: &str,
 ) -> Result<RemoteStatusUpdate> {
   let remote_ref = format!("origin/{local_ref}");
+  let baseline_exclusion = format!("^{baseline_branch}");
 
-  // Fast check if remote exists
   if !git_executor.ref_exists(repository_path, &format!("refs/remotes/{remote_ref}")) {
+    let walked = walk(git_executor, repository_path, &[&baseline_exclusion, local_ref], my_email)?;
     return Ok(RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: false,
-      unpushed_commits: Vec::new(),
+      my_unpushed_count: walked.mine,
+      unpushed_commits: walked.commits,
       commits_behind: 0,
-      my_unpushed_count: total_commits_in_branch,
+      fast_forward: true,
       last_push_time: 0,
     });
   }
 
-  // Unpushed commits (all commits ahead, including patch-equivalent); their count is "ahead"
+  // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
   let range = format!("{remote_ref}...{local_ref}");
-  let unpushed_range = format!("{remote_ref}..{local_ref}");
-  let unpushed_commits = git_executor.execute_command_lines(&["--no-pager", "rev-list", "--reverse", &unpushed_range], repository_path)?;
+  let unpushed = walk(git_executor, repository_path, &["--cherry-pick", "--right-only", &baseline_exclusion, &range], my_email)?;
 
-  // Calculate commits behind using cherry-pick to exclude patch-equivalent commits
-  // This prevents showing rebased commits as "removed or changed locally"
-  let behind_output = git_executor.execute_command(&["--no-pager", "rev-list", "--cherry-pick", "--left-only", "--count", &range], repository_path)?;
+  // the remote commits whose content the branch lacks: a push drops them. The baseline is not excluded here,
+  // so a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.
+  let behind_output = git_executor.execute_command(&["rev-list", "--cherry-pick", "--left-only", "--count", &range], repository_path)?;
   let behind: u32 = behind_output.trim().parse().unwrap_or(0);
 
-  // Calculate my_unpushed_count only if something is ahead and we have an email to filter by
-  let my_unpushed_count = match my_email {
-    Some(email) if !unpushed_commits.is_empty() => {
-      // Get patch-unique commits by the specific author, excluding those already in baseline
-      // Using git's --author filter and ^baseline to exclude commits already in master
-      let author_filter = format!("--author={email}");
-      let baseline_exclusion = format!("^{baseline_branch}");
-      let output = git_executor.execute_command_lines(
-        &["--no-pager", "rev-list", "--cherry-pick", "--right-only", &author_filter, &baseline_exclusion, &range],
-        repository_path,
-      )?;
-
-      // Count patch-unique commits by the user that are not already in baseline
-      u32::try_from(output.iter().filter(|line| !line.is_empty()).count()).unwrap_or(u32::MAX)
-    }
-    _ => 0,
-  };
+  // a rebased branch is not a fast-forward of its remote even when nothing is lost: the push replaces the remote
+  // commits with their rebased copies
+  let fast_forward = behind == 0
+    && git_executor
+      .execute_command_with_status(&["merge-base", "--is-ancestor", &remote_ref, local_ref], repository_path)?
+      .1
+      == 0;
 
   let last_push_time = get_last_push_time(git_executor, repository_path, &remote_ref);
 
   Ok(RemoteStatusUpdate {
     branch_name: branch_name.to_string(),
     remote_exists: true,
-    unpushed_commits,
+    my_unpushed_count: unpushed.mine,
+    unpushed_commits: unpushed.commits,
     commits_behind: behind,
-    my_unpushed_count,
+    fast_forward,
     last_push_time,
   })
 }

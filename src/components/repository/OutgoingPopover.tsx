@@ -3,7 +3,7 @@ import { cn } from "cn"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import type { OutgoingBranch, OutgoingState, PushSummary } from "@/lib/push-summary"
-import { formatOutgoingCount, formatOutgoingTitle, getOutgoingLegend, outgoingBarFill } from "@/lib/push-summary"
+import { formatOutgoingCount, formatOutgoingTitle, getOutgoingLegend, getPushHue, outgoingBarFill } from "@/lib/push-summary"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
@@ -137,7 +137,7 @@ function BranchNameButton({ name, onReveal }: { name: string, onReveal: (name: s
 
 /** On a `bg-muted` track, the commits of the push: the user's solid, the others' light; solid for a push of no commit. */
 function OutgoingRowBar({ branch, max }: { branch: OutgoingBranch, max: number }) {
-  const fill = outgoingBarFill(branch.state)
+  const fill = outgoingBarFill(getPushHue(branch.behind))
   return (
     <span aria-hidden className="h-1.5 rounded-sm bg-muted">
       <span
@@ -159,13 +159,13 @@ function OutgoingPushButton({ name }: { name: string }) {
   return branch === undefined ? <span /> : <BranchPushButton branch={branch} colored={false} />
 }
 
-/** What the colours mean: a hue per push of the states present, then solid and light when some commits are others'. */
+/** What the colours mean: a swatch per hue present, then solid and light when some commits are others'. */
 function OutgoingLegend({ summary }: { summary: PushSummary }) {
   const entries = getOutgoingLegend(summary)
-  const fill = outgoingBarFill(entries[0]?.state ?? "push")
+  const fill = outgoingBarFill(entries[0]?.hue ?? "primary")
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground" data-testid="outgoing-legend">
-      {entries.map(entry => <LegendItem key={entry.label} swatch={outgoingBarFill(entry.state).mine} label={entry.label} />)}
+      {entries.map(entry => <LegendItem key={entry.label} swatch={outgoingBarFill(entry.hue).mine} label={entry.label} />)}
       {summary.mine < summary.total && (
         <>
           <span aria-hidden className="h-3 w-px bg-border" />

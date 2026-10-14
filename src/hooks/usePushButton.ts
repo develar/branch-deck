@@ -33,7 +33,7 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
       text = count > 0 ? `Force Push (${count})` : "Force Push"
       tooltip = mine > 0
         ? `Force push ${mine} of your commits.\n${texts.tooltip}`
-        : `Force push (no local authored changes).\n${texts.tooltip}; histories diverged after sync`
+        : `Force push (no local authored changes).\n${texts.tooltip}`
     }
     else if (commitsAhead > 0) {
       text = `Push (${commitsAhead})`

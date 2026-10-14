@@ -12,12 +12,11 @@ fn clone_upstream() -> (TestRepo, TestRepo) {
   (upstream, local)
 }
 
-fn params(local: &TestRepo, branch_name: &str, total_commits: u32) -> PushBranchParams {
+fn params(local: &TestRepo, branch_name: &str) -> PushBranchParams {
   PushBranchParams {
     repository_path: local.path().to_str().unwrap().to_string(),
     branch_prefix: "prefix".to_string(),
     branch_name: branch_name.to_string(),
-    total_commits,
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "master".to_string(),
   }
@@ -29,7 +28,7 @@ fn push_branch_creates_remote_branch_and_reports_status() {
   local.create_commit("(feature) Add feature", "feature.txt", "feature");
   local.create_branch("prefix/virtual/feature").unwrap();
 
-  let status = push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+  let status = push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
 
   assert!(upstream.branch_exists("prefix/virtual/feature"));
   assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), local.rev_parse("prefix/virtual/feature").unwrap());
@@ -43,7 +42,7 @@ fn push_branch_creates_remote_branch_and_reports_status() {
 fn push_branch_fails_without_local_branch() {
   let (upstream, local) = clone_upstream();
 
-  assert!(push_branch(local.git_executor(), &params(&local, "missing", 0)).is_err());
+  assert!(push_branch(local.git_executor(), &params(&local, "missing")).is_err());
   assert!(!upstream.branch_exists("prefix/virtual/missing"));
 }
 
@@ -53,7 +52,7 @@ fn push_branch_overwrites_its_own_rewritten_branch() {
   let base = local.head();
   local.create_commit("(feature) Add feature", "feature.txt", "feature");
   local.create_branch("prefix/virtual/feature").unwrap();
-  push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+  push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
 
   // the virtual branch is rebuilt: not a fast-forward of what was pushed
   local.reset_hard(&base).unwrap();
@@ -64,7 +63,7 @@ fn push_branch_overwrites_its_own_rewritten_branch() {
     .execute_command(&["update-ref", "refs/heads/prefix/virtual/feature", &rewritten], path)
     .unwrap();
 
-  push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+  push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
 
   assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), rewritten);
 }
@@ -74,7 +73,7 @@ fn push_branch_keeps_a_remote_commit_pushed_from_elsewhere() {
   let (upstream, local) = clone_upstream();
   local.create_commit("(feature) Add feature", "feature.txt", "feature");
   local.create_branch("prefix/virtual/feature").unwrap();
-  push_branch(local.git_executor(), &params(&local, "feature", 1)).unwrap();
+  push_branch(local.git_executor(), &params(&local, "feature")).unwrap();
 
   // someone pushes to the branch from another clone; this clone has not fetched it
   upstream.checkout("prefix/virtual/feature").unwrap();
@@ -87,6 +86,6 @@ fn push_branch_keeps_a_remote_commit_pushed_from_elsewhere() {
     .execute_command(&["update-ref", "refs/heads/prefix/virtual/feature", "HEAD"], path)
     .unwrap();
 
-  assert!(push_branch(local.git_executor(), &params(&local, "feature", 2)).is_err());
+  assert!(push_branch(local.git_executor(), &params(&local, "feature")).is_err());
   assert_eq!(upstream.rev_parse("prefix/virtual/feature").unwrap(), theirs);
 }

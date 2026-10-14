@@ -14,7 +14,6 @@ pub struct PushBranchParams {
   pub repository_path: String,
   pub branch_prefix: String,
   pub branch_name: String,
-  pub total_commits: u32,
   pub my_email: Option<String>,
   pub baseline_branch: String,
 }
@@ -47,7 +46,6 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams)
     &final_branch_name,
     branch_name,
     params.my_email.as_deref(),
-    params.total_commits,
     &params.baseline_branch,
   )
   .context("Failed to compute remote status")

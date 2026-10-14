@@ -50,6 +50,7 @@ describe("countPushedCommits", () => {
     commitsAhead: unpushedCommits.length,
     commitsBehind: 0,
     myCommitsAhead: unpushedCommits.length,
+    fastForward: true,
     lastPushTime: 0,
   })
 

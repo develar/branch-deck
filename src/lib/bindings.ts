@@ -519,19 +519,22 @@ export type PushBranchParams = {
 	repositoryPath: string,
 	branchPrefix: string,
 	branchName: string,
-	totalCommits: number,
 	myEmail: string | null,
 	baselineBranch: string,
 };
 
-/**  Remote branch status information */
+/**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
 export type RemoteStatusUpdate = {
 	branchName: string,
 	remoteExists: boolean,
+	/**  Commits of the branch whose content the remote lacks, oldest first; all the commits of a branch not on the remote */
 	unpushedCommits: string[],
+	/**  Commits of the remote whose content the branch lacks: a push drops them */
 	commitsBehind: number,
-	/**  Number of commits ahead authored by the current user (derived during sync) */
+	/**  Of the unpushed commits, the ones authored by the current user */
 	myUnpushedCount: number,
+	/**  The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites */
+	fastForward: boolean,
 	/**  Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed) */
 	lastPushTime: number,
 };

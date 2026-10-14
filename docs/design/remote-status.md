@@ -1,7 +1,7 @@
 # Remote Status for Virtual Branches
 
 **Status:** Implemented  
-**Updated:** 2025-09-09  
+**Updated:** 2026-10-14  
 **Tags:** [git, remote-status, virtual-branches]
 
 ## Problem
@@ -11,7 +11,9 @@ Virtual branches are continuously rebased onto the latest baseline (main), accum
 - Which commits are actually the user's new work versus baseline commits
 - Clear indication of what will be pushed to remote
 
-The challenge is providing accurate "my commits" counts that reflect only the user's actual feature work, excluding both baseline commits and commits already integrated through other branches.
+The challenge is counting only what the remote lacks. A branch pushed a while ago and rebased onto a baseline that
+moved 356 commits since is not "356 commits to push": the remote has those commits (they are the baseline), and it has
+the user's commits by content. Counting hashes summed such baseline drift over every branch into a meaningless total.
 
 Additionally, when virtual branches are rebased onto the latest baseline, they create a diverged history where:
 - Local branch has commits with new SHAs (after rebase)  
@@ -21,13 +23,14 @@ Additionally, when virtual branches are rebased onto the latest baseline, they c
 
 ## Solution Overview
 
-Calculate remote status using Git's cherry-pick algorithm for patch-equivalent comparison:
-- **Total commits ahead** shows all commits that will be pushed
-- **Commits behind** uses `--cherry-pick` to exclude patch-equivalent commits, preventing false divergence
-- **"My commits"** filters by author email using cherry-pick for accurate attribution
-- **UI display** always shows user's commit count explicitly ("0 (n)↑" format) with clear messaging
-
-This approach ensures users see accurate status without confusion from rebased commits that appear different but contain identical content.
+Compare content, not hashes, with Git's cherry-pick algorithm:
+- **Commits ahead** are the commits whose content the remote lacks: the baseline and the rebased copies of pushed
+  commits are left out. A branch only rebased onto a newer baseline is up to date.
+- **Commits behind** are the remote commits whose content the branch lacks: a push drops them.
+- **"My commits"** are the commits ahead authored by the user.
+- **Fast-forward** says whether the remote branch is an ancestor of the local one. A rebased branch is not, so its push
+  is a force push; it follows the refs, not the result of the last sync, and stays the same across restarts.
+- **UI display** always shows the user's commit count explicitly ("0 (n)↑" format).
 
 ## Design
 
@@ -53,32 +56,40 @@ flowchart TD
 
 ### Key Decisions
 
-1. **Decision**: Filter "my commits" by author email
+1. **Decision**: Filter "my commits" by author email, also for a branch not on the remote
    **Rationale**: Virtual branches may contain commits from multiple authors; users need to see their own contributions
 
-2. **Decision**: Use `^baseline` exclusion in addition to author filter
-   **Rationale**: Author's commits may already be integrated through other branches; exclude duplicates
+2. **Decision**: Exclude `^baseline` and patch-equivalent commits from the commits ahead
+   **Rationale**: The remote has the baseline commits, and a rebased copy of a pushed commit adds nothing; counting them
+   reports the distance the baseline moved, summed over every branch
 
 3. **Decision**: Separate counts for total vs "my" commits
-   **Rationale**: Users need both perspectives - total shows everything that will be pushed, "my" shows personal contributions
+   **Rationale**: Users need both perspectives - total shows the commits of others the push sends too, "my" shows
+   personal contributions
 
 4. **Decision**: Pass baseline branch through sync pipeline
    **Rationale**: Consistent access to baseline reference for filtering operations
 
-5. **Decision**: Use `--cherry-pick` for commits behind calculation
-   **Rationale**: After rebasing, commits have different SHAs but same content. Using `--cherry-pick` correctly identifies patch-equivalent commits, preventing false "commits behind" counts that confuse users with messages about "commits you removed or changed locally"
+5. **Decision**: Use `--cherry-pick` for commits behind calculation, without `^baseline`
+   **Rationale**: After rebasing, commits have different SHAs but same content. Using `--cherry-pick` correctly identifies patch-equivalent commits, preventing false "commits behind" counts that confuse users with messages about "commits you removed or changed locally". The baseline stays in the walk: a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy, not reported as dropped.
+
+6. **Decision**: Force push from `merge-base --is-ancestor`, not from the sync status
+   **Rationale**: The sync reports a branch as rewritten only in the sync that rewrote it; the next sync or a restart
+   reported the same remote state as a plain push. The refs give the same answer every time.
 
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
-- **Total commits ahead**: `git rev-list --left-right --count origin/branch...local` (right side)
+- **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H %ae ^baseline
+  origin/branch...local`; the user's commits are the ones whose author email matches.
 - **Commits behind (patch-aware)**: `git rev-list --cherry-pick --left-only --count origin/branch...local`
-- **My commits ahead**: `git rev-list --cherry-pick --right-only --author {email} origin/branch...local`
+- **Fast-forward**: `git merge-base --is-ancestor origin/branch local`, when nothing is behind.
+- **Branch not on the remote**: `git rev-list --format=%H %ae ^baseline local`.
 
 The cherry-pick algorithm ensures accurate comparison:
 1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA)
 2. `--left-only` / `--right-only` - Shows commits unique to remote/local respectively
-3. `--author {email}` - Filters by commit author for personal attribution
+3. `^baseline` - Excludes the baseline commits, which the remote has
 
 Key components:
 - **Remote status calculation**: `crates/sync-core/src/remote_status.rs`
@@ -94,19 +105,21 @@ Key components:
 - Avoid misleading messages about "commits you removed" when they're just rebased
 
 ### Colours
-One rule colours a push: the hue comes from the push action (`pushStateColor` and `getPushColor` in
-`src/lib/push-summary.ts`), `primary` for a push or a first push, `warning` for a force push (behind or diverged, or
-rewritten by the sync). Up to date, and a plain push of none of the user's commits, are neutral. The push button, the
+One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`),
+`warning` for a push that drops remote commits (behind), `primary` otherwise, also for the force push of a rebased
+branch, which only replaces the remote commits with their copies. Up to date, and a safe push of none of the user's
+commits, are neutral. The push button, the
 status text and the header bars use it; the bars add lightness for authorship (solid mine, light others'). See
 [Outgoing Commits](../../spec/repository/outgoing.spec.md).
 
 ### Handling Rebased Branches
-When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent, showing 0 commits behind instead of confusing users with diverged history counts.
+When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped).
 
 ## Alternatives Considered
 
-- **Show Only Feature Commits (Hide Baseline)**:
-  - Why not: Users need to see total push size for bandwidth/review considerations
+- **Count every commit ahead by hash, the baseline included** (the earlier design):
+  - Why not: the remote has the baseline commits, so they cost nothing to push and are not under review. The count
+    grew with every baseline update and summed the same commits over every branch.
 
 - **Complex Commit Tracking with Metadata**:
   - Why not: Git's built-in exclusion syntax is simpler and more performant
@@ -120,10 +133,9 @@ When branches are rebased onto latest master, the remote still has old pre-rebas
 ## Performance Considerations
 
 - **Constraint**: Must not slow down status calculation
-- **Solution**: Single additional exclusion in existing git command
-- **Measurement**: Negligible performance impact (<1ms added)
-
-The `^baseline` syntax is highly optimized in git's revision walking algorithm, adding minimal overhead.
+- **Solution**: two walks per branch (ahead with mine, behind) and a `merge-base` only when nothing is behind; the
+  `^baseline` exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push.
+  The commits ahead no longer carry baseline hashes to the UI.
 
 ## References
 

@@ -81,7 +81,7 @@ The arrows step through the branches of the table, and P pushes the shown branch
 ### Push
 
 - P or the push button in the footer must push the shown branch, as the push button of the row does, with the same
-  label ("Push (2)", "Create Remote", "Force Push (1)").
+  label ("Push (2)", "Create Remote (3)", "Force Push (1)").
 - P must work in any keyboard layout (the physical key).
 - The push must be disabled while a sync or a push of the branch runs, while an inline action runs on the row, and when
   everything is pushed.

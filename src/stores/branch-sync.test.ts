@@ -56,6 +56,7 @@ function remoteStatusUpdate(branchName: string, unpushedCount: number): RemoteSt
     unpushedCommits: Array.from({ length: unpushedCount }, (_, index) => `${branchName}${index}`),
     commitsBehind: 0,
     myUnpushedCount: unpushedCount,
+    fastForward: true,
     lastPushTime: 0,
   }
 }

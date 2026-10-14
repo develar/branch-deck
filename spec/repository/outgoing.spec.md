@@ -12,6 +12,8 @@ targets:
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/lib/push-summary.ts
+  - ../../src/lib/remote-status.ts
+  - ../../crates/sync-core/src/remote_status.rs
   - ../../src/stores/commit-move.ts
 ---
 
@@ -44,18 +46,32 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 
 ### What is outgoing
 
+The sync rebuilds a virtual branch on the latest baseline, so its hashes change while its work stays the same. What
+is outgoing compares content, not hashes: the question is whether the remote has the user's work as it is now.
+
 - A branch is outgoing when its row offers a push that is not disabled as up to date: the branch synced without an
   error, has commits, and its remote status is loaded and not up to date.
-- A branch not on the remote is outgoing with all its commits; the sync reports no commits ahead for it.
-  [@test] ../../src/lib/push-summary.test.ts (`counts every commit of a branch not on the remote`)
+- The commits of a push must be the commits whose content the remote lacks. The baseline commits must not count (the
+  remote has them), nor the rebased copies of pushed commits (patch-equivalent). A branch not on the remote counts all
+  its commits, the baseline excluded; mine counts only the user's commits, also for a first push.
+  [@test] ../../src/lib/push-summary.test.ts (`counts the commits whose content the remote lacks`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_new_branch_counts_commits_by_author`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_new_commit_after_baseline_merge`)
+- A branch only rebased onto a newer baseline must be up to date: the remote has all its commits by content. Its row
+  says so, and it is not outgoing.
+  [@test] ../../src/lib/push-summary.test.ts (`is up to date for a branch only rebased onto a newer baseline: the remote has its work`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_shows_zero_unpushed`)
 - A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
   must not count either, but the overview says how many there are.
   [@test] ../../src/lib/push-summary.test.ts (`skips the branches whose row offers no push and counts the ones not loaded`)
 - The state of a branch must follow the label of its push button:
-  - "create" for a branch not on the remote (`Create Remote`);
-  - "force" for a branch the remote has commits of that it lacks, or that the sync rewrote (`Force Push`);
+  - "create" for a branch not on the remote (`Create Remote (3)`);
+  - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, or the branch was rebased
+    onto a newer baseline (`Force Push`). It follows the remote branch and the local one, not the result of the last
+    sync, so it stays the same across syncs and restarts;
   - "push" otherwise (`Push (2)`).
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
 - The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
   commits.
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)
@@ -71,8 +87,8 @@ The overview answers "what is my work waiting on" without scanning the branch ta
   commit of a force push without commits is solid.
   [@test] ../../src/lib/push-summary.test.ts (`has a segment per branch, a force push without commits still visible`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the commits to push with a bar segment per branch`)
-- With more than 8 outgoing branches, the bar must have a segment per state instead, so the segments stay readable.
-  [@test] ../../src/lib/push-summary.test.ts (`has a segment per state for many branches`)
+- With more than 8 outgoing branches, the bar must have a segment per hue instead, so the segments stay readable.
+  [@test] ../../src/lib/push-summary.test.ts (`has a segment per hue for many branches`)
 - The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
   ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
@@ -90,8 +106,8 @@ The overview answers "what is my work waiting on" without scanning the branch ta
   for a force push, none for a plain push) and the push button of the branch row.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should list the outgoing branches in the overview on hover`)
 - A row bar must be stacked as the segments of the indicator.
-- A legend must name the colours of the states present ("push" for a push and a first push, "force push"), and, when
-  some commits are not the user's, the solid "yours" and the light "others'".
+- A legend must name the hues present ("push" for a safe push, "drops remote commits"), and, when some commits are not
+  the user's, the solid "yours" and the light "others'".
   [@test] ../../src/lib/push-summary.test.ts (`has a swatch per colour present`)
 - Below the rows, after a rule, the overview shows the update state of the baseline with an Update button
   ([Update Project](update-project.spec.md)).
@@ -106,12 +122,14 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 One rule colours a push wherever it shows: the push button and the status text of a branch row, the segments of the
 indicator and the row bars of the overview. The hue says how risky the push is, the lightness whose commits it sends.
 
-- The hue must follow the push action: `primary` for a push and a first push (both safe), `warning` for a force push,
-  which overwrites remote commits. A branch only behind the remote or diverged from it is a force push.
-  [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the push action: primary for a safe push, warning for a force push`)
-- Up to date is neutral. A plain push of no commit of the user is neutral too (muted button, grey status dot): there is
-  nothing of theirs to push. A first push and a force push keep their hue whoever authored the commits.
-  [@test] ../../src/lib/push-summary.test.ts (`is neutral for a plain push of no commit of the user`)
+- The hue must follow the risk of the push: `warning` when it drops remote commits the branch lacks (`· N↓`), `primary`
+  otherwise. A force push of a rebased branch only replaces the remote commits with their rebased copies: it is safe,
+  `primary`, and keeps the `Force Push` label, which says what git does.
+  [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`)
+- Up to date is neutral. A safe push of no commit of the user is neutral too (muted button, grey status dot): there is
+  nothing of theirs to push. A first push and a push that drops remote commits keep their hue whoever authored the
+  commits.
+  [@test] ../../src/lib/push-summary.test.ts (`is neutral for a safe push of no commit of the user`)
 - The status text of a push state is muted text with a dot of the push colour, never a badge: a force push after a sync
   is routine. Only an error or a conflict is a badge.
 - The overview must stay open across a push and follow its result: a pushed branch leaves the list, a branch whose
