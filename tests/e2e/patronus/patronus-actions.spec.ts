@@ -76,7 +76,7 @@ test.describe("Patronus actions", () => {
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Safe Push…" }).click()
     const form = page.getByTestId("patronus-start-form")
-    await expect(form.getByTestId("patronus-start-push-note")).toBeVisible()
+    await expect(form.getByTestId("patronus-start-push-note")).toHaveText("JIRA-456 isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.")
     await form.getByTestId("patronus-profile").click()
     // a profile that allows only dry runs is not offered for a Safe Push
     await expect(page.getByRole("option", { name: "Dry Only" })).toHaveCount(0)
@@ -167,7 +167,7 @@ test.describe("Patronus actions", () => {
       const checks = await routeCommand(page, "get_patronus_review_requirement", () => REQUIRED)
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await page.getByRole("menuitem", { name: "Dry Run…" }).click()
-      await expect(page.getByTestId("patronus-start-explanation")).toContainText("nothing is pushed")
+      await expect(page.getByTestId("patronus-start-explanation")).toContainText("without pushing into master")
       await expect(page.getByTestId("patronus-review")).toHaveCount(0)
       expect(checks).toHaveLength(0)
     })
@@ -245,7 +245,7 @@ test.describe("Patronus actions", () => {
       const statuses = await routeCommand(page, "get_patronus_robot_status", () => "running")
       const pushes = await routePush(page, { "JIRA-456": REMOTE_MOVED })
       const toast = await pushIntoMovedRemote(page, "Push Anyway")
-      await expect(toast).not.toContainText("cancelled")
+      await expect(toast).not.toContainText("canceled")
 
       await toast.getByRole("button", { name: "Force Push" }).click()
 
@@ -258,7 +258,7 @@ test.describe("Patronus actions", () => {
       expect(statuses).toHaveLength(2)
     })
 
-    test("should restart a robot cancelled for a push the remote refused once the toast pushes", async ({ page }) => {
+    test("should restart a robot canceled for a push the remote refused once the toast pushes", async ({ page }) => {
       const order: string[] = []
       let canceled = false
       await routeCommand(page, "get_patronus_robot_status", () => canceled ? "canceled" : "running")
@@ -273,7 +273,7 @@ test.describe("Patronus actions", () => {
       })
       const pushes = await routePush(page, { "JIRA-456": REMOTE_MOVED })
       const toast = await pushIntoMovedRemote(page, "Cancel, Push and Restart")
-      await expect(toast).toContainText("The Safe Push is cancelled: the push restarts it.")
+      await expect(toast).toContainText("The Safe Push is canceled: the push restarts it.")
       expect(order).toEqual(["cancel"])
 
       await toast.getByRole("button", { name: "Force Push" }).click()

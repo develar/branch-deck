@@ -169,20 +169,26 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 - The branch menu has "Safe Push…" and "Dry Run…" in a Patronus group when the repository is on Space (Patronus
   answered), disabled while a robot runs on the commit the branch is at (Patronus would refuse it). The preview footer
   has "Safe Push…": it closes the preview and opens the form of the row.
-- The form below the row says what happens, offers the merge profiles of the target branch that allow the mode (the
-  emergency ones never), "No profile" and, by default, the profile of the last robot of the branch; nothing is
-  remembered by Branch Deck. The profiles are `GET /robot-start-supported`, cached for 10 minutes (an error for 1).
-  A target branch Patronus does not protect can't be started.
+- The form below the row says what happens: "Patronus rebases auth onto master, runs the checks and pushes it into
+  master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks, without pushing into
+  master.". It offers the merge profiles of the target branch that allow the mode (the emergency ones never), "No
+  profile" and, by default, the profile of the last robot of the branch; nothing is remembered by Branch Deck. The
+  profiles are `GET /robot-start-supported`, cached for 10 minutes (an error for 1). A target branch Patronus does not
+  protect can't be started.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_leave_out_the_emergency_profiles_and_default_to_the_profile_of_the_last_robot`)
   [@test] ../../src/lib/patronus.test.ts (`offers a profile for the modes it allows; none listed allows any`)
   [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the commit the branch is at`)
 - The target branch is the branch of `origin` the baseline tracks (`origin/master` → `master`); a local baseline or one
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
-- A branch whose tip the remote lacks is pushed first, as the push button does it ("Push and Start Safe Push"); a failed
-  push starts nothing. Then `POST /robots` starts the robot on the pushed virtual branch, as the web UI does
-  (`ROBOT_WEB_UI`, the source branch `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart
-  takes the newest commit of the branch. The robot shows at once and is polled.
+- A branch whose tip the remote lacks is pushed first, as the push button does it ("Push and Start Safe Push"), and the
+  form says so: "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The
+  last commit of auth isn't on the remote yet: …" when the remote branch is older). A dry run pushes the branch too:
+  only the push into the target is left out. A failed push starts nothing. Then `POST /robots` starts the robot on the
+  pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch `refs/heads/{prefix}/virtual/{name}`,
+  kept: delete policy `NEVER`), so a restart takes the newest commit of the branch. The robot shows at once and is
+  polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
 - A start is never repeated by itself, not even right after the push: Patronus fetches the pushed branch while it
@@ -274,10 +280,10 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push at once when the robot finished meanwhile`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. A robot
-  cancelled for a push that did not happen must stay cancelled until the toast's push, which restarts it on the pushed
-  commit; the toast says so ("The Safe Push is cancelled: the push restarts it."). With nothing left to push it is
+  canceled for a push that did not happen must stay canceled until the toast's push, which restarts it on the pushed
+  commit; the toast says so ("The Safe Push is canceled: the push restarts it."). With nothing left to push it is
   restarted at once.
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask again before the push of the remote-moved toast`, `should restart a robot cancelled for a push the remote refused once the toast pushes`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask again before the push of the remote-moved toast`, `should restart a robot canceled for a push the remote refused once the toast pushes`)
 
 ### Branch preview
 
