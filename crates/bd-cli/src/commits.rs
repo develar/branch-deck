@@ -145,7 +145,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
   };
   let fixups = fixup_targets(&head, &ordered);
 
-  let short = context.short_ids(grouping.commit_ids.iter().map(String::as_str).chain(std::iter::once(head.as_str())))?;
+  let short = context.short_ids(grouping.commit_ids.iter().map(String::as_str).chain(std::iter::once(head.as_str())));
   let diff_of: HashMap<&str, &CommitDiff> = diffs.iter().map(|diff| (diff.id.as_str(), diff)).collect();
   let group_of = |index: usize| diffs.get(index).and_then(|diff| by_id.get(diff.id.as_str())).and_then(|(_, group)| *group);
 

@@ -65,6 +65,9 @@ pub struct BranchStatus {
   pub commit_count: usize,
   /// The tip of the virtual branch as last synced; `null` if it was never synced
   pub tip: Option<String>,
+  /// The pull request of the branch (not available yet: it will be the read-only status of `sync_core::pull_requests`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pull_request: Option<serde_json::Value>,
   /// Newest first; subjects without the `(prefix)`
   pub commits: Vec<CommitSummary>,
 }
@@ -131,7 +134,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
       .map(|commit| commit.id.as_str())
       .chain(tips.values().map(String::as_str))
       .chain(std::iter::once(head_id.as_str())),
-  )?;
+  );
   let summary = |commit: &git_ops::commit_list::Commit| CommitSummary {
     id: short.get(&commit.id).to_string(),
     subject: commit.stripped_subject.clone(),
@@ -151,6 +154,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           name: branch.name.clone(),
           reference,
           parent: None,
+          pull_request: None,
           issue_key: branch.issue_key.clone(),
           latest_time: branch.latest_commit_time,
           commit_count: branch.commits.len(),

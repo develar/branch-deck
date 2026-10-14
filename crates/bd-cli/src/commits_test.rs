@@ -1,9 +1,10 @@
 use crate::fixture_test::{commit_all, git, numbered_lines, repo_with_baseline, run_in, write};
+use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 fn short(id: &str) -> String {
-  id[..7].to_string()
+  short_id(id).to_string()
 }
 
 fn by_subject<'a>(output: &'a Value, subject: &str) -> &'a Value {

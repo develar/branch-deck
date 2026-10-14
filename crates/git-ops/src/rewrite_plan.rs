@@ -123,7 +123,8 @@ impl History {
   }
 }
 
-pub(crate) fn short_id(id: &str) -> &str {
+/// The abbreviated commit id used in messages and in the output of the agent CLI
+pub fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)
 }
 

@@ -85,13 +85,8 @@ impl RepoContext {
   }
 
   /// `ids` are all the commit ids the output names
-  pub fn short_ids<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Result<ShortIds, CliError> {
-    if !self.short_ids {
-      return Ok(ShortIds::full());
-    }
-    let (output, exit_code) = self.git.execute_command_with_status(&["rev-parse", "--short", "HEAD"], &self.repository)?;
-    let min_len = if exit_code == 0 { output.trim().len() } else { 7 };
-    Ok(ShortIds::new(min_len, ids))
+  pub fn short_ids<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> ShortIds {
+    if self.short_ids { ShortIds::new(ids) } else { ShortIds::full() }
   }
 }
 

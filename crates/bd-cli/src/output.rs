@@ -1,3 +1,4 @@
+use git_ops::rewrite_plan::short_id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
@@ -36,20 +37,20 @@ pub fn write_json<T: Serialize>(out: &mut dyn Write, value: &T) -> std::io::Resu
   out.write_all(b"\n")
 }
 
-/// Abbreviates commit ids to one length for a whole output: git's abbreviation length for the repository, longer when
-/// two ids of the output share that prefix
+/// Abbreviates commit ids as `short_id` does, longer for a whole output when two of its ids share that prefix
 pub struct ShortIds {
-  len: Option<usize>,
+  /// `None` keeps full ids
+  min_len: Option<usize>,
 }
 
 impl ShortIds {
   /// Full ids
   pub fn full() -> Self {
-    Self { len: None }
+    Self { min_len: None }
   }
 
-  /// `min_len` is the length of `git rev-parse --short`; `ids` are all the ids the output names
-  pub fn new<'a>(min_len: usize, ids: impl IntoIterator<Item = &'a str>) -> Self {
+  /// `ids` are all the ids the output names
+  pub fn new<'a>(ids: impl IntoIterator<Item = &'a str>) -> Self {
     let mut sorted: Vec<&str> = ids.into_iter().collect();
     sorted.sort_unstable();
     sorted.dedup();
@@ -58,15 +59,16 @@ impl ShortIds {
       .map(|pair| pair[0].bytes().zip(pair[1].bytes()).take_while(|(a, b)| a == b).count())
       .max()
       .unwrap_or(0);
-    Self {
-      len: Some(min_len.max(shared + 1)),
-    }
+    Self { min_len: Some(shared + 1) }
   }
 
   pub fn get<'a>(&self, id: &'a str) -> &'a str {
-    match self.len {
-      Some(len) if len < id.len() => &id[..len],
-      _ => id,
+    match self.min_len {
+      None => id,
+      Some(min_len) => {
+        let short = short_id(id);
+        if short.len() >= min_len { short } else { id.get(..min_len).unwrap_or(id) }
+      }
     }
   }
 }

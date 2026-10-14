@@ -1,4 +1,5 @@
 use crate::fixture_test::{PREFIX, commit_all, environment, git, repo_with_baseline, run_in, run_json, write};
+use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
@@ -19,7 +20,7 @@ fn grouped_repo() -> (TestRepo, Vec<String>) {
 }
 
 fn short(id: &str) -> String {
-  id[..7].to_string()
+  short_id(id).to_string()
 }
 
 #[test_log::test]

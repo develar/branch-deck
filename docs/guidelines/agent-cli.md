@@ -27,8 +27,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   `settings.json` in the app data directory (`~/Library/Application Support/org.develar.branch-deck/` on macOS).
   Without it, `git config branchdeck.branchPrefix` is used. An empty prefix is the error `no_branch_prefix`. Every
   output echoes the prefix.
-- `--full-ids` prints full commit ids. By default an id is cut to git's abbreviation length for the repository.
-  When two ids of one output share that prefix, all ids in it get longer.
+- `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
+  (`git_ops::rewrite_plan::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr stays empty.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the
   app, the CLI never asks a login shell for git.
@@ -72,12 +72,12 @@ integration detection, no update check and no network access. It runs about ten 
 for all the commits.
 
 ```json
-{"schema":1,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae","branch":"master"},
+{"schema":1,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},
  "baseline":"origin/master","branch_count":2,"unassigned_count":1,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","latest_time":1700000400,"commit_count":2,
-   "tip":"2c1d0e9","commits":[{"id":"9f3a2b1","subject":"Add logout"},{"id":"41c7d00","subject":"Add login"}]},
+   "tip":"2c1d0e93","commits":[{"id":"9f3a2b1c","subject":"Add logout"},{"id":"41c7d00e","subject":"Add login"}]},
   {"name":"ABC-12","ref":"refs/heads/develar/virtual/ABC-12","issue_key":"ABC-12", "...": "..."}],
- "unassigned":[{"id":"77e01aa","subject":"Tidy up"}]}
+ "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
 ```
 
 - Branches are listed newest first, the same order as the UI. The commits of a branch are newest first too, and
@@ -85,19 +85,20 @@ for all the commits.
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
-- `parent` (the parent of a stacked branch) is reserved and left out until stacks exist.
+- `parent` (the parent of a stacked branch) and `pull_request` (from `sync_core::pull_requests`) are reserved, and
+  left out until stacks and pull request status exist.
 
 ### `bd commits [--files] [--patch] [--branch <b>]`
 
 Prints every commit ahead of the baseline, oldest first, which is the order they are applied in.
 
 ```json
-{"schema":1,"repository":"/repo","prefix":"develar","head":"77e01aa","baseline":"origin/master",
- "commits":[{"id":"41c7d00","subject":"(auth) Add login","body":"...","author":"Name <mail>","time":1700000100,
+{"schema":1,"repository":"/repo","prefix":"develar","head":"77e01aa4","baseline":"origin/master",
+ "commits":[{"id":"41c7d00e","subject":"(auth) Add login","body":"...","author":"Name <mail>","time":1700000100,
    "group":"auth","files":[{"path":"auth.rs","status":"A","additions":12,"deletions":0}]},
-  {"id":"5e2f9c3","subject":"fixup! (auth) Add login","group":"auth",
-   "fixup":{"kind":"fixup","target":"41c7d00","target_subject":"(auth) Add login"}, "...": "..."}],
- "dependencies":[{"from":"5e2f9c3","to":"41c7d00","files":["auth.rs"]}],
+  {"id":"5e2f9c3b","subject":"fixup! (auth) Add login","group":"auth",
+   "fixup":{"kind":"fixup","target":"41c7d00e","target_subject":"(auth) Add login"}, "...": "..."}],
+ "dependencies":[{"from":"5e2f9c3b","to":"41c7d00e","files":["auth.rs"]}],
  "cluster_overlap":[{"branches":["auth","login"],"files":["auth.rs"]}]}
 ```
 
