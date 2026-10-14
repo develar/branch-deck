@@ -3,6 +3,7 @@
 
 pub mod agent_help;
 pub mod branch_stats;
+pub mod check_command;
 pub mod commits;
 pub mod context;
 pub mod dependencies;
@@ -18,6 +19,7 @@ pub mod status;
 pub mod sync_command;
 
 use crate::agent_help::AGENT_HELP;
+use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits};
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
@@ -26,7 +28,7 @@ use crate::output::write_json;
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status};
-use crate::sync_command::sync;
+use crate::sync_command::{SyncOutput, sync};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -72,6 +74,9 @@ enum Command {
   Unstack(UnstackArgs),
   /// Undo a rewrite with the `undo_token` it printed
   Undo(UndoArgs),
+  /// Would the branches build with this plan (stdin or --plan)? A trial sync that writes objects only; exit code 1 when
+  /// a branch conflicts or is blocked
+  Check(CheckArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 on a conflict
   Sync,
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
@@ -141,17 +146,9 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Restack(args) => context().and_then(|context| restack(&context, args)).and_then(|output| print(out, &output)),
     Command::Unstack(args) => context().and_then(|context| unstack(&context, args)).and_then(|output| print(out, &output)),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
-    Command::Sync => match context().and_then(|context| sync(&context)) {
-      // the summary is the output either way; a conflict only changes the exit code
-      Ok(output) => {
-        let exit_code = if output.has_conflicts() { ErrorCode::Conflict.exit_code() } else { 0 };
-        return match print(out, &output) {
-          Ok(()) => exit_code,
-          Err(error) => print_error(out, &error),
-        };
-      }
-      Err(error) => Err(error),
-    },
+    // the summary is the output either way; a conflict or a block only changes the exit code
+    Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), SyncOutput::has_conflicts),
+    Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| !output.ok),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
@@ -160,6 +157,16 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
   };
   match result {
     Ok(()) => 0,
+    Err(error) => print_error(out, &error),
+  }
+}
+
+/// Print the output of a command that fails softly: exit code 1 when `failed` says so, as for a conflict
+fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>, failed: impl Fn(&T) -> bool) -> i32 {
+  let printed = result.and_then(|output| print(out, &output).map(|()| failed(&output)));
+  match printed {
+    Ok(true) => ErrorCode::Conflict.exit_code(),
+    Ok(false) => 0,
     Err(error) => print_error(out, &error),
   }
 }
@@ -180,6 +187,8 @@ fn io_error(error: std::io::Error) -> CliError {
   CliError::new(ErrorCode::GitError, format!("Cannot write the output: {error}"))
 }
 
+#[cfg(test)]
+mod check_test;
 #[cfg(test)]
 mod commits_test;
 #[cfg(test)]

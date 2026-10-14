@@ -23,7 +23,10 @@ Workflow:
 3. Write the plan: {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids]}. A path is a branch name, or
    `parent/leaf` for a stacked branch (`git config branchdeck.stacks true`). Fixups follow their targets.
    `bd group --dry-run < plan.json` prints the resulting subjects and the stack forest and writes nothing;
-   fix the plan until it is accepted. `bd check` (a trial sync of the plan) is not yet available.
+   fix the plan until it is accepted. Then `bd check < plan.json`: a trial sync that writes no refs. Per
+   branch `ok`, `conflict` {commit, subject, files, missing_commits}, `blocked_by` or `problems`, and the
+   branch it is `built_on`. Exit 1 until every branch is ok: move the missing commits into the branch, or
+   stack it on the branch that has them, and check again. Variants are fast: merges are cached.
 4. `bd group --expect-head <head from bd status> < plan.json`. It rewrites commit messages only, in one
    rewrite, and prints the new groups and an `undo_token`. `head_moved` or `locked` (exit 3): read again
    and retry. Also: `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`, all

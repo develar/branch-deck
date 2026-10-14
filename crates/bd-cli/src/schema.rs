@@ -1,3 +1,4 @@
+use crate::check_command::CheckOutput;
 use crate::commits::CommitsOutput;
 use crate::describe::DescribeOutput;
 use crate::error::ErrorOutput;
@@ -21,6 +22,7 @@ pub fn schema_output() -> SchemaOutput {
   SchemaOutput {
     schema: SchemaVersion,
     outputs: BTreeMap::from([
+      ("check".to_string(), schema_for!(CheckOutput)),
       ("commits".to_string(), schema_for!(CommitsOutput)),
       ("describe".to_string(), schema_for!(DescribeOutput)),
       ("error".to_string(), schema_for!(ErrorOutput)),

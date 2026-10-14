@@ -19,6 +19,9 @@ targets:
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
+  - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/sync-core/src/check.rs
+  - ../../crates/git-ops/src/merge_memo.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
@@ -30,7 +33,7 @@ targets:
 
 # Agent CLI
 
-Status: Implemented (read, regroup, sync and describe; check and push come later)
+Status: Implemented (read, regroup, check, sync and describe; push comes later)
 Date: 2026-10-14
 
 ## Summary
@@ -51,7 +54,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ## Non-goals
 
-- Pushing branches and a trial sync of a plan (`bd check`): they come later.
+- Pushing branches: it comes later.
 - Reordering, squashing, dropping or splitting commits.
 - A console binary on Windows; the CLI runs from the macOS app binary first.
 
@@ -71,8 +74,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
-- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo`, `sync`, `describe` and `error`
-  outputs, and the real outputs must use only the properties it declares.
+- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo`, `check`, `sync`, `describe` and
+  `error` outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -178,6 +181,22 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with `head_moved` once the branch changed again.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+
+### `bd check`
+
+- `bd check` must apply a plan (stdin or `--plan`; the current grouping without one) in memory, validate it like a
+  regroup (exit 2 when invalid), place the branches as a stacked sync does and build each one, parents first, writing
+  objects only: refs, notes and HEAD must not change.
+  [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
+- Per branch it must print `ok`, a light conflict (commit, subject, files and the older commits outside the branch
+  and its ancestors that change those files), `blocked_by`, `problems` or `error`, and the branch it would be built
+  on; the exit code must be 1 unless every branch is `ok`.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
+  [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
+- Merges must be memoized by their trees in the object cache, and a cached check must equal an uncached one.
+  [@test] ../../crates/sync-core/src/check_test.rs (`the_cache_gives_the_same_report`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`cached_check_equals_uncached`)
 
 ### `bd sync`
 

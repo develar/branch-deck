@@ -9,7 +9,7 @@
 `bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
 together), regroup the commits and sync them. It reads with `status`, `commits` and `schema`, rewrites commit messages
 with `group`, `rename`, `restack`, `unstack` and `undo`, rebuilds the virtual branches with `sync` and keeps their pull
-request text with `describe`. `check` and `push` come later.
+request text with `describe`, and tries a plan without writing refs with `check`. `push` comes later.
 
 It is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked as `bd`, the CLI
 runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or plugin is created.
@@ -194,8 +194,8 @@ commit id (`crates/object-cache`, LMDB through heed):
 - The cap is the LMDB map size, 1 GiB by default. A write that finds the map full clears the cache and is retried.
 - The schema version is part of each database name (`commit_diff.v1`). Opening drops the databases of older versions.
 - Any cache failure is a miss, logged with `-v`; it never fails a command. `--no-cache` bypasses it.
-- `commit_tree` (commit → tree) and `merge_result` ((base, commit, target) trees → result tree or conflict files) are
-  there for sync and `bd check`, which don't use them yet.
+- `bd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
+  commit trees in `commit_tree`. Sync doesn't use them yet.
 
 ### `bd group [--dry-run] [--expect-head <id>] [--map] [--plan <file>] < plan.json`
 
@@ -244,6 +244,33 @@ Plans that `bd` computes, validated and written like `bd group`, with the same o
 Moves the branch back from the token's new HEAD to its previous HEAD, with CAS and the lock: `head_moved` once
 anything else changed the branch. Prints `{"schema":1,…,"head":"<restored>","undone":"<undone>"}`.
 
+### `bd check [--plan FILE | < plan.json]`
+
+A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
+and validated as `bd group --dry-run` does (an invalid plan is exit 2), the branches are placed as a stacked sync
+places them, and each one is built with the sync's `build_branch`, parents first. It writes commit objects only: no
+ref, note, HEAD or working tree changes, no remote status and no repository lock.
+
+```json
+{"schema":1,…,"head":"77e01aa4","baseline":"origin/master","base_commit":"3c0ffee1","rewritten":1,"ok":false,
+ "branches":[{"name":"a","built_on":null,"commit_count":1,"result":"ok"},
+  {"name":"b","built_on":null,"commit_count":1,"result":"conflict",
+   "conflict":{"commit":"5e2f9c3b","subject":"(b) Change shared","files":["shared.txt"],"missing_commits":["41c7d00e"]}}],
+ "unassigned_count":0}
+```
+
+- `result` is `ok`, `conflict`, `blocked` (with `blocked_by` `{parent, reason}`: the parent conflicts, is blocked,
+  missing or unapplied), `problems` or `error`. `built_on` is the branch it would be built on, `null` for
+  `base_commit`.
+- `missing_commits` are the older commits outside the branch and the branches it is built on that change the
+  conflicting files, computed from the cached commit diffs: move them into the branch, or stack the branch on the
+  one that has them.
+- Conflicts are light: the files only, without the contents and the analysis a conflict view needs.
+- Merges are memoized in the object cache by `(parent tree, commit tree, target tree)` (`merge_result`), and commit
+  trees by commit (`commit_tree`): trying variants of a plan repeats no `merge-tree`. On the grouped 169-commit clone,
+  a check takes 3.4 s cold and 0.2 s warm.
+- The exit code is 1 when any branch is not `ok`.
+
 ### `bd sync`
 
 Rebuilds the virtual branches with `sync_core::sync::sync_branches`, the app's sync: it includes the integration
@@ -289,8 +316,9 @@ Prints the workflow below as plain text.
    `bd commits --patch --branch <b>`.
 2. Cluster the commits by intent. Use `dependencies` and `cluster_overlap` to keep together, or stack, the commits that
    can't be separated.
-3. Write the plan and run `bd group --dry-run < plan.json` until it is accepted. `bd check`, a trial sync of the plan
-   that finds cherry-pick conflicts, is *not yet available*.
+3. Write the plan and run `bd group --dry-run < plan.json` until it is accepted, then `bd check < plan.json` until
+   every branch is `ok`: move the `missing_commits` of a conflict into the branch, or stack the branch on the one
+   that has them.
 4. Run `bd group --expect-head <head> < plan.json` with the HEAD `bd status` printed. On `head_moved` or `locked`,
    read again and retry. Then run `bd sync`; on a conflict (exit 1) regroup the commits the change needs into the same
    branch or its parent, and sync again.
