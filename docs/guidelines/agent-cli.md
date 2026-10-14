@@ -62,7 +62,7 @@ An error looks like this:
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline` |
 | 3 | stale, read again and retry | `head_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `push_refused`, `no_remote` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `push_refused`, `no_remote`, `install_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
@@ -349,12 +349,31 @@ as `title`, a blank line and the body, as `git branch --edit-description` writes
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"commits":…,"describe":…,"error":…,"rewrite":…,"status":…,"sync":…,"undo":…}}`;
+Prints `{"schema":1,"outputs":{"check":…,"commits":…,"describe":…,"error":…,"install":…,"push":…,"rewrite":…,"status":…,"sync":…,"undo":…}}`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`.
 
 ### `bd help agent`
 
 Prints the workflow below as plain text.
+
+### `bd install [--uninstall]`, `bd help skill`
+
+How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI… in the app
+(`src-tauri/src/commands/agent_cli.rs`, the same code), writes:
+
+- on macOS and Linux a `bd` symlink in `~/.local/bin` to the app binary, which runs the CLI under that name. A symlink
+  there is replaced; a file that is not a symlink is `install_refused` (exit 4). On Windows `bd.exe` is next to the app
+  already, and a symlink would need developer mode;
+- the skill `branch-deck` (`SKILL.md`, the Agent Skills format) into `~/.claude/skills/branch-deck/` (Claude Code) and
+  `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd: grouping or
+  splitting commits into branches or pull requests, stacked branches, Branch Deck. Its body names bd by its full path,
+  so it works without `PATH`, and sends the agent to `bd help agent` first. The workflow stays in the binary, so the
+  skill can't fall out of date with it.
+
+It prints `{"schema":1,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false}`. `on_path`
+says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
+Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed
+`branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere.
 
 ## Agent workflow
 

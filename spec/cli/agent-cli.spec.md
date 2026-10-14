@@ -32,6 +32,9 @@ targets:
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
+  - ../../crates/bd-cli/src/install.rs
+  - ../../src-tauri/src/commands/agent_cli.rs
+  - ../../src/hooks/useInstallAgentCli.ts
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/object-cache/src/cache.rs
   - ../../crates/object-cache/src/commit_diff.rs
@@ -258,3 +261,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd help agent`
 
 - It must print the agent workflow as text and mark the commands that don't exist yet.
+
+### `bd install`
+
+- `bd install` and Help → Install Agent CLI… must put a `bd` command where an agent finds it: on macOS and Linux a
+  symlink in `~/.local/bin` to the app binary, replacing a symlink there and refusing anything else
+  (`install_refused`); on Windows `bd.exe` next to the app.
+- It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
+  bd, its full path, and `bd help agent` as the workflow; `bd help skill` must print the same text.
+- It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
+  symlink.
+  [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
+  [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

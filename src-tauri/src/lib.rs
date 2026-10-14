@@ -10,6 +10,7 @@ mod repository_state_test;
 
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::add_issue_reference::add_issue_reference_to_commits;
+use commands::agent_cli::install_agent_cli;
 use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::get_branch_prefix_from_git_config;
@@ -91,6 +92,7 @@ pub fn run() {
     get_uncommitted_changes,
     get_file_content_for_diff,
     update_menu_checkbox,
+    install_agent_cli,
     model_tauri::commands::download_model,
     model_tauri::commands::check_model_status,
     model_tauri::commands::cancel_model_download,

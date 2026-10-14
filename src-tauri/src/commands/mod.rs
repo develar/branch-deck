@@ -1,4 +1,5 @@
 pub mod add_issue_reference;
+pub mod agent_cli;
 pub mod amend_to_branch;
 pub mod archived_branches;
 pub mod branch_prefix;

@@ -11,6 +11,7 @@ pub mod describe;
 pub mod diff_scan;
 pub mod error;
 pub mod generated;
+pub mod install;
 pub mod numstat;
 pub mod output;
 pub mod push_command;
@@ -19,12 +20,13 @@ pub mod schema;
 pub mod status;
 pub mod sync_command;
 
-use crate::agent_help::AGENT_HELP;
+use crate::agent_help::{AGENT_HELP, skill_text};
 use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits};
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
 use crate::error::{CliError, ErrorCode};
+use crate::install::{InstallArgs, install, skill_command};
 use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
@@ -87,7 +89,10 @@ enum Command {
   Describe(DescribeArgs),
   /// The JSON Schema of every output
   Schema,
-  /// `bd help agent`: the agent workflow; `bd help`: the usage
+  /// Let coding agents find bd: a `bd` symlink in ~/.local/bin (macOS, Linux) and the skill of `bd help skill` in
+  /// ~/.claude/skills and ~/.agents/skills
+  Install(InstallArgs),
+  /// `bd help agent`: the agent workflow; `bd help skill`: the skill `bd install` writes; `bd help`: the usage
   Help { topic: Option<String> },
 }
 
@@ -156,9 +161,14 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Push(args) => context().and_then(|context| push(&context, args)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
+    Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
-    Command::Help { topic: Some(topic) } => Err(CliError::new(ErrorCode::InvalidArguments, format!("No help topic {topic:?}; try `bd help agent`"))),
+    Command::Help { topic: Some(topic) } if topic == "skill" => out.write_all(skill_text(&skill_command(environment)).as_bytes()).map_err(io_error),
+    Command::Help { topic: Some(topic) } => Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      format!("No help topic {topic:?}; try `bd help agent` or `bd help skill`"),
+    )),
   };
   match result {
     Ok(()) => 0,
@@ -204,6 +214,8 @@ mod describe_test;
 mod diff_scan_test;
 #[cfg(test)]
 mod fixture_test;
+#[cfg(test)]
+mod install_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

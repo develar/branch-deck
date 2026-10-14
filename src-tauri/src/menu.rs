@@ -81,7 +81,9 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
     .build()?;
 
   let github_link = MenuItemBuilder::with_id("github_link", "GitHub Repository").build(app)?;
-  let help_menu = &SubmenuBuilder::new(app, "Help").item(&github_link).build()?;
+  // `bd install`: the agent CLI on PATH and the skill that tells coding agents about it
+  let install_agent_cli = MenuItemBuilder::with_id("install_agent_cli", "Install Agent CLI…").build(app)?;
+  let help_menu = &SubmenuBuilder::new(app, "Help").item(&install_agent_cli).separator().item(&github_link).build()?;
 
   let menu = Menu::with_items(
     app,
@@ -116,6 +118,13 @@ pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
       let url = "https://github.com/develar/branch-deck";
       if let Err(e) = tauri_plugin_opener::open_url(url, None::<String>) {
         tracing::error!(error = ?e, "failed to open GitHub link");
+      }
+    }
+    "install_agent_cli" => {
+      // the main window shows the result
+      let result = app.emit_to("main", "install_agent_cli", ());
+      if result.is_err() {
+        tracing::error!(error = ?result.err(), "error while triggering the agent CLI install");
       }
     }
     "color_selector" => {

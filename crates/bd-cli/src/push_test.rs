@@ -44,12 +44,16 @@ fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
 /// `bd push auth` has nothing to push, and its lease is the remote head its sync saw: the pushed commit
 fn assert_pushes_up_to_date_on_the_seen_head(repo: &TestRepo) {
   let (exit_code, output) = run_in(repo, &["push", "auth"]);
+  assert_pushed(&output, exit_code, "up_to_date", &git(repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// `bd push` pushed `auth` with `status`, leased on the remote head `lease` it saw
+fn assert_pushed(output: &Value, exit_code: i32, status: &str, lease: &str) {
   assert_eq!(exit_code, 0, "{output}");
-  let auth = branch(&output, "auth");
-  let tip = git(repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
+  let auth = branch(output, "auth");
   assert_eq!(
     (&auth["status"], &auth["lease"], &auth["lease_source"]),
-    (&json!("up_to_date"), &json!(short_id(&tip)), &json!("expected"))
+    (&json!(status), &json!(short_id(lease)), &json!("expected"))
   );
 }
 
@@ -215,12 +219,7 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   assert_error(&output, exit_code, (4, "push_refused"));
   assert_eq!(dropped_subjects(&output["error"]["branches"][0]["remote"]), ["Someone else"]);
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let auth = branch(&output, "auth");
-  assert_eq!(
-    (&auth["status"], &auth["lease"], &auth["lease_source"]),
-    (&json!("forced"), &json!(short_id(&other)), &json!("expected"))
-  );
+  assert_pushed(&output, exit_code, "forced", &other);
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
@@ -244,12 +243,7 @@ fn another_remote_is_compared_with_as_origin_is() {
   assert_eq!((&output["remote"], &branch(&output, "auth")["lease_source"]), (&json!("mirror"), &json!("absent")));
   assert_eq!((remote_tip(&mirror, AUTH), remote_tip(&origin, AUTH)), (tip.clone(), String::new()));
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--remote", "mirror"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let auth = branch(&output, "auth");
-  assert_eq!(
-    (&auth["status"], &auth["lease"], &auth["lease_source"]),
-    (&json!("up_to_date"), &json!(short_id(&tip)), &json!("expected"))
-  );
+  assert_pushed(&output, exit_code, "up_to_date", &tip);
 
   // someone else pushes to the mirror: rejected, fetched and reported
   let other = push_from_elsewhere(&mirror, "Someone else");
@@ -264,9 +258,7 @@ fn another_remote_is_compared_with_as_origin_is() {
   assert_error(&output, exit_code, (4, "push_refused"));
   assert_eq!(dropped_subjects(&output["error"]["branches"][0]["remote"]), ["Someone else"]);
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--remote", "mirror", "--force", "--expect-remote", &other]);
-  assert_eq!(exit_code, 0, "{output}");
-  let auth = branch(&output, "auth");
-  assert_eq!((&auth["status"], &auth["lease"]), (&json!("forced"), &json!(short_id(&other))));
+  assert_pushed(&output, exit_code, "forced", &other);
   assert_eq!(remote_tip(&mirror, AUTH), tip);
 }
 

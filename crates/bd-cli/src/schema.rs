@@ -2,6 +2,7 @@ use crate::check_command::CheckOutput;
 use crate::commits::CommitsOutput;
 use crate::describe::DescribeOutput;
 use crate::error::ErrorOutput;
+use crate::install::InstallOutput;
 use crate::output::SchemaVersion;
 use crate::push_command::PushOutput;
 use crate::rewrite::{RewriteOutput, UndoOutput};
@@ -27,6 +28,7 @@ pub fn schema_output() -> SchemaOutput {
       ("commits".to_string(), schema_for!(CommitsOutput)),
       ("describe".to_string(), schema_for!(DescribeOutput)),
       ("error".to_string(), schema_for!(ErrorOutput)),
+      ("install".to_string(), schema_for!(InstallOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
       ("status".to_string(), schema_for!(StatusOutput)),

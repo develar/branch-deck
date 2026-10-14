@@ -55,6 +55,8 @@ repositories: all operations run through the Git CLI.
   with `bd group`, one validated rewrite of the commit messages that can be undone, after `bd check` built every
   branch of the plan without writing refs. It rebuilds the branches with `bd sync`, keeps their pull request text with
   `bd describe` and pushes them with a lease, parents first, with `bd push`; `bd help agent` prints the workflow.
+  Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
+  `~/.agents/skills`, so coding agents know when to use it.
 - Auto-sync when the window gets focus, auto-update, light and dark theme.
 
 ## How It Works

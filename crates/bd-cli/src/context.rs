@@ -3,6 +3,7 @@ use crate::output::ShortIds;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use object_cache::cache::ObjectCache;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
@@ -24,6 +25,12 @@ pub struct Environment {
   pub git: Option<String>,
   /// How long a rewrite waits for the repository lock
   pub lock_timeout: Duration,
+  /// The home directory `bd install` writes into
+  pub home: Option<PathBuf>,
+  /// The running binary, which `bd install` links to
+  pub executable: Option<PathBuf>,
+  /// `PATH`, to tell whether the installed `bd` is found
+  pub path: Option<OsString>,
 }
 
 impl Environment {
@@ -33,6 +40,9 @@ impl Environment {
       settings_file: dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER).join(SETTINGS_FILE_NAME)),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
+      home: dirs::home_dir(),
+      executable: std::env::current_exe().ok(),
+      path: std::env::var_os("PATH"),
     }
   }
 }

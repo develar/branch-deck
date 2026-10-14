@@ -117,6 +117,7 @@ export const commands = {
 	/**  Get file content for diff display when user expands a file in the UI */
 	getFileContentForDiff: (params: GetFileContentForDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_file_content_for_diff", { params })),
 	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
+	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
 	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("download_model", { progress })),
 	checkModelStatus: () => typedError<ModelStatus, CommandError>(__TAURI_INVOKE("check_model_status")),
 	cancelModelDownload: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_model_download")),
@@ -135,6 +136,16 @@ export type AddIssueReferenceResult = {
 	success: boolean,
 	updatedCount: number,
 	skippedCount: number,
+};
+
+/**  What the "Install Agent CLI…" menu item installed: `bd install` (docs/guidelines/agent-cli.md) */
+export type AgentCliInstall = {
+	/**  The command the skills name: the `bd` symlink (macOS, Linux) or `bd.exe` next to the app (Windows) */
+	bd: string,
+	/**  Whether `bd` resolves to it in the user's shell */
+	on_path: boolean,
+	/**  The skill files written */
+	skills: string[],
 };
 
 /**  Result type for amend command that can be properly serialized by Tauri */

@@ -46,4 +46,39 @@ Workflow:
 
 Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits
 between branches. Errors with exit 2 (invalid_plan, not_ahead_of_baseline) mean the plan must change.
+
+`bd install` puts `bd` into ~/.local/bin (macOS, Linux) and a skill for coding agents into
+~/.claude/skills and ~/.agents/skills; `bd help skill` prints that skill.
 ";
+
+/// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
+/// and others), naming bd by `command`, its full path. It only says when to use bd and where the workflow is, so it
+/// can't fall out of date with the binary: `bd help agent` is the workflow
+pub fn skill_text(command: &str) -> String {
+  format!(
+    "\
+---
+name: branch-deck
+description: Group the commits of a Git branch into virtual branches and stacked pull requests with the `bd` command \
+line of Branch Deck. Use when the user asks to split, group, cluster or reorganize commits into branches or pull \
+requests, to stack branches, to sync or push virtual branches, or mentions Branch Deck.
+---
+
+# Branch Deck (`bd`)
+
+bd is `{command}` (quote the path in a shell); below, `bd` stands for it.
+
+Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
+of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
+virtual branches and pushes them. It never touches the working tree.
+
+Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
+version.
+
+- Run bd in the repository, or pass `-C <repo>`.
+- Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
+  `bd schema` prints the JSON Schema of every output.
+- Never reorder, squash or drop commits, and never push or create pull requests before the user approved them.
+"
+  )
+}

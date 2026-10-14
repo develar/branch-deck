@@ -91,12 +91,18 @@ fn a_parent_with_a_problem_blocks_its_children() {
   assert_eq!(placed["form"].blocked_by, Some(blocked("login", BlockReason::Error)));
 }
 
+/// A repository with its first commit, and that commit
+fn repo_with_base() -> (TestRepo, String) {
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  (test_repo, base)
+}
+
 #[test]
 fn reads_the_state_of_parents_without_commits_from_their_branches() {
-  let test_repo = TestRepo::new();
+  let (test_repo, base) = repo_with_base();
   let repo_path = test_repo.path().to_str().unwrap();
   let git_executor = test_repo.git_executor();
-  let base = test_repo.create_commit("Initial commit", "README.md", "# Test");
   let cache_tip = test_repo.create_commit("Add cache", "cache.rs", "// cache");
   let docs_tip = test_repo.create_commit("Add docs", "docs.md", "docs");
   test_repo.create_branch_at("test/unapplied/auth-1", &base).unwrap();
@@ -155,10 +161,9 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
 
 #[test]
 fn a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement() {
-  let test_repo = TestRepo::new();
+  let (test_repo, base) = repo_with_base();
   let repo_path = test_repo.path().to_str().unwrap();
   let git_executor = test_repo.git_executor();
-  let base = test_repo.create_commit("Initial commit", "README.md", "# Test");
   // the baseline has the change of `auth` in another commit, not the change of `cache`
   let baseline = test_repo.create_commit("Add auth upstream", "auth.rs", "// auth");
   test_repo.create_branch_at("baseline", &baseline).unwrap();

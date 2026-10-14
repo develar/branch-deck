@@ -40,6 +40,8 @@ pub enum ErrorCode {
   PushRefused,
   /// No remote to push to
   NoRemote,
+  /// `bd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way
+  InstallRefused,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
@@ -55,7 +57,7 @@ impl ErrorCode {
       Self::Conflict => 1,
       Self::InvalidArguments | Self::NotARepository | Self::NoBranchPrefix | Self::UnknownBranch | Self::InvalidPlan | Self::NotAheadOfBaseline => 2,
       Self::HeadMoved | Self::LeaseRejected | Self::Locked => 3,
-      Self::NoBaseline | Self::OperationInProgress | Self::DetachedHead | Self::StagedOverlap | Self::PushRefused | Self::NoRemote => 4,
+      Self::NoBaseline | Self::OperationInProgress | Self::DetachedHead | Self::StagedOverlap | Self::PushRefused | Self::NoRemote | Self::InstallRefused => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError => 5,
     }
   }

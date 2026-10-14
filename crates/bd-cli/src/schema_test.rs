@@ -45,7 +45,7 @@ fn schema_lists_every_output() {
   let outputs = output["outputs"].as_object().unwrap();
   assert_eq!(
     outputs.keys().map(String::as_str).collect::<Vec<_>>(),
-    ["check", "commits", "describe", "error", "push", "rewrite", "status", "sync", "undo"]
+    ["check", "commits", "describe", "error", "install", "push", "rewrite", "status", "sync", "undo"]
   );
   for (name, schema) in outputs {
     assert_eq!(schema["properties"]["schema"]["const"], json!(1), "{name}");
