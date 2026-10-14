@@ -137,6 +137,17 @@ export type AutosquashScope = { type: "all" } |
 /**  Only this fixup commit, into its target */
 { type: "fixup"; value: string };
 
+/**  Why a branch is not rebuilt: its parent can't be built on */
+export type BlockReason = 
+/**  The parent has no commits and is not integrated */
+"Missing" | "Unapplied" | 
+/**  The parent can't be placed (a stack problem) or failed to build */
+"Error" | 
+/**  A commit of the parent has a merge conflict */
+"Conflict" | 
+/**  The parent is blocked itself */
+"Blocked";
+
 /**  Branch operation errors. */
 export type BranchError = ({ Generic: string }) & { MergeConflict?: never } | ({ MergeConflict: MergeConflictInfo }) & { Generic?: never };
 
@@ -156,6 +167,28 @@ export type BranchOrigin =
 "Prefix" | 
 /**  The issue key of the subjects (`ABC-123: ...`), no explicit prefix */
 "Issue";
+
+/**  Where a virtual branch sits in its stack; sent only with stacked branches on */
+export type BranchStack = {
+	declaredParent: string | null,
+	parentState: ParentState | null,
+	/**  The branch the virtual branch is built on; `None` for the baseline */
+	effectiveBase: string | null,
+	/**
+	 *  Why the branch is not rebuilt this sync, known before the sync starts; a parent that fails while building
+	 *  blocks its descendants with a `Blocked` branch status
+	 */
+	blockedBy: StackBlock | null,
+	/**  Why the branch itself can't be placed; it is not rebuilt either */
+	problems: StackProblem[],
+	/**
+	 *  The declared parent is integrated, so the branch is built on its nearest active ancestor or the baseline and the
+	 *  base of its pull request has to change
+	 */
+	prBaseChanged: boolean,
+	/**  A commit of the branch comes before every commit of its parent on the current branch */
+	childPrecedesParent: boolean,
+};
 
 /**  Branch name suggestion */
 export type BranchSuggestion = {
@@ -266,6 +299,12 @@ export type ConflictDetail = {
 	baseToCherryDiff: FileDiff,
 };
 
+/**  A parent and the commits that declare it */
+export type DeclaredParent = {
+	parent: string,
+	commits: string[],
+};
+
 export type DeleteArchivedBranchParams = {
 	repositoryPath: string,
 	branchName: string,
@@ -353,6 +392,11 @@ export type GroupedBranchInfo = {
 	origin: BranchOrigin,
 	/**  The issue the branch belongs to: the name of an issue branch, or the key every commit of a prefix branch carries */
 	issueKey: string | null,
+	/**
+	 *  Where the branch sits in its stack; `None` without stacked branches (`branchdeck.stacks`). Optional in TypeScript, so
+	 *  code that builds a `GroupedBranchInfo` needn't know about stacks
+	 */
+	stack?: BranchStack | null,
 };
 
 /**  Confidence level for integration detection */
@@ -458,6 +502,17 @@ export type OrphanFixup = {
 	/**  The virtual branch the fixup itself is grouped into; `None` if it is unassigned */
 	branch: string | null,
 };
+
+/**  The state of a declared parent */
+export type ParentState = 
+/**  The parent has commits */
+"Active" | 
+/**  No commit is grouped into the parent and its archived branch is integrated into the baseline */
+"Integrated" | 
+/**  The parent was unapplied */
+"Unapplied" | 
+/**  No commit is grouped into the parent */
+"Missing";
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -608,6 +663,24 @@ export type SquashedTarget = {
 	target: string,
 	newId: string,
 };
+
+export type StackBlock = {
+	parent: string,
+	reason: BlockReason,
+};
+
+/**  Why a branch of a stack can't be placed; it never fails the other branches */
+export type StackProblem = 
+/**  Commits declare different parents, in first-declared order */
+({ ConflictingParents: DeclaredParent[] }) & { Cycle?: never; LeafCollision?: never; SelfParent?: never; Syntax?: never } | 
+/**  Following the declared parents leads back to the branch: the branches of the cycle, starting with this one */
+({ Cycle: string[] }) & { ConflictingParents?: never; LeafCollision?: never; SelfParent?: never; Syntax?: never } | 
+/**  `(a/a)`: the commits that declare the branch as its own parent */
+({ SelfParent: string[] }) & { ConflictingParents?: never; Cycle?: never; LeafCollision?: never; Syntax?: never } | 
+/**  Another branch has the same name ignoring case (`Login` and `login`) */
+({ LeafCollision: string }) & { ConflictingParents?: never; Cycle?: never; SelfParent?: never; Syntax?: never } | 
+/**  `(a//b)`: the commits whose prefix has an empty level */
+({ Syntax: string[] }) & { ConflictingParents?: never; Cycle?: never; LeafCollision?: never; SelfParent?: never };
 
 /**  Parameters for requesting branch name suggestions */
 export type SuggestBranchNameParams = {

@@ -51,7 +51,8 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     forest,
   ) = grouper.finish_with_stacks();
   Ok(BranchGrouping {
-    branches: prepare_branches_for_ui(&branches, &branch_emails),
+    // the placement needs the branch refs a sync reads; the CLI reads the stacks from `forest`
+    branches: prepare_branches_for_ui(&branches, &branch_emails, None),
     baseline_branch,
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,

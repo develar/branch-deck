@@ -2,6 +2,7 @@ use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::issue_navigation::load_issue_navigation_config;
+use crate::stack::{empty_parent_states, place_branches, stacks_enabled};
 use crate::update_project::check_baseline_update;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
@@ -18,6 +19,7 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use sync_types::issue_navigation::IssueNavigationConfig;
+use sync_types::stack::BranchStack;
 use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
 use tokio::sync::Semaphore;
@@ -111,8 +113,13 @@ fn branch_issue_key(branch_name: &str, origin: BranchOrigin, commits: &[Commit])
   rest.iter().all(|c| find_issue_number(&c.stripped_subject) == Some(key)).then(|| key.to_string())
 }
 
-/// Prepare grouped commits for UI display with sorting and metadata
-pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Commit>>, branch_emails: &HashMap<String, Option<String>>) -> Vec<GroupedBranchInfo> {
+/// Prepare grouped commits for UI display with sorting and metadata; `stacks` places the branches with stacked
+/// branches on
+pub(crate) fn prepare_branches_for_ui(
+  grouped_commits: &IndexMap<String, Vec<Commit>>,
+  branch_emails: &HashMap<String, Option<String>>,
+  stacks: Option<&IndexMap<String, BranchStack>>,
+) -> Vec<GroupedBranchInfo> {
   let mut grouped_branches_for_ui = Vec::with_capacity(grouped_commits.len());
 
   for (branch_name, commits) in grouped_commits {
@@ -155,6 +162,7 @@ pub(crate) fn prepare_branches_for_ui(grouped_commits: &IndexMap<String, Vec<Com
       my_email: branch_my_email,
       origin,
       issue_key,
+      stack: stacks.and_then(|stacks| stacks.get(branch_name)).cloned(),
       commits: commits
         .iter()
         .rev() // Reverse to show newest commits first within branch
@@ -183,6 +191,8 @@ struct PreparedSync {
   first_parent_id: Option<String>,
   /// Full name -> tip of every branch under the branch prefix (virtual, archived, unapplied); empty without commits
   branch_refs: HashMap<String, String>,
+  /// With stacked branches on, where each branch goes
+  stacks: Option<IndexMap<String, BranchStack>>,
   /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
@@ -223,7 +233,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   });
 
   // Use streaming commit processing
-  let mut grouper = CommitGrouper::new();
+  let mut grouper = CommitGrouper::new_with_stacks(stacks_enabled(git_executor, repository_path)?);
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
     grouper.add_commit(commit);
     Ok(())
@@ -232,11 +242,14 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // The virtual branches are rebuilt on top of the parent of the oldest commit
   let first_parent_id = grouper.first_parent_id.take();
   let commit_count = grouper.commit_count;
-  let GroupedCommits {
-    branches,
-    unassigned,
-    branch_emails,
-  } = grouper.finish();
+  let (
+    GroupedCommits {
+      branches,
+      unassigned,
+      branch_emails,
+    },
+    forest,
+  ) = grouper.finish_with_stacks();
   info!(commit_count, total_branches = branches.len(), "Fetched and grouped commits");
 
   // Always send unassigned commits (even if empty) to ensure the frontend updates; newest first
@@ -249,9 +262,16 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   } else {
     read_branch_refs(git_executor, repository_path, branch_prefix)?
   };
+  let stacks = match forest {
+    Some(forest) => {
+      let empty_parents = empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, &forest)?;
+      Some(place_branches(&forest, &empty_parents))
+    }
+    None => None,
+  };
 
   progress.send(SyncEvent::BranchesGrouped {
-    branches: prepare_branches_for_ui(&branches, &branch_emails),
+    branches: prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref()),
     baseline_branch: baseline_branch.clone(),
   })?;
 
@@ -261,6 +281,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     branch_refs,
+    stacks,
     update_check,
   })
 }
@@ -354,6 +375,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     branch_refs,
+    stacks: _stacks,
     update_check,
   } = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
@@ -443,3 +465,7 @@ fn send_baseline_status(git_executor: &GitCommandExecutor, repository_path: &str
     check_error,
   })
 }
+
+#[cfg(test)]
+#[path = "stack_sync_test.rs"]
+mod stack_sync_test;

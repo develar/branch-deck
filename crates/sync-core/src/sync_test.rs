@@ -623,7 +623,7 @@ fn test_prepare_branches_for_ui_issue_references() {
   branch_emails.insert("BAZEL-2158".to_string(), Some("test@example.com".to_string()));
 
   // Call the function
-  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails);
+  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails, None);
 
   // Sort by name for consistent testing
   let mut result = result;
@@ -666,7 +666,7 @@ fn test_prepare_branches_for_ui_mixed_commits() {
   branch_emails.insert("feature-auth".to_string(), Some("test@example.com".to_string()));
 
   // Call the function
-  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails);
+  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails, None);
 
   assert_eq!(result.len(), 1);
   let branch = &result[0];

@@ -3,11 +3,13 @@
 //! (`git config branchdeck.stacks true`), because without it a `/` in a prefix is part of a flat branch name.
 
 use anyhow::{Result, anyhow};
+use branch_integration::cache::{NOTES_REF, deserialize_from_cache};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::sanitize_branch_name;
+use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{HashMap, HashSet};
-use sync_types::stack::{DeclaredParent, ParentState, StackProblem};
+use sync_types::branch_integration::BranchIntegrationStatus;
+use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentState, StackBlock, StackProblem};
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
 
@@ -273,3 +275,137 @@ fn topological_order(nodes: &IndexMap<String, StackNode>, cycle_members: &HashSe
   }
   order
 }
+
+/// Where each branch with commits goes: on its parent, on the nearest active ancestor of an integrated parent, on the
+/// baseline, or nowhere (blocked or with a problem of its own). `empty_parent_state` tells how a declared ancestor
+/// without commits stands (`Integrated`, `Unapplied` or `Missing`).
+pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String, ParentState>) -> IndexMap<String, BranchStack> {
+  let state_of = |name: &str| {
+    if forest.nodes.get(name).is_some_and(|node| node.has_commits) {
+      ParentState::Active
+    } else {
+      empty_parent_state.get(name).copied().unwrap_or(ParentState::Missing)
+    }
+  };
+
+  let mut placed: IndexMap<String, BranchStack> = IndexMap::with_capacity(forest.order.len());
+  // parents first, so a parent with commits is placed before its children
+  for name in &forest.order {
+    let node = &forest.nodes[name];
+    let mut stack = BranchStack {
+      declared_parent: node.declared_parent.clone(),
+      parent_state: node.declared_parent.as_deref().map(state_of),
+      problems: node.problems.clone(),
+      child_precedes_parent: node.child_precedes_parent,
+      ..BranchStack::default()
+    };
+    if stack.problems.is_empty() {
+      // the walk passes integrated ancestors; `visited` guards against a cycle among ancestors without commits
+      let mut visited = HashSet::new();
+      let mut current = node.declared_parent.as_deref();
+      while let Some(ancestor) = current {
+        if !visited.insert(ancestor) {
+          break;
+        }
+        let block = |reason| {
+          Some(StackBlock {
+            parent: ancestor.to_string(),
+            reason,
+          })
+        };
+        match state_of(ancestor) {
+          ParentState::Active => {
+            match placed.get(ancestor) {
+              Some(parent) if !parent.problems.is_empty() => stack.blocked_by = block(BlockReason::Error),
+              Some(parent) if parent.blocked_by.is_some() => stack.blocked_by = block(BlockReason::Blocked),
+              _ => stack.effective_base = Some(ancestor.to_string()),
+            }
+            break;
+          }
+          ParentState::Integrated => {
+            stack.pr_base_changed = true;
+            current = forest.declared_parent(ancestor);
+          }
+          ParentState::Unapplied => {
+            stack.blocked_by = block(BlockReason::Unapplied);
+            break;
+          }
+          ParentState::Missing => {
+            stack.blocked_by = block(BlockReason::Missing);
+            break;
+          }
+        }
+      }
+    }
+    placed.insert(name.clone(), stack);
+  }
+  placed
+}
+
+/// How the declared ancestors without commits stand: `Unapplied` with an unapplied branch of that name, `Integrated`
+/// when the newest archived branch of that name is integrated (by its detection note), else `Missing`. `branch_refs`
+/// maps the full names of the branches under the prefix to their tips. At most one git process, only for ancestors with
+/// an archived branch.
+pub fn empty_parent_states(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch_prefix: &str,
+  branch_refs: &HashMap<String, String>,
+  forest: &StackForest,
+) -> Result<HashMap<String, ParentState>> {
+  let empty: Vec<&str> = forest.nodes.iter().filter(|(_, node)| !node.has_commits).map(|(name, _)| name.as_str()).collect();
+  let mut states = HashMap::with_capacity(empty.len());
+  if empty.is_empty() {
+    return Ok(states);
+  }
+
+  let archive_namespace = format!("{}/archived/", branch_prefix.trim_end_matches('/'));
+  // ancestor -> (date, tip) of its newest archived branch
+  let mut newest_archived: HashMap<&str, (&str, &str)> = HashMap::new();
+  for (full_name, tip) in branch_refs {
+    if let Some(name) = strip_branch_namespace(full_name, branch_prefix, BranchKind::Unapplied) {
+      if let Some(parent) = empty.iter().find(|parent| names_branch(name, parent)) {
+        states.insert((*parent).to_string(), ParentState::Unapplied);
+      }
+    } else if let Some((date, name)) = full_name.strip_prefix(&archive_namespace).and_then(|rest| rest.split_once('/'))
+      && let Some(parent) = empty.iter().find(|parent| names_branch(name, parent))
+      && newest_archived.get(parent).is_none_or(|(newest_date, _)| *newest_date < date)
+    {
+      newest_archived.insert(parent, (date, tip));
+    }
+  }
+  newest_archived.retain(|parent, _| !states.contains_key(*parent));
+
+  if !newest_archived.is_empty() {
+    let mut input = String::with_capacity(newest_archived.len() * 41);
+    for (_, tip) in newest_archived.values() {
+      input.push_str(tip);
+      input.push('\n');
+    }
+    let notes_arg = format!("--notes={NOTES_REF}");
+    let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg], repo_path, &input)?;
+    let integrated_tips: HashSet<&str> = output
+      .split('\u{1e}')
+      .filter_map(|record| record.trim().split_once('\u{1f}'))
+      .filter(|(_, note)| deserialize_from_cache(note.trim()).is_ok_and(|info| matches!(info.status, BranchIntegrationStatus::Integrated { .. })))
+      .map(|(tip, _)| tip)
+      .collect();
+    for (parent, (_, tip)) in newest_archived {
+      if integrated_tips.contains(tip) {
+        states.insert(parent.to_string(), ParentState::Integrated);
+      }
+    }
+  }
+  Ok(states)
+}
+
+/// Whether an archived or unapplied branch name is `branch`, possibly with the `-N` suffix of a name conflict
+fn names_branch(name: &str, branch: &str) -> bool {
+  name
+    .strip_prefix(branch)
+    .is_some_and(|rest| rest.is_empty() || rest.strip_prefix('-').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+}
+
+#[cfg(test)]
+#[path = "stack_test.rs"]
+mod stack_test;

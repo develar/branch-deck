@@ -99,6 +99,10 @@ pub struct GroupedBranchInfo {
   pub origin: BranchOrigin,
   /// The issue the branch belongs to: the name of an issue branch, or the key every commit of a prefix branch carries
   pub issue_key: Option<String>,
+  /// Where the branch sits in its stack; `None` without stacked branches (`branchdeck.stacks`). Optional in TypeScript, so
+  /// code that builds a `GroupedBranchInfo` needn't know about stacks
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack: Option<stack::BranchStack>,
 }
 
 /// What groups the commits of a branch
