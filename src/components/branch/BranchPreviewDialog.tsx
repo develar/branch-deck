@@ -182,6 +182,8 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   if (branch.latestCommitTime > 0) {
     items.push(<span>{formatTimestamp(branch.latestCommitTime)}</span>)
   }
+  // the status starts with its own dot: no separator before it
+  const statusIndex = items.length
   items.push(
     <Tooltip>
       <TooltipTrigger render={<span data-testid="branch-preview-status" className="flex items-center gap-1.5" />}>
@@ -206,7 +208,7 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
       {/* the items never reorder, so the index is a stable key */}
       {items.map((item, itemIndex) => (
         <Fragment key={itemIndex}>
-          {itemIndex > 0 && <span>•</span>}
+          {itemIndex > 0 && itemIndex !== statusIndex && <span>·</span>}
           {item}
         </Fragment>
       ))}

@@ -65,7 +65,7 @@ The commit hash popover shows the same header and body.
 - A commit row must show the subject line above the meta line.
 - The meta line must start with the short hash.
 - The meta line may then show the author, the time, the file count and extra items, in this order.
-- The meta line must separate its items with `•`.
+- The meta line must separate its items with `·`.
 - A synced commit must show `hash → newHash` when the two hashes differ.
 - The subject must wrap to two lines at most.
 - Issue keys in the subject must become links, as the issue navigation settings define.

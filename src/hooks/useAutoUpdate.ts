@@ -28,7 +28,7 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
       else if (showNoUpdateToast) {
         toast.add({
           type: "success",
-          title: "You're up to date!",
+          title: "You're up to date",
           description: `${await getName()} ${result.data.current_version} is currently the newest version available.`,
         })
       }

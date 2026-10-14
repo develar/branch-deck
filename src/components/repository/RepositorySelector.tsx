@@ -73,7 +73,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
             <SelectValue>
               {(selected: string | null) => (
                 // rtl clips the start, the project name stays; bdi keeps the path itself left to right
-                <span dir="rtl" className="truncate"><bdi>{items.find(item => item.value === selected)?.label ?? "Select repository..."}</bdi></span>
+                <span dir="rtl" className="truncate"><bdi>{items.find(item => item.value === selected)?.label ?? "Select repository…"}</bdi></span>
               )}
             </SelectValue>
           </SelectTrigger>
@@ -88,7 +88,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
                       ? (
                           <div className="text-xs whitespace-nowrap text-muted-foreground">
                             {item.project.lastBranchCount === 1 ? "1 branch" : `${item.project.lastBranchCount || 0} branches`}
-                            {` • ${formatRelativeTime(item.project.lastSyncTime)}`}
+                            {` · ${formatRelativeTime(item.project.lastSyncTime)}`}
                           </div>
                         )
                       : null}
@@ -157,8 +157,8 @@ function formatPathWithTruncation(path: string, homeDir: string, maxLength: numb
 
   const projectName = segments[segments.length - 1]!
   // if the project name alone is too long, truncate it
-  if (projectName.length > maxLength - 3) {
-    return "..." + projectName.slice(-(maxLength - 3))
+  if (projectName.length > maxLength - 1) {
+    return "…" + projectName.slice(-(maxLength - 1))
   }
 
   // build the path from the end, keeping as much as possible
@@ -166,15 +166,15 @@ function formatPathWithTruncation(path: string, homeDir: string, maxLength: numb
   let i = segments.length - 2
   while (i >= 0) {
     const newSegment = segments[i]! + "/"
-    // reserve space for ".../" at the beginning
-    if (result.length + newSegment.length + 4 > maxLength) {
-      const remainingSpace = maxLength - result.length - 4
+    // reserve space for "…/" at the beginning
+    if (result.length + newSegment.length + 2 > maxLength) {
+      const remainingSpace = maxLength - result.length - 2
       if (remainingSpace > 0 && i === 0 && segments[0]!.length <= remainingSpace) {
         // the first segment fits
-        result = segments[0]! + "/.../" + result
+        result = segments[0]! + "/…/" + result
       }
       else {
-        result = ".../" + result
+        result = "…/" + result
       }
       break
     }

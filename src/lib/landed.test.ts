@@ -1,10 +1,19 @@
 // @spec spec/repository/landed-commits.spec.md
 import { describe, expect, it } from "vitest"
 import type { AppliedUpdate, LandedBranch, LandedCommit, UpdateCheck } from "@/lib/bindings"
-import { appliedUpdateToast, describeLanding, landedCountLabel, mergeLandedReport, shortLanding } from "@/lib/landed"
+import {
+  appliedUpdateToast,
+  describeLanding,
+  formatStayLocal,
+  landedChipLabel,
+  landedCountLabel,
+  mergeLandedReport,
+  sharedCommitter,
+  shortLanding,
+} from "@/lib/landed"
 
-function commit(id: string, upstream: string | null = `up-${id}`): LandedCommit {
-  return { id, subject: `Subject ${id}`, upstream: upstream === null ? null : { id: upstream, author: "A", committer: "Patronus", time: 100 } }
+function commit(id: string, upstream: string | null = `up-${id}`, committer = "Patronus"): LandedCommit {
+  return { id, subject: `Subject ${id}`, upstream: upstream === null ? null : { id: upstream, author: "A", committer, time: 100 } }
 }
 
 function branch(name: string | null, landed: number, remaining = 0, squashed = false): LandedBranch {
@@ -19,7 +28,7 @@ describe("describeLanding", () => {
   it("names the user's branches, a part as a count of the branch", () => {
     expect(describeLanding([])).toBeNull()
     expect(describeLanding([branch("wsm", 5)])).toBe("brings in your wsm")
-    expect(describeLanding([branch("wsm", 5), branch("IJPL-257337", 3, 9)])).toBe("brings in your wsm and 3 of 12 commits of IJPL-257337")
+    expect(describeLanding([branch("wsm", 5), branch("IJPL-257337", 3, 9)])).toBe("brings in your wsm and 3 commits of IJPL-257337")
     expect(describeLanding([branch(null, 2)])).toBe("brings in your 2 commits without a branch")
     expect(describeLanding(["a", "b", "c", "d", "e"].map(name => branch(name, 1)))).toBe("brings in your a, b, c and 2 more")
   })
@@ -27,13 +36,36 @@ describe("describeLanding", () => {
   it("says it in a few words for the footer", () => {
     expect(shortLanding([])).toBeNull()
     expect(shortLanding([branch("wsm", 5)])).toBe("your wsm landed")
-    expect(shortLanding([branch("wsm", 3, 9)])).toBe("3 commits of yours landed")
+    expect(shortLanding([branch("wsm", 40, 12)])).toBe("40 of your commits landed")
+    expect(shortLanding([branch(null, 1)])).toBe("1 of your commits landed")
     expect(shortLanding([branch("a", 1), branch("b", 1)])).toBe("your 2 branches landed")
   })
+})
 
-  it("counts a whole branch and a part of one", () => {
-    expect(landedCountLabel(branch("wsm", 5))).toBe("5 commits")
-    expect(landedCountLabel(branch("wsm", 3, 9))).toBe("3 of 12")
+describe("landedCountLabel", () => {
+  it("gives each number its verb", () => {
+    expect(formatStayLocal(1)).toBe("1 stays local")
+    expect(formatStayLocal(12)).toBe("12 stay local")
+    expect(landedCountLabel(branch("wsm", 1))).toBe("1 landed")
+    expect(landedCountLabel(branch("wsm", 40, 12))).toBe("40 landed · 12 stay local")
+    expect(landedCountLabel(branch("wsm", 1, 1))).toBe("1 landed · 1 stays local")
+    expect(landedCountLabel(branch("wsm", 3, 0, true))).toBe("3 landed · squashed")
+  })
+
+  it("says it in fewer words on the chip, \"Landed\" when the baseline has all of the branch", () => {
+    expect(landedChipLabel(branch("wsm", 40, 12), true)).toBe("40 landed · 12 local")
+    expect(landedChipLabel(branch("wsm", 40, 12), false)).toBe("40 landed · 12 local")
+    expect(landedChipLabel(branch("wsm", 5), true)).toBe("Landed")
+    expect(landedChipLabel(branch("wsm", 3, 0, true), false)).toBe("3 landed")
+  })
+
+  it("names the committer once when every branch has the same one", () => {
+    expect(sharedCommitter([branch("a", 1), branch("b", 2)])).toBe("Patronus")
+    const other: LandedBranch = { name: "c", commits: [commit("c0", "up-c0", "Space Team")], remaining: 0, landedAt: 1000 }
+    expect(sharedCommitter([branch("a", 1), other])).toBeUndefined()
+    // a squashed branch has no committer to share
+    expect(sharedCommitter([branch("a", 1), branch("s", 1, 0, true)])).toBeUndefined()
+    expect(sharedCommitter([])).toBeUndefined()
   })
 })
 
@@ -45,12 +77,14 @@ describe("appliedUpdateToast", () => {
       title: "3 branches landed in origin/master",
       description: "wsm, IJPL-257337 and IJAI-3828 · rebased 116 commits",
     })
-    expect(appliedUpdateToast(check, rebase, [branch("IJPL-257337", 3, 9)])).toEqual({
-      title: "3 of 12 commits of IJPL-257337 landed",
-      description: "9 stay local · rebased 116 commits",
+    expect(appliedUpdateToast(check, rebase, [branch("IJPL-257337", 40, 12)])).toEqual({
+      title: "40 commits of IJPL-257337 landed · 12 stay local",
+      description: "Updated master: rebased 116 commits",
     })
+    expect(appliedUpdateToast(check, rebase, [branch("IJPL-257337", 1, 1)]).title).toBe("1 commit of IJPL-257337 landed · 1 stays local")
     expect(appliedUpdateToast(check, rebase, [branch("wsm", 2, 0, true)]).title).toBe("wsm landed in origin/master, squashed")
-    expect(appliedUpdateToast(check, rebase, [branch(null, 2)]).title).toBe("2 commits of yours landed in origin/master")
+    expect(appliedUpdateToast(check, rebase, [branch(null, 2)]).title).toBe("2 of your commits landed in origin/master")
+    expect(appliedUpdateToast(check, rebase, [branch(null, 40, 12)]).title).toBe("40 of your commits landed · 12 stay local")
   })
 
   it("keeps the fast-forward wording", () => {

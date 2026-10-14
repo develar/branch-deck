@@ -236,7 +236,8 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 - The footer lines wrap instead of truncating: an update state or a hint is read in full.
 - The push button opens its description on hover, as in the branch row. The dropped commits sit below a
   `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
-  one truncated line, the author, the `font-mono` short id and the age a muted line below it.
+  one truncated line with its issue links and its dimmed conventional-commit prefix, as in the commit rows, the
+  author, the `font-mono` short id and the age a muted line below it.
 
 ## Testing / Local Run
 

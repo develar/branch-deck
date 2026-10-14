@@ -92,8 +92,11 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
 
   const target = options?.targetBranch ?? "the baseline"
   const explanation = mode === "dryRun"
-    ? `Patronus rebases ${branchName} onto ${target} and runs the checks; nothing is pushed.`
+    ? `Patronus rebases ${branchName} onto ${target} and runs the checks, without pushing into ${target}.`
     : `Patronus rebases ${branchName} onto ${target}, runs the checks and pushes it into ${target} when they pass.`
+  // a dry run doesn't push into the target, but Patronus starts from the remote branch: the local tip goes there first
+  const unpushed = remoteTip === null ? branchName : `The last commit of ${branchName}`
+  const pushNote = `${unpushed} isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.`
   const items = [
     { value: NO_PROFILE, label: "No profile" },
     ...profiles.map(it => ({ value: it.id, label: it.name })),
@@ -141,7 +144,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
         />
       )}
       {needsPush && (
-        <p className="text-sm text-muted-foreground" data-testid="patronus-start-push-note">The branch is pushed first: Patronus starts from the remote branch.</p>
+        <p className="text-sm text-muted-foreground" data-testid="patronus-start-push-note">{pushNote}</p>
       )}
       {blocked && (
         <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-blocked">

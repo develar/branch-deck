@@ -156,11 +156,18 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-state.test.ts (`names at most three files`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
 - The tooltip must say when the baseline was last fetched: Branch Deck's own fetch or one elsewhere (`FETCH_HEAD`),
-  whichever is newer, and the shortcut.
+  whichever is newer, and the shortcut: "Fetched 5 minutes ago · fetch and update ⌘T".
   [@test] ../../src/lib/update-state.test.ts (`takes the newer of Branch Deck's fetch and one elsewhere`)
+- Before the first fetch, a state would claim what nobody asked the remote: the button is muted without a state icon,
+  its tooltip says "origin/master not fetched yet" over "fetch and update ⌘T", and the footer of the outgoing overview
+  "Incoming from origin/master: not fetched yet". A conflict or a blocked update, found against the copy of the clone,
+  keeps its words and its icon, then "· origin/master not fetched yet".
+  [@test] ../../src/lib/update-state.test.ts (`says the baseline was not fetched yet instead of a state nobody asked the remote for`)
+  [@test] ../../src/lib/update-state.test.ts (`says the same in the footer of the outgoing overview`)
 - A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
-  "Fetching…", "Checking…", "Updating…", and its tooltip names the step instead of the state of the last check:
-  "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to origin/master…".
+  "Fetching…", "Checking…", "Updating…", and its tooltip names only the step, without the state of the last check and
+  without "fetch and update": "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to
+  origin/master…".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the running step in the tooltip, not the last state`)

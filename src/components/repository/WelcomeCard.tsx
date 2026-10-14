@@ -19,7 +19,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
           <div className="flex items-center gap-2">
             <GitBranchIcon className="size-5 text-primary" />
             <h3 className="text-lg font-semibold">
-              Welcome to Branch Deck!
+              Welcome to Branch Deck
             </h3>
           </div>
         </CardHeader>
@@ -27,7 +27,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
         <CardContent className="flex flex-col gap-4">
           <p className="text-muted-foreground">
             {hasRepository
-              ? "You're almost ready! Configure your branch prefix to start managing your branches."
+              ? "You're almost ready: configure your branch prefix to start managing your branches."
               : "Let's get you started with managing your Git branches. Follow these simple steps:"}
           </p>
 

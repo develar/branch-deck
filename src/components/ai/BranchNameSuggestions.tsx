@@ -86,7 +86,7 @@ export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, i
                     className="inline-flex animate-pulse items-center justify-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium"
                   >
                     <SparklesIcon className="size-3 animate-spin text-muted-foreground" />
-                    <span className="text-muted-foreground">Generating...</span>
+                    <span className="text-muted-foreground">Generating…</span>
                   </div>
                 ))}
               </>

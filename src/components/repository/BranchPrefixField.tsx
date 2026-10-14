@@ -19,7 +19,7 @@ export function BranchPrefixField({ disabled = false }: BranchPrefixFieldProps) 
   // show the git-provided prefix as a hint when the user hasn't entered anything
   const placeholder = gitProvidedBranchPrefix.status === "ok" && gitProvidedBranchPrefix.data
     ? gitProvidedBranchPrefix.data
-    : "Set prefix..."
+    : "Set prefix…"
   // don't warn while loading
   const configured = isLoadingBranchPrefix || effectiveBranchPrefix !== ""
   const warn = !configured && !disabled

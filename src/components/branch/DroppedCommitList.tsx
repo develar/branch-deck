@@ -1,3 +1,4 @@
+import { CommitSubjectLine } from "@/components/commit/CommitSubject"
 import type { DroppedCommits } from "@/hooks/usePushButton"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
@@ -10,7 +11,7 @@ export function DroppedCommitList({ dropped }: { dropped: DroppedCommits }) {
       <ul className="flex flex-col gap-1.5">
         {dropped.commits.map(commit => (
           <li key={commit.id} className="flex min-w-0 flex-col">
-            <span className="truncate">{commit.subject}</span>
+            <CommitSubjectLine subject={commit.subject} />
             <span className="truncate text-xs text-muted-foreground">
               {`${commit.author} · `}
               <span className="font-mono">{formatShortHash(commit.id)}</span>

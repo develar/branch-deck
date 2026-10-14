@@ -87,13 +87,13 @@ export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
   )
 }
 
-/** Latest commit subject of the branch; a conventional-commit prefix is dimmed as in the commit rows. */
+/** Latest commit subject of the branch, with its issue links; a conventional-commit prefix is dimmed as in the commit rows. */
 export function BranchSummary({ summary }: { summary: string }) {
   const { prefix, text } = splitSubjectPrefix(summary)
   return (
     <span className="truncate text-xs text-muted-foreground">
       {prefix != null && <span className="font-mono text-muted-foreground/70">{`${prefix} `}</span>}
-      {text}
+      <LinkedText text={text} />
     </span>
   )
 }

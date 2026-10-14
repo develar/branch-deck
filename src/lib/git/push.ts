@@ -19,7 +19,7 @@ import { vcsRequestFactory } from "@/stores/repository"
 export interface PushOptions {
   /** The remote commit the push replaces; by default the `remoteTip` of the branch's remote status, the row's view */
   expectedRemote?: string | null
-  /** A Safe Push an earlier push cancelled to restart it on the pushed commit, but did not push (the remote moved) */
+  /** A Safe Push an earlier push canceled to restart it on the pushed commit, but did not push (the remote moved) */
   restartRobot?: PatronusRobot
 }
 
@@ -137,7 +137,7 @@ async function guardRunningRobot(branchName: string): Promise<RobotGuard> {
 
 /**
  * The remote branch moved since its status was shown, so nothing was pushed: the toast says what the remote has now,
- * and its action pushes over exactly that, through the Safe Push question as any push. A Safe Push the push cancelled
+ * and its action pushes over exactly that, through the Safe Push question as any push. A Safe Push the push canceled
  * to restart is restarted by that push.
  */
 function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): void {
@@ -146,11 +146,11 @@ function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, re
     // nothing left to push: the remote has the branch's commits, the robot can run on them
     restartAfterPush(restartRobot)
   }
-  const cancelled = restartRobot === undefined || texts.action === null ? "" : ` The ${formatPushMode(restartRobot.pushMode)} is cancelled: the push restarts it.`
+  const canceled = restartRobot === undefined || texts.action === null ? "" : ` The ${formatPushMode(restartRobot.pushMode)} is canceled: the push restarts it.`
   const id = toast.add({
     type: "warning",
     title: texts.title,
-    description: `${texts.description}${cancelled}`,
+    description: `${texts.description}${canceled}`,
     // the user decides: the toast stays until then
     timeout: 0,
     ...(texts.action !== null && {

@@ -23,7 +23,7 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
     // Only add update menu item when auto-update feature is enabled
     #[cfg(feature = "auto-update")]
     let submenu = {
-      let check_for_updates = MenuItemBuilder::with_id("check_for_updates", "Check for updates…").build(app)?;
+      let check_for_updates = MenuItemBuilder::with_id("check_for_updates", "Check for Updates…").build(app)?;
       submenu.item(&check_for_updates).separator()
     };
 
@@ -65,7 +65,7 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   #[cfg(target_os = "macos")]
   let view_menu_builder = view_menu_builder.item(&PredefinedMenuItem::fullscreen(app, None)?);
 
-  let color_selector = MenuItemBuilder::with_id("color_selector", "Primary Color...").build(app)?;
+  let color_selector = MenuItemBuilder::with_id("color_selector", "Theme…").build(app)?;
   let view_menu_builder = view_menu_builder.separator().item(&color_selector);
 
   let view_menu = &view_menu_builder.build()?;

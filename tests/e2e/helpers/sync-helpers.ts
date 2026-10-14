@@ -110,7 +110,7 @@ export async function emitTauriEvent(page: Page, event: string, payload: unknown
   }, [event, payload] as const)
 }
 
-/** Turns on "Auto-sync on focus" in the sync settings popover. */
+/** Turns on "Auto-sync on Focus" in the sync settings popover. */
 export async function enableAutoSyncOnFocus(page: Page): Promise<void> {
   await page.getByTestId("sync-settings-button").click()
   const autoSyncSwitch = page.getByRole("switch")

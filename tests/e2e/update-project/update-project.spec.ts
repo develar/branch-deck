@@ -56,6 +56,7 @@ test.describe("Update Project", () => {
     const tooltip = page.getByTestId("update-project-tooltip")
     await expect(tooltip).toContainText("Fetching origin/master…")
     await expect(tooltip).not.toContainText("Rebases cleanly")
+    await expect(tooltip).not.toContainText("fetch and update")
 
     releaseUpdate()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()

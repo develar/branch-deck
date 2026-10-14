@@ -99,35 +99,52 @@ by the next sync the same way.
 - `bd sync` prints the landing as `update.landing` and the report as `landed`, with short ids.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)
 
+### Wording
+
+- Every surface (the Update tooltip, the footer of the outgoing overview, the toast, the island, the chip) says it in
+  one grammar: each number has its verb, "3 commits of IJPL-257337 landed · 9 stay local", never a ratio like "3 of
+  12", which hides the number that landed. What stays is "1 stays local" / "9 stay local" ("9 local" on the chip).
+  [@test] ../../src/lib/landed.test.ts (`gives each number its verb`)
+- A commit subject shows its issue links and its dimmed conventional-commit prefix, as in the commit rows: in the
+  island, in the popover of the chip.
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`, `should lead the toast with what landed and keep the island until it is dismissed`)
+
 ### Before the update
 
 - The tooltip of the Update button adds what the baseline brings in: "Rebases cleanly onto origin/master · brings in
-  your feature-auth and 1 of 2 commits of search"; a clean update shows the `info` package instead of the check, on the
-  button and in the footer line of the outgoing overview, which says "your wsm landed".
+  your feature-auth and 1 commit of search"; a clean update shows the `info` package instead of the check, on the
+  button and in the footer line of the outgoing overview. The footer line says "your wsm landed", "40 of your commits
+  landed" (a part of a branch, or commits without one), "your 2 branches landed".
   [@test] ../../src/lib/landed.test.ts (`names the user's branches, a part as a count of the branch`)
   [@test] ../../src/lib/landed.test.ts (`says it in a few words for the footer`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
-- The branch row shows an `info` chip "Landed" (all its commits) or "1 of 2 landed" in the third column of its Status
-  cell, after the Patronus chip ([Branch Row](../branch/branch-row.spec.md)). Its popover has the anatomy of the pull
-  request and Patronus details: the state line, what the update does, then the rows "Commits" (each subject with its
-  baseline commit) and "Stays local". A landed commit shows "in origin/master" after its subject; its popover has the
-  row "Landed as".
+- The branch row shows an `info` chip "Landed" (all its commits) or "1 landed · 1 local" in the third column of its
+  Status cell, after the Patronus chip ([Branch Row](../branch/branch-row.spec.md)). Its popover has the anatomy of the
+  pull request and Patronus details: the state line (the chip text), "Already in origin/master · the update removes the
+  local copies", then the rows "Commits" (each subject with its baseline commit) and "Stays local" ("1 commit"). A
+  landed commit shows "in origin/master" after its subject; its popover says "Already in origin/master · the update
+  removes the local copy" and has the row "Landed as".
+  [@test] ../../src/lib/landed.test.ts (`says it in fewer words on the chip, "Landed" when the baseline has all of the branch`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 
 ### After the update
 
 - The toast leads with what landed, then how the branch was updated: "wsm landed in origin/master" / "Updated master:
   rebased 116 commits"; "3 branches landed in origin/master" / "wsm, IJPL-257337 and IJAI-3828 · rebased 98 commits";
-  "3 of 12 commits of IJPL-257337 landed" / "9 stay local · rebased 113 commits"; ", squashed" when no commit of the
-  branch has a counterpart. Without anything landed it stays "Updated master: rebased 2 commits onto origin/master".
+  "40 commits of IJPL-257337 landed · 12 stay local" / "Updated master: rebased 113 commits"; "2 of your commits landed
+  in origin/master" for commits without a branch; ", squashed" when no commit of the branch has a counterpart. Without
+  anything landed it stays "Updated master: rebased 2 commits onto origin/master".
   [@test] ../../src/lib/landed.test.ts (`leads with what landed, then how the branch was updated`)
   [@test] ../../src/lib/landed.test.ts (`keeps the fast-forward wording`)
-- The Landed island sits above the branches: "Landed in origin/master" and when, a row per branch with "1 commit" or "1
-  of 2 · 1 stay local", the pull request and Patronus chips and the committer; a row expands to the commits, each with
-  the short baseline commit (copy), its committer and time, or "squashed upstream". Dismiss (`XIcon`) closes it and
-  clears the "New" marks of the archive.
+- The Landed island sits above the branches: "Landed in origin/master" and when, a row per branch with "1 landed",
+  "40 landed · 12 stay local" or "3 landed · squashed", the pull request and Patronus chips and the committer; a row
+  expands to the commits, each with the short baseline commit (copy), its committer and time, or "squashed upstream".
+  When every row has the same committer, the header names it once instead ("Landed in origin/master · by Space Team ·
+  just now"). Dismiss (`XIcon`) closes it and clears the "New" marks of the archive.
+  [@test] ../../src/lib/landed.test.ts (`names the committer once when every branch has the same one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
-- A branch that stays active shows "1 landed" until Dismiss; a fully landed branch moves to the archive, marked "New".
+- A branch that stays active shows "1 landed · 1 local" until Dismiss; a fully landed branch moves to the archive,
+  marked "New".
 
 ## User Experience
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { CombineIcon, CornerDownRightIcon, LoaderCircleIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
+import { LinkedText } from "@/components/commit/LinkedText"
 import { squashFixups } from "@/hooks/useSquashFixups"
 import { formatFixupCount, getAutosquashScope, getDisplaySubject, getFixupMarker, getListFixups } from "@/lib/autosquash"
 import type { ListFixups } from "@/lib/autosquash"
@@ -78,7 +79,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
             {fixups.orphans.map(orphan => (
               <li key={orphan.commitId} className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="shrink-0 font-mono">{parseSubject(orphan.subject).autosquash.trim()}</span>
-                <span className="truncate">{getDisplaySubject(orphan.subject)}</span>
+                <LinkedText text={getDisplaySubject(orphan.subject)} className="truncate" />
               </li>
             ))}
           </ul>
@@ -100,12 +101,12 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
 function FixupGroup({ group }: { group: PlannedGroup }) {
   return (
     <li className="flex min-w-0 flex-col gap-0.5">
-      <span className="truncate text-sm font-medium">{getDisplaySubject(group.targetSubject)}</span>
+      <LinkedText text={getDisplaySubject(group.targetSubject)} className="truncate text-sm font-medium" />
       {group.folded.map(fixup => (
         <span key={fixup.commitId} className="flex min-w-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground">
           <CornerDownRightIcon className="size-3 shrink-0" />
           <span className="shrink-0 font-mono">{getFixupMarker(fixup.kind)}</span>
-          <span className="truncate">{getDisplaySubject(fixup.subject)}</span>
+          <LinkedText text={getDisplaySubject(fixup.subject)} className="truncate" />
         </span>
       ))}
     </li>
