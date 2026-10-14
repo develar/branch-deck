@@ -22,6 +22,11 @@ targets:
   - ../../src/components/branch/InlineUngroupConfirm.tsx
   - ../../src/components/branch/InlineRenameBranchInput.tsx
   - ../../crates/sync-core/src/stack_operations.rs
+  - ../../src/lib/commit.ts
+  - ../../src/lib/stack.ts
+  - ../../src/components/commit/PrefixChangeHint.tsx
+  - ../../src/components/shared/InlineBranchTarget.tsx
+  - ../../src/hooks/useBranchNameValidation.ts
 ---
 
 # Stacked Branches
@@ -120,6 +125,14 @@ the other branches still sync. The backend is done; the branch table does not sh
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
 - Only an `Integrated` result of a stacked child may be cached; another one is detected again on the next sync.
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_integrated`)
+
+### Messages
+
+- `groupFor` must read a prefix as the backend does: the leaf, its parent and an empty level.
+  [@test] ../../src/lib/commit.test.ts (`reads %j as the backend stack_path does`, `keeps a slash in a flat name without stacked branches`)
+- The commit message editor must say when an edit restacks the branch, and warn when it would make the branch's
+  parents conflict or name a parent without commits.
+  [@test] ../../src/lib/stack.test.ts (`names the new branch and its parent`, `warns about a parent the other commits of the branch don't declare`, `says a single-commit branch is restacked or unstacked`, `warns about a parent without commits`)
 
 ### Fixups
 

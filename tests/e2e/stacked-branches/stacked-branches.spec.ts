@@ -1,8 +1,9 @@
 // @spec spec/branch/stacked-branches.spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
-import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { inlineBranchCreator } from "../helpers/inline-form-helpers"
+import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 
 /** `name@depth` of the branch rows in display order */
 async function tree(page: Page): Promise<string[]> {
@@ -94,5 +95,25 @@ test.describe("Stacked branches", () => {
     await page.getByRole("button", { name: "Ungroup" }).click()
 
     await expect(findBranchRow(page, "oauth")).toContainText("blocked by login")
+  })
+
+  test("should move commits to a new branch on a parent with Move to…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+
+    await expandBranch(page, findBranchRow(page, "docs"))
+    await selectCommit(page, getBranchCommitRow(page, "docs", "Document the login"))
+    await clickGroupIntoBranchButton(page)
+    await inlineBranchCreator.waitForVisible(page)
+    const portal = inlineBranchCreator.getPortal(page)
+    await inlineBranchCreator.getInput(page).fill("auth/guide")
+    await expect(portal).toContainText("Creates guide on auth with 1 commit")
+    await inlineBranchCreator.getInput(page).fill("login")
+    await expect(portal).toContainText("Moves 1 commit to login (on auth)")
+    await inlineBranchCreator.getInput(page).fill("auth/guide")
+    await inlineBranchCreator.getInput(page).press("Enter")
+
+    await expect.poll(() => tree(page)).toEqual(["auth@0", "guide@1", "session@1", "login@1", "oauth@2"])
+    await expect(findBranchRow(page, "guide")).toHaveAttribute("data-state", "open")
   })
 })

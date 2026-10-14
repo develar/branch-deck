@@ -84,6 +84,11 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   a new name creates the branch. The help text and the submit button ("Move" or "Create") must say which.
 - The form must offer the existing branches as chips, the branches of the same issue first, then the AI suggestions.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
+- With [stacked branches](stacked-branches.spec.md) on, the input may name a parent (`auth/login`), the target is
+  looked up by its leaf, the help text names the parent ("Moves 2 commits to login (on auth)", "Creates login on
+  auth") and warns when the parent differs from the existing branch's, and the branches of the same stack come first.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should move commits to a new branch on a parent with Move to…`)
+  [@test] ../../src/stores/branch-table-rows.test.ts (`offers the branches of the same stack first as move targets`)
 
 ### Context menus
 

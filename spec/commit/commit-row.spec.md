@@ -129,7 +129,9 @@ The commit hash popover shows the same header and body.
 - Escape must cancel the edit and keep the preview open. A click outside must keep the edit.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should cancel the edit with Escape and keep the preview open`)
 - A changed grouping must show a warning that names the new branch, or the unassigned commits. The grouping follows
-  the backend rule: an explicit prefix, else the issue key of the subject.
+  the backend rule: an explicit prefix, else the issue key of the subject. With
+  [stacked branches](../branch/stacked-branches.spec.md) on, it also names the parent and warns about a restack and a
+  stack problem.
 - A save that moves the commit to another list must close the preview.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
   [@test] ../../src/lib/commit.test.ts (`returns the explicit prefix of the subject`, `skips the blank lines before the subject`, `groups %j into the prefix branch %j`, `groups %j into the issue branch %j`, `returns null for %j`)

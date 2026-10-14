@@ -111,3 +111,27 @@ describe("findIssueKey", () => {
     expect(findIssueKey("prefixABC-123")).toBeNull()
   })
 })
+
+describe("groupFor with stacked branches", () => {
+  it.each([
+    ["(auth/login) Add form", { branch: "login", origin: "prefix", parent: "auth" }],
+    ["(auth/login/oauth) Add OAuth", { branch: "oauth", origin: "prefix", parent: "login" }],
+    ["(login) Add form", { branch: "login", origin: "prefix", parent: null }],
+    ["( my auth / log in ) Add form", { branch: "log-in", origin: "prefix", parent: "my-auth" }],
+    ["(auth/) Add auth", { branch: "auth", origin: "prefix", parent: null }],
+    ["(/login) Add form", { branch: "login", origin: "prefix", parent: null }],
+    ["fixup! (auth/login) Add form", { branch: "login", origin: "prefix", parent: "auth" }],
+    ["(a//b) Odd", { branch: "b", origin: "prefix", parent: null, invalid: true }],
+    ["ABC-1: Fix", { branch: "ABC-1", origin: "issue", parent: null }],
+  ])("reads %j as the backend stack_path does", (message, group) => {
+    expect(groupFor(message, true)).toEqual(group)
+  })
+
+  it("keeps a slash in a flat name without stacked branches", () => {
+    expect(groupFor("(auth/login) Add form")).toEqual({ branch: "auth/login", origin: "prefix" })
+  })
+
+  it("groups a prefix without a branch name nowhere", () => {
+    expect(groupFor("(/) Nothing", true)).toBeNull()
+  })
+})

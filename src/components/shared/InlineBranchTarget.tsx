@@ -9,7 +9,8 @@ import type { InlineInputDialogHandle } from "@/components/shared/InlineInputDia
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { Commit } from "@/lib/bindings"
-import { useBranch, useMoveTargets } from "@/stores/branch-sync"
+import { groupFor } from "@/lib/commit"
+import { useBranch, useMoveTargets, useStacksEnabled } from "@/stores/branch-sync"
 import { useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
 
 /** Existing branches offered as chips */
@@ -26,7 +27,8 @@ export interface InlineBranchTargetProps {
 
 /**
  * Inline "Move to…" form: one name input; an existing branch name moves the commits there, a new name creates the
- * branch. Existing branches (the same issue first) and AI suggestions are offered below the input.
+ * branch. Existing branches (the same stack and the same issue first) and AI suggestions are offered below the input.
+ * With stacked branches on, `auth/login` names the branch `login` on `auth`, and a branch is looked up by its leaf.
  */
 export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, onSuccess }: InlineBranchTargetProps) {
   const repositoryPath = useSelectedProject()?.path ?? ""
@@ -35,9 +37,15 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
   const [isMoving, setIsMoving] = useState(false)
 
   const [branchName, setBranchName] = useState("")
-  const { sanitizedBranchName, validationState, isValid } = useBranchNameValidation(branchName)
-  const existing = useBranch(sanitizedBranchName) !== undefined
-  const isSource = sanitizedBranchName === sourceBranch
+  const stacks = useStacksEnabled()
+  const { sanitizedBranchName, validationState, isValid } = useBranchNameValidation(branchName, { stacks })
+  // with stacked branches the name may carry a parent: `auth/login` is the branch `login`
+  const target = stacks ? groupFor(`(${sanitizedBranchName})`, true) : null
+  const leaf = target?.branch ?? sanitizedBranchName
+  const parent = target?.parent ?? null
+  const existingBranch = useBranch(leaf)
+  const existing = existingBranch !== undefined
+  const isSource = leaf === sourceBranch
 
   const dialogRef = useRef<InlineInputDialogHandle>(null)
   const hasAutoPopulatedRef = useRef(false)
@@ -88,7 +96,23 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
   const commitCount = commits.length === 1 ? "1 commit" : `${commits.length} commits`
   let helpText: string | undefined
   if (isValid && !isSource) {
-    helpText = existing ? `Moves ${commitCount} to the existing branch ${sanitizedBranchName}` : `Creates the branch ${sanitizedBranchName} with ${commitCount}`
+    if (!stacks) {
+      helpText = existing ? `Moves ${commitCount} to the existing branch ${sanitizedBranchName}` : `Creates the branch ${sanitizedBranchName} with ${commitCount}`
+    }
+    else {
+      const existingParent = existingBranch?.stack?.declaredParent ?? null
+      const onParent = parent ?? existingParent
+      const on = onParent === null ? "" : ` (on ${onParent})`
+      if (!existing) {
+        helpText = parent === null ? `Creates ${leaf} with ${commitCount}` : `Creates ${leaf} on ${parent} with ${commitCount}`
+      }
+      else if (parent !== null && existingParent !== parent) {
+        helpText = `${leaf} is ${existingParent === null ? "not stacked" : `on ${existingParent}`}: its parents would conflict`
+      }
+      else {
+        helpText = `Moves ${commitCount} to ${leaf}${on}`
+      }
+    }
   }
   return (
     <div className="relative overflow-hidden" data-testid="inline-branch-target">

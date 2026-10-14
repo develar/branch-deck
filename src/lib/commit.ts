@@ -73,9 +73,14 @@ export function getCommitFileCount(commit: CommitUnion): number | undefined {
 
 /** The branch a commit message groups into, mirroring the backend `CommitGrouper`. */
 export interface CommitGroup {
+  /** The branch; with stacked branches the leaf of `(parent/leaf)` */
   branch: string
   /** An explicit `(branch)` subject prefix, or else the issue key of the subject */
   origin: "prefix" | "issue"
+  /** With stacked branches: the parent the prefix declares, null for none; absent without stacked branches */
+  parent?: string | null
+  /** With stacked branches: the prefix has an empty level (`(a//b)`) */
+  invalid?: boolean
 }
 
 // git's autosquash markers need the space: `fixup!X` is an ordinary subject
@@ -130,12 +135,40 @@ export function sanitizeBranchName(name: string): string {
     .replace(/^-|-$/g, "")
 }
 
-/** The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. */
-export function groupFor(message: string): CommitGroup | null {
+/**
+ * The levels of a stack prefix as the backend `stack_path` reads them: sanitized, the empty ones at the ends dropped.
+ * `invalid` for an empty level in the middle; `levels` is empty for a prefix without any branch name (`(/)`).
+ */
+function stackLevels(prefix: string): { levels: string[], invalid: boolean } {
+  const levels = prefix.split("/").map(level => sanitizeBranchName(level.trim()))
+  const first = levels.findIndex(level => level !== "")
+  if (first === -1) {
+    return { levels: [], invalid: true }
+  }
+  const last = levels.findLastIndex(level => level !== "")
+  const path = levels.slice(first, last + 1)
+  return path.includes("") ? { levels: [path.at(-1)!], invalid: true } : { levels: path, invalid: false }
+}
+
+/**
+ * The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. With `stacks`,
+ * `(auth/login)` groups into `login` with the parent `auth`.
+ */
+export function groupFor(message: string, stacks = false): CommitGroup | null {
   const { prefix, rest } = parseSubject(getSubjectLine(message))
+  if (prefix !== null && stacks) {
+    const { levels, invalid } = stackLevels(prefix)
+    if (levels.length === 0) {
+      return null
+    }
+    return { branch: levels.at(-1)!, origin: "prefix", parent: invalid ? null : (levels.at(-2) ?? null), ...(invalid && { invalid }) }
+  }
   if (prefix !== null) {
     return { branch: sanitizeBranchName(prefix.trim()), origin: "prefix" }
   }
   const issueKey = findIssueKey(rest)
-  return issueKey === null ? null : { branch: issueKey, origin: "issue" }
+  if (issueKey === null) {
+    return null
+  }
+  return stacks ? { branch: issueKey, origin: "issue", parent: null } : { branch: issueKey, origin: "issue" }
 }

@@ -2,9 +2,9 @@ import { toast } from "@/components/ui/toast"
 import type { Commit, MovedCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
-import { formatCommitCount } from "@/lib/commit"
+import { formatCommitCount, groupFor } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
-import { syncBranches } from "@/stores/branch-sync"
+import { isStacksEnabled, syncBranches } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject } from "@/stores/repository"
 
@@ -31,7 +31,9 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
     return true
   }
 
-  requestReveal(targetBranch === null ? null : { branchName: targetBranch, commitIds: moved.map(it => it.newId) })
+  // with stacked branches `auth/login` is the branch `login`
+  const revealed = targetBranch !== null && isStacksEnabled() ? (groupFor(`(${targetBranch})`, true)?.branch ?? targetBranch) : targetBranch
+  requestReveal(revealed === null ? null : { branchName: revealed, commitIds: moved.map(it => it.newId) })
   showUndoToast(targetBranch === null ? `Removed the prefix of ${formatCommitCount(moved.length)}` : `Moved ${formatCommitCount(moved.length)} to ${targetBranch}`, () => undoMove(moved))
   // the form closes when the commits moved; the lists follow when the sync is done
   void syncBranches({ autoScroll: false, autoExpand: false })
