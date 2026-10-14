@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import type { RemoteStatus } from "@/stores/branch-sync"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -22,6 +24,11 @@ function robot(patch: Partial<PatronusRobot>): PatronusRobot {
 function byId(...robots: PatronusRobot[]): Record<string, PatronusRobot> {
   return Object.fromEntries(robots.map(it => [it.id, it]))
 }
+
+/** The remote branch is at the commit the robot took ("tip"), the local branch has a commit more */
+const unpushedOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+/** The remote branch is at the commit the robot took ("tip"), the local branch has the same commits on a newer baseline */
+const rebuiltOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", fastForward: false })
 
 describe("findBranchRobot", () => {
   it("matches a robot started on the branch, and a Safe Push of a temporary ref by the local or the pushed tip", () => {
@@ -49,24 +56,74 @@ describe("findBranchRobot", () => {
 
 describe("getPatronusChipState", () => {
   it("names the state in its hue; a successful dry run passed, a successful push merged", () => {
-    expect(getPatronusChipState(robot({ status: "running" }), "tip")).toEqual({ kind: "running", color: "neutral", label: "Running", outdated: false })
-    expect(getPatronusChipState(robot({ status: "canceling" }), "tip").label).toBe("Canceling")
-    expect(getPatronusChipState(robot({ status: "failure" }), "tip")).toMatchObject({ kind: "failed", color: "error", label: "Failed" })
-    expect(getPatronusChipState(robot({ status: "success" }), "tip")).toMatchObject({ kind: "merged", color: "info", label: "Merged" })
-    expect(getPatronusChipState(robot({ status: "success", pushMode: "dryRun" }), "tip")).toMatchObject({ kind: "passed", color: "success", label: "Dry run passed" })
-    expect(getPatronusChipState(robot({ status: "canceled" }), "tip")).toMatchObject({ kind: "canceled", color: "neutral" })
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null)).toEqual({ kind: "running", color: "neutral", label: "Running", commit: "current", outdated: false })
+    expect(getPatronusChipState(robot({ status: "canceling" }), "tip", null).label).toBe("Canceling")
+    expect(getPatronusChipState(robot({ status: "failure" }), "tip", null)).toMatchObject({ kind: "failed", color: "error", label: "Failed" })
+    expect(getPatronusChipState(robot({ status: "success" }), "tip", null)).toMatchObject({ kind: "merged", color: "info", label: "Merged" })
+    expect(getPatronusChipState(robot({ status: "success", pushMode: "dryRun" }), "tip", null)).toMatchObject({ kind: "passed", color: "success", label: "Dry run passed" })
+    expect(getPatronusChipState(robot({ status: "canceled" }), "tip", null)).toMatchObject({ kind: "canceled", color: "neutral" })
   })
 
   it("names a robot that failed for missing approvals \"Needs review\"", () => {
-    expect(getPatronusChipState(robot({ status: "failure" }), "tip", true)).toMatchObject({ kind: "needsReview", color: "warning", label: "Needs review" })
+    expect(getPatronusChipState(robot({ status: "failure" }), "tip", null, true)).toMatchObject({ kind: "needsReview", color: "warning", label: "Needs review" })
     // only a failure
-    expect(getPatronusChipState(robot({ status: "running" }), "tip", true).kind).toBe("running")
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, true).kind).toBe("running")
   })
 
-  it("marks a robot that tests another commit than the local tip, except a merged one", () => {
-    expect(getPatronusChipState(robot({ status: "failure" }), "newer").outdated).toBe(true)
-    expect(getPatronusChipState(robot({ status: "running" }), undefined).outdated).toBe(false)
-    expect(getPatronusChipState(robot({ status: "success" }), "newer").outdated).toBe(false)
+  it("marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one", () => {
+    // the remote branch moved on since the robot took its commit
+    expect(getPatronusChipState(robot({ status: "failure" }), "newer", testRemoteStatus({ remoteTip: "newer" }))).toMatchObject({ commit: "changedOnRemote", outdated: true })
+    // a fix the remote lacks
+    expect(getPatronusChipState(robot({ status: "running" }), "fixed", unpushedOnRobot)).toMatchObject({ commit: "changedLocally", outdated: true })
+    // the sync rebuilt the branch on a newer baseline: new hashes, the same commits
+    expect(getPatronusChipState(robot({ status: "running" }), "rebuilt", rebuiltOnRobot)).toMatchObject({ commit: "rebased", outdated: false })
+    // the remote status is not loaded yet
+    expect(getPatronusChipState(robot({ status: "running" }), "newer", null).outdated).toBe(false)
+    expect(getPatronusChipState(robot({ status: "success" }), "newer", testRemoteStatus({ remoteTip: "newer" }))).toMatchObject({ commit: "current", outdated: false })
+  })
+})
+
+describe("formatRobotCommitNotice", () => {
+  const started = { sourceRevision: "3264f30f0123" }
+  const localTip = "88de421d4567"
+  const pushedSince = testRemoteStatus({ remoteTip: localTip })
+  const unpushed = testRemoteStatus({ remoteTip: started.sourceRevision, unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+  const changed = "Started on 3264f30f; the branch has changed since (now 88de421d): the result won't cover the newest commits."
+
+  function notice(subject: PatronusRobot, remote: RemoteStatus): string | null {
+    const action = getRobotRestartAction(subject, "IJPL-1", localTip, remote)
+    return formatRobotCommitNotice(subject, getPatronusChipState(subject, localTip, remote), localTip, action)
+  }
+
+  it("names the change and the restart that tests the branch as it is, pushed first when the remote lacks it", () => {
+    const failed = robot({ status: "failure", ...started })
+    expect(getRobotRestartAction(failed, "IJPL-1", localTip, pushedSince)).toBe("restart")
+    expect(notice(failed, pushedSince)).toBe(`${changed} Restart to test the current branch.`)
+    // a plain restart would test the commit the remote has
+    expect(getRobotRestartAction(failed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
+    expect(notice(failed, unpushed)).toBe(`${changed} Push and restart to test the current branch.`)
+    // a passed dry run restarts only on a newer pushed commit: the push makes one
+    const passed = robot({ status: "success", pushMode: "dryRun", ...started })
+    expect(getRobotRestartAction(passed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
+    expect(getRobotRestartAction(passed, "IJPL-1", localTip, testRemoteStatus({ remoteTip: started.sourceRevision }))).toBeNull()
+  })
+
+  it("asks to cancel a running robot first, and offers nothing for a robot of a temporary ref", () => {
+    const running = robot(started)
+    expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed)).toBeNull()
+    expect(notice(running, unpushed)).toBe(`${changed} Cancel, then push and restart to test the current branch.`)
+    expect(notice(running, pushedSince)).toBe(`${changed} Cancel, then restart to test the current branch.`)
+    // a restart would test its old commit
+    const cliPush = robot({ status: "failure", branchName: null, ...started })
+    expect(getRobotRestartAction(cliPush, "IJPL-1", localTip, unpushed)).toBeNull()
+    expect(notice(cliPush, unpushed)).toBe(changed)
+    expect(notice(robot({ branchName: null, ...started }), unpushed)).toBe(changed)
+  })
+
+  it("says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is", () => {
+    expect(notice(robot(started), testRemoteStatus({ remoteTip: started.sourceRevision }))).toBe("Started on an earlier build of the same commits.")
+    expect(notice(robot({ sourceRevision: localTip }), unpushed)).toBeNull()
+    expect(notice(robot({ sourceRevision: null }), unpushed)).toBeNull()
   })
 })
 

@@ -14,8 +14,10 @@ targets:
   - ../../src-tauri/src/commands/patronus.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus.ts
+  - ../../src/lib/review-commit.ts
   - ../../src/lib/refresh-gate.ts
   - ../../src/components/branch/PatronusChip.tsx
+  - ../../src/components/branch/ReviewCommitNotice.tsx
   - ../../src/components/branch/InlinePatronusStart.tsx
   - ../../src/components/branch/PushGuardDialog.tsx
   - ../../src/components/branch/PatronusReviewBlock.tsx
@@ -45,7 +47,7 @@ Date: 2026-10-14
 
 Changes reach the master of the IntelliJ monorepo through Patronus: a robot (Safe Push, Safe Merge, Dry Run) rebases
 the branch onto the target, runs the TeamCity checks and, unless it is a dry run, pushes. Branch Deck shows, per virtual
-branch, the robot of the branch: running, failed, merged or passed, and whether it tests the commit the branch is at.
+branch, the robot of the branch: running, failed, merged or passed, and whether the branch changed since it started.
 From the branch, the user starts a Safe Push or a Dry Run (pushing the branch first), restarts a failed robot on the
 newest commit, cancels a running one, and is asked before a push that would make a running Safe Push fail. It reads
 Patronus with the Space token of the Safe Push CLI and keeps the load on Patronus small: one list now and then, and a
@@ -56,7 +58,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 ## Goals
 
 - See which branches have a running, failed or merged Safe Push without opening the Patronus web UI.
-- Notice that a robot tests an older commit than the local branch, e.g. after a fix was committed.
+- Notice that the branch changed since its robot started, e.g. after a fix was committed, without a false alarm after a
+  sync that only rebuilt the branch on a newer baseline.
 - Open the robot in Patronus in one click.
 - Run the cycle "fix, push, restart" from Branch Deck, without the web UI and without breaking a running Safe Push.
 - Learn that a Safe Push merged without watching it, also with the window in the background.
@@ -107,7 +110,7 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/stores/patronus.test.ts (`lists the full window on the refresh button, asked by the user`)
   [@test] ../../crates/patronus/src/service_test.rs (`reuses_a_fresh_full_list_but_not_an_incremental_one`)
 - A sync lists at most every 5 minutes, a focus when the robots are older than 2 minutes (and at least a minute after
-  the last request). A push lists nothing: whether a robot tests an older commit is known locally.
+  the last request). A push lists nothing: whether the branch changed since a robot started is known locally.
   [@test] ../../src/stores/patronus.test.ts (`asks after a sync every five minutes at most, on focus when older than two minutes, never after a push`)
 - A repository that answered "not on Space" is asked again only by the refresh button.
   [@test] ../../src/stores/patronus.test.ts (`does not ask again for a repository that is not on Space, until the refresh button`)
@@ -144,16 +147,35 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
 - Running and canceling are muted, failed `destructive`, failed for missing approvals "Needs review" `warning`, a
   successful Safe Push "Merged" `info`, a successful dry run
-  "Dry run passed" `success`, canceled muted. A robot that tests another commit than the local tip gets a `warning`
-  dot, except a merged one.
+  "Dry run passed" `success`, canceled muted.
   [@test] ../../src/lib/patronus.test.ts (`names the state in its hue; a successful dry run passed, a successful push merged`)
-  [@test] ../../src/lib/patronus.test.ts (`marks a robot that tests another commit than the local tip, except a merged one`)
+- A robot gets a `warning` dot when the branch changed since it took its commit: the commit is not the one the remote
+  branch is at now (`remoteTip`), or the branch is not up to date with the remote by content (work the remote lacks, or
+  remote commits the branch lacks, as the [remote status](../../docs/design/remote-status.md) counts them). A merged
+  robot gets none. Neither does a robot of the local tip, nor one whose remote branch is at its commit while the branch
+  is up to date: every sync rebuilds the virtual branches on the newer baseline, so their hashes change while their
+  commits don't. Until the remote status of the branch is loaded, there is no dot.
+  [@test] ../../src/lib/patronus.test.ts (`marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one`)
+  [@test] ../../src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
+  [@test] ../../src/lib/review-commit.test.ts (`takes the branch as it is for its own tip, and while nothing says otherwise`)
 - Its accessible name is "Safe Push: Running" (the mode, then the state).
 - Hovering the chip opens the details: the mode and the state, the name, the target branch, the commit, the start and
-  finish times, the cancellation reason, the notice "Tests 01234567; the branch is at 89abcdef now." and "Open in
-  Patronus". A click on the chip opens the robot page and does not toggle the row.
+  finish times, the cancellation reason, the notice about the commit (below) and "Open in Patronus". A click on the
+  chip opens the robot page and does not toggle the row.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say when the robot tests another commit than the local branch`)
+- With the dot, the details say what changed and how to test the branch as it is: "Started on 3264f30f; the branch has
+  changed since (now 88de421d): the result won't cover the newest commits. Restart to test the current branch.", with
+  Restart. When the remote lacks the change, a restart would test the commit the remote has: "Push and restart to test
+  the current branch.", with "Push and Restart" ([below](#restart-and-cancel)). For a running robot of the branch,
+  "Cancel, then restart to test the current branch." ("Cancel, then push and restart …"). A robot that can't be
+  restarted from here (a Safe Push of a temporary ref, "Needs review") gets no advice.
+  [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
+  [@test] ../../src/lib/patronus.test.ts (`asks to cancel a running robot first, and offers nothing for a robot of a temporary ref`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say when the branch changed since the robot started, and how to test the branch as it is`)
+- A branch only rebuilt on a newer baseline (the remote branch at the robot's commit, the branch up to date, other
+  hashes) gets no dot; the details say quietly "Started on an earlier build of the same commits."
+  [@test] ../../src/lib/patronus.test.ts (`says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say only quietly that a robot started on an earlier build of the same commits`)
 
 ### Details
 
@@ -268,6 +290,12 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../src/lib/patronus.test.ts (`cancels a running robot only`)
   [@test] ../../crates/patronus/src/actions_test.rs (`restart_answers_the_new_robot_and_cancel_the_canceling_one`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
+- Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks, the popover
+  offers "Push and Restart" instead of Restart: the push of the row (asking first as any push,
+  [below](#pushing-into-a-branch-whose-safe-push-runs)), then the restart on the pushed commit; a passed dry run counts
+  the pushed commit as the newer one. The branch menu keeps Restart.
+  [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the popover`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
   Patronus" and sends nothing.
   [@test] ../../crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
@@ -326,6 +354,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 - The chip is the same text-sized button as the pull request chip (`StatusChip`): `text-xs`, a `size-3.5` shield,
   underlined on hover; the running shield pulses. The dot is `size-1.5 rounded-full`.
+- The notice of a changed branch is `text-xs text-warning` after the warning triangle; the line of a rebuilt one is
+  `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the pull request details).
 - `info` is the merged colour, as for pull requests; push states never use it.
 - The details popover is `w-80`; in the preview the same details sit in a nested `rounded-lg` panel.
 
@@ -341,7 +371,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   the local tip of the robot's branch), what `poll_patronus_robots` answers (the fixture robots whose status differs
   from the known one) and the robot of `get_patronus_robot_details` (without checks); `GET` returns how often the app
   listed and polled; `get_patronus_robot_problems` answers none and `get_patronus_review_requirement` "not required".
-  The actions are answered in the page (`page.route`), which records their parameters.
+  The actions are answered in the page (`page.route`), which records their parameters. The E2E repositories have no
+  remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
 - Against the real Patronus: `pnpm run tauri dev`, open a checkout of `ultimate`; the log has one line per request
   ("listed Patronus robots", "polled Patronus robots") with its duration.
 

@@ -2,7 +2,11 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import type { ChecksSummary, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { notifyError } from "@/lib/errors"
+import { formatShortHash } from "@/lib/hash"
+import type { ReviewCommitState } from "@/lib/review-commit"
+import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import type { UIColor } from "@/lib/ui-types"
+import type { RemoteStatus } from "@/stores/branch-sync"
 
 /** Kind of the chip icon, as GitHub shows a pull request */
 export type PullRequestIconKind = "open" | "draft" | "merged" | "closed"
@@ -15,20 +19,44 @@ export interface PullRequestChipState {
   label: string
   /** The head checks failed: a `destructive` dot */
   checksFailing: boolean
-  /** The pull request does not show the local branch tip yet: a `warning` dot */
+  /** How the head relates to the branch now; `current` for a merged or closed pull request, which keeps its last head */
+  commit: ReviewCommitState
+  /** The branch changed since the head was pushed (not only rebuilt on a newer baseline): a `warning` dot */
   outdated: boolean
 }
 
 /**
  * How the chip shows a pull request. The review decision colours an open one; a draft, a merged and a closed one show
- * their state instead. `localTip` is the commit of the local virtual branch, undefined while unknown.
+ * their state instead. `localTip` is the commit of the local virtual branch, undefined while unknown; `remote` its remote
+ * status, null until loaded.
  */
-export function getPullRequestChipState(pullRequest: PullRequest, localTip: string | undefined): PullRequestChipState {
+export function getPullRequestChipState(pullRequest: PullRequest, localTip: string | undefined, remote: RemoteStatus | null): PullRequestChipState {
   const open = pullRequest.state === "open"
+  const commit = open ? getReviewCommitState(pullRequest.headRefOid, localTip, remote) : "current"
   return {
     ...describeState(pullRequest),
     checksFailing: open && pullRequest.checks?.state === "failing",
-    outdated: isPullRequestOutdated(pullRequest, localTip),
+    commit,
+    outdated: isReviewCommitOutdated(commit),
+  }
+}
+
+/**
+ * What the details say about the commit the pull request shows, null when it shows the branch as it is: a quiet line for
+ * a branch only rebuilt on a newer baseline, a push for a changed one, and the wait for GitHub when the remote branch
+ * has the change already.
+ */
+export function formatPullRequestCommitNotice(pullRequest: PullRequest, chip: Pick<PullRequestChipState, "commit">, remoteTip: string | null): string | null {
+  const shows = `Shows ${formatShortHash(pullRequest.headRefOid)}`
+  switch (chip.commit) {
+    case "current":
+      return null
+    case "rebased":
+      return "Shows an earlier build of the same commits."
+    case "changedLocally":
+      return `${shows}; the branch has changed since: push to update the pull request.`
+    case "changedOnRemote":
+      return `${shows}; GitHub doesn't show the pushed ${remoteTip === null ? "commit" : formatShortHash(remoteTip)} yet.`
   }
 }
 
@@ -52,11 +80,6 @@ function describeState(pullRequest: PullRequest): Pick<PullRequestChipState, "ic
     case null:
       return { icon: "open", color: "neutral", label: "Open" }
   }
-}
-
-/** An open pull request whose head is not the local tip: the branch changed since the last push */
-export function isPullRequestOutdated(pullRequest: PullRequest, localTip: string | undefined): boolean {
-  return pullRequest.state === "open" && localTip !== undefined && localTip !== "" && pullRequest.headRefOid !== localTip
 }
 
 /**

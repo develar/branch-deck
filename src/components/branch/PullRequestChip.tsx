@@ -1,15 +1,15 @@
 import type { ComponentType } from "react"
-import { CircleCheckIcon, CircleDotIcon, CircleXIcon, ExternalLinkIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleAlertIcon } from "lucide-react"
+import { CircleCheckIcon, CircleDotIcon, CircleXIcon, ExternalLinkIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import type { ChecksState, PullRequest } from "@/lib/bindings"
-import { formatShortHash } from "@/lib/hash"
 import type { PullRequestIconKind } from "@/lib/pull-request"
-import { formatChecks, formatReviewer, getPullRequestChipState, openPullRequest } from "@/lib/pull-request"
+import { formatChecks, formatPullRequestCommitNotice, formatReviewer, getPullRequestChipState, openPullRequest } from "@/lib/pull-request"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
-import { useBranchTip } from "@/stores/branch-sync"
+import { useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { usePullRequest } from "@/stores/pull-requests"
 
 const icons: Readonly<Record<PullRequestIconKind, ComponentType<{ className?: string }>>> = {
@@ -27,17 +27,18 @@ const checksIcons: Readonly<Record<ChecksState, { icon: ComponentType<{ classNam
 
 /**
  * `#760` with the pull request icon, in the hue of the review decision; a `destructive` dot for failing checks and a
- * `warning` dot when the pull request does not show the local branch yet. Hover shows the details, a click opens it on
- * GitHub. Nothing without a pull request.
+ * `warning` dot when the branch changed since the pull request's head (a branch only rebuilt on a newer baseline did
+ * not). Hover shows the details, a click opens it on GitHub. Nothing without a pull request.
  */
 export function PullRequestChip({ branchName }: { branchName: string }) {
   const pullRequest = usePullRequest(branchName)
   const localTip = useBranchTip(branchName)
+  const remote = useBranchRemoteStatus(branchName)
   if (pullRequest === undefined) {
     return null
   }
 
-  const chip = getPullRequestChipState(pullRequest, localTip)
+  const chip = getPullRequestChipState(pullRequest, localTip, remote)
   const Icon = icons[chip.icon]
   return (
     <StatusChip
@@ -50,7 +51,7 @@ export function PullRequestChip({ branchName }: { branchName: string }) {
         "data-checks-failing": chip.checksFailing || undefined,
         "data-outdated": chip.outdated || undefined,
       }}
-      details={<PullRequestDetails pullRequest={pullRequest} localTip={localTip} />}
+      details={<PullRequestDetails branchName={branchName} pullRequest={pullRequest} />}
       detailsTestId="pull-request-popover"
       onActivate={() => openPullRequest(pullRequest)}
     >
@@ -63,17 +64,19 @@ export function PullRequestChip({ branchName }: { branchName: string }) {
 }
 
 export interface PullRequestDetailsProps {
+  branchName: string
   pullRequest: PullRequest
-  localTip: string | undefined
 }
 
 /**
  * The state line (number, review decision), the title, the checks, the reviewers and the last update, a notice when the
- * pull request shows an older commit than the local branch, and "Open on GitHub". The chip popover and the branch
- * preview show it.
+ * branch changed since the pull request's head (a quiet line when it was only rebuilt on a newer baseline), and "Open on
+ * GitHub". The chip popover and the branch preview show it.
  */
-export function PullRequestDetails({ pullRequest, localTip }: PullRequestDetailsProps) {
-  const chip = getPullRequestChipState(pullRequest, localTip)
+export function PullRequestDetails({ branchName, pullRequest }: PullRequestDetailsProps) {
+  const localTip = useBranchTip(branchName)
+  const remote = useBranchRemoteStatus(branchName)
+  const chip = getPullRequestChipState(pullRequest, localTip, remote)
   const Icon = icons[chip.icon]
   const checks = pullRequest.checks
   return (
@@ -121,12 +124,7 @@ export function PullRequestDetails({ pullRequest, localTip }: PullRequestDetails
         </dl>
       )}
 
-      {chip.outdated && (
-        <p className="flex items-start gap-1.5 text-xs text-warning" data-testid="pull-request-outdated">
-          <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
-          {`Not updated: the pull request shows ${formatShortHash(pullRequest.headRefOid)}. Push to update it.`}
-        </p>
-      )}
+      <ReviewCommitNotice text={formatPullRequestCommitNotice(pullRequest, chip, remote?.remoteTip ?? null)} outdated={chip.outdated} testId="pull-request" />
 
       <div>
         <Button variant="outline" size="xs" onClick={() => openPullRequest(pullRequest)}>
@@ -146,13 +144,12 @@ function ChecksIcon({ state }: { state: ChecksState }) {
 /** The pull request of the branch in the branch preview, above the commits; nothing without one */
 export function BranchPullRequestSection({ branchName }: { branchName: string }) {
   const pullRequest = usePullRequest(branchName)
-  const localTip = useBranchTip(branchName)
   if (pullRequest === undefined) {
     return null
   }
   return (
     <section aria-label="Pull request" className="rounded-lg border border-border p-3" data-testid="branch-preview-pull-request">
-      <PullRequestDetails pullRequest={pullRequest} localTip={localTip} />
+      <PullRequestDetails branchName={branchName} pullRequest={pullRequest} />
     </section>
   )
 }
