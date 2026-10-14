@@ -7,6 +7,7 @@ import { useRepository, useSelectedProject } from "@/stores/repository"
 
 export function SyncButton() {
   const isSyncing = useBranchSync(state => state.isSyncing)
+  const syncCount = useBranchSync(state => state.syncCount)
   const syncError = useBranchSync(state => state.syncError)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProject() !== null
@@ -19,6 +20,7 @@ export function SyncButton() {
       disabled={isSyncing || !canSync}
       aria-busy={isSyncing || undefined}
       data-testid="sync-button"
+      data-sync-count={syncCount}
       onClick={() => void syncBranches()}
     >
       {isSyncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}

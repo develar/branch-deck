@@ -87,6 +87,8 @@ export interface BaselineStatus {
 
 export interface BranchSyncState {
   isSyncing: boolean
+  /** Finished syncs, failed ones included: the sync button exposes it so a test can wait for the next sync */
+  syncCount: number
   syncError: string | null
   hasCompletedSync: boolean
   /** Repository's baseline branch (e.g., "origin/master") */
@@ -110,6 +112,7 @@ export interface BranchSyncState {
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
   isSyncing: false,
+  syncCount: 0,
   syncError: null,
   hasCompletedSync: false,
   baselineBranch: null,
@@ -505,7 +508,7 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     console.error("Sync error:", error)
   }
   finally {
-    branchSyncStore.setState({ isSyncing: false })
+    branchSyncStore.setState(state => ({ isSyncing: false, syncCount: state.syncCount + 1 }))
   }
 }
 

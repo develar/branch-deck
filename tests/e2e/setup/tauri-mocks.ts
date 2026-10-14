@@ -722,6 +722,8 @@ export const tauriMockScript = () => {
     for (const attr of element.attributes) {
       let value = attr.value
       const name = attr.name
+      // the number of finished syncs depends on timing, not on what the UI shows (`waitForSyncComplete` reads it)
+      if (name === "data-sync-count") continue
       
       // Apply normalization rules based on attribute type
       if (name === "style") {

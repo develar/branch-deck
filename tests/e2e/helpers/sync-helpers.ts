@@ -88,16 +88,18 @@ export function getUnassignedCommits(page: Page) {
   return unassignedCard.locator("[data-row-id]")
 }
 
+/** The number of finished syncs; read it before the action that starts the sync to wait for */
+export async function finishedSyncCount(page: Page): Promise<number> {
+  return Number(await page.locator("[data-testid=\"sync-button\"]").getAttribute("data-sync-count"))
+}
+
 /**
- * Wait for sync operation to complete by monitoring the sync button state
+ * Wait for a sync that finishes after `finishedSyncCount` returned `previousCount`. Watching the button go disabled
+ * and enabled again misses a sync that is over before the first check, which happens under parallel load.
  */
-export async function waitForSyncComplete(page: Page, timeout = 10000): Promise<void> {
+export async function waitForSyncComplete(page: Page, previousCount: number, timeout = 10000): Promise<void> {
   const syncButton = page.locator("[data-testid=\"sync-button\"]")
-
-  // Wait for sync to start (button becomes disabled)
-  await expect(syncButton).toBeDisabled()
-
-  // Wait for sync to complete (button becomes enabled again)
+  await expect(syncButton).not.toHaveAttribute("data-sync-count", String(previousCount), { timeout })
   await expect(syncButton).toBeEnabled({ timeout })
 }
 

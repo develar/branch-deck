@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, test as baseTest, expect } from "../fixtures/test-fixtures"
-import { waitForSyncComplete } from "../helpers/sync-helpers"
+import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit, shiftSelectCommit, selectAllCommits, openContextMenu, getSelectedCommits } from "../helpers/selection-helpers"
 import { inlineBranchCreator, submitInlineForm, testInputAutoFocus } from "../helpers/inline-form-helpers"
 import { captureHtmlSnapshot, captureFloatingElementSnapshot } from "../helpers/aria-snapshot-helpers"
@@ -86,13 +86,14 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
       // Type a branch name and submit
       const branchNameInput = inlineBranchCreator.getInput(page)
+      const syncsBefore = await finishedSyncCount(page)
       await submitInlineForm(branchNameInput, "security")
 
       // Wait for branch creation to complete
       await inlineBranchCreator.waitForHidden(page)
 
       // Wait for the automatic sync to complete
-      await waitForSyncComplete(page)
+      await waitForSyncComplete(page, syncsBefore)
 
       // IMPORTANT: The security branch should NOT appear in the UI
       // This is correct behavior - branches with conflicts are not created
