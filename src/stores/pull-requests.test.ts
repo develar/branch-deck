@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { PullRequest, PullRequestsResult } from "@/lib/bindings"
-import { FOCUS_REFRESH_AGE_MS, MIN_REFRESH_GAP_MS, PUSH_RECHECK_DELAY_MS, getPullRequest, pullRequestsStore, refreshPullRequests, refreshPullRequestsAfterPush, resetPullRequests } from "@/stores/pull-requests"
+import { FOCUS_REFRESH_AGE_MS, MIN_REFRESH_GAP_MS, PUSH_RECHECK_DELAY_MS, getGitHubRepository, getPullRequest, pullRequestsStore, refreshPullRequests, refreshPullRequestsAfterPush, resetPullRequests } from "@/stores/pull-requests"
 
 const { gh } = vi.hoisted(() => ({
   gh: {
@@ -45,7 +45,7 @@ function pullRequest(headRefOid: string): PullRequest {
 }
 
 function answer(headRefOid = "tip"): PullRequestsResult {
-  return { availability: { status: "available" }, pullRequests: { auth: pullRequest(headRefOid) } }
+  return { availability: { status: "available", owner: "JetBrains", name: "ultimate" }, pullRequests: { auth: pullRequest(headRefOid) } }
 }
 
 beforeEach(() => {
@@ -128,6 +128,16 @@ describe("refreshPullRequests", () => {
     const entry = pullRequestsStore.getState().repositories["/repo\nuser"]!
     expect(entry.availability).toEqual({ status: "error", message: "offline" })
     expect(entry.pullRequests.auth?.number).toBe(1)
+  })
+
+  it("names the GitHub repository while gh lists its pull requests", async () => {
+    expect(getGitHubRepository()).toBeNull()
+    await refreshPullRequests("sync")
+    expect(getGitHubRepository()).toEqual({ owner: "JetBrains", name: "ultimate" })
+
+    gh.result = { availability: { status: "notAuthenticated" }, pullRequests: {} }
+    await refreshPullRequests("manual")
+    expect(getGitHubRepository()).toBeNull()
   })
 })
 

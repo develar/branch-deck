@@ -63,6 +63,11 @@ status is read through the `gh` CLI, never written; opening a pull request opens
   repository directory. `--repo` is required: with several remotes and no `gh repo set-default`, `gh` would not know
   which repository to ask.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+- An answer that lists the pull requests names the repository it asked, its owner and name (`JetBrains/ultimate`), for
+  links to GitHub that no pull request carries; the app knows the repository only while `gh` lists its pull requests
+  (`getGitHubRepository()`).
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+  [@test] ../../src/stores/pull-requests.test.ts (`names the GitHub repository while gh lists its pull requests`)
 - `gh` must be found as git is: `/opt/homebrew/bin/gh`, `/usr/local/bin/gh` on macOS (an app started from the Finder
   has no Homebrew in `PATH`), then `PATH`.
 - `gh` must run without a terminal and must never wait for input: stdin is null; `GH_PROMPT_DISABLED`,
@@ -191,7 +196,7 @@ status is read through the `gh` CLI, never written; opening a pull request opens
 - `pnpm test:unit` covers the refresh policy and the chip mapping.
 - `pnpm e2e` covers the chip, the popover, the preview section and the overview (`tests/e2e/pull-requests`). E2E never
   runs `gh`: `POST /repositories/{id}/pull-requests` sets what `get_pull_requests` answers (an empty `headRefOid` means
-  the local tip), and `GET` returns how often the app asked. The opener plugin is mocked and records the opened URLs in
+  the local tip; `availablePullRequests` answers for `JetBrains/ultimate`), and `GET` returns how often the app asked. The opener plugin is mocked and records the opened URLs in
   `window.__OPENED_URLS__`.
 
 ## Open Questions / Risks

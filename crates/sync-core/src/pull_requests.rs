@@ -74,7 +74,10 @@ pub fn get_pull_requests_with(git_executor: &GitCommandExecutor, params: &GetPul
   };
   match parse_pull_requests(&output, &params.branch_prefix, &repository.owner) {
     Ok(pull_requests) => Ok(PullRequestsResult {
-      availability: PullRequestAvailability::Available,
+      availability: PullRequestAvailability::Available {
+        owner: repository.owner,
+        name: repository.name,
+      },
       pull_requests,
     }),
     Err(e) => {

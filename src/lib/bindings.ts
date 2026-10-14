@@ -849,7 +849,9 @@ export type PullRequest = {
 };
 
 /**  Whether pull requests can be listed for the repository */
-export type PullRequestAvailability = { status: "available" } | 
+export type PullRequestAvailability = 
+/**  The github.com repository that `origin` pushes to, e.g. `JetBrains/ultimate` */
+{ status: "available"; owner: string; name: string } | 
 /**  The `gh` CLI is not installed */
 { status: "ghMissing" } | 
 /**  `gh` is not logged in (`gh auth login`) */
