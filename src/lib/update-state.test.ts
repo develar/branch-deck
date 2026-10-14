@@ -1,7 +1,7 @@
 // @spec spec/repository/update-project.spec.md
 import { describe, expect, it } from "vitest"
 import type { FetchProgress, UpdateCheck } from "@/lib/bindings"
-import { describeUpdateState, fetchTransfer, lastFetchTime, updatePhaseLabel } from "@/lib/update-state"
+import { describeUpdateState, fetchTransfer, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
 
 describe("describeUpdateState", () => {
   it("names the state, never a count of upstream commits", () => {
@@ -47,5 +47,12 @@ describe("updatePhaseLabel", () => {
     expect(fetchTransfer(null)).toBeNull()
     expect(fetchTransfer({ ...receiving, received: null, speed: null })).toBeNull()
     expect(fetchTransfer(receiving)).toBe("2.61 MiB · 5.20 MiB/s")
+  })
+
+  it("names the running step in the tooltip, never the last state", () => {
+    expect(runningUpdateSummary("fetching", null, "origin/master")).toBe("Fetching origin/master…")
+    expect(runningUpdateSummary("fetching", receiving, "origin/master")).toBe(receiving.line)
+    expect(runningUpdateSummary("checking", null, "origin/master")).toBe("Checking the update onto origin/master…")
+    expect(runningUpdateSummary("updating", null, "origin/master")).toBe("Updating to origin/master…")
   })
 })

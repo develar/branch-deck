@@ -8,7 +8,7 @@ import type { FetchProgress, UpdatePhase } from "@/lib/bindings"
 import { isMac } from "@/lib/platform"
 import { formatRelativeTime } from "@/lib/time"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
-import { describeUpdateState, fetchTransfer, lastFetchTime, updatePhaseLabel } from "@/lib/update-state"
+import { describeUpdateState, fetchTransfer, lastFetchTime, runningUpdateSummary, updatePhaseLabel } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useSelectedProject } from "@/stores/repository"
@@ -26,6 +26,11 @@ function describeStatus(status: BaselineStatus): UpdateStateDescription {
 function useRemoteBaselineStatus(): BaselineStatus | null {
   const status = useBaselineStatus()
   return status === null || (status.update === null && status.checkError === null) ? null : status
+}
+
+/** The remote branch the update fetches, e.g. "origin/master"; the baseline name before the first check */
+function upstreamName(status: BaselineStatus): string {
+  return status.update?.upstream ?? status.baselineBranch
 }
 
 function useFetchTime(status: BaselineStatus): number | null {
@@ -57,6 +62,7 @@ interface RunningUpdate {
  * last check, relative to the last fetch: muted when up to date, a check when it applies cleanly, a warning on a
  * conflict or when uncommitted changes block it. Never a count of upstream commits. Hidden for a local baseline.
  * While the fetch runs, the label has its percent and the tooltip the last progress line of git, as IDEA shows it.
+ * While an update runs, the tooltip names the step, never the state of the last check.
  */
 export function UpdateProjectButton() {
   const status = useRemoteBaselineStatus()
@@ -97,7 +103,7 @@ function UpdateProjectButtonContent({ status, phase, fetch }: RunningUpdate & { 
       </TooltipTrigger>
       <TooltipContent data-testid="update-project-tooltip">
         <div className="flex flex-col gap-0.5">
-          <span>{phase !== null && fetch !== null ? fetch.line : description.summary}</span>
+          <span>{phase === null ? description.summary : runningUpdateSummary(phase, fetch, upstreamName(status))}</span>
           <span className="flex items-center gap-1.5 opacity-70">
             {fetchTime === null ? "Not fetched yet" : `Fetched ${formatRelativeTime(fetchTime)}`}
             {" · fetch and update"}
@@ -135,7 +141,7 @@ function UpdateStateLineContent({ status, phase, fetch }: RunningUpdate & { stat
         {transfer === null && description.tone === "warning" && <TriangleAlertIcon className="size-3 shrink-0 text-warning" />}
         <span className="truncate">
           {"Incoming from "}
-          <span className="text-foreground">{status.update?.upstream ?? status.baselineBranch}</span>
+          <span className="text-foreground">{upstreamName(status)}</span>
           {transfer === null
             ? `: ${description.short} · ${fetchTime === null ? "not fetched yet" : `fetched ${formatRelativeTime(fetchTime)}`}`
             : `: ${transfer}`}

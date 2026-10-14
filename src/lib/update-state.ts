@@ -70,6 +70,21 @@ export function updatePhaseLabel(phase: UpdatePhase, fetch: FetchProgress | null
   return phase === "fetching" && fetch !== null ? `Fetching ${fetch.percent}%` : PHASE_LABELS[phase]
 }
 
+/**
+ * The tooltip sentence of a running update: the last progress line of git once it reports a stage, else the step.
+ * Never the state of the last check: before the first stage git connects and negotiates, which takes long on a big repo.
+ */
+export function runningUpdateSummary(phase: UpdatePhase, fetch: FetchProgress | null, upstream: string): string {
+  switch (phase) {
+    case "fetching":
+      return fetch?.line ?? `Fetching ${upstream}…`
+    case "checking":
+      return `Checking the update onto ${upstream}…`
+    case "updating":
+      return `Updating to ${upstream}…`
+  }
+}
+
 /** What a fetch received so far and how fast, as git prints it, e.g. "5.79 MiB · 32.57 MiB/s"; null before git says */
 export function fetchTransfer(fetch: FetchProgress | null): string | null {
   if (fetch?.received == null) {

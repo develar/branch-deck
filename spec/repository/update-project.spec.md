@@ -140,8 +140,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   whichever is newer, and the shortcut.
   [@test] ../../src/lib/update-state.test.ts (`takes the newer of Branch Deck's fetch and one elsewhere`)
 - A click, or File → Update Project (`⌘T`), runs the update; meanwhile the button shows a spinner and the step:
-  "Fetching…", "Checking…", "Updating…".
+  "Fetching…", "Checking…", "Updating…", and its tooltip names the step instead of the state of the last check:
+  "Fetching origin/master…", "Checking the update onto origin/master…", "Updating to origin/master…".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run from the Update Project menu item`)
+  [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
 - Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
   tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
