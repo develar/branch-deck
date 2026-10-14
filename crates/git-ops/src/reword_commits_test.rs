@@ -25,8 +25,12 @@ fn refuses_a_commit_that_is_not_ahead_of_the_baseline() {
   let feature = test_repo.create_commit("(auth) Add login", "login.rs", "// login");
 
   let error = reword(&test_repo, "master", &[(&initial, "Initial commit, reworded", false)]).unwrap_err();
-  assert!(error.to_string().contains("ahead of master"), "{error}");
+  assert!(error.to_string().contains("is not ahead of master"), "{error}");
   assert_eq!(test_repo.head(), feature);
+
+  // a commit that left the branch keeps the wording the UI shows
+  let error = reword(&test_repo, "master", &[("0123456789012345678901234567890123456789", "(auth) Gone", false)]).unwrap_err();
+  assert!(error.to_string().contains("is no longer on the current branch, sync and try again"), "{error}");
 
   let new_ids = reword(&test_repo, "master", &[(&feature, "(auth) Add the login form", false)]).unwrap();
   assert_eq!(test_repo.head(), new_ids[&feature]);

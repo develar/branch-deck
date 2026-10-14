@@ -47,11 +47,13 @@ pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, 
       // a rebase in progress or a detached HEAD explains it better
       ensure_no_operation_in_progress(git_executor, repo_path)?;
       get_current_branch(git_executor, repo_path)?;
+      if let Some(baseline) = &history.baseline
+        && let Ok((_, 0)) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", "--end-of-options", commit_id, "HEAD"], repo_path)
+      {
+        return Err(anyhow!("Commit {} is not ahead of {baseline}, so it can't be reworded", short_id(commit_id)));
+      }
       // e.g. reworded or dropped in a terminal while the message was edited here
-      return Err(match &history.baseline {
-        Some(baseline) => anyhow!("Commit {} is no longer on the current branch ahead of {baseline}, sync and try again", short_id(commit_id)),
-        None => anyhow!("Commit {} is no longer on the current branch, sync and try again", short_id(commit_id)),
-      });
+      return Err(anyhow!("Commit {} is no longer on the current branch, sync and try again", short_id(commit_id)));
     };
     oldest_index = oldest_index.max(index);
   }
