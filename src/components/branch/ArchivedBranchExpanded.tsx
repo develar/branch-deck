@@ -31,7 +31,7 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
             </div>
           )
         : branch.loadError
-          ? <div className="text-destructive">{`Failed to load commits: ${branch.loadError}`}</div>
+          ? <p className="text-sm text-destructive">{`Failed to load commits: ${branch.loadError}`}</p>
           : branch.commits && branch.commits.length > 0
             ? <CommitList commits={branch.commits} variant="compact" showFileCount={false} />
             : <div className="text-sm text-muted-foreground">No commits found</div>}
