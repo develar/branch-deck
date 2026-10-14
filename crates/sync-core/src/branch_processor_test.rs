@@ -7,9 +7,10 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::CommitSyncStatus;
+use git_ops::notes::write_commit_notes;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::collections::HashMap;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
@@ -63,7 +64,7 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
     progress: TestReporter::new(),
     git_executor: GitCommandExecutor::new(),
     tree_id_cache: TreeIdCache::new(),
-    git_notes_mutex: Mutex::new(()),
+    existing_tips: existing_tips(test_repo),
   };
   let job = BranchJob {
     branch_name: branch.to_string(),
@@ -71,7 +72,24 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
     my_email: None,
     branch_idx: 0,
   };
-  process_single_branch(&context, job).unwrap();
+  let notes = process_single_branch(&context, job).unwrap();
+  write_commit_notes(test_repo.git_executor(), repo_path(test_repo), &notes).unwrap();
+}
+
+/// The virtual branches and their tips, as a sync lists them
+fn existing_tips(test_repo: &TestRepo) -> HashMap<String, String> {
+  let lines = test_repo
+    .git_executor()
+    .execute_command_lines(
+      &["for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/test/virtual/"],
+      repo_path(test_repo),
+    )
+    .unwrap();
+  lines
+    .iter()
+    .filter_map(|line| line.split_once(' '))
+    .map(|(name, tip)| (name.to_string(), tip.to_string()))
+    .collect()
 }
 
 #[test]
@@ -235,4 +253,18 @@ async fn a_copy_keeps_the_timezones_of_the_original() {
 
   let dates = test_repo.log(&["-1", "--format=%ad|%cd", "--date=raw", "test/virtual/auth"]).unwrap();
   assert_eq!(dates.trim(), "1700000000 +0530|1700000100 -0700");
+}
+
+#[tokio::test]
+async fn a_sync_writes_the_notes_of_all_branches_in_one_notes_commit() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  for branch in ["auth", "cache", "docs"] {
+    test_repo.create_commit(&format!("({branch}) Add {branch}"), &format!("{branch}.rs"), branch);
+  }
+
+  sync(&test_repo).await;
+
+  assert_eq!(test_repo.log(&["--format=%H", "refs/notes/commits"]).unwrap().lines().count(), 1);
+  assert_eq!(test_repo.list_notes_with_ref("refs/notes/commits").unwrap().len(), 3);
 }

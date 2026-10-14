@@ -5,12 +5,10 @@ use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
-use git_ops::notes::write_commit_notes;
 use git_ops::ref_transaction::RefTransaction;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use sync_types::{ProgressReporter, SyncEvent};
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 /// State shared by all branch tasks of one sync
 pub(crate) struct BranchSyncContext<P: ProgressReporter> {
@@ -23,7 +21,8 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub progress: P,
   pub git_executor: GitCommandExecutor,
   pub tree_id_cache: TreeIdCache,
-  pub git_notes_mutex: Mutex<()>,
+  /// Full name -> tip of every existing virtual branch, read with one `for-each-ref` per sync
+  pub existing_tips: HashMap<String, String>,
 }
 
 /// One branch to rebuild
@@ -54,7 +53,9 @@ enum CommitProcessingResult {
     commit_count = job.commits.len(),
   )
 )]
-pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<()> {
+/// Rebuilds one virtual branch and returns the `original -> new` mapping notes of the commits it created; the caller
+/// writes the notes of all branches at once
+pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<(String, String)>> {
   let BranchSyncContext {
     repository_path,
     branch_prefix,
@@ -64,7 +65,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
     progress,
     git_executor,
     tree_id_cache,
-    git_notes_mutex,
+    existing_tips,
   } = ctx;
   let total_branches = *total_branches;
   let BranchJob {
@@ -76,16 +77,14 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
 
   let full_branch_name = to_final_branch_name(branch_prefix, &branch_name)?;
 
-  let is_existing_branch = git_executor.ref_exists(repository_path, &format!("refs/heads/{full_branch_name}"));
+  let existing_tip = existing_tips.get(&full_branch_name);
+  let is_existing_branch = existing_tip.is_some();
   debug!(name = %full_branch_name, exists = is_existing_branch, "Checking if branch exists");
 
   // If branch exists, get all its commits with their first parents in one call for efficient reuse checking
-  let mut existing_tip = None;
-  let existing_virtual_commits = if is_existing_branch {
-    match git_executor.execute_command(&["rev-list", "--parents", &full_branch_name, &format!("^{parent_commit_hash}")], repository_path) {
+  let existing_virtual_commits = if let Some(existing_tip) = existing_tip {
+    match git_executor.execute_command(&["rev-list", "--parents", existing_tip, &format!("^{parent_commit_hash}")], repository_path) {
       Ok(output) => {
-        // newest first
-        existing_tip = output.split_whitespace().next().map(str::to_string);
         let commits: HashMap<String, String> = output
           .lines()
           .filter_map(|line| {
@@ -172,7 +171,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
       }
       CommitProcessingResult::BranchError => {
         // Error already handled and events sent by process_single_commit
-        return Ok(());
+        return Ok(Vec::new());
       }
     }
   }
@@ -180,7 +179,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
   let branch_sync_status: BranchSyncStatus;
   if is_existing_branch {
     // every commit is reused, but commits at the end may have left the branch
-    if is_any_commit_changed || existing_tip.as_ref() != Some(&last_commit_hash) {
+    if is_any_commit_changed || existing_tip != Some(&last_commit_hash) {
       branch_sync_status = BranchSyncStatus::Updated;
       debug!(name = %branch_name, "Branch was updated with new commits");
     } else {
@@ -199,22 +198,6 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
       .commit(git_executor, repository_path, "sync")?;
   }
 
-  // Write all commit notes after successful branch sync
-  if !pending_notes.is_empty() {
-    debug!(count = pending_notes.len(), name = %branch_name, "Writing commit notes for branch");
-    if let Err(e) = write_commit_notes(git_executor, repository_path, &pending_notes, git_notes_mutex) {
-      error!(name = %branch_name, error = %e, "Failed to write commit notes");
-      // Send error status for git notes failure
-      let _ = progress.send(SyncEvent::BranchStatusUpdate {
-        branch_name: branch_name.clone(),
-        status: BranchSyncStatus::Error,
-        error: Some(BranchError::Generic(format!("Failed to write commit notes: {e}"))),
-      });
-
-      return Err(e);
-    }
-  }
-
   // Send branch status update event
   debug!(name = %branch_name, status = ?branch_sync_status, "Sending final branch status");
   let _ = progress.send(SyncEvent::BranchStatusUpdate {
@@ -229,7 +212,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
     let _ = progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }
 
-  Ok(())
+  Ok(pending_notes)
 }
 
 #[instrument(

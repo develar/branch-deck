@@ -1,14 +1,12 @@
 use crate::notes::{PREFIX, write_commit_notes};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use std::sync::Mutex;
 use test_utils::git_test_utils::TestRepo;
 
 #[test]
 fn test_write_commit_notes_empty() {
   let git_executor = GitCommandExecutor::new();
-  let mutex = Mutex::new(());
-  let result = write_commit_notes(&git_executor, "/fake/path", &[], &mutex);
+  let result = write_commit_notes(&git_executor, "/fake/path", &[]);
   assert!(result.is_ok());
 }
 
@@ -16,7 +14,6 @@ fn test_write_commit_notes_empty() {
 fn test_write_single_commit_note() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
-  let mutex = Mutex::new(());
 
   // Create test commits
   let commit1_hash = test_repo.create_commit("Initial commit", "test.txt", "initial content");
@@ -25,7 +22,7 @@ fn test_write_single_commit_note() {
   // Write a note mapping commit1 to commit2
   let notes = vec![(commit1_hash.clone(), commit2_hash.clone())];
 
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
   assert!(result.is_ok());
 
   // Verify the note was written
@@ -37,7 +34,6 @@ fn test_write_single_commit_note() {
 fn test_write_multiple_commit_notes() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
-  let mutex = Mutex::new(());
 
   // Create multiple test commits
   let mut original_commits = Vec::new();
@@ -55,7 +51,7 @@ fn test_write_multiple_commit_notes() {
   }
 
   // Write all notes at once
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
   assert!(result.is_ok());
 
   // Verify all notes were written correctly
@@ -76,7 +72,6 @@ fn test_write_multiple_commit_notes() {
 fn test_write_commit_notes_with_special_characters() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
-  let mutex = Mutex::new(());
 
   // Create commits
   let commit1 = test_repo.create_commit("Commit with special chars: 'quotes' and \"double quotes\"", "test.txt", "content");
@@ -85,7 +80,7 @@ fn test_write_commit_notes_with_special_characters() {
   // Write note with author containing special characters
   let notes = vec![(commit1.clone(), commit2.clone())];
 
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
   assert!(result.is_ok());
 
   // Verify the note
@@ -94,17 +89,14 @@ fn test_write_commit_notes_with_special_characters() {
 }
 
 #[test]
-fn test_concurrent_note_writing() {
-  use std::sync::Arc;
-
+fn test_writes_many_notes_in_one_call() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
-  let mutex = Arc::new(Mutex::new(()));
 
   // Create a base commit
   test_repo.create_commit("Base commit", "test.txt", "base");
 
-  // Create multiple note sets and write them with shared mutex
+  // Create multiple note sets
   let mut all_notes = Vec::new();
   let mut expected_mappings = Vec::new();
 
@@ -118,8 +110,8 @@ fn test_concurrent_note_writing() {
     expected_mappings.push((original, new));
   }
 
-  // Write all notes - the mutex ensures they don't interfere
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &all_notes, &mutex);
+  // Write all notes in one notes commit
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &all_notes);
   assert!(result.is_ok());
 
   // Verify all notes were written correctly
@@ -133,7 +125,6 @@ fn test_concurrent_note_writing() {
 fn test_write_commit_notes_overwrites_existing() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
-  let mutex = Mutex::new(());
 
   // Create commits
   let commit1 = test_repo.create_commit("First", "test.txt", "v1");
@@ -143,7 +134,7 @@ fn test_write_commit_notes_overwrites_existing() {
   // Write initial note
   let notes = vec![(commit1.clone(), commit2.clone())];
 
-  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex).unwrap();
+  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes).unwrap();
 
   // Verify initial note
   let note_content = test_repo.show_note(&commit1).unwrap();
@@ -152,7 +143,7 @@ fn test_write_commit_notes_overwrites_existing() {
   // Overwrite with new note
   let notes = vec![(commit1.clone(), commit3.clone())];
 
-  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex).unwrap();
+  write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes).unwrap();
 
   // Verify note was overwritten
   let note_content = test_repo.show_note(&commit1).unwrap();
@@ -163,7 +154,6 @@ fn test_write_commit_notes_overwrites_existing() {
 fn test_write_notes_batch_mode_edge_cases() {
   let test_repo = TestRepo::new();
   let git_executor = GitCommandExecutor::new();
-  let mutex = Mutex::new(());
 
   // Test with empty lines and newlines in batch
   let mut notes = Vec::new();
@@ -179,7 +169,7 @@ fn test_write_notes_batch_mode_edge_cases() {
   }
 
   // Write notes
-  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes, &mutex);
+  let result = write_commit_notes(&git_executor, test_repo.path().to_str().unwrap(), &notes);
   assert!(result.is_ok());
 
   // Verify all notes

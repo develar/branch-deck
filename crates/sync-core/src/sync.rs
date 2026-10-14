@@ -11,10 +11,12 @@ use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
+use git_ops::model::{BranchKind, strip_branch_namespace};
+use git_ops::notes::write_commit_notes;
 use indexmap::IndexMap;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use sync_types::issue_navigation::IssueNavigationConfig;
 use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
@@ -179,6 +181,8 @@ struct PreparedSync {
   branch_emails: HashMap<String, Option<String>>,
   /// Parent of the oldest commit ahead of the baseline; `None` without commits (or when that commit is a root)
   first_parent_id: Option<String>,
+  /// Full name -> tip of every branch under the branch prefix (virtual, archived, unapplied); empty without commits
+  branch_refs: HashMap<String, String>,
   /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
@@ -190,6 +194,7 @@ struct PreparedSync {
 fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
+  branch_prefix: &str,
   issue_config: IssueConfigSource,
   progress: &P,
 ) -> Result<PreparedSync> {
@@ -239,6 +244,12 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     commits: unassigned.into_iter().rev().collect(),
   })?;
 
+  let branch_refs = if branches.is_empty() {
+    HashMap::new()
+  } else {
+    read_branch_refs(git_executor, repository_path, branch_prefix)?
+  };
+
   progress.send(SyncEvent::BranchesGrouped {
     branches: prepare_branches_for_ui(&branches, &branch_emails),
     baseline_branch: baseline_branch.clone(),
@@ -249,12 +260,25 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branches,
     branch_emails,
     first_parent_id,
+    branch_refs,
     update_check,
   })
 }
 
-/// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` at a time.
-/// Returns the first failure, naming its branch.
+/// Full name -> tip of every branch under `{branch_prefix}/`, with one `for-each-ref`
+fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<HashMap<String, String>> {
+  let namespace = format!("refs/heads/{}/", branch_prefix.trim_end_matches('/'));
+  let lines = git_executor.execute_command_lines(&["for-each-ref", "--format=%(objectname) %(refname:lstrip=2)", &namespace], repository_path)?;
+  Ok(
+    lines
+      .iter()
+      .filter_map(|line| line.split_once(' ').map(|(tip, name)| (name.to_string(), tip.to_string())))
+      .collect(),
+  )
+}
+
+/// Rebuild every virtual branch on the blocking pool, at most `max_parallel_git_processes()` at a time, then write the
+/// mapping notes of all of them in one notes commit. Returns the first failure, naming its branch.
 async fn process_branches<P: ProgressReporter + Clone + 'static>(
   context: BranchSyncContext<P>,
   branches: IndexMap<String, Vec<Commit>>,
@@ -281,9 +305,10 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   }
 
   let mut first_error = None;
+  let mut notes = Vec::new();
   while let Some(joined) = tasks.join_next().await {
     match joined {
-      Ok((_, Ok(()))) => {}
+      Ok((_, Ok(branch_notes))) => notes.extend(branch_notes),
       Ok((branch_name, Err(e))) => {
         // The error status has already been sent by process_single_branch
         error!(branch = %branch_name, error = ?e, "Branch processing failed");
@@ -295,7 +320,15 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       }
     }
   }
-  first_error.map_or(Ok(()), Err)
+
+  // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
+  let notes_result = tokio::task::spawn_blocking(move || write_commit_notes(&context.git_executor, &context.repository_path, &notes))
+    .await
+    .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
+  match first_error {
+    Some(e) => Err(e),
+    None => notes_result.map_err(|e| e.context("Failed to write commit notes")),
+  }
 }
 
 /// Sync virtual branches: group the commits ahead of the baseline by prefix, rebuild one virtual branch per group,
@@ -320,12 +353,14 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branches,
     branch_emails,
     first_parent_id,
+    branch_refs,
     update_check,
   } = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
+    let branch_prefix = branch_prefix.to_string();
     let progress = progress.clone();
-    move || prepare_sync(&git_executor, &repository_path, issue_config, &progress)
+    move || prepare_sync(&git_executor, &repository_path, &branch_prefix, issue_config, &progress)
   })
   .await
   .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
@@ -369,7 +404,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       git_executor: git_executor.clone(),
       tree_id_cache: TreeIdCache::new(),
-      git_notes_mutex: Mutex::new(()),
+      existing_tips: virtual_tips(branch_refs, branch_prefix),
     };
     process_branches(context, branches, branch_emails).await
   };
@@ -379,6 +414,14 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   processing_result?;
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))?
+}
+
+/// The tips of the virtual branches among `branch_refs`
+fn virtual_tips(branch_refs: HashMap<String, String>, branch_prefix: &str) -> HashMap<String, String> {
+  branch_refs
+    .into_iter()
+    .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
+    .collect()
 }
 
 /// Check the update of the checked out branch onto the baseline and send `BaselineStatus`. A failed check is logged and

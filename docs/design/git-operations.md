@@ -390,6 +390,10 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
 - **Bounded walk.** A reword reads only the first-parent history ahead of the baseline, notes included, with one
   `log --first-parent --format=%H%x1f%N HEAD ^<baseline>` (the whole history on the local baseline branch, as the
   commit list does), and refuses a commit outside it.
+- **One listing, one notes write.** A sync lists the branches under the prefix once
+  (`for-each-ref refs/heads/<prefix>/`): the virtual tips decide reuse, and the unapplied and archived names give the
+  state of a stack parent without commits. The branches return their mapping notes, and the sync writes them in one
+  notes commit at the end; a note lost to a failed sync only costs a copy.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
 `crates/git-ops/src/reword_commits.rs`, `crates/sync-core/src/reword_commit.rs`.
@@ -502,7 +506,8 @@ recovery hint (`git reset -q`).
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
-| Sync notes for n created commits | n `notes add` | 1 `fast-import` per branch |
+| Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
+| Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 
