@@ -165,6 +165,97 @@ pub fn has_issue_reference(text: &str) -> bool {
   find_issue_range(text).is_some()
 }
 
+/// A conventional commit prefix: `type(scope)!: rest`, or `type scope: rest` as in `setup vm:` or `docs ai:`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticPrefix<'a> {
+  /// `feat`, `fix`, `setup`, …
+  pub kind: &'a str,
+  pub scope: Option<&'a str>,
+  /// The subject after the colon and the whitespace after it
+  pub rest: &'a str,
+}
+
+/// The conventional commit prefix of the first line of `subject`; `None` without one. The type is lowercase letters, a
+/// scope in parentheses is letters, digits and `-_./`, a scope after a space is lowercase letters, digits and `-_./`
+pub fn parse_semantic_prefix(subject: &str) -> Option<SemanticPrefix<'_>> {
+  let line = subject.lines().next()?;
+  let kind_end = line.find(|c: char| !c.is_ascii_lowercase()).unwrap_or(line.len());
+  if kind_end == 0 {
+    return None;
+  }
+  let (kind, mut rest) = line.split_at(kind_end);
+  let mut scope = None;
+  if let Some(after) = rest.strip_prefix('(') {
+    let close = after.find(')')?;
+    let text = &after[..close];
+    if text.is_empty() || !text.chars().all(|c| c.is_ascii_alphanumeric() || is_scope_punctuation(c)) {
+      return None;
+    }
+    scope = Some(text);
+    rest = &after[close + 1..];
+  } else if let Some(after) = rest.strip_prefix(' ') {
+    let end = after
+      .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || is_scope_punctuation(c)))
+      .unwrap_or(after.len());
+    let text = &after[..end];
+    if !text.starts_with(|c: char| c.is_ascii_alphanumeric()) {
+      return None;
+    }
+    scope = Some(text);
+    rest = &after[end..];
+  }
+  let rest = rest.strip_prefix('!').unwrap_or(rest).strip_prefix(':')?;
+  if !(rest.is_empty() || rest.starts_with(char::is_whitespace)) {
+    return None;
+  }
+  Some(SemanticPrefix {
+    kind,
+    scope,
+    rest: rest.trim_start(),
+  })
+}
+
+fn is_scope_punctuation(c: char) -> bool {
+  matches!(c, '-' | '_' | '.' | '/')
+}
+
+/// The scope of the conventional commit prefix of `subject`: `vm` of `setup vm: x` and of `fix(vm): x`
+pub fn conventional_scope(subject: &str) -> Option<&str> {
+  parse_semantic_prefix(subject)?.scope
+}
+
+/// Every issue key (`ABC-123` at word boundaries, as `find_issue_number` reads one) in `text`, any line, in order and
+/// with repeats. A key after a hyphen is part of a longer id (`IJ-CR-1234`), not a key
+pub fn issue_keys_in(text: &str) -> impl Iterator<Item = &str> {
+  let bytes = text.as_bytes();
+  let mut i = 0;
+  std::iter::from_fn(move || {
+    while i < bytes.len() {
+      let at_boundary = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'-');
+      if !(at_boundary && bytes[i].is_ascii_uppercase()) {
+        i += 1;
+        continue;
+      }
+      let start = i;
+      while i < bytes.len() && bytes[i].is_ascii_uppercase() {
+        i += 1;
+      }
+      if bytes.get(i) == Some(&b'-') && bytes.get(i + 1).is_some_and(u8::is_ascii_digit) {
+        let mut end = i + 1;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+          end += 1;
+        }
+        if bytes.get(end).is_none_or(|b| !b.is_ascii_alphanumeric()) {
+          i = end;
+          return Some(&text[start..end]);
+        }
+        i = end;
+      }
+    }
+    None
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -274,5 +365,43 @@ mod tests {
     // Test semantic commit prefix handling
     assert!(has_issue_reference("fix: ABC-123 resolve bug"));
     assert!(has_issue_reference("feat(auth): DEF-456 add login"));
+  }
+
+  #[test]
+  fn semantic_prefixes_with_and_without_parentheses() {
+    let parsed = |subject| parse_semantic_prefix(subject).map(|prefix| (prefix.kind, prefix.scope, prefix.rest));
+    assert_eq!(parsed("feat(cli): bd suggest"), Some(("feat", Some("cli"), "bd suggest")));
+    assert_eq!(parsed("feat(api)!: drop v1"), Some(("feat", Some("api"), "drop v1")));
+    assert_eq!(parsed("fix: a bug"), Some(("fix", None, "a bug")));
+    assert_eq!(parsed("setup vm: a lease skips a busy worker"), Some(("setup", Some("vm"), "a lease skips a busy worker")));
+    assert_eq!(parsed("docs ai: sync guides\n\nbody"), Some(("docs", Some("ai"), "sync guides")));
+    assert_eq!(parsed("chore:"), Some(("chore", None, "")));
+
+    // not a prefix
+    assert_eq!(parsed("IJAI-3828 the docs: a summary"), None);
+    assert_eq!(parsed("the frontend gets a client state"), None);
+    assert_eq!(parsed("fix:no space"), None);
+    assert_eq!(parsed("fix(): empty scope"), None);
+    assert_eq!(parsed("fix(scope x): spaces"), None);
+    assert_eq!(parsed("setup Vm: uppercase scope"), None);
+    assert_eq!(parsed("setup vm and more: words"), None);
+    assert_eq!(parsed(""), None);
+
+    assert_eq!(conventional_scope("setup build: Bazel starts"), Some("build"));
+    assert_eq!(conventional_scope("refactor(vm): one reader"), Some("vm"));
+    assert_eq!(conventional_scope("fix: x"), None);
+  }
+
+  #[test]
+  fn issue_keys_anywhere_in_a_text() {
+    let keys = |text| issue_keys_in(text).collect::<Vec<_>>();
+    assert_eq!(keys("IJAI-3016 subject\n\nAlso IJPL-258458 and (IJAI-3016)."), ["IJAI-3016", "IJPL-258458", "IJAI-3016"]);
+    assert_eq!(keys("ABC-123-456 and DEF-7"), ["ABC-123", "DEF-7"]);
+    assert_eq!(keys("x-ABC-1 xABC-2 ABC-3x ABC- -4 abc-5 IJ-CR-1234"), Vec::<&str>::new());
+    assert_eq!(keys("(ABC-1), [DEF-2]/GHI-3"), ["ABC-1", "DEF-2", "GHI-3"]);
+    assert_eq!(keys("Ünïcode ABC-9"), ["ABC-9"]);
+    assert_eq!(keys(""), Vec::<&str>::new());
+    // the subject parser is unchanged: only a key at the start counts there
+    assert_eq!(find_issue_number("Fix ABC-123"), None);
   }
 }

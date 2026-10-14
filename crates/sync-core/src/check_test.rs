@@ -1,4 +1,4 @@
-use crate::check::{CheckOutcome, CheckReport, check_plan};
+use crate::check::{CheckOutcome, CheckReport, CheckSession, check_plan};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -151,4 +151,31 @@ fn the_cache_gives_the_same_report() {
       files: vec!["shared.txt".to_string()],
     })]
   );
+}
+
+/// The outcome of every branch, by name, and the changed count: what two checks of the same plan must share
+fn summary(report: &CheckReport) -> (Vec<(String, CheckOutcome)>, usize) {
+  let outcomes = report.branches.iter().map(|check| (check.name.clone(), check.outcome.clone())).collect();
+  (outcomes, report.regroup.changed_count())
+}
+
+#[test]
+fn a_session_checks_many_plans_as_check_plan_does() {
+  let (repo, ids) = repo(false);
+  let cache = ObjectCache::disabled();
+  let before = repository_state(&repo);
+  let session = CheckSession::open(repo.git_executor(), repo.path().to_str().unwrap(), PREFIX, &cache).unwrap();
+  assert_eq!(session.snapshot().commits.len(), 3);
+  assert_eq!(session.snapshot().baseline, "master");
+  let plans = [None, Some(plan(&[("b", &[&ids[1]])])), Some(plan(&[("other", &[&ids[2]])]))];
+  for plan in &plans {
+    let from_session = session.check(plan.as_ref()).unwrap();
+    assert_eq!(summary(&from_session), summary(&check(&repo, plan.as_ref(), &cache).unwrap()), "{plan:?}");
+  }
+  assert!(matches!(
+    session.check(Some(&plan(&[("b", &[&ids[1]])]))).unwrap().branches[1].outcome,
+    CheckOutcome::Conflict { .. }
+  ));
+  assert!(session.check(Some(&regroup_test::plan(&[], &[&ids[0]]))).is_ok());
+  assert_eq!(repository_state(&repo), before, "a session writes objects only");
 }

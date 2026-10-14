@@ -528,7 +528,7 @@ fn brief_subject(subject: &str, group: Option<&str>) -> String {
 }
 
 /// Fixup commit id -> its kind and the target `plan_autosquash` resolves, `None` for an orphan
-fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)], stacks: bool) -> HashMap<String, (FixupKind, Option<String>)> {
+pub(crate) fn fixup_targets(head: &str, ordered: &[(&Commit, Option<&str>)], stacks: bool) -> HashMap<String, (FixupKind, Option<String>)> {
   let commits: Vec<Commit> = ordered.iter().map(|(commit, _)| (*commit).clone()).collect();
   let plan = plan_autosquash(head.to_string(), &commits, stacks);
   let mut targets: HashMap<String, (FixupKind, Option<String>)> = plan

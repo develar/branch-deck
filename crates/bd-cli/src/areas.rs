@@ -38,14 +38,12 @@ pub fn area_of(path: &str, depth: usize) -> &str {
 /// lines except the first; hub files don't count. An area of renames or binary files only has 0 lines, so it is listed
 /// only when the commit has no other lines
 pub fn top_areas<'a>(changes: impl IntoIterator<Item = &'a FileChange>, depth: usize) -> Vec<DirLines> {
-  let mut lines: HashMap<&str, u32> = HashMap::new();
-  for change in changes.into_iter().filter(|change| !is_hub_file(&change.path)) {
-    let counted = if change.binary { 0 } else { change.additions + change.deletions };
-    *lines.entry(area_of(&change.path, depth)).or_default() += counted;
-  }
-  let total: u32 = lines.values().sum();
-  let mut areas: Vec<(&str, u32)> = lines.into_iter().collect();
-  areas.sort_by_key(|&(dir, lines)| (Reverse(lines), dir));
+  let counted = changes
+    .into_iter()
+    .filter(|change| !is_hub_file(&change.path))
+    .map(|change| (change.path.as_str(), if change.binary { 0 } else { change.additions + change.deletions }));
+  let areas = area_lines(counted, depth);
+  let total: u32 = areas.iter().map(|(_, lines)| lines).sum();
   areas
     .into_iter()
     .take(TOP_AREAS)
@@ -53,4 +51,15 @@ pub fn top_areas<'a>(changes: impl IntoIterator<Item = &'a FileChange>, depth: u
     .filter(|&(index, (_, lines))| index == 0 || u64::from(lines) * 100 >= u64::from(total) * u64::from(MIN_AREA_SHARE))
     .map(|(_, (dir, lines))| DirLines { dir: dir.to_string(), lines })
     .collect()
+}
+
+/// The lines of each area of `(path, lines)`, the most lines first and on a tie by name
+pub fn area_lines<'a>(files: impl IntoIterator<Item = (&'a str, u32)>, depth: usize) -> Vec<(&'a str, u32)> {
+  let mut lines: HashMap<&str, u32> = HashMap::new();
+  for (path, counted) in files {
+    *lines.entry(area_of(path, depth)).or_default() += counted;
+  }
+  let mut areas: Vec<(&str, u32)> = lines.into_iter().collect();
+  areas.sort_by_key(|&(dir, lines)| (Reverse(lines), dir));
+  areas
 }
