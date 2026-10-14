@@ -1,14 +1,14 @@
 # Agent CLI (`bd`)
 
-**Status:** Active (read-only commands)  
+**Status:** Active  
 **Updated:** 2026-10-14  
 **Tags:** [cli, agents, json]
 
 ## Summary
 
-`bd` lets an agent read what Branch Deck sees: the commits ahead of the baseline, their groups, and what ties them
-together. Today it has the read-only commands `status`, `commits`, `schema` and `help agent`. The commands that
-change things (`check`, `group`, `sync`, `describe`, `push`) come later.
+`bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
+together) and regroup the commits. It reads with `status`, `commits` and `schema`, and rewrites commit messages with
+`group`, `rename`, `restack`, `unstack` and `undo`. `check`, `sync`, `describe` and `push` come later.
 
 It is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked as `bd`, the CLI
 runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or plugin is created.
@@ -188,9 +188,57 @@ commit id (`crates/object-cache`, LMDB through heed):
 - `commit_tree` (commit → tree) and `merge_result` ((base, commit, target) trees → result tree or conflict files) are
   there for sync and `bd check`, which don't use them yet.
 
+### `bd group [--dry-run] [--expect-head <id>] [--map] [--plan <file>] < plan.json`
+
+Moves commits between branches by their subject prefixes, in one message-only history rewrite
+(`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)).
+
+```json
+{"branches": {"auth": ["41c7d00e", "5e2f9c3b"], "auth/login": ["9f3a2b1c"]}, "unassign": ["77e01aa4"]}
+```
+
+- A path is a branch name, or `parent/leaf` with stacked branches on (`git config branchdeck.stacks true`). Ids may
+  be abbreviated. `unassign` removes the prefix: the commit falls back to its issue branch or becomes unassigned.
+- Before anything is written, the plan is applied in memory to every subject ahead of the baseline and validated:
+  - unknown ids and ids not ahead of the baseline are `not_ahead_of_baseline`;
+  - duplicate ids, ids both in a branch and in `unassign`, invalid names, a fixup sent away from its target and a
+    stack problem the plan introduces (a cycle, conflicting parents, a self parent, a case collision) are
+    `invalid_plan`; problems that already existed are listed in `problems`.
+- Fixups not in the plan follow their targets.
+- `--expect-head` refuses with `head_moved` (exit 3) unless HEAD is still that commit; the rewrite itself only moves
+  the branch from the HEAD it read (compare-and-swap).
+- The repository lock serializes rewrites with the app and other `bd` calls; after 10 s of waiting it is `locked`
+  (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, a detached HEAD
+  `detached_head` (exit 4).
+
+```json
+{"schema":1,"repository":"/repo","prefix":"develar","operation":"group","dry_run":false,
+ "previous_head":"77e01aa4","new_head":"c0ffee12","rewritten":3,"undo_token":"<full previous>..<full new>",
+ "groups":{"auth":["1b2c3d4e","5f6a7b8c"],"login":["9d0e1f2a"]},"unassigned":["c0ffee12"]}
+```
+
+- `groups` and `unassigned` list every commit ahead of the baseline afterwards, with the new ids, oldest first.
+- `--dry-run` writes nothing and adds `changes` (`{id, from, to}` subjects) and, with stacked branches on, `forest`
+  (`{name, parent, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
+
+### `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`
+
+Plans that `bd` computes, validated and written like `bd group`, with the same options and output:
+
+- `rename` replaces the level `old` in every prefix path, so a parent's children follow; an issue branch's commits
+  get the prefix `(new)`. The new name must not contain `/`. A name that exists merges the branches.
+- `restack` sets the prefix of every commit of the branch to `(parent/branch)`, `unstack` to `(branch)`. Both need
+  stacked branches on.
+
+### `bd undo <undo_token>`
+
+Moves the branch back from the token's new HEAD to its previous HEAD, with CAS and the lock: `head_moved` once
+anything else changed the branch. Prints `{"schema":1,…,"head":"<restored>","undone":"<undone>"}`.
+
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"commits":{...},"error":{...},"status":{...}}}`.
+Prints `{"schema":1,"outputs":{"commits":{...},"error":{...},"rewrite":{...},"status":{...},"undo":{...}}}`;
+`rewrite` is the output of `group`, `rename`, `restack` and `unstack`.
 
 ### `bd help agent`
 
@@ -202,10 +250,12 @@ Prints the workflow below as plain text.
    `bd commits --patch --branch <b>`.
 2. Cluster the commits by intent. Use `dependencies` and `cluster_overlap` to keep together, or stack, the commits that
    can't be separated.
-3. Run `bd check < plan.json` until it is clean. *Not yet available.*
-4. Run `bd group --expect-head <id> < plan.json`, then `bd sync`. *Not yet available.*
+3. Write the plan and run `bd group --dry-run < plan.json` until it is accepted. `bd check`, a trial sync of the plan
+   that finds cherry-pick conflicts, is *not yet available*.
+4. Run `bd group --expect-head <head> < plan.json` with the HEAD `bd status` printed. On `head_moved` or `locked`,
+   read again and retry. Then the user syncs; `bd sync` is *not yet available*.
 5. Run `bd describe` for each branch. *Not yet available.*
 6. Show the result to the user, and run `bd push` only after the user approves. *Not yet available.*
 
-The agent never reorders, squashes or drops commits. These are the same rules as `src/lib/agent-prompt.ts`. Until
-`bd group` exists, the user applies the grouping in the app.
+The agent never reorders, squashes or drops commits: a plan only moves commits between branches. These are the same
+rules as `src/lib/agent-prompt.ts`. `bd undo` with the printed token reverts a rewrite.

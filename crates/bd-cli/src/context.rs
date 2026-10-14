@@ -4,7 +4,9 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use object_cache::cache::ObjectCache;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
+use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use tracing::debug;
 
 /// The tauri-plugin-store file of the app (`LazyStore("settings.json")` in `src/stores/settings/app-store.ts`), in the
@@ -20,6 +22,8 @@ pub struct Environment {
   pub settings_file: Option<PathBuf>,
   /// The git executable from `BD_GIT`
   pub git: Option<String>,
+  /// How long a rewrite waits for the repository lock
+  pub lock_timeout: Duration,
 }
 
 impl Environment {
@@ -28,6 +32,7 @@ impl Environment {
       cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
       settings_file: dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER).join(SETTINGS_FILE_NAME)),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
+      lock_timeout: DEFAULT_LOCK_TIMEOUT,
     }
   }
 }
@@ -50,6 +55,7 @@ pub struct RepoContext {
   /// `git rev-parse --git-common-dir`, shared by all worktrees: the cache lives there
   pub git_common_dir: PathBuf,
   pub use_cache: bool,
+  pub lock_timeout: Duration,
 }
 
 impl RepoContext {
@@ -96,6 +102,7 @@ impl RepoContext {
       short_ids: !options.full_ids,
       git_common_dir,
       use_cache: !options.no_cache,
+      lock_timeout: environment.lock_timeout,
     })
   }
 

@@ -38,7 +38,8 @@ repositories: all operations run through the Git CLI.
   (`.idea/vcs.xml`).
 - **Agent CLI** (`branch-deck cli`, or the binary symlinked as `bd`): a coding agent reads the branches, the unassigned
   commits and every commit ahead of the baseline as JSON, with the files, the dependencies between commits and per
-  branch statistics, to cluster commits into branches. `bd help agent` prints the workflow.
+  branch statistics, to cluster commits into branches. It applies the grouping with `bd group`, one validated rewrite
+  of the commit messages that can be undone; `bd help agent` prints the workflow.
 - Auto-sync when the window gets focus, auto-update, light and dark theme.
 
 ## How It Works

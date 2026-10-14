@@ -1,6 +1,6 @@
 ---
 name: Agent CLI
-description: Requirements for bd, the command line a coding agent uses to read the branches and commits Branch Deck sees, as JSON with a stable contract.
+description: Requirements for bd, the command line a coding agent uses to read the branches and commits Branch Deck sees and to regroup the commits, as JSON with a stable contract.
 style: plain-1
 targets:
   - ../../src-tauri/src/main.rs
@@ -16,6 +16,9 @@ targets:
   - ../../crates/bd-cli/src/dependencies.rs
   - ../../crates/bd-cli/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
+  - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/sync-core/src/regroup.rs
+  - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/object-cache/src/cache.rs
@@ -25,14 +28,14 @@ targets:
 
 # Agent CLI
 
-Status: Implemented (read-only commands)
+Status: Implemented (read and regroup; check, sync, describe and push come later)
 Date: 2026-10-14
 
 ## Summary
 
 `bd` lets a coding agent read what Branch Deck sees: the branches the commits ahead of the baseline group into, the
 unassigned commits, and every commit with its files and what ties it to the others. The agent clusters the commits
-into branches from that and asks the user to apply the grouping. It is the `cli` subcommand of the app binary
+into branches from that and applies the grouping with one validated rewrite of the commit messages. It is the `cli` subcommand of the app binary
 (`branch-deck cli status`), or the binary symlinked as `bd`. Every output is one JSON object with a stable schema.
 How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli.md).
 
@@ -41,11 +44,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Give an agent everything it needs to cluster commits, in a few compact calls.
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
-- Read only: no ref, index or working tree changes.
+- Reading changes nothing; a regroup changes commit messages only, never trees, the index or the working tree.
 
 ## Non-goals
 
-- Changing commits or branches: grouping, sync, describe and push come later.
+- Syncing, describing and pushing branches from the CLI: they come later.
+- Reordering, squashing, dropping or splitting commits.
 - A console binary on Windows; the CLI runs from the macOS app binary first.
 
 ## Requirements
@@ -64,8 +68,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
-- `bd schema` must print the JSON Schema of the `status`, `commits` and `error` outputs, and the real outputs must use
-  only the properties it declares.
+- `bd schema` must print the JSON Schema of the `status`, `commits`, `rewrite`, `undo` and `error` outputs, and the
+  real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -125,6 +129,45 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Several processes must use the cache at once; a full cache must be cleared; older schema versions must be dropped;
   any cache failure must be a miss.
   [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`, `older_schema_versions_are_dropped`, `unusable_cache_is_a_miss`, `full_cache_is_cleared`, `parallel_threads`, `parallel_processes`)
+
+### `bd group`, `rename`, `restack`, `unstack`
+
+- `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids]}` from stdin or `--plan`, and set the
+  prefixes of all its commits in one message-only rewrite; ids may be abbreviated.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
+- The plan must be validated against every subject ahead of the baseline before anything is written: unknown ids and
+  ids not ahead of the baseline are `not_ahead_of_baseline`; duplicate or contradicting ids, a malformed plan, invalid
+  names, a fixup separated from its target and a stack problem the plan introduces are `invalid_plan`, with the
+  commits named. Problems that already existed must be reported, not refused.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_errors_and_exit_codes`)
+- Fixups not in the plan must follow their targets.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`fixups_follow_their_targets`)
+- `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
+  move the branch only from the HEAD the plan was computed for.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`expect_head_is_a_compare_and_swap`)
+- Rewrites must hold `$GIT_COMMON_DIR/branch-deck.lock`, wait a bounded time for another holder, then fail with
+  `locked` (exit 3). A rebase or merge in progress is `operation_in_progress` and a detached HEAD `detached_head`
+  (exit 4).
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
+- The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
+  `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add old → new ids.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
+- `bd rename` must replace the branch's level in every prefix path, children included, and give an issue branch's
+  commits a prefix; the new name must be a branch name without `/`.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_flat_and_issue_branches`)
+- `bd restack` and `bd unstack` must set or clear the parent on all commits of the branch, and need stacked branches.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+
+### `bd undo`
+
+- `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap, and refuse
+  with `head_moved` once the branch changed again.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
 
 ### `bd help agent`
 

@@ -16,6 +16,7 @@ pub fn environment(cwd: &Path) -> Environment {
     cwd: cwd.to_path_buf(),
     settings_file: None,
     git: None,
+    lock_timeout: std::time::Duration::from_millis(200),
   }
 }
 
@@ -27,6 +28,15 @@ pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   assert_eq!(text.lines().count(), 1, "one line of JSON, got: {text}");
   let value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid JSON ({e}): {text}"));
   (exit_code, value)
+}
+
+/// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
+pub fn with_header(repo: &TestRepo, fields: Value) -> Value {
+  let repository = std::fs::canonicalize(repo.path()).unwrap();
+  let mut output = serde_json::json!({ "schema": 1, "repository": repository.to_str().unwrap(), "prefix": PREFIX });
+  let Value::Object(fields) = fields else { panic!("fields must be an object") };
+  output.as_object_mut().unwrap().extend(fields);
+  output
 }
 
 /// Run `bd` in `repo` with `--prefix test-user`

@@ -19,11 +19,18 @@ Workflow:
 2. Cluster the commits by intent. `dependencies` ({from, to, files}: `from` touches lines `to` added) and
    `cluster_overlap` (files two branches both change) show which commits can't be separated: a commit
    goes with, or stacks on, the commits it depends on.
-3. `bd check < plan.json` until it is clean.                     (not yet available)
-4. `bd group --expect-head <id> < plan.json`, then `bd sync`.    (not yet available)
+3. Write the plan: {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids]}. A path is a branch name, or
+   `parent/leaf` for a stacked branch (`git config branchdeck.stacks true`). Fixups follow their targets.
+   `bd group --dry-run < plan.json` prints the resulting subjects and the stack forest and writes nothing;
+   fix the plan until it is accepted. `bd check` (a trial sync of the plan) is not yet available.
+4. `bd group --expect-head <head from bd status> < plan.json`. It rewrites commit messages only, in one
+   rewrite, and prints the new groups and an `undo_token`. `head_moved` or `locked` (exit 3): read again
+   and retry. `bd sync` is not yet available: the user syncs in the app.
+   Also: `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`, all with
+   --dry-run and --expect-head; `bd undo <undo_token>` restores the previous HEAD.
 5. `bd describe <branch> --title ... --body ...` for each branch.  (not yet available)
 6. Show the result to the user. `bd push` only after the user approves. (not yet available)
 
-Rules: never reorder, squash or drop commits; never touch the working tree. Until `bd group` exists, ask
-the user to apply the grouping in the Branch Deck app.
+Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits
+between branches. Errors with exit 2 (invalid_plan, not_ahead_of_baseline) mean the plan must change.
 ";

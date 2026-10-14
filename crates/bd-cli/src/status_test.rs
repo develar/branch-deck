@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, commit_all, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{PREFIX, commit_all, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, with_header, write};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -29,13 +29,11 @@ fn status_shape() {
   let (exit_code, output) = run_in(&repo, &["status"]);
   assert_eq!(exit_code, 0, "{output}");
 
-  let repository = std::fs::canonicalize(repo.path()).unwrap();
   assert_eq!(
     output,
-    json!({
-      "schema": 1,
-      "repository": repository.to_str().unwrap(),
-      "prefix": PREFIX,
+    with_header(
+      &repo,
+      json!({
       "head": { "id": short(&ids[3]), "branch": "master" },
       "baseline": "origin/master",
       "branch_count": 2,
@@ -63,7 +61,8 @@ fn status_shape() {
         },
       ],
       "unassigned": [{ "id": short(&ids[2]), "subject": "Tidy up" }],
-    })
+      })
+    )
   );
 }
 

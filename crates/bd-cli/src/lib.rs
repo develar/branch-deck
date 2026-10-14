@@ -11,6 +11,7 @@ pub mod error;
 pub mod generated;
 pub mod numstat;
 pub mod output;
+pub mod rewrite;
 pub mod schema;
 pub mod status;
 
@@ -19,6 +20,7 @@ use crate::commits::{CommitsArgs, commits};
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::error::{CliError, ErrorCode};
 use crate::output::write_json;
+use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status};
 use clap::error::ErrorKind;
@@ -56,6 +58,16 @@ enum Command {
   Status(StatusArgs),
   /// Every commit ahead of the baseline, with dependency edges and file overlap between branches
   Commits(CommitsArgs),
+  /// Move commits between branches by their subject prefixes: one validated rewrite for a whole plan read from stdin
+  Group(GroupArgs),
+  /// Rename a branch in every commit prefix, its children included
+  Rename(RenameArgs),
+  /// Stack a branch on a parent branch (needs `git config branchdeck.stacks true`)
+  Restack(RestackArgs),
+  /// Make a stacked branch a root again
+  Unstack(UnstackArgs),
+  /// Undo a rewrite with the `undo_token` it printed
+  Undo(UndoArgs),
   /// The JSON Schema of every output
   Schema,
   /// `bd help agent`: the agent workflow; `bd help`: the usage
@@ -116,6 +128,11 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
   let result = match &cli.command {
     Command::Status(args) => context().and_then(|context| status(&context, args)).and_then(|output| print(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),
+    Command::Group(args) => context().and_then(|context| group(&context, args)).and_then(|output| print(out, &output)),
+    Command::Rename(args) => context().and_then(|context| rename(&context, args)).and_then(|output| print(out, &output)),
+    Command::Restack(args) => context().and_then(|context| restack(&context, args)).and_then(|output| print(out, &output)),
+    Command::Unstack(args) => context().and_then(|context| unstack(&context, args)).and_then(|output| print(out, &output)),
+    Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
@@ -151,6 +168,8 @@ mod dependencies_test;
 mod diff_scan_test;
 #[cfg(test)]
 mod fixture_test;
+#[cfg(test)]
+mod rewrite_test;
 #[cfg(test)]
 mod schema_test;
 #[cfg(test)]
