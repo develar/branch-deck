@@ -22,9 +22,18 @@ repositories: all operations run through the Git CLI.
 - **Conflict viewer**: when grouping changes the order of dependent commits, Branch Deck shows the conflicting files in a
   3-way merge view and lists the missing commits.
 - **Integration detection**: merged, rebased and squashed branches are detected and archived automatically.
-- **Push and remote status** per branch, with push or create remote in one click.
-- **Commit editing**: preview a commit with Space, reword its message, amend uncommitted changes into a branch, split
-  or unapply a branch.
+- **Push and remote status** per branch, with push or create remote in one click. The header sums up what is waiting
+  to be pushed, per branch, and marks the branches that need a force push.
+- **Update Project** (`⌘T`): fetches the baseline and rebases your local commits onto it. The header tells you
+  beforehand whether the rebase is clean. On a conflict nothing is changed, and you can copy a ready prompt for a
+  coding agent. Uncommitted changes survive as long as upstream didn't touch the same files.
+- **Squash**: squash selected commits into the oldest one, even when other branches' commits lie between them. Fold
+  `fixup!`, `squash!` and `amend!` commits into their targets in one click, as `git rebase --autosquash` does. Both
+  can be undone.
+- **GitHub pull requests**: the PR number, review state and checks of each branch, read with the
+  [`gh`](https://cli.github.com) CLI.
+- **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a
+  branch, split or unapply a branch.
 - **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation
   (`.idea/vcs.xml`).
 - Auto-sync when the window gets focus, auto-update, light and dark theme.
@@ -56,15 +65,23 @@ See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout an
 
 [Download the latest release](https://github.com/develar/branch-deck/releases/latest) for macOS (Apple silicon), Windows or Linux.
 
-Requires Git 2.54 or newer (`brew install git` on macOS). Branch Deck never touches your working tree or your staged
-changes; see [Git Operations](docs/design/git-operations.md).
+Requires Git 2.54 or newer (`brew install git` on macOS). Pull request status needs `gh`, logged in with
+`gh auth login`.
+
+History rewrites (reword, move, squash, amend, unapply) never touch your working tree or your staged changes. Update
+Project is the one operation that writes files, and only files that upstream changed and you didn't. See
+[Git Operations](docs/design/git-operations.md).
 
 ## Documentation
 
 - [Virtual Branches](docs/design/virtual-branches.md) — how commits are grouped and cherry-picked
 - [Integration Detection](docs/design/integration-detection.md) — how merged branches are detected
-- [Git Operations](docs/design/git-operations.md) — working-tree safety, history rewrites and the Git version requirement
+- [Git Operations](docs/design/git-operations.md) — working-tree safety, history rewrites, Update Project and the Git
+  version requirement
+- [Remote Status](docs/design/remote-status.md) — how ahead/behind and push states are computed and coloured
 - [All design docs](docs/design/)
+- [Feature specs](spec/) — the exact behaviour of each feature (commit row, squash, fixups, branch preview, update,
+  pull requests)
 
 ## Contributing
 
