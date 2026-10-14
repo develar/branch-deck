@@ -53,7 +53,8 @@ Workflow:
    parent, and `bd sync` again. `head_moved`, `groups_moved` or `locked` (exit 3): read again and retry. --dry-run
    prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and
    `bd unstack <branch>`, with the same options; `bd describe <branch> --title ... --body ...` for one branch.
-   `bd undo <undo_token>` moves HEAD and the issue groups back: `H1..H2`, `groups:G1..G2` or `H1..H2+groups:G1..G2`.
+   `bd undo <undo_token>` moves HEAD and the issue groups back; pass the token as printed, with full ids
+   (`<head>..<head>`, `groups:<id>..<id>`, or both joined by `+`).
 4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes): it syncs,
    pushes parents first with a lease per ref, and prints a ready `gh pr create` per branch (pipe its `body` into
    it). `push_refused` (exit 4): a branch didn't sync, is behind its remote branch, or its parent isn't on the
