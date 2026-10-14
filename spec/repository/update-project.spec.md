@@ -166,6 +166,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   keeps its words and its icon, then "· origin/master not fetched yet".
   [@test] ../../src/lib/update-state.test.ts (`says the baseline was not fetched yet instead of a state nobody asked the remote for`)
   [@test] ../../src/lib/update-state.test.ts (`says the same in the footer of the outgoing overview`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
 - A relative time must age while it is shown, without a sync or a fetch: "Last synced 1 minute ago" next to the button,
   the fetch time of the tooltip and of the footer line, "Pull requests checked" and "Patronus checked" in the overview,
   the times of the Landed island and chips, of the commits a force push drops and of the commit that merged an archived

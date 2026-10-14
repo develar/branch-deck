@@ -161,6 +161,8 @@ test.describe("Update Project", () => {
     const button = updateButton(page)
     await expect(button).toHaveAttribute("data-state", "upToDate")
     await expect(button.getByTestId("update-state-icon")).toHaveCount(0)
-    await expectTooltip(page, "Up to date with origin/master")
+    // the `simple` template never fetched: the tooltip doesn't claim a state nobody asked the remote for ("Up to date
+    // with origin/master" after a fetch: the first test)
+    await expectTooltip(page, /^origin\/master not fetched yet/)
   })
 })
