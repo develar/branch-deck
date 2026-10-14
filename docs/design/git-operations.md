@@ -287,11 +287,33 @@ Details:
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
 - **Metadata.** The replayed commits keep their author; the committer is the current user, as with any content rewrite.
-- **The check inside sync** runs steps 0, 1 and 3 to 8 against the last fetched tracking ref and sends
-  `SyncEvent::BaselineStatus` after `BranchesGrouped`, concurrently with the branch rebuilds. Its replay sets
-  `GIT_COMMITTER_DATE=@0 +0000`, so checking the same state again writes no new objects; such a plan can't be applied.
-  A failed check (a rebase in progress, a detached HEAD) is logged and reported in the event, never as a sync error.
-  `fetched_at` is the time git last wrote `FETCH_HEAD` (a fetch elsewhere); the app keeps the time of its own fetch.
+- **The check inside sync** (`CheckPurpose::Preview`) runs steps 0, 1 and 3 to 6 against the last fetched tracking
+  ref, and a cheaper form of steps 7 and 8. It starts as soon as the sync knows the baseline, beside the commit
+  grouping and the branch rebuilds, and sends `SyncEvent::BaselineStatus` whenever it is done; its duration is logged.
+  A failed check (a rebase in progress, a detached HEAD) is reported in the event, never as a sync error. `fetched_at`
+  is the time git last wrote `FETCH_HEAD` (a fetch elsewhere); the app keeps the time of its own fetch.
+
+  The preview differs from the check before an update so that a sync on every window focus stays cheap in a monorepo
+  with a huge index; its cost grows with the paths the update changes, not with the index:
+  - **No index copy, no full refresh, no dry run.** The paths come from the raw `diff-tree -r -z --no-renames H N`
+    (mode and blob in H). An added path is blocked by anything on disk there (step 8). A changed or deleted path is
+    blocked if its index entry differs from H (staged: one `cat-file --batch-check=%(objectname) -Z` of `:<path>`, a
+    binary search per path) or if its file differs from H's blob (`hash-object --stdin-paths`, with the clean
+    filters). Comparing content, a file that was only touched does not block, and the index is never written.
+    `status`, `diff-files` and `diff-index` take no `--pathspec-from-file`, and as arguments thousands of pathspecs
+    are matched against every index entry: `status` with 2,105 pathspecs took 5–12 s on a 50k-file index.
+  - **Cache.** Per repository, in memory: the replay outcome (conflict, or the new tip and the changed paths) keyed by
+    H, U and the excluded previous tips, and a probe of the local state. The probe keeps the index blobs for one
+    index file (git writes a new file, a new inode, on every change) and, per hashed file, its stat data, when it was
+    hashed and its blob, trusted like git's racy check only when the file was modified at least 2 s before it was
+    hashed. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
+    changed path; after a fetch only the newly changed paths are read.
+  - Its replay sets `GIT_COMMITTER_DATE=@0 +0000`, so a replay after a cache miss writes the same objects again; such
+    a plan can't be applied.
+  - It leans to blocked where the two can differ: a sparse checkout (a missing file then doesn't block), an
+    executable bit with `core.fileMode=false`, a symlink, a path with a newline. A directory that the update replaces
+    by a file, or the reverse, is checked by the update's dry run only. The update always runs the exact check
+    (`CheckPurpose::Apply`) after its fetch.
 
 **Residual risk.** `read-tree -u` validates every path before it writes the first file, but writing can still fail
 midway, e.g. when a smudge filter (Git LFS) fails or the disk fills up. The branch then moves back to H, and the files
@@ -410,7 +432,7 @@ recovery hint (`git reset -q`).
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `cat-file` + k `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per branch |
-| Update check of n local commits (every sync) | none | about 12 processes whatever n: guards, 1 `replay`, the dry run on an index copy, 1 `diff-tree` |
+| Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 
 ## Follow-ups

@@ -179,11 +179,20 @@ struct PreparedSync {
   branch_emails: HashMap<String, Option<String>>,
   /// Parent of the oldest commit ahead of the baseline; `None` without commits (or when that commit is a root)
   first_parent_id: Option<String>,
+  /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
+  update_check: tokio::task::JoinHandle<Result<()>>,
 }
 
 /// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
 /// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
-fn prepare_sync(git_executor: &GitCommandExecutor, repository_path: &str, issue_config: IssueConfigSource, progress: &dyn ProgressReporter) -> Result<PreparedSync> {
+/// The update check runs beside it and the rest of the sync, from the moment the baseline is known: its
+/// `BaselineStatus` can come at any point of the event stream.
+fn prepare_sync<P: ProgressReporter + Clone + 'static>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  issue_config: IssueConfigSource,
+  progress: &P,
+) -> Result<PreparedSync> {
   // Use cached issue config if available (including a cached "none"), otherwise load it
   let issue_config = match issue_config {
     IssueConfigSource::Cached(cached) => {
@@ -199,6 +208,14 @@ fn prepare_sync(git_executor: &GitCommandExecutor, repository_path: &str, issue_
 
   // Detect the baseline branch (origin/master, origin/main, or local master/main)
   let baseline_branch = detect_baseline_branch(git_executor, repository_path, "master")?;
+  // on the blocking pool of the runtime this phase runs on
+  let update_check = tokio::runtime::Handle::current().spawn_blocking({
+    let git_executor = git_executor.clone();
+    let repository_path = repository_path.to_string();
+    let baseline_branch = baseline_branch.clone();
+    let progress = progress.clone();
+    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, &progress)
+  });
 
   // Use streaming commit processing
   let mut grouper = CommitGrouper::new();
@@ -232,6 +249,7 @@ fn prepare_sync(git_executor: &GitCommandExecutor, repository_path: &str, issue_
     branches,
     branch_emails,
     first_parent_id,
+    update_check,
   })
 }
 
@@ -302,6 +320,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branches,
     branch_emails,
     first_parent_id,
+    update_check,
   } = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
@@ -311,14 +330,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   .await
   .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
 
-  // Phase 2: integration detection, the update check and branch processing run concurrently
-  let update_check = tokio::task::spawn_blocking({
-    let git_executor = git_executor.clone();
-    let repository_path = repository_path.to_string();
-    let baseline_branch = baseline_branch.clone();
-    let progress = progress.clone();
-    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, &progress)
-  });
+  // Phase 2: integration detection and branch processing run concurrently, beside the update check
   let active_branches: HashSet<String> = branches.keys().cloned().collect();
   let detection = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
@@ -372,7 +384,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
 /// Check the update of the checked out branch onto the baseline and send `BaselineStatus`. A failed check is logged and
 /// reported in the event, it never fails the sync; only a failure to send the event does.
 fn send_baseline_status(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: String, progress: &dyn ProgressReporter) -> Result<()> {
-  let (update, check_error) = match check_baseline_update(git_executor, repository_path, &baseline_branch) {
+  let start = std::time::Instant::now();
+  let result = check_baseline_update(git_executor, repository_path, &baseline_branch);
+  info!(elapsed_ms = start.elapsed().as_millis(), ok = result.is_ok(), "update check done");
+  let (update, check_error) = match result {
     Ok(update) => (update, None),
     Err(e) => {
       warn!(error = %format!("{e:#}"), "update check failed");

@@ -74,13 +74,23 @@ The header shows whether an update would apply cleanly, from a check that every 
   the tracking ref's reflog are excluded, as `git pull --rebase` does.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`check_after_a_forced_fetch_elsewhere_uses_the_fork_point`)
-- Every sync must run the check and report it once, after the branches are grouped; a failed check is reported with
-  its reason and must not fail the sync.
+- Every sync must run the check and report it once, beside the rest of the sync (the event can come at any point);
+  a failed check is reported with its reason and must not fail the sync.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_the_baseline_status`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_a_failed_check_without_failing`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_precedes_per_branch_events`)
 - Repeated checks of the same state must not write new objects; a check made for a sync can't be applied.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_check_cannot_be_applied`)
+- The check inside a sync must cost in proportion to the paths the update changes, not the size of the index: it
+  never copies, refreshes or writes the index, reuses the replay of an unchanged HEAD and upstream, and rereads only
+  files whose stat data changed. It must still find dirty and staged touched paths, must not block on a file that was
+  only touched, and must block on untracked and ignored files where the upstream adds one.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_blocks_dirty_and_staged_touched_paths_without_touching_the_index`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_does_not_block_a_touched_only_file`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_blocks_untracked_and_ignored_files_that_upstream_adds`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_reuses_the_replay_of_an_unchanged_state`)
+- A file that the upstream replaces by a directory (or the reverse) must not block.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`file_replaced_by_a_directory_upstream_is_not_in_the_way`)
 
 ### Update
 
@@ -176,8 +186,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 - A write can still fail midway (a Git LFS smudge filter, a full disk) after git validated every path; the branch moves
   back and the written files show as uncommitted changes. See "Update project" in the design doc.
-- The check inside every sync costs about twelve git processes and a copy of the index; on a very large index the copy
-  and the refresh dominate.
+- The first check after a start or a fetch hashes the changed files the probe hasn't seen: about 60–130 µs a file on a
+  loaded machine, so an update that changes tens of thousands of files costs seconds once.
 - The e2e mock does not forward the progress channel, so the steps of a running update are not tested in the page.
 
 ## References

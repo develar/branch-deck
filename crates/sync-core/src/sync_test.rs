@@ -503,14 +503,15 @@ async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()
     test_repo.create_commit(&format!("({branch}) Change {branch}"), &format!("{branch}.txt"), branch);
   }
 
-  let events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
+  let all_events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
+  // the update check runs beside the sync, its event can come at any point
+  let (baseline_statuses, events): (Vec<_>, Vec<_>) = all_events.into_iter().partition(|e| matches!(e, SyncEvent::BaselineStatus { .. }));
   // Phase 1 events are sent sequentially, in this order, before any branch task starts
   assert!(matches!(events[0], SyncEvent::IssueNavigationConfig { .. }), "{:?}", events[0]);
   assert!(matches!(events[1], SyncEvent::UnassignedCommits { .. }), "{:?}", events[1]);
   assert!(matches!(&events[2], SyncEvent::BranchesGrouped { branches, .. } if branches.len() == 4), "{:?}", events[2]);
   assert_eq!(events.iter().filter(|e| matches!(e, SyncEvent::BranchesGrouped { .. })).count(), 1);
-  // phase 2: one update check, nothing to update from for a local baseline
-  let baseline_statuses: Vec<_> = events.iter().filter(|e| matches!(e, SyncEvent::BaselineStatus { .. })).collect();
+  // one update check, nothing to update from for a local baseline
   assert!(
     matches!(
       baseline_statuses.as_slice(),

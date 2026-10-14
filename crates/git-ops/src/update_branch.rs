@@ -10,8 +10,10 @@ use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime};
 use tracing::{debug, info, instrument};
 
 /// How the branch reaches the upstream
@@ -117,8 +119,8 @@ pub struct UpdatePlan {
   purpose: CheckPurpose,
   /// HEAD after the update, for a clean one
   new_head: Option<String>,
-  old_tree: String,
-  new_tree: String,
+  /// The update changes HEAD's tree, so the index and the working tree must follow
+  files_change: bool,
   /// The revisions excluded from the replayed range besides the upstream (previous upstream tips)
   excluded: Vec<String>,
 }
@@ -153,8 +155,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     },
     purpose,
     new_head: None,
-    old_tree: String::new(),
-    new_tree: String::new(),
+    files_change: false,
     excluded: Vec::new(),
   };
   if base == upstream_head {
@@ -162,13 +163,79 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
   }
 
   let kind = if base == head { UpdateKind::FastForward } else { UpdateKind::Rebase };
+  if kind == UpdateKind::Rebase {
+    plan.excluded = previous_upstream_tips(git_executor, repo_path, upstream, &head, &base)?;
+  }
+  let key = ReplayKey {
+    repo_path: repo_path.to_string(),
+    head: head.clone(),
+    upstream_head: upstream_head.clone(),
+    excluded: plan.excluded.clone(),
+  };
+  let (outcome, mut probe) = match purpose {
+    CheckPurpose::Preview => {
+      let (cached, probe) = preview_cache().get(&key);
+      let outcome = match cached {
+        Some(outcome) => {
+          debug!("update check: the replay of this state is cached");
+          outcome
+        }
+        None => replay_outcome(git_executor, repo_path, &plan, kind, purpose)?,
+      };
+      (outcome, probe)
+    }
+    CheckPurpose::Apply => (replay_outcome(git_executor, repo_path, &plan, kind, purpose)?, LocalProbe::default()),
+  };
+
+  let (new_head, changed, blocked) = match &outcome {
+    ReplayOutcome::Conflict { files, commits } => {
+      plan.check.state = UpdateState::Conflict {
+        files: files.clone(),
+        commits: commits.clone(),
+      };
+      (None, &[][..], Vec::new())
+    }
+    ReplayOutcome::Applies { new_head, changed } => {
+      let blocked = match purpose {
+        _ if changed.is_empty() => Vec::new(),
+        CheckPurpose::Preview => preview_blocking_paths(git_executor, repo_path, changed, &mut probe)?,
+        CheckPurpose::Apply => blocking_paths(git_executor, repo_path, &head, new_head, changed)?,
+      };
+      (Some(new_head.clone()), changed.as_slice(), blocked)
+    }
+  };
+  let files_change = !changed.is_empty();
+  if purpose == CheckPurpose::Preview {
+    preview_cache().put(key, outcome.clone(), probe);
+  }
+  let Some(new_head) = new_head else { return Ok(plan) };
+  if !blocked.is_empty() {
+    plan.check.state = UpdateState::Blocked { paths: blocked };
+    return Ok(plan);
+  }
+
+  plan.check.state = UpdateState::Clean { kind };
+  plan.new_head = Some(new_head);
+  plan.files_change = files_change;
+  Ok(plan)
+}
+
+/// The part of a check that depends only on the commits: the replay and the paths it changes
+#[derive(Debug, Clone)]
+enum ReplayOutcome {
+  Conflict { files: Vec<String>, commits: Vec<UpdateCommit> },
+  Applies { new_head: String, changed: Vec<ChangedPath> },
+}
+
+/// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes
+fn replay_outcome(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan, kind: UpdateKind, purpose: CheckPurpose) -> Result<ReplayOutcome> {
+  let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
     UpdateKind::Rebase => {
-      plan.excluded = previous_upstream_tips(git_executor, repo_path, upstream, &head, &base)?;
       let mut exclude = vec![upstream_head.as_str()];
       exclude.extend(plan.excluded.iter().map(String::as_str));
-      ensure_no_merges(git_executor, repo_path, &head, &exclude)?;
+      ensure_no_merges(git_executor, repo_path, head, &exclude)?;
 
       let negated: Vec<String> = exclude.iter().map(|rev| format!("^{rev}")).collect();
       let mut revs = vec![head.as_str()];
@@ -177,33 +244,122 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
         CheckPurpose::Preview => &PREVIEW_COMMITTER_DATE,
         CheckPurpose::Apply => &[],
       };
-      if let Some(new_head) = replay_range_with_env(git_executor, repo_path, &upstream_head, &revs, env)? {
-        new_head
-      } else {
-        let files = conflicting_files(git_executor, repo_path, &base, &upstream_head, &head)?;
+      let Some(new_head) = replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? else {
+        let files = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
         let commits = local_commits(git_executor, repo_path, &revs)?;
         debug!(files = files.len(), commits = commits.len(), "update conflicts");
-        plan.check.state = UpdateState::Conflict { files, commits };
-        return Ok(plan);
-      }
+        return Ok(ReplayOutcome::Conflict { files, commits });
+      };
+      new_head
     }
   };
+  let changed = changed_paths(git_executor, repo_path, head, &new_head)?;
+  Ok(ReplayOutcome::Applies { new_head, changed })
+}
 
-  let trees = git_executor.execute_command_lines(&["rev-parse", &format!("{head}^{{tree}}"), &format!("{new_head}^{{tree}}")], repo_path)?;
-  let [old_tree, new_tree] = <[String; 2]>::try_from(trees).map_err(|trees| anyhow!("Unexpected rev-parse output: {trees:?}"))?;
-  if old_tree != new_tree {
-    let blocked = blocking_paths(git_executor, repo_path, &old_tree, &new_tree)?;
-    if !blocked.is_empty() {
-      plan.check.state = UpdateState::Blocked { paths: blocked };
-      return Ok(plan);
+/// Identifies a replay: the same HEAD, upstream and excluded tips replay to the same result
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReplayKey {
+  repo_path: String,
+  head: String,
+  upstream_head: String,
+  excluded: Vec<String>,
+}
+
+/// Per repository: the replay of the last preview check, and what the local probe found. A sync on every window focus
+/// checks the same state again and again; only the local changes can differ, and the probe rechecks only the files
+/// whose stat data changed. The probe outlives the replay: after a fetch, only the newly changed paths are read.
+#[derive(Default)]
+struct PreviewCache {
+  entries: Mutex<Vec<PreviewEntry>>,
+}
+
+struct PreviewEntry {
+  repo_path: String,
+  replay: (ReplayKey, ReplayOutcome),
+  probe: LocalProbe,
+}
+
+/// At most this many repositories keep a cached check
+const PREVIEW_CACHE_SIZE: usize = 8;
+
+impl PreviewCache {
+  /// The cached replay of `key`, if any, and the probe of its repository
+  fn get(&self, key: &ReplayKey) -> (Option<ReplayOutcome>, LocalProbe) {
+    let entries = self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(entry) = entries.iter().find(|entry| entry.repo_path == key.repo_path) else {
+      return (None, LocalProbe::default());
+    };
+    let outcome = (entry.replay.0 == *key).then(|| entry.replay.1.clone());
+    (outcome, entry.probe.clone())
+  }
+
+  fn put(&self, key: ReplayKey, outcome: ReplayOutcome, probe: LocalProbe) {
+    let mut entries = self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    entries.retain(|entry| entry.repo_path != key.repo_path);
+    if entries.len() >= PREVIEW_CACHE_SIZE {
+      entries.remove(0);
+    }
+    entries.push(PreviewEntry {
+      repo_path: key.repo_path.clone(),
+      replay: (key, outcome),
+      probe,
+    });
+  }
+}
+
+/// The stat data that tells whether a file may have changed since it was read, as git's index does
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileStamp {
+  len: u64,
+  modified: Option<SystemTime>,
+  #[cfg(unix)]
+  inode: u64,
+}
+
+impl FileStamp {
+  fn of(metadata: &std::fs::Metadata) -> Self {
+    Self {
+      len: metadata.len(),
+      modified: metadata.modified().ok(),
+      #[cfg(unix)]
+      inode: std::os::unix::fs::MetadataExt::ino(metadata),
     }
   }
 
-  plan.check.state = UpdateState::Clean { kind };
-  plan.new_head = Some(new_head);
-  plan.old_tree = old_tree;
-  plan.new_tree = new_tree;
-  Ok(plan)
+  /// Whether a file with this stamp, read at `read_at`, can't have changed without changing the stamp: like git's
+  /// racy check, a file modified shortly before it was read may change again within the timestamp granularity
+  fn is_trusted(&self, read_at: SystemTime) -> bool {
+    self.modified.is_some_and(|modified| modified + RACY_MARGIN <= read_at)
+  }
+}
+
+const RACY_MARGIN: Duration = Duration::from_secs(2);
+
+/// What the preview found about the local state of the changed paths
+#[derive(Debug, Clone, Default)]
+struct LocalProbe {
+  index_path: Option<String>,
+  /// The index file `index_ids` were read from: git writes a new file (a new inode) on every change
+  index_stamp: Option<FileStamp>,
+  /// Per changed path: the blob of its index entry, `None` without one
+  index_ids: HashMap<String, Option<String>>,
+  /// Per hashed file: its stamp, when it was hashed and its blob id
+  files: HashMap<String, (FileStamp, SystemTime, String)>,
+}
+
+impl LocalProbe {
+  /// Forget the paths the update no longer changes, so the probe stays as large as the update
+  fn retain(&mut self, changed: &[ChangedPath]) {
+    let paths: HashSet<&str> = changed.iter().map(|c| c.path.as_str()).collect();
+    self.index_ids.retain(|path, _| paths.contains(path.as_str()));
+    self.files.retain(|path, _| paths.contains(path.as_str()));
+  }
+}
+
+fn preview_cache() -> &'static PreviewCache {
+  static CACHE: OnceLock<PreviewCache> = OnceLock::new();
+  CACHE.get_or_init(PreviewCache::default)
 }
 
 /// Move the branch to the checked update, then let the index and the working tree follow. If the files can't follow
@@ -224,8 +380,8 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     .commit(git_executor, repo_path, "update project")
     .map_err(|e| anyhow!("{} changed during the update, nothing was changed: {e:#}", check.branch))?;
 
-  if plan.old_tree != plan.new_tree
-    && let Err(e) = apply_worktree_update(git_executor, repo_path, &plan.old_tree, &plan.new_tree)
+  if plan.files_change
+    && let Err(e) = apply_worktree_update(git_executor, repo_path, &check.head, new_head)
   {
     let mut rollback = RefTransaction::new();
     rollback.update(&full_ref, &check.head, Some(new_head));
@@ -283,10 +439,10 @@ fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &
   let output = git_executor.execute_command_accepting(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", upstream_head, head], repo_path, &[1])?;
   let mut files: Vec<String> = output.split('\0').skip(1).filter(|file| !file.is_empty()).map(str::to_string).collect();
   if files.is_empty() {
-    let upstream_files: HashSet<String> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|(_, path)| path).collect();
+    let upstream_files: HashSet<String> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
     files = changed_paths(git_executor, repo_path, base, head)?
       .into_iter()
-      .map(|(_, path)| path)
+      .map(|c| c.path)
       .filter(|path| upstream_files.contains(path))
       .collect();
   }
@@ -314,63 +470,247 @@ fn local_commits(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&st
   )
 }
 
-/// `(status letter, path)` of every path that differs between two trees, renames as delete and add
-fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<(char, String)>> {
-  let output = git_executor.execute_command_raw(&["diff-tree", "-r", "-z", "--no-renames", "--name-status", from, to], repo_path)?;
+/// A path that differs between two trees, with its side in the old tree
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChangedPath {
+  /// `A`, `D`, `M` or `T`: renames are a delete and an add
+  status: char,
+  /// The mode and the blob in the old tree, `000000` and the null id for an added path
+  old_mode: String,
+  old_id: String,
+  path: String,
+}
+
+/// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format)
+fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
+  let output = git_executor.execute_command_raw(&["diff-tree", "-r", "-z", "--no-renames", from, to], repo_path)?;
   let mut fields = output.split('\0').filter(|field| !field.is_empty());
   let mut paths = Vec::new();
-  while let (Some(status), Some(path)) = (fields.next(), fields.next()) {
-    paths.push((status.chars().next().unwrap_or('M'), path.to_string()));
+  // `:<old mode> <new mode> <old id> <new id> <status>`, then the path
+  while let (Some(meta), Some(path)) = (fields.next(), fields.next()) {
+    let mut meta = meta.trim_start_matches(':').split(' ');
+    let (Some(old_mode), Some(_), Some(old_id), Some(_), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
+      bail!("Unexpected diff-tree output: {output}");
+    };
+    paths.push(ChangedPath {
+      status: status.chars().next().unwrap_or('M'),
+      old_mode: old_mode.to_string(),
+      old_id: old_id.to_string(),
+      path: path.to_string(),
+    });
   }
   Ok(paths)
 }
 
-/// The local paths that stop the working tree from following HEAD from `old_tree` to `new_tree`, empty if it can
-/// follow: the paths of a refused dry run, or files that are ignored by git but sit where the update adds a file
-/// (`read-tree -u` would silently overwrite them, as `git checkout` does)
-fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str) -> Result<Vec<String>> {
-  let changed = changed_paths(git_executor, repo_path, old_tree, new_tree)?;
-  if let Some(refusal) = dry_run_worktree_update(git_executor, repo_path, old_tree, new_tree)? {
-    let paths = overlapping_local_changes(git_executor, repo_path, &changed)?;
+/// The local paths that stop the working tree from following HEAD from `old` to `new` (tree-ish), empty if it can
+/// follow: the paths of a refused dry run on a copy of the index, or files that git ignores but sit where the update
+/// adds a file (`read-tree -u` would silently overwrite them, as `git checkout` does). Exact, but the dry run refreshes
+/// the whole index: the check before an update.
+fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
+  if let Some(refusal) = dry_run_worktree_update(git_executor, repo_path, old, new)? {
+    let paths = overlapping_local_changes(git_executor, repo_path, changed)?;
     if paths.is_empty() {
       bail!("The files can't be updated: {refusal}");
     }
     return Ok(paths);
   }
-
   let root = Path::new(repo_path);
+  let deleted = deleted_paths(changed);
   Ok(
     changed
-      .into_iter()
-      .filter(|(status, path)| *status == 'A' && is_in_the_way(root, path))
-      .map(|(_, path)| path)
+      .iter()
+      .filter(|c| c.status == 'A' && is_in_the_way(root, &c.path, &deleted))
+      .map(|c| c.path.clone())
       .collect(),
   )
 }
 
-/// Whether something exists at `path` or a file at one of its parent directories
-fn is_in_the_way(root: &Path, path: &str) -> bool {
-  if root.join(path).symlink_metadata().is_ok() {
-    return true;
+/// Mode of a submodule (gitlink): `read-tree --no-recurse-submodules` doesn't touch its files
+const GITLINK_MODE: &str = "160000";
+const SYMLINK_MODE: &str = "120000";
+
+/// `blocking_paths` for the check inside every sync, at a cost that grows with the changed paths, not with the index:
+/// - an added path is blocked by anything on disk there (untracked or ignored), or a file in place of its directory;
+/// - a changed or deleted path is blocked if its index entry differs from the old tree (staged: one
+///   `cat-file --batch-check` of `:<path>`, a lookup per path, again only once the index file changed), or if its file
+///   differs (`hash-object --stdin-paths` with the clean filters, only for the files whose stat data changed since
+///   `probe` hashed them). Comparing content, a file that was only touched does not block, without refreshing the
+///   index.
+///
+/// The update itself runs the exact dry run again. Where the two differ (a sparse checkout, an executable bit with
+/// `core.fileMode=false`, a path with a newline), the preview leans to blocked.
+fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath], probe: &mut LocalProbe) -> Result<Vec<String>> {
+  let root = Path::new(repo_path);
+  probe.retain(changed);
+  let mut blocked = vec![false; changed.len()];
+  let deleted = deleted_paths(changed);
+  for (i, c) in changed.iter().enumerate() {
+    if c.status == 'A' {
+      blocked[i] = is_in_the_way(root, &c.path, &deleted);
+    }
+  }
+  // indices into `changed` of the paths the old tree has
+  let tracked: Vec<usize> = (0..changed.len()).filter(|&i| changed[i].status != 'A' && changed[i].old_mode != GITLINK_MODE).collect();
+  if tracked.is_empty() {
+    return Ok(collect_blocked(changed, &blocked));
+  }
+
+  read_index_ids(git_executor, repo_path, changed, &tracked, probe)?;
+  let mut sparse_checkout: Option<bool> = None;
+  let mut to_hash = Vec::new();
+  let mut links = Vec::new();
+  for &i in &tracked {
+    let c = &changed[i];
+    // staged: the index entry differs from the old tree
+    if probe.index_ids.get(&c.path).and_then(Option::as_deref) != Some(c.old_id.as_str()) {
+      blocked[i] = true;
+      continue;
+    }
+    match root.join(&c.path).symlink_metadata() {
+      // a deleted file blocks, unless a sparse checkout left it out
+      Err(_) => blocked[i] = !*sparse_checkout.get_or_insert_with(|| is_sparse_checkout(git_executor, repo_path)),
+      Ok(metadata) if metadata.file_type().is_symlink() => {
+        if c.old_mode == SYMLINK_MODE {
+          links.push(i);
+        } else {
+          blocked[i] = true;
+        }
+      }
+      Ok(metadata) if metadata.is_file() && c.old_mode != SYMLINK_MODE && !c.path.contains('\n') => {
+        if is_executable(&metadata) != (c.old_mode == "100755") {
+          blocked[i] = true;
+          continue;
+        }
+        let stamp = FileStamp::of(&metadata);
+        match probe.files.get(&c.path) {
+          Some((known, read_at, id)) if *known == stamp && known.is_trusted(*read_at) => blocked[i] = *id != c.old_id,
+          _ => to_hash.push((i, stamp)),
+        }
+      }
+      Ok(_) => blocked[i] = true,
+    }
+  }
+
+  if !to_hash.is_empty() {
+    let read_at = SystemTime::now();
+    let mut input = String::new();
+    for (i, _) in &to_hash {
+      input.push_str(&changed[*i].path);
+      input.push('\n');
+    }
+    let ids = git_executor.execute_command_with_input(&["hash-object", "--stdin-paths"], repo_path, &input)?;
+    for ((i, stamp), id) in to_hash.into_iter().zip(ids.lines()) {
+      blocked[i] = id != changed[i].old_id;
+      probe.files.insert(changed[i].path.clone(), (stamp, read_at, id.to_string()));
+    }
+  }
+  for i in links {
+    blocked[i] = !symlink_matches(git_executor, repo_path, &root.join(&changed[i].path), &changed[i].old_id)?;
+  }
+  Ok(collect_blocked(changed, &blocked))
+}
+
+fn collect_blocked(changed: &[ChangedPath], blocked: &[bool]) -> Vec<String> {
+  changed.iter().zip(blocked).filter(|(_, blocked)| **blocked).map(|(c, _)| c.path.clone()).collect()
+}
+
+/// Read the index entries of the `tracked` changed paths that `probe` doesn't know for the current index file; all of
+/// them once the index file changed
+fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath], tracked: &[usize], probe: &mut LocalProbe) -> Result<()> {
+  let index_path = if let Some(path) = &probe.index_path {
+    path.clone()
+  } else {
+    let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?;
+    probe.index_path = Some(path.clone());
+    path
+  };
+  // read before the entries: an index written meanwhile has another stamp, and the next check reads it again
+  let index_stamp = std::fs::metadata(&index_path).ok().map(|metadata| FileStamp::of(&metadata));
+  if index_stamp.is_none() || probe.index_stamp != index_stamp {
+    probe.index_ids.clear();
+    probe.index_stamp = index_stamp;
+  }
+  let unknown: Vec<&str> = tracked
+    .iter()
+    .map(|&i| changed[i].path.as_str())
+    .filter(|path| !probe.index_ids.contains_key(*path))
+    .collect();
+  if unknown.is_empty() {
+    return Ok(());
+  }
+
+  let mut input = String::new();
+  for path in &unknown {
+    input.push(':');
+    input.push_str(path);
+    input.push('\0');
+  }
+  // `<id>\0` per entry, `<input> missing\0` for a path not in the index
+  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
+  let mut ids = output.split(|&b| b == 0);
+  for path in unknown {
+    let id = ids.next().filter(|id| !id.ends_with(b" missing")).map(|id| String::from_utf8_lossy(id).into_owned());
+    probe.index_ids.insert(path.to_string(), id);
+  }
+  Ok(())
+}
+
+fn is_sparse_checkout(git_executor: &GitCommandExecutor, repo_path: &str) -> bool {
+  git_executor
+    .execute_command_with_status(&["config", "--type=bool", "--get", "core.sparseCheckout"], repo_path)
+    .is_ok_and(|(value, exit_code)| exit_code == 0 && value == "true")
+}
+
+#[cfg(unix)]
+fn is_executable(metadata: &std::fs::Metadata) -> bool {
+  use std::os::unix::fs::PermissionsExt;
+  metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+  false
+}
+
+/// Whether the symlink points where the blob `id` says; symlinks are rare, so one process each is fine
+fn symlink_matches(git_executor: &GitCommandExecutor, repo_path: &str, link: &Path, id: &str) -> Result<bool> {
+  let Ok(target) = std::fs::read_link(link) else { return Ok(false) };
+  let Some(target) = target.to_str() else { return Ok(false) };
+  let link_id = git_executor.execute_command_with_input(&["hash-object", "--stdin"], repo_path, target)?;
+  Ok(link_id == id)
+}
+
+/// Whether something local is in the way of a file the update adds at `path`: anything on disk there, or a file in
+/// place of one of its directories. The update itself removes the paths it deletes, so a file it deletes in place of a
+/// directory, or a directory of files it deletes, is not in the way.
+fn is_in_the_way(root: &Path, path: &str, deleted: &HashSet<&str>) -> bool {
+  if let Ok(metadata) = root.join(path).symlink_metadata() {
+    let replaced_directory = metadata.is_dir() && deleted.iter().any(|d| d.strip_prefix(path).is_some_and(|rest| rest.starts_with('/')));
+    return !replaced_directory;
   }
   let mut parent = Path::new(path).parent();
   while let Some(dir) = parent.filter(|dir| !dir.as_os_str().is_empty()) {
     if root.join(dir).symlink_metadata().is_ok_and(|metadata| !metadata.is_dir()) {
-      return true;
+      return dir.to_str().is_none_or(|dir| !deleted.contains(dir));
     }
     parent = dir.parent();
   }
   false
 }
 
+/// The paths the update deletes
+fn deleted_paths(changed: &[ChangedPath]) -> HashSet<&str> {
+  changed.iter().filter(|c| c.status == 'D').map(|c| c.path.as_str()).collect()
+}
+
 /// The uncommitted, staged and untracked paths (`git status`) on, inside or in place of the changed paths
-fn overlapping_local_changes(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[(char, String)]) -> Result<Vec<String>> {
+fn overlapping_local_changes(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
   let output = git_executor.execute_command_raw(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], repo_path)?;
-  let changed_paths: HashSet<&str> = changed.iter().map(|(_, path)| path.as_str()).collect();
+  let changed_paths: HashSet<&str> = changed.iter().map(|c| c.path.as_str()).collect();
   // the directories of the changed paths: an untracked file there blocks a directory the update adds
   let mut changed_dirs: HashSet<&str> = HashSet::new();
-  for (_, path) in changed {
-    let mut rest = path.as_str();
+  for c in changed {
+    let mut rest = c.path.as_str();
     while let Some((dir, _)) = rest.rsplit_once('/') {
       if !changed_dirs.insert(dir) {
         break;

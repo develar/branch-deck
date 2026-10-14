@@ -439,21 +439,17 @@ async fn sync_reports_the_baseline_status() -> anyhow::Result<()> {
   let progress = TestReporter::new();
   sync_branches(clone.git_executor(), path(&clone), "test", progress.clone(), SyncOptions::default()).await?;
   let events = progress.get_events();
-  let grouped = events.iter().position(|e| matches!(e, SyncEvent::BranchesGrouped { .. })).unwrap();
-  let statuses: Vec<(usize, &SyncEvent)> = events.iter().enumerate().filter(|(_, e)| matches!(e, SyncEvent::BaselineStatus { .. })).collect();
+  // the check runs beside the sync: one event, at any point of the stream
+  let statuses: Vec<&SyncEvent> = events.iter().filter(|e| matches!(e, SyncEvent::BaselineStatus { .. })).collect();
   assert_eq!(statuses.len(), 1);
-  let (
-    index,
-    SyncEvent::BaselineStatus {
-      baseline_branch,
-      update,
-      check_error,
-    },
-  ) = statuses[0]
+  let SyncEvent::BaselineStatus {
+    baseline_branch,
+    update,
+    check_error,
+  } = statuses[0]
   else {
     unreachable!()
   };
-  assert!(index > grouped, "BaselineStatus follows BranchesGrouped");
   assert_eq!(baseline_branch, "origin/master");
   assert_eq!(check_error, &None);
   let state = &update.as_ref().unwrap().state;
@@ -509,4 +505,107 @@ fn e2e_templates_have_the_expected_update_states() {
       paths: vec!["src/app.txt".to_string()]
     }
   );
+}
+
+/// The state of the check inside a sync: the preview, without the network
+fn preview(repo: &TestRepo) -> UpdateState {
+  check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().state
+}
+
+fn blocked(paths: &[&str]) -> UpdateState {
+  UpdateState::Blocked {
+    paths: paths.iter().map(|path| (*path).to_string()).collect(),
+  }
+}
+
+#[test]
+fn preview_blocks_dirty_and_staged_touched_paths_without_touching_the_index() {
+  let Setup { upstream: _upstream, clone } = fetched_rebase();
+  let index = fs::read(clone.path().join(".git/index")).unwrap();
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
+
+  write(&clone, "shared.txt", "one\ntwo\nthree\nlocal\n");
+  assert_eq!(preview(&clone), blocked(&["shared.txt"]));
+  write(&clone, "shared.txt", SHARED);
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase }, "the same content again is clean");
+  assert_eq!(fs::read(clone.path().join(".git/index")).unwrap(), index, "the preview never writes the index");
+
+  // staged, with the file as in HEAD
+  write(&clone, "shared.txt", "staged\n");
+  git(&clone, &["add", "shared.txt"]);
+  write(&clone, "shared.txt", SHARED);
+  assert_eq!(preview(&clone), blocked(&["shared.txt"]));
+  git(&clone, &["reset", "-q", "shared.txt"]);
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
+}
+
+#[test]
+fn preview_does_not_block_a_touched_only_file() {
+  let Setup { upstream: _upstream, clone } = fetched_rebase();
+  let file = fs::File::options().write(true).open(clone.path().join("shared.txt")).unwrap();
+  file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+  drop(file);
+  let index = fs::read(clone.path().join(".git/index")).unwrap();
+  assert_eq!(git(&clone, &["diff-files", "--name-only"]), "shared.txt", "the index entry is stale");
+
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(fs::read(clone.path().join(".git/index")).unwrap(), index);
+}
+
+#[test]
+fn preview_blocks_untracked_and_ignored_files_that_upstream_adds() {
+  let Setup { upstream, clone } = setup();
+  upstream.create_commit_with_files("Add files", &[("dir/config.txt", "upstream\n"), ("build.out", "upstream\n")]);
+  git(&clone, &["fetch", "origin"]);
+  fs::create_dir(clone.path().join("dir")).unwrap();
+  write(&clone, "dir/config.txt", "mine\n");
+  write(&clone, ".git/info/exclude", "build.out\n");
+  write(&clone, "build.out", "mine\n");
+  assert_eq!(preview(&clone), blocked(&["build.out", "dir/config.txt"]));
+}
+
+#[test]
+fn file_replaced_by_a_directory_upstream_is_not_in_the_way() {
+  let Setup { upstream, clone } = setup();
+  git(&upstream, &["rm", "-q", "other.txt"]);
+  upstream.create_commit("Turn other.txt into a directory", "other.txt/inner.txt", "inner\n");
+  git(&clone, &["fetch", "origin"]);
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
+
+  update(&clone).unwrap().applied.unwrap();
+  assert_eq!(read(&clone, "other.txt/inner.txt"), "inner\n");
+}
+
+#[test]
+fn preview_reuses_the_replay_of_an_unchanged_state() {
+  let Setup { upstream, clone } = fetched_rebase();
+  let trace_dir = tempfile::tempdir().unwrap();
+  let trace = trace_dir.path().join("trace.json");
+  let replays = || {
+    let replays = fs::read_to_string(&trace)
+      .unwrap_or_default()
+      .lines()
+      .filter(|line| line.contains("\"event\":\"start\"") && line.contains("\"replay\""))
+      .count();
+    let _ = fs::remove_file(&trace);
+    replays
+  };
+  // nextest runs every test in its own process
+  unsafe { std::env::set_var("GIT_TRACE2_EVENT", &trace) };
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(replays(), 1);
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(replays(), 0, "the same HEAD and upstream reuse the replay");
+
+  // the local changes are checked every time
+  write(&clone, "shared.txt", "local\n");
+  assert_eq!(preview(&clone), blocked(&["shared.txt"]));
+  assert_eq!(replays(), 0);
+
+  // a fetch replays again
+  upstream.create_commit("More upstream", "more.txt", "more\n");
+  git(&clone, &["fetch", "origin"]);
+  assert_eq!(preview(&clone), blocked(&["shared.txt"]));
+  assert_eq!(replays(), 1);
+  unsafe { std::env::remove_var("GIT_TRACE2_EVENT") };
 }
