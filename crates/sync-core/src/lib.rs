@@ -2,6 +2,7 @@ pub mod add_issue_reference;
 pub mod amend_to_branch;
 pub mod autosquash;
 pub mod baseline;
+pub mod baseline_fetch;
 pub mod branch_prefix;
 mod branch_processor;
 pub mod check;

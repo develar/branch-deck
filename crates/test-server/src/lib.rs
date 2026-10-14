@@ -87,6 +87,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
     .route("/invoke/squash_fixup_commits", post(tauri_command_bridge::squash_fixup_commits))
     .route("/invoke/update_project", post(tauri_command_bridge::update_project))
+    .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
     .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))

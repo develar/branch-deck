@@ -46,6 +46,7 @@ tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
+tauri-plugin-notification = "2"
 anyhow.workspace = true
 tracing.workspace = true
 log = "0.4"

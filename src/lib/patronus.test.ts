@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked, needsPatronusAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, getPatronusChipState, isPushIntoRobotRisky, isStartBlocked, needsPatronusAttention } from "@/lib/patronus"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -139,5 +139,26 @@ describe("formatReviewerGroup", () => {
       ],
     })).toBe("Air Plugin Release Team (suggested: Alice)")
     expect(formatReviewerGroup({ name: "Bazel QA", reviewers: [] })).toBe("Bazel QA")
+  })
+})
+
+describe("findMergedRobots", () => {
+  it("finds a running or canceling robot that succeeded, not a dry run and not a robot first seen finished", () => {
+    const previous = byId(robot({ id: "running" }), robot({ id: "canceling", status: "canceling" }), robot({ id: "dry", pushMode: "dryRun" }))
+    const next = byId(
+      robot({ id: "running", status: "success", finishTime: 200 }),
+      robot({ id: "canceling", status: "success", finishTime: 200 }),
+      robot({ id: "dry", pushMode: "dryRun", status: "success" }),
+      robot({ id: "new", status: "success" }),
+    )
+    expect(findMergedRobots(previous, next).map(it => it.id)).toEqual(["running", "canceling"])
+    // the next answer is no news again
+    expect(findMergedRobots(next, next)).toEqual([])
+    expect(findMergedRobots(previous, byId(robot({ id: "running", status: "failure" })))).toEqual([])
+  })
+
+  it("names the branch, else the subject of a robot of a temporary ref", () => {
+    expect(formatMergedRobotTitle(robot({}))).toBe("IJPL-1 merged into master")
+    expect(formatMergedRobotTitle(robot({ branchName: null }))).toBe("IJPL-1 fix the cache merged into master")
   })
 })

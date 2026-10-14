@@ -102,3 +102,33 @@ export async function runUpdateProject(): Promise<void> {
     updateProjectStore.setState({ phase: null, fetch: null })
   }
 }
+
+/**
+ * Fetches only the baseline of the repository, without updating (the Fetch of a merged robot's toast): the button shows
+ * the fetch as for an update, then a sync of the selected repository checks the update against the fetched baseline.
+ * Shares the one-at-a-time slot of the update.
+ */
+export async function runFetchBaseline(repositoryPath: string): Promise<void> {
+  if (updateProjectStore.getState().phase !== null) {
+    return
+  }
+  updateProjectStore.setState({ phase: "fetching", fetch: null })
+  try {
+    const progress = new Channel<TransferProgress>()
+    progress.onmessage = (fetch) => {
+      updateProjectStore.setState({ fetch })
+    }
+    const result = await invokeCommand(() => commands.fetchBaseline({ repositoryPath }, progress))
+    if (result.status !== "ok") {
+      notifyError("Failed to Fetch the Baseline", result.error)
+      return
+    }
+    updateProject(repositoryPath, { lastFetchTime: Date.now() })
+    if (getSelectedProject()?.path === repositoryPath) {
+      void syncBranches({ autoScroll: false, autoExpand: false })
+    }
+  }
+  finally {
+    updateProjectStore.setState({ phase: null, fetch: null })
+  }
+}

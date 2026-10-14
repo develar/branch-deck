@@ -1,6 +1,6 @@
 ---
 name: Patronus
-description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; starting a Safe Push or a Dry Run of a branch with the code-owner review it needs, restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
+description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch with the code-owner review it needs, restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/patronus.rs
@@ -30,6 +30,9 @@ targets:
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/PatronusStatusLine.tsx
   - ../../src/hooks/useReviewStatusRefresh.ts
+  - ../../src/stores/update-project.ts
+  - ../../crates/sync-core/src/baseline_fetch.rs
+  - ../../src-tauri/src/commands/fetch_baseline.rs
 ---
 
 # Patronus
@@ -45,7 +48,9 @@ branch, the robot of the branch: running, failed, merged or passed, and whether 
 From the branch, the user starts a Safe Push or a Dry Run (pushing the branch first), restarts a failed robot on the
 newest commit, cancels a running one, and is asked before a push that would make a running Safe Push fail. It reads
 Patronus with the Space token of the Safe Push CLI and keeps the load on Patronus small: one list now and then, and a
-poll of the running robots only while the window is focused.
+poll of the running robots, every minute while the window is focused, every five minutes in the background while a
+robot that pushes runs. When a robot merged a branch, a toast says so (an OS notification in the background) and
+offers to fetch the baseline, so the header shows that an update brings the branch in.
 
 ## Goals
 
@@ -53,8 +58,9 @@ poll of the running robots only while the window is focused.
 - Notice that a robot tests an older commit than the local branch, e.g. after a fix was committed.
 - Open the robot in Patronus in one click.
 - Run the cycle "fix, push, restart" from Branch Deck, without the web UI and without breaking a running Safe Push.
+- Learn that a Safe Push merged without watching it, also with the window in the background.
 - Be a well-behaved client: no request with a token Patronus rejected, no background request while Patronus fails, no
-  poll while nothing runs or the window is in the background.
+  poll while nothing runs, only a slow one in the background while a robot that pushes runs.
 
 ## Non-goals
 
@@ -105,10 +111,12 @@ poll of the running robots only while the window is focused.
 - A repository that answered "not on Space" is asked again only by the refresh button.
   [@test] ../../src/stores/patronus.test.ts (`does not ask again for a repository that is not on Space, until the refresh button`)
 - The running robots of the branches are polled with `POST /app/rest/v1/robots/fetch-updates` (the known status of
-  each; only the changed ones come back) every minute, only while the window is focused and only while a branch has a
-  running robot. A blur stops the timer; a focus polls at once, unless the last poll is less than 50 s old.
+  each; only the changed ones come back) only while a branch has a running robot: every minute while the window is
+  focused; while it is not, every 5 minutes and only while a robot that pushes (not a dry run) runs, so its merge is
+  told without the window. A focus polls at once, unless the last poll is less than 50 s old.
   [@test] ../../src/stores/patronus.test.ts (`polls the running robots of the branches every minute while the window is focused`)
   [@test] ../../src/stores/patronus.test.ts (`stops on blur and asks at once on focus`)
+  [@test] ../../src/stores/patronus.test.ts (`polls a robot that pushes every five minutes while the window is not focused, a dry run not at all`)
   [@test] ../../src/stores/patronus.test.ts (`polls nothing without running robots`)
   [@test] ../../crates/patronus/src/service_test.rs (`polls_only_running_robots_with_their_known_status`)
 - A token Patronus rejects (401) is not sent again by a background request until the token file changes (the CLI
@@ -181,6 +189,28 @@ poll of the running robots only while the window is focused.
   Patronus yet, so a 400 is asked once more 5 s later.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_start_right_after_the_push_is_asked_once_more_when_patronus_does_not_see_the_branch`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_failed_start_is_never_repeated`)
+
+### Merged
+
+- A robot known as running or canceling that an answer (a poll, a list, a status read) shows successful and not a dry
+  run merged its branch. A robot first seen finished is no news; each robot is told once.
+  [@test] ../../src/lib/patronus.test.ts (`finds a running or canceling robot that succeeded, not a dry run and not a robot first seen finished`)
+  [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
+- With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
+  of a temporary ref) with the push mode ("Safe Push") and the action Fetch, for 10 s.
+  [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch when a running robot of a branch merged`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and fetch the baseline on request`)
+- In the background, an OS notification says it at once ("auth merged into master", "Safe Push · Fetch and update to
+  pick it up"); the toast shows on the next focus. The permission is asked on the first notification, never at start;
+  without it, or without the plugin, nothing is said but the toast.
+  [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
+- Fetch fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
+  the files (`fetch_baseline`). Meanwhile the Update button shows the fetch ("Fetching 45%"); then a sync checks the
+  update against the fetched baseline, without expanding or scrolling. A failed fetch is an error toast.
+  [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`fetch_moves_only_the_tracking_ref_of_the_baseline`)
+  [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`local_baseline_has_nothing_to_fetch`)
+- Branch Deck never updates by itself: the update stays a click.
 
 ### Code-owner review
 
@@ -284,7 +314,8 @@ poll of the running robots only while the window is focused.
 - `cargo nextest run --workspace --exclude model-ai` covers the token, the request policy (rejected token, backoff,
   retries, reuse of a full list) against an in-process axum Patronus (`crates/patronus/src/service_test.rs`), and the
   Space URL parsing.
-- `pnpm test:unit` covers the list and poll policy, the matching and the chip mapping.
+- `pnpm test:unit` covers the list and poll policy, the matching, the chip mapping and the merge toast and
+  notification.
 - `pnpm e2e` covers the chip, the popover, the preview section and the overview (`tests/e2e/patronus`). E2E never calls
   Patronus: `POST /repositories/{id}/patronus` sets what `get_patronus_robots` answers (an empty `sourceRevision` means
   the local tip of the robot's branch), what `poll_patronus_robots` answers (the fixture robots whose status differs

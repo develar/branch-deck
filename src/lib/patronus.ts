@@ -116,6 +116,30 @@ export function formatPushMode(mode: PatronusPushMode): string {
   return pushModeNames[mode]
 }
 
+/** Not a dry run: a success pushes the changes into the target branch */
+export function isPushingRobot(robot: PatronusRobot): boolean {
+  return robot.pushMode !== "dryRun"
+}
+
+/**
+ * The robots that merged between two answers: known as running or canceling before, successful now, and not a dry run.
+ * A robot first seen already finished is no news.
+ */
+export function findMergedRobots(
+  previous: Readonly<Record<string, PatronusRobot>>,
+  next: Readonly<Record<string, PatronusRobot>>,
+): PatronusRobot[] {
+  return Object.values(next).filter((robot) => {
+    const known = previous[robot.id]
+    return known !== undefined && isRobotActive(known) && robot.status === "success" && isPushingRobot(robot)
+  })
+}
+
+/** "IJPL-1 merged into master": the virtual branch, or the subject of a Safe Push of a temporary ref */
+export function formatMergedRobotTitle(robot: PatronusRobot): string {
+  return `${robot.branchName ?? robot.name} merged into ${robot.targetBranch}`
+}
+
 /**
  * A quiet hint why robots are not shown, null when they are (or the repository is not on Space, which needs no hint).
  * Never a toast: Patronus status is an extra.

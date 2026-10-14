@@ -97,6 +97,11 @@ export const commands = {
 	 */
 	updateProject: (params: UpdateProjectParams, progress: Channel<UpdateProgress>) => typedError<UpdateProjectResult, CommandError>(__TAURI_INVOKE("update_project", { params, progress })),
 	/**
+	 *  Fetches only the baseline's remote branch, without updating the checked out branch; `progress` receives how far the
+	 *  fetch is
+	 */
+	fetchBaseline: (params: FetchBaselineParams, progress: Channel<TransferProgress>) => typedError<FetchBaselineResult, CommandError>(__TAURI_INVOKE("fetch_baseline", { params, progress })),
+	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
@@ -386,6 +391,17 @@ export type DroppedCommit = {
 	author: string,
 	/**  Unix timestamp */
 	authorTime: number,
+};
+
+export type FetchBaselineParams = {
+	repositoryPath: string,
+};
+
+export type FetchBaselineResult = {
+	/**  The fetched baseline as it is shown, e.g. `origin/master` */
+	upstream: string,
+	/**  When the fetch ended (Unix seconds) */
+	fetchedAt: number,
 };
 
 /**  Represents the diff between two versions of a file. */

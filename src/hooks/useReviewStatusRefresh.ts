@@ -7,7 +7,7 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 /**
  * Keeps the review status of the main window current: the GitHub pull requests and the Patronus robots, after every
  * successful sync and on window focus (each store throttles both). A push refreshes the pull requests itself. Running
- * robots are polled only while the window is focused.
+ * robots are polled every minute while the window is focused, a robot that pushes every five minutes while it is not.
  */
 export function useReviewStatusRefresh(): void {
   useEffect(() => branchSyncStore.subscribe((state, previous) => {

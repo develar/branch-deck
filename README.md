@@ -39,8 +39,9 @@ repositories: all operations run through the Git CLI.
 - **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
   merged, and whether it tests the commit the branch is at. Start a Safe Push or a Dry Run with a merge profile,
   restart or cancel it from the branch; a push that would make a running Safe Push fail asks first. Before a Safe
-  Push, the code-owner approvals it needs, with the merge request to create or to open. Uses the token of the Safe
-  Push CLI.
+  Push, the code-owner approvals it needs, with the merge request to create or to open. When a Safe Push merged, a
+  toast (or an OS notification in the background) says so and fetches the baseline on request. Uses the token of the
+  Safe Push CLI.
 - **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a
   branch, split or unapply a branch.
 - **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation

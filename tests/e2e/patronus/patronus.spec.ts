@@ -1,11 +1,12 @@
 // @spec spec/branch/patronus.spec.md
-import type { Locator, Page } from "@playwright/test"
+import type { Locator, Page, Route } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { hoverStatusChip, openBranchPreview, openOutgoingOverview, switchBranchPreview } from "../helpers/review-status-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot", { name: "JIRA-456 fix the database connection pool" })
@@ -109,6 +110,26 @@ test.describe("Patronus in the outgoing overview", () => {
     await popover.getByTestId("patronus-refresh").click()
     await expect.poll(async () => (await repo.getPatronusCalls()).listCalls).toBe(listCalls + 1)
     await expect(popover.getByTestId("patronus-refresh")).toBeEnabled()
+  })
+})
+
+test.describe("Patronus merge", () => {
+  test("should tell when a running Safe Push merged, and fetch the baseline on request", async ({ page, repo }) => {
+    await repo.setPatronus(availableRobots({ ...RUNNING, status: "success", finishTime: 1704142800 }, FAILED, MERGED, DRY_RUN, OUTDATED))
+    const fetches: unknown[] = []
+    await page.route("**/invoke/fetch_baseline", async (route: Route) => {
+      fetches.push(route.request().postDataJSON())
+      await route.fulfill({ json: { upstream: "origin/master", fetchedAt: 1704142900 } })
+    })
+    // a focus polls the running robot at once
+    await emitTauriEvent(page, "tauri://focus")
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "JIRA-456 merged into master" })
+    await expect(toast).toContainText("Safe Push")
+    await expect(getChip(page, "JIRA-456")).toHaveText("Merged")
+
+    await toast.getByRole("button", { name: "Fetch" }).click()
+    await expect.poll(() => fetches.length).toBe(1)
+    await expect(toast).toHaveCount(0)
   })
 })
 

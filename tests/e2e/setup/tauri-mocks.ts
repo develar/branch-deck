@@ -426,6 +426,8 @@ export const tauriMockScript = () => {
     "plugin:event": handleEventCommand,
     "plugin:path": handlePathCommand,
     "plugin:log": () => null, // Ignore log commands
+    // the notification plugin goes through the browser's `Notification`; its permission check never notifies
+    "plugin:notification": () => false,
     // links open in the browser: record them for the test (`window.__OPENED_URLS__`)
     "plugin:opener": (_cmd: string, payload: any) => {
       ;((window as any).__OPENED_URLS__ ??= []).push(payload?.url)

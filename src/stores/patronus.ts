@@ -2,12 +2,24 @@ import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
+import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
-import { REVIEW_APPROVAL_SUBSYSTEM, findBranchRobot, isRobotActive, needsPatronusAttention } from "@/lib/patronus"
+import {
+  REVIEW_APPROVAL_SUBSYSTEM,
+  findBranchRobot,
+  findMergedRobots,
+  formatMergedRobotTitle,
+  formatPushMode,
+  isPushingRobot,
+  isRobotActive,
+  needsPatronusAttention,
+} from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
+import { runFetchBaseline } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
 export const SYNC_REFRESH_GAP_MS = 5 * 60_000
@@ -17,6 +29,8 @@ export const FOCUS_REFRESH_AGE_MS = 120_000
 export const MIN_FOCUS_GAP_MS = 60_000
 /** A running robot of a branch is polled this often while the window is focused */
 export const POLL_INTERVAL_MS = 60_000
+/** A running robot that pushes is polled this often while the window is not focused, to tell when it merged */
+export const BACKGROUND_POLL_INTERVAL_MS = 5 * 60_000
 /** A focus asks for the running robots at once if the last poll is at least this old */
 export const MIN_POLL_GAP_MS = 50_000
 /** An incremental list starts this long before the previous list started, so a robot started meanwhile is not missed */
@@ -155,6 +169,76 @@ export function mergeRobots(
   return changed ? next : previous
 }
 
+/** Stores robots of an answer (with `patch`), and tells about the robots that merged since the last answer */
+function storeRobots(key: string, incoming: readonly PatronusRobot[], replace: boolean, patch: Partial<RepositoryPatronus>): void {
+  const previous = patronusStore.getState().repositories[key]?.robots ?? EMPTY.robots
+  const robots = mergeRobots(previous, incoming, replace)
+  update(key, () => ({ ...patch, robots }))
+  if (robots !== previous) {
+    for (const robot of findMergedRobots(previous, robots)) {
+      announceMerge(key, robot)
+    }
+  }
+}
+
+// ---- merges ----
+
+/** The merged robots already told about, once each */
+const announcedMerges = new Set<string>()
+/** Merges that happened while the window was not focused: their toasts show on focus */
+let pendingMergeToasts: { key: string, robot: PatronusRobot }[] = []
+/** null until the first notification asks the OS */
+let notificationsAllowed: boolean | null = null
+
+/**
+ * A robot merged a branch: a toast with Fetch, so the header learns that an update brings the branch in. While the
+ * window is not focused, an OS notification says it at once, and the toast waits for the focus.
+ */
+function announceMerge(key: string, robot: PatronusRobot): void {
+  if (announcedMerges.has(robot.id)) {
+    return
+  }
+  announcedMerges.add(robot.id)
+  if (windowFocused) {
+    showMergeToast(key, robot)
+    return
+  }
+  pendingMergeToasts.push({ key, robot })
+  void notifyOs(formatMergedRobotTitle(robot), `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up`)
+}
+
+function showMergeToast(key: string, robot: PatronusRobot): void {
+  const [repositoryPath] = key.split("\n") as [string, string]
+  const id = toast.add({
+    type: "success",
+    title: formatMergedRobotTitle(robot),
+    description: formatPushMode(robot.pushMode),
+    timeout: 10_000,
+    actionProps: {
+      children: "Fetch",
+      onClick: () => {
+        toast.close(id)
+        void runFetchBaseline(repositoryPath)
+      },
+    },
+  })
+}
+
+/** Asks for the permission on the first notification, never at startup; a notification is an extra, it never fails */
+async function notifyOs(title: string, body: string): Promise<void> {
+  try {
+    if (notificationsAllowed === null) {
+      notificationsAllowed = await isPermissionGranted() || await requestPermission() === "granted"
+    }
+    if (notificationsAllowed) {
+      sendNotification({ title, body })
+    }
+  }
+  catch {
+    // no notification plugin (the E2E mock), or the OS refused
+  }
+}
+
 // ---- refresh ----
 
 /**
@@ -197,7 +281,7 @@ async function applyAnswer(key: string, request: ReturnType<typeof commands.getP
     const result = await request
     if (result.status === "ok" && result.data.availability.status === "available") {
       const robots = result.data.robots
-      update(key, previous => ({ availability: result.data.availability, robots: mergeRobots(previous.robots, robots, replace), fetchedAt: Date.now() }))
+      storeRobots(key, robots, replace, { availability: result.data.availability, fetchedAt: Date.now() })
       return true
     }
     availability = result.status === "ok" ? result.data.availability : { status: "error", message: result.error.message }
@@ -282,21 +366,22 @@ async function loadReviewProblems(key: string): Promise<void> {
 }
 
 /** The running robots of the branches of the selected repository, with the status the app knows */
-function activeBranchRobots(key: string): KnownRobotStatus[] {
+function activeBranchRobots(key: string): PatronusRobot[] {
   const robots = patronusStore.getState().repositories[key]?.robots
-  const known = new Map<string, KnownRobotStatus>()
+  const active = new Map<string, PatronusRobot>()
   for (const branch of Object.values(branchSyncStore.getState().branches)) {
     const robot = findBranchRobot(robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
     if (robot !== undefined && isRobotActive(robot)) {
-      known.set(robot.id, { id: robot.id, status: robot.status })
+      active.set(robot.id, robot)
     }
   }
-  return [...known.values()]
+  return [...active.values()]
 }
 
 /**
- * Arms the poll timer when a branch has a running robot and the window is focused; `restart` replaces a pending timer
- * (after a poll), else a pending one is kept.
+ * Arms the poll timer when a branch has a running robot: every minute while the window is focused, every five minutes
+ * while it is not and a robot pushes (to tell when it merged; a dry run waits for the focus). `restart` replaces a
+ * pending timer (after a poll, on a focus change), else a pending one is kept.
  */
 function schedulePoll(restart: boolean): void {
   if (pollTimer !== undefined && !restart) {
@@ -305,13 +390,17 @@ function schedulePoll(restart: boolean): void {
   clearTimeout(pollTimer)
   pollTimer = undefined
   const key = currentKey()
-  if (!windowFocused || key === null || activeBranchRobots(key).length === 0) {
+  if (key === null) {
+    return
+  }
+  const active = activeBranchRobots(key)
+  if (windowFocused ? active.length === 0 : !active.some(isPushingRobot)) {
     return
   }
   pollTimer = setTimeout(() => {
     pollTimer = undefined
     void pollPatronus()
-  }, POLL_INTERVAL_MS)
+  }, windowFocused ? POLL_INTERVAL_MS : BACKGROUND_POLL_INTERVAL_MS)
 }
 
 /** Asks Patronus whether the running robots of the branches changed; only the changed ones come back */
@@ -320,7 +409,7 @@ export function pollPatronus(): Promise<void> {
   if (key === null) {
     return Promise.resolve()
   }
-  const known = activeBranchRobots(key)
+  const known: KnownRobotStatus[] = activeBranchRobots(key).map(robot => ({ id: robot.id, status: robot.status }))
   if (known.length === 0) {
     return Promise.resolve()
   }
@@ -370,7 +459,7 @@ export function upsertPatronusRobot(robot: PatronusRobot): void {
   if (key === null) {
     return
   }
-  update(key, previous => ({ robots: mergeRobots(previous.robots, [robot], false) }))
+  storeRobots(key, [robot], false, {})
   schedulePoll(false)
 }
 
@@ -433,14 +522,23 @@ export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<Pa
   return result.data
 }
 
-/** Nothing is polled while the window is not focused; on focus the running robots are asked for at once */
+/**
+ * While the window is not focused, only a robot that pushes is polled, slowly; on focus the merges told meanwhile get
+ * their toasts and the running robots are asked for at once
+ */
 export function setPatronusWindowFocus(focused: boolean): void {
   windowFocused = focused
   if (!focused) {
-    clearTimeout(pollTimer)
-    pollTimer = undefined
+    schedulePoll(true)
     return
   }
+  const toasts = pendingMergeToasts
+  pendingMergeToasts = []
+  for (const { key, robot } of toasts) {
+    showMergeToast(key, robot)
+  }
+  clearTimeout(pollTimer)
+  pollTimer = undefined
   void pollPatronus().then(() => schedulePoll(false))
 }
 
@@ -452,5 +550,8 @@ export function resetPatronus(): void {
   clearTimeout(pollTimer)
   pollTimer = undefined
   windowFocused = true
+  announcedMerges.clear()
+  pendingMergeToasts = []
+  notificationsAllowed = null
   patronusStore.setState({ repositories: {} })
 }

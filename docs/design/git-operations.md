@@ -294,6 +294,9 @@ Details:
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
   and nothing for a ref that did not move. The fetch runs through `execute_remote_command_with_progress` (Key
   Decision 8).
+- **Fetch without update.** The Fetch of a merged robot's toast (`crates/sync-core/src/baseline_fetch.rs`) is step 2
+  alone, then a sync: the check inside it compares HEAD with the fetched tracking ref. A forced update needs no
+  record: the next check excludes the old tip by the fork point of the tracking ref's reflog.
 - **Transfer progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch
   and the app's push run with `--progress`, as IDEA's do: `execute_remote_command_with_progress` adds it after the
   subcommand, and `execute_command_with_progress` passes each stderr line as it arrives (split on `\r`, with which git

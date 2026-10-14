@@ -320,6 +320,17 @@ pub async fn update_project(
     .map_err(|e| command_failed("update the project", &e))
 }
 
+/// Fails with the error message as the body, see `update_project`; the progress channel is not mocked
+pub async fn fetch_baseline(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::baseline_fetch::FetchBaselineParams>,
+) -> Result<Json<sync_core::baseline_fetch::FetchBaselineResult>, (StatusCode, String)> {
+  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
+  sync_core::baseline_fetch::fetch_baseline_core(&state.git_executor, &params, &mut |_| {})
+    .map(Json)
+    .map_err(|e| command_failed("fetch the baseline", &e))
+}
+
 /// The fixture set by `POST /repositories/{id}/pull-requests`; gh never runs in E2E
 pub async fn get_pull_requests(
   State(state): State<Arc<AppState>>,

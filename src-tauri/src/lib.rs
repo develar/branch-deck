@@ -14,6 +14,7 @@ use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::get_branch_prefix_from_git_config;
 use commands::clear_model_cache::clear_model_cache;
+use commands::fetch_baseline::fetch_baseline;
 use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
@@ -80,6 +81,7 @@ pub fn run() {
     get_autosquash_plan,
     squash_fixup_commits,
     update_project,
+    fetch_baseline,
     amend_uncommitted_to_branch,
     suggest_branch_name_stream,
     get_archived_branch_commits,
@@ -128,7 +130,8 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_window_state::Builder::new().build())
     .plugin(tauri_plugin_store::Builder::new().build())
-    .plugin(tauri_plugin_opener::init());
+    .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_notification::init());
 
   #[cfg(feature = "auto-update")]
   let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
