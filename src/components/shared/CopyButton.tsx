@@ -11,7 +11,10 @@ export interface CopyButtonProps {
   tooltip?: string
   size?: "icon-xs" | "icon-sm" | "icon"
   variant?: "ghost" | "outline"
-  /** Otherwise the button is transparent until the parent (`.group`) is hovered */
+  /**
+   * Otherwise the button is transparent until an ancestor `.group` is hovered or the button has keyboard focus; inside a
+   * named group the caller reveals it with `className` (`group-hover/file-header:opacity-100`)
+   */
   alwaysVisible?: boolean
   className?: string
 }
@@ -27,7 +30,7 @@ export function CopyButton({ text, tooltip = "Copy to clipboard", size = "icon-x
   }
 
   return (
-    <div className={cn("copy-button transition-opacity", !alwaysVisible && "opacity-0", className)}>
+    <div className={cn("copy-button transition-opacity", !alwaysVisible && "opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100", className)}>
       <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
         <TooltipTrigger
           // keep the tooltip open on click, so its text switches to "Copied!" in place

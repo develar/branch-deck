@@ -18,6 +18,7 @@ targets:
   - ../../src/components/repository/LandedCard.tsx
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/branch/LandedChip.tsx
+  - ../../src/components/shared/CopyButton.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchCreator.tsx
   - ../../src/components/commit/CommitList.tsx
@@ -120,9 +121,13 @@ by the next sync the same way.
   [@test] ../../src/lib/landed.test.ts (`keeps the fast-forward wording`)
 - The Landed island sits above the branches: "Landed in origin/master" and when, a row per branch with "1 commit" or "1
   of 2 · 1 stay local", the pull request and Patronus chips and the committer; a row expands to the commits, each with
-  the short baseline commit (copy), its committer and time, or "squashed upstream". Dismiss (`XIcon`) closes it and
+  the short baseline commit, its committer and time, or "squashed upstream". Dismiss (`XIcon`) closes it and
   clears the "New" marks of the archive.
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
+- The copy button of a baseline commit (the full hash) shows while its commit row is hovered or the button has keyboard
+  focus, as the copy button of the commit that merged an archived branch.
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should show the copy button of a baseline commit on hover`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should show the copy button of the merged-by commit on hover`)
 - A branch that stays active shows "1 landed" until Dismiss; a fully landed branch moves to the archive, marked "New".
 
 ## User Experience

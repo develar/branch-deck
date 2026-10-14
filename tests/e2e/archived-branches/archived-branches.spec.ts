@@ -1,5 +1,7 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { expandBranch } from "../helpers/branch-helpers"
+import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
@@ -90,5 +92,27 @@ test.describe("Archived Branches Table", () => {
 
     // Capture HTML snapshot of the archived branches card after deletion
     await captureHtmlSnapshot(card, "archived-branches-after-deletion")
+  })
+})
+
+test.describe("Archived branch merged by a baseline commit", () => {
+  test("should show the copy button of the merged-by commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the `landed_upstream` template: the update lands feature-auth (a robot pushed it, committer `Patronus`), so it
+    // moves to the archive, merged by the robot's commit
+    await setupRepo("landed_upstream")
+    await syncAndWaitForBranches()
+    await page.getByTestId("update-project-button").click()
+
+    const card = page.getByTestId("archived-branches-card")
+    await card.getByText("Archived Branches", { exact: true }).click()
+    await waitForCollapsibleCardExpanded(card)
+    const row = card.locator("tr[data-branch-name$=\"/feature-auth\"]")
+    // a placeholder can't expand until the integration status came
+    await expect(row).toContainText("Merged · 1")
+    await expandBranch(page, row)
+
+    const line = card.getByTestId("archived-branch-integration-commit")
+    await expect(line).toHaveText(/^Merged as [0-9a-f]{8} by Patronus, \d+ hours ago$/)
+    await testCopyButtonOnHover(page, line, /^[0-9a-f]{40}$/, "Copy the commit hash")
   })
 })
