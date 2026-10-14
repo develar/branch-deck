@@ -19,11 +19,11 @@
             </div>
           </div>
           <div>
-            <table class="w-full rounded-lg focus:outline-none" data-space-preview="" tabindex="0">
+            <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="0">
               <tbody class="divide-y divide-border">
                 <tr class="cursor-pointer select-none bg-primary/10 hover:bg-primary/15 select-none" data-row-id="90f6fd48d5c4aa46991b10d5624490a6b3585f4c" data-selected="true" data-slot="context-menu-trigger" draggable="true">
                   <td class="bd-padding-list-item">
-                    <div class="flex flex-col gap-1">
+                    <div class="flex flex-col gap-3">
                       <div class="flex min-w-0 flex-col gap-1">
                         <div class="flex items-center gap-2">
                           <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
@@ -47,118 +47,120 @@
                           </span>
                         </div>
                       </div>
-                      <div class="mt-2">
-                        <div class="flex flex-col gap-4">
-                          <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-4 bd-padding-card shadow-none" data-size="default" data-slot="card">
-                            <p class="flex items-center gap-3 text-sm font-medium text-foreground">
-                              <svg aria-hidden="true" class="lucide lucide-git-merge size-5 shrink-0 text-destructive" />
-                              Cherry-pick conflict detected
-                            </p>
-                            <div class="flex flex-col gap-1 rounded-lg bg-warning/5 px-4 py-3 text-sm text-muted-foreground ring-1 ring-warning/30">
-                              <p class="flex items-center gap-2 font-medium text-foreground">
-                                <svg aria-hidden="true" class="lucide lucide-file-diff size-4 text-warning" />
+                      <div class="flex flex-col gap-4">
+                        <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-4 bd-padding-card shadow-none" data-size="default" data-slot="card">
+                          <p class="flex items-center gap-2 text-sm font-medium text-foreground">
+                            <svg aria-hidden="true" class="lucide lucide-triangle-alert size-4 shrink-0 text-destructive" />
+                            Cherry-pick conflict detected
+                          </p>
+                          <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-warning/20 bg-warning/10" data-slot="callout" data-tone="warning">
+                            <span class="flex h-lh shrink-0 items-center">
+                              <svg aria-hidden="true" class="lucide lucide-file-diff size-4 text-warning" />
+                            </span>
+                            <div class="flex min-w-0 flex-1 flex-col gap-1.5 text-muted-foreground">
+                              <p class="font-medium text-warning">
                                 2 missing commits modified the conflicting files
                               </p>
                               <p>
                                 Common ancestor
-                                <span aria-expanded="false" aria-haspopup="dialog" class="font-mono" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" role="button" tabindex="0">
+                                <button aria-expanded="false" aria-haspopup="dialog" class="font-mono rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-base-ui-click-trigger="" data-slot="popover-trigger" id="base-ui-[ID]" tabindex="0" type="button">
                                   [SHA]
-                                </span>
+                                </button>
                                 : 4 commits behind the source, 0 behind the target
                               </p>
                             </div>
-                            <div class="text-sm text-muted-foreground" data-closed="" data-slot="collapsible">
-                              <button aria-expanded="false" class="group flex items-center gap-1.5 font-medium text-foreground/80 hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
-                                <svg aria-hidden="true" class="lucide lucide-chevron-right size-4 transition-transform group-data-[panel-open]:rotate-90" />
-                                <svg aria-hidden="true" class="lucide lucide-lightbulb size-4 text-warning" />
-                                How to resolve
-                              </button>
-                            </div>
                           </div>
-                          <div class="group/card flex flex-col rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 overflow-hidden py-0 shadow-none" data-size="default" data-slot="card">
-                            <div class="border-b border-border p-4 sm:px-6">
-                              <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-3">
-                                  <h2 class="text-sm font-semibold text-foreground">
-                                    Conflicting Files
-                                  </h2>
-                                  <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20" data-slot="badge" data-variant="warning">
-                                    1 file
-                                  </span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                  <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
-                                    <svg aria-hidden="true" class="lucide lucide-external-link" data-icon="inline-start" />
-                                    Open in Window
-                                  </button>
-                                </div>
+                          <div class="text-sm text-muted-foreground" data-closed="" data-slot="collapsible">
+                            <button aria-expanded="false" class="group flex items-center gap-1.5 font-medium text-foreground/80 hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
+                              <svg aria-hidden="true" class="lucide lucide-chevron-right size-4 transition-transform group-data-[panel-open]:rotate-90" />
+                              <svg aria-hidden="true" class="lucide lucide-lightbulb size-4 text-warning" />
+                              How to resolve
+                            </button>
+                          </div>
+                        </div>
+                        <div class="group/card flex flex-col rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 overflow-hidden py-0 shadow-none" data-size="default" data-slot="card">
+                          <div class="border-b border-border p-4 sm:px-6">
+                            <div class="flex items-center justify-between">
+                              <div class="flex items-center gap-3">
+                                <h2 class="text-sm font-semibold text-foreground">
+                                  Conflicting Files
+                                </h2>
+                                <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20" data-slot="badge" data-variant="warning">
+                                  1 file
+                                </span>
+                              </div>
+                              <div class="flex items-center gap-3">
+                                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+                                  <svg aria-hidden="true" class="lucide lucide-app-window" data-icon="inline-start" />
+                                  Open in Window
+                                </button>
                               </div>
                             </div>
-                            <div class="bd-padding-card">
-                              <div class="flex flex-col gap-3">
-                                <div class="group/tabs flex data-horizontal:flex-col gap-4" data-activation-direction="right" data-orientation="horizontal" data-slot="tabs">
-                                  <div class="group/tabs-list inline-flex w-fit items-center justify-center rounded-2xl p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:p-1 data-[variant=line]:rounded-none gap-1 bg-transparent" data-activation-direction="right" data-orientation="horizontal" data-slot="tabs-list" data-variant="line" role="tablist">
-                                    <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="right" data-orientation="horizontal" data-slot="tabs-trigger" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
-                                      <svg aria-hidden="true" class="lucide lucide-text-align-start" />
-                                      Diff View
-                                    </button>
-                                    <button aria-controls="base-ui-[ID]" aria-disabled="false" aria-selected="true" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="right" data-active="" data-composite-item-active="" data-orientation="horizontal" data-slot="tabs-trigger" id="base-ui-[ID]" role="tab" tabindex="0" type="button">
-                                      <svg aria-hidden="true" class="lucide lucide-columns-3" />
-                                      3-way Merge
-                                    </button>
-                                  </div>
-                                  <div aria-labelledby="base-ui-[ID]" class="flex-1 text-sm outline-none" data-activation-direction="right" data-index="0" data-orientation="horizontal" data-slot="tabs-content" data-state="active" id="base-ui-[ID]" role="tabpanel" tabindex="0">
-                                    <div class="flex flex-col gap-4">
-                                      <div class="alert group/alert relative grid w-full gap-0.5 rounded-2xl border text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 text-card-foreground bg-muted/50 px-4 py-3" data-slot="alert" role="alert">
-                                        <svg aria-hidden="true" class="lucide lucide-info" />
-                                        <div class="flex flex-col gap-2 text-sm text-foreground">
-                                          <p class="font-medium">
-                                            Understanding 3-way merge conflicts
-                                          </p>
-                                          <p>
-                                            This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:
-                                          </p>
-                                          <ul class="flex list-inside list-disc flex-col gap-1 text-muted-foreground">
-                                            <li>
-                                              <strong>
-                                                Base (Common Ancestor)
-                                              </strong>
-                                              : The original content before the branches diverged
-                                            </li>
-                                            <li>
-                                              <strong>
-                                                Target Branch
-                                              </strong>
-                                              : How the file changed in your current branch
-                                            </li>
-                                            <li>
-                                              <strong>
-                                                Cherry-pick
-                                              </strong>
-                                              : How the file changed in the commit you're trying to apply
-                                            </li>
-                                          </ul>
-                                          <p class="text-xs text-muted-foreground">
-                                            The conflict occurs because both branches modified the same parts of the file differently.
-                                          </p>
-                                        </div>
+                          </div>
+                          <div class="bd-padding-card">
+                            <div class="flex flex-col gap-3">
+                              <div class="group/tabs flex data-horizontal:flex-col gap-4" data-activation-direction="right" data-orientation="horizontal" data-slot="tabs">
+                                <div class="group/tabs-list inline-flex w-fit items-center justify-center rounded-2xl p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:p-1 data-[variant=line]:rounded-none gap-1 bg-transparent" data-activation-direction="right" data-orientation="horizontal" data-slot="tabs-list" data-variant="line" role="tablist">
+                                  <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="right" data-orientation="horizontal" data-slot="tabs-trigger" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+                                    <svg aria-hidden="true" class="lucide lucide-text-align-start" />
+                                    Diff View
+                                  </button>
+                                  <button aria-controls="base-ui-[ID]" aria-disabled="false" aria-selected="true" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="right" data-active="" data-composite-item-active="" data-orientation="horizontal" data-slot="tabs-trigger" id="base-ui-[ID]" role="tab" tabindex="0" type="button">
+                                    <svg aria-hidden="true" class="lucide lucide-columns-3" />
+                                    3-way Merge
+                                  </button>
+                                </div>
+                                <div aria-labelledby="base-ui-[ID]" class="flex-1 text-sm outline-none" data-activation-direction="right" data-index="0" data-orientation="horizontal" data-slot="tabs-content" data-state="active" id="base-ui-[ID]" role="tabpanel" tabindex="0">
+                                  <div class="flex flex-col gap-4">
+                                    <div class="alert group/alert relative grid w-full gap-0.5 rounded-2xl border text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 text-card-foreground bg-muted/50 px-4 py-3" data-slot="alert" role="alert">
+                                      <svg aria-hidden="true" class="lucide lucide-info" />
+                                      <div class="flex flex-col gap-2 text-sm text-foreground">
+                                        <p class="font-medium">
+                                          Understanding 3-way merge conflicts
+                                        </p>
+                                        <p>
+                                          This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:
+                                        </p>
+                                        <ul class="flex list-inside list-disc flex-col gap-1 text-muted-foreground">
+                                          <li>
+                                            <strong>
+                                              Base (Common Ancestor)
+                                            </strong>
+                                            : The original content before the branches diverged
+                                          </li>
+                                          <li>
+                                            <strong>
+                                              Target Branch
+                                            </strong>
+                                            : How the file changed in your current branch
+                                          </li>
+                                          <li>
+                                            <strong>
+                                              Cherry-pick
+                                            </strong>
+                                            : How the file changed in the commit you're trying to apply
+                                          </li>
+                                        </ul>
+                                        <p class="text-xs text-muted-foreground">
+                                          The conflict occurs because both branches modified the same parts of the file differently.
+                                        </p>
                                       </div>
-                                      <div class="flex flex-col gap-3" data-orientation="vertical">
-                                        <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
-                                          <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
-                                            <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
-                                              src/main/kotlin/com/example/service/UserService.kt
+                                    </div>
+                                    <div class="flex flex-col gap-3" data-orientation="vertical">
+                                      <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
+                                        <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
+                                          <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
+                                            src/main/kotlin/com/example/service/UserService.kt
+                                          </button>
+                                          <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300">
+                                            <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                                              <svg aria-hidden="true" class="lucide lucide-copy" />
                                             </button>
-                                            <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300">
-                                              <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-                                                <svg aria-hidden="true" class="lucide lucide-copy" />
-                                              </button>
-                                            </div>
-                                            <div class="flex flex-1 items-center justify-end gap-1">
-                                              <svg aria-hidden="true" class="lucide lucide-chevron-down size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
-                                            </div>
-                                          </h3>
-                                        </div>
+                                          </div>
+                                          <div class="flex flex-1 items-center justify-end gap-1">
+                                            <svg aria-hidden="true" class="lucide lucide-chevron-down size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
+                                          </div>
+                                        </h3>
                                       </div>
                                     </div>
                                   </div>
@@ -166,31 +168,33 @@
                               </div>
                             </div>
                           </div>
-                          <div class="group/card flex flex-col rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 overflow-hidden py-0 shadow-none" data-size="default" data-slot="card">
-                            <div class="border-b border-border p-4 sm:px-6">
-                              <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-3">
-                                  <h2 class="text-sm font-semibold text-foreground">
-                                    Missing Commits Details
-                                  </h2>
-                                  <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20" data-slot="badge" data-variant="warning">
-                                    2 commits
-                                  </span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                  <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
-                                    <svg aria-hidden="true" class="lucide lucide-external-link" data-icon="inline-start" />
-                                    Open in Window
-                                  </button>
-                                </div>
+                        </div>
+                        <div class="group/card flex flex-col rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 overflow-hidden py-0 shadow-none" data-size="default" data-slot="card">
+                          <div class="border-b border-border p-4 sm:px-6">
+                            <div class="flex items-center justify-between">
+                              <div class="flex items-center gap-3">
+                                <h2 class="text-sm font-semibold text-foreground">
+                                  Missing Commits Details
+                                </h2>
+                                <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20" data-slot="badge" data-variant="warning">
+                                  2 commits
+                                </span>
+                              </div>
+                              <div class="flex items-center gap-3">
+                                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+                                  <svg aria-hidden="true" class="lucide lucide-app-window" data-icon="inline-start" />
+                                  Open in Window
+                                </button>
                               </div>
                             </div>
-                            <div>
-                              <table class="w-full rounded-lg focus:outline-none" data-space-preview="" tabindex="-1">
-                                <tbody class="divide-y divide-border">
-                                  <tr class="" data-row-id="abd07ec1f4dc751971989589e490ca68ade698bd" data-selected="false">
-                                    <td class="bd-padding-list-item">
-                                      <div class="flex flex-col gap-1">
+                          </div>
+                          <div>
+                            <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="-1">
+                              <tbody class="divide-y divide-border">
+                                <tr class="" data-row-id="abd07ec1f4dc751971989589e490ca68ade698bd" data-selected="false">
+                                  <td class="bd-padding-list-item">
+                                    <div class="flex flex-col gap-3">
+                                      <div class="flex flex-col gap-3">
                                         <div class="flex min-w-0 flex-col gap-1">
                                           <div class="flex items-center gap-2">
                                             <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
@@ -221,30 +225,30 @@
                                           </div>
                                         </div>
                                       </div>
-                                      <div class="mt-3 rounded-lg bg-background">
-                                        <div class="flex flex-col gap-2" data-orientation="vertical">
-                                          <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
-                                            <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
-                                              <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
-                                                src/main/kotlin/com/example/service/UserService.kt
+                                      <div class="flex flex-col gap-2" data-orientation="vertical">
+                                        <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
+                                          <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
+                                            <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
+                                              src/main/kotlin/com/example/service/UserService.kt
+                                            </button>
+                                            <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300">
+                                              <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                                                <svg aria-hidden="true" class="lucide lucide-copy" />
                                               </button>
-                                              <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300">
-                                                <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-                                                  <svg aria-hidden="true" class="lucide lucide-copy" />
-                                                </button>
-                                              </div>
-                                              <div class="flex flex-1 items-center justify-end gap-1">
-                                                <svg aria-hidden="true" class="lucide lucide-chevron-down size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
-                                              </div>
-                                            </h3>
-                                          </div>
+                                            </div>
+                                            <div class="flex flex-1 items-center justify-end gap-1">
+                                              <svg aria-hidden="true" class="lucide lucide-chevron-down size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
+                                            </div>
+                                          </h3>
                                         </div>
                                       </div>
-                                    </td>
-                                  </tr>
-                                  <tr class="" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false">
-                                    <td class="bd-padding-list-item">
-                                      <div class="flex flex-col gap-1">
+                                    </div>
+                                  </td>
+                                </tr>
+                                <tr class="" data-row-id="07cdf0cb6b31cd5f86c446fcf8f61750ad8b4ceb" data-selected="false">
+                                  <td class="bd-padding-list-item">
+                                    <div class="flex flex-col gap-3">
+                                      <div class="flex flex-col gap-3">
                                         <div class="flex min-w-0 flex-col gap-1">
                                           <div class="flex items-center gap-2">
                                             <span class="line-clamp-2 text-sm font-medium text-pretty text-foreground">
@@ -272,30 +276,28 @@
                                           </div>
                                         </div>
                                       </div>
-                                      <div class="mt-3 rounded-lg bg-background">
-                                        <div class="flex flex-col gap-2" data-orientation="vertical">
-                                          <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
-                                            <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
-                                              <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
-                                                src/main/kotlin/com/example/service/UserService.kt
+                                      <div class="flex flex-col gap-2" data-orientation="vertical">
+                                        <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
+                                          <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50" data-closed="" data-hidden="" data-index="0" data-orientation="vertical">
+                                            <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
+                                              src/main/kotlin/com/example/service/UserService.kt
+                                            </button>
+                                            <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300">
+                                              <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                                                <svg aria-hidden="true" class="lucide lucide-copy" />
                                               </button>
-                                              <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300">
-                                                <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-                                                  <svg aria-hidden="true" class="lucide lucide-copy" />
-                                                </button>
-                                              </div>
-                                              <div class="flex flex-1 items-center justify-end gap-1">
-                                                <svg aria-hidden="true" class="lucide lucide-chevron-down size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
-                                              </div>
-                                            </h3>
-                                          </div>
+                                            </div>
+                                            <div class="flex flex-1 items-center justify-end gap-1">
+                                              <svg aria-hidden="true" class="lucide lucide-chevron-down size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
+                                            </div>
+                                          </h3>
                                         </div>
                                       </div>
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       </div>

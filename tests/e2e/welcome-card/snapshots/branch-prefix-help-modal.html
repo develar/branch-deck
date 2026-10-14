@@ -1,120 +1,116 @@
-<div aria-labelledby="base-ui-[ID]" class="fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-[min(var(--radius-4xl),24px)] bg-popover text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 gap-0 p-0 sm:max-w-lg" data-base-ui-focusable="" data-open="" data-slot="dialog-content" id="[ID]" role="dialog" style="--nested-dialogs: 0" tabindex="-1">
-  <h2 class="font-heading text-base leading-none font-medium sr-only" data-slot="dialog-title" id="base-ui-[ID]">
-    Configure Branch Prefix
-  </h2>
-  <div class="flex max-h-[90vh] flex-col gap-6 overflow-y-auto p-6">
-    <p class="text-sm text-foreground">
+<div aria-labelledby="base-ui-[ID]" class="fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-[min(var(--radius-4xl),24px)] bg-popover text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 max-h-[min(80vh,48rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 sm:max-w-lg" data-base-ui-focusable="" data-open="" data-slot="dialog-content" data-testid="branch-prefix-help-dialog" id="[ID]" role="dialog" style="--nested-dialogs: 0" tabindex="-1">
+  <div class="flex flex-col gap-1 border-b border-border py-4 pr-14 pl-6">
+    <h2 class="font-heading text-base font-medium leading-5" data-slot="dialog-title" id="base-ui-[ID]">
+      Configure the branch prefix
+    </h2>
+    <p class="text-xs text-muted-foreground">
       The branch prefix is automatically prepended to your virtual branches. Setting a personal prefix (like your username) helps identify your branches in a shared repository.
     </p>
-    <div class="flex flex-col gap-4">
-      <div class="flex flex-col gap-3 rounded-lg border border-border bg-muted/50 p-4">
-        <h3 class="text-sm font-semibold text-foreground">
+  </div>
+  <div class="overflow-y-auto overscroll-contain px-6 py-5 outline-none" tabindex="-1">
+    <div class="flex flex-col gap-6 text-sm">
+      <section class="flex flex-col gap-2">
+        <h3 class="font-medium">
           Set your global branch prefix
         </h3>
-        <p class="text-sm text-muted-foreground">
+        <p class="text-muted-foreground">
           Run this command in your terminal to set a global prefix for all repositories:
         </p>
-        <div class="flex flex-col gap-2">
-          <div class="overflow-x-auto rounded bg-background p-3">
-            <code class="font-mono text-xs">
-              git config --global branchdeck.branchPrefix yourUsername
-            </code>
-          </div>
-          <p class="text-xs text-muted-foreground">
-            Replace "yourUsername" with your preferred prefix (e.g., your name or initials)
-          </p>
-        </div>
-      </div>
-      <div class="flex flex-col gap-3 rounded-lg border border-info/20 bg-info/5 p-4">
-        <h3 class="text-sm font-semibold text-foreground">
-          How It Works
+        <pre class="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs">
+          git config --global branchdeck.branchPrefix yourUsername
+        </pre>
+        <p class="text-xs text-muted-foreground">
+          Replace "yourUsername" with your preferred prefix (e.g., your name or initials)
+        </p>
+      </section>
+      <section class="flex flex-col gap-2">
+        <h3 class="font-medium">
+          How it works
         </h3>
-        <p class="text-sm text-muted-foreground">
+        <p class="text-muted-foreground">
           Branch Deck groups commits based on message patterns:
         </p>
-        <ul class="flex flex-col gap-2 text-sm">
-          <li class="flex items-start gap-2">
-            <span class="text-muted-foreground">
-              •
+        <ul class="flex flex-col gap-2">
+          <li class="flex flex-col gap-1">
+            <span class="font-medium">
+              Explicit prefix:
             </span>
-            <div class="flex flex-1 flex-col gap-1">
-              <span class="font-medium">
-                Explicit prefix:
+            <span class="text-muted-foreground">
+              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                (feature-login)
+              </code>
+              <span class="px-2">
+                →
               </span>
-              <div class="text-muted-foreground">
-                <code class="rounded bg-background px-1 py-0.5 text-xs">
-                  (feature-login)
-                </code>
-                <span class="mx-2">
-                  →
-                </span>
-                <code class="rounded bg-background px-1 py-0.5 text-xs">
-                  john/virtual/feature-login
-                </code>
-              </div>
-            </div>
+              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                john/virtual/feature-login
+              </code>
+            </span>
           </li>
-          <li class="flex items-start gap-2">
-            <span class="text-muted-foreground">
-              •
+          <li class="flex flex-col gap-1">
+            <span class="font-medium">
+              Issue numbers:
             </span>
-            <div class="flex flex-1 flex-col gap-1">
-              <span class="font-medium">
-                Issue numbers:
+            <span class="text-muted-foreground">
+              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                ABC-123: Fix bug
+              </code>
+              <span class="px-2">
+                →
               </span>
-              <div class="text-muted-foreground">
-                <code class="rounded bg-background px-1 py-0.5 text-xs">
-                  ABC-123: Fix bug
-                </code>
-                <span class="mx-2">
-                  →
-                </span>
-                <code class="rounded bg-background px-1 py-0.5 text-xs">
-                  john/virtual/ABC-123
-                </code>
-              </div>
-            </div>
+              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                john/virtual/ABC-123
+              </code>
+            </span>
           </li>
-          <li class="flex items-start gap-2">
-            <span class="text-muted-foreground">
-              •
+          <li class="flex flex-col gap-1">
+            <span class="font-medium">
+              With subsystem:
             </span>
-            <div class="flex flex-1 flex-col gap-1">
-              <span class="font-medium">
-                With subsystem:
+            <span class="text-muted-foreground">
+              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                [threading] ABC-123: Fix bug
+              </code>
+              <span class="px-2">
+                →
               </span>
-              <div class="text-muted-foreground">
-                <code class="rounded bg-background px-1 py-0.5 text-xs">
-                  [threading] ABC-123: Fix bug
-                </code>
-                <span class="mx-2">
-                  →
-                </span>
-                <code class="rounded bg-background px-1 py-0.5 text-xs">
-                  john/virtual/ABC-123
-                </code>
-              </div>
-            </div>
+              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                john/virtual/ABC-123
+              </code>
+            </span>
           </li>
         </ul>
         <p class="text-xs text-muted-foreground">
           Explicit prefixes take precedence over issue numbers. The
-          <code class="rounded bg-background px-1 py-0.5 text-xs">
+          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
             virtual
           </code>
           prefix is always automatically prepended.
         </p>
-      </div>
-      <div class="flex flex-col gap-2 border-t border-border pt-4">
-        <p class="text-sm text-muted-foreground">
+      </section>
+      <section class="flex flex-col gap-2">
+        <h3 class="font-medium">
+          Per repository
+        </h3>
+        <p class="text-muted-foreground">
           You can also set this value per repository using:
         </p>
-        <div class="overflow-x-auto rounded bg-background p-3">
-          <code class="font-mono text-xs">
-            git config branchdeck.branchPrefix repoSpecificPrefix
-          </code>
-        </div>
-      </div>
+        <pre class="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs">
+          git config branchdeck.branchPrefix repoSpecificPrefix
+        </pre>
+      </section>
+    </div>
+  </div>
+  <div class="flex items-center justify-between gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground">
+    <div class="ml-auto flex items-center gap-3">
+      <span class="flex items-center gap-1.5">
+        <kbd class="inline-flex items-center gap-1" data-slot="kbd-group">
+          <kbd class="pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-lg bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=input-group]:bg-input in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3" data-slot="kbd">
+            Esc
+          </kbd>
+        </kbd>
+        Close
+      </span>
     </div>
   </div>
   <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-7 absolute top-4 right-4 bg-secondary" data-slot="dialog-close" tabindex="0" type="button">

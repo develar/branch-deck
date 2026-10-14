@@ -1,10 +1,10 @@
 <div class="contents" data-base-ui-portal="" id="[ID]">
-  <div class="isolate z-50" data-align="center" data-open="" data-side="bottom" role="presentation" style="position: absolute;  top: 0px;  left: 0px;  --available-width: 1270px;  --available-height: 583px;  --anchor-width: 12px;  --anchor-height: 12px;  --transform-origin: 327px -4px;  transform: translate(891px, 132px)">
-    <div class="z-50 flex origin-(--transform-origin) flex-col rounded-3xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/5 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 w-auto max-w-sm gap-0 divide-y divide-border p-3 text-xs" data-align="center" data-base-ui-focusable="" data-open="" data-side="bottom" data-slot="popover-content" id="[ID]" role="dialog" tabindex="-1">
-      <div class="flex flex-col gap-1.5 pb-3">
-        <div class="font-medium text-muted-foreground">
+  <div class="isolate z-50" data-align="center" data-open="" data-side="bottom" role="presentation" style="position: absolute;  top: 0px;  left: 0px;  --available-width: 1270px;  --available-height: 582px;  --anchor-width: 14px;  --anchor-height: 14px;  --transform-origin: 262px -4px;  transform: translate(955px, 133px)">
+    <div class="z-50 flex origin-(--transform-origin) flex-col rounded-3xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/5 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 w-80 gap-3 p-3 text-xs" data-align="center" data-base-ui-focusable="" data-open="" data-side="bottom" data-slot="popover-content" id="[ID]" role="dialog" tabindex="-1">
+      <section class="flex flex-col gap-1.5">
+        <h3 class="font-medium text-muted-foreground">
           Selection shortcuts
-        </div>
+        </h3>
         <div>
           Click to select a commit
         </div>
@@ -43,39 +43,29 @@
             Clear selection
           </span>
         </div>
-      </div>
-      <div class="flex flex-col gap-1.5 pt-3">
-        <div class="font-medium text-muted-foreground">
+      </section>
+      <section class="flex flex-col gap-1.5">
+        <h3 class="font-medium text-muted-foreground">
           About unassigned commits
-        </div>
+        </h3>
         <p>
           These commits won't be assigned to virtual branches because they don't match Branch Deck's grouping patterns:
         </p>
-        <ul class="flex flex-col gap-1">
-          <li class="flex items-start gap-1">
-            <span>
-              •
-            </span>
-            <span>
-              <code class="rounded bg-background px-1 text-[10px]">
-                (feature-name)
-              </code>
-              - Explicit prefix
-            </span>
+        <ul class="flex list-disc flex-col gap-1 pl-4 marker:text-muted-foreground">
+          <li>
+            <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+              (feature-name)
+            </code>
+            - Explicit prefix
           </li>
-          <li class="flex items-start gap-1">
-            <span>
-              •
-            </span>
-            <span>
-              <code class="rounded bg-background px-1 text-[10px]">
-                ABC-123
-              </code>
-              - Issue numbers
-            </span>
+          <li>
+            <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+              ABC-123
+            </code>
+            - Issue numbers
           </li>
         </ul>
-      </div>
+      </section>
     </div>
   </div>
 </div>
