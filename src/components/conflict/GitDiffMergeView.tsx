@@ -5,12 +5,13 @@ import { DiffModeEnum, DiffView } from "@git-diff-view/react"
 import { GitBranchIcon, GitCommitHorizontalIcon, GitPullRequestIcon, InfoIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { useDefaultLayout } from "react-resizable-panels"
-import { Alert } from "@/components/ui/alert"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
+import { CollapsibleHint, HintList } from "@/components/conflict/ConflictResolutionHint"
 import { useIsDark } from "@/hooks/useIsDark"
 import type { ConflictDetail, FileDiff, MergeConflictInfo } from "@/lib/bindings"
+import { getMergeBase } from "@/lib/merge-conflict"
 
 export interface GitDiffMergeViewProps {
   conflicts: readonly ConflictDetail[]
@@ -28,38 +29,22 @@ interface CommitRef {
 /** 3-way view of each conflicting file: base (common ancestor), target branch and cherry-picked commit side by side. */
 export function GitDiffMergeView({ conflicts, conflictInfo }: GitDiffMergeViewProps) {
   const analysis = conflictInfo?.conflictAnalysis
-  const mergeBase: CommitRef | null = analysis?.mergeBaseHash
-    ? { hash: analysis.mergeBaseHash, subject: analysis.mergeBaseSubject, message: analysis.mergeBaseMessage, author: analysis.mergeBaseAuthor, authorTime: analysis.mergeBaseTime }
-    : null
+  const base = analysis?.mergeBaseHash ? getMergeBase(analysis) : null
+  const mergeBase: CommitRef | null = base && { ...base, authorTime: base.time }
   const target: CommitRef | null = conflictInfo?.targetBranch ?? null
   const cherry: CommitRef | null = conflictInfo?.commit ?? null
 
   return (
     <div className="flex flex-col gap-4">
-      <Alert className="bg-muted/50 px-4 py-3">
-        <InfoIcon />
-        <div className="flex flex-col gap-2 text-sm text-foreground">
-          <p className="font-medium">Understanding 3-way merge conflicts</p>
-          <p>This view shows how both branches evolved from their common ancestor, helping you understand why the conflict occurred:</p>
-          <ul className="flex list-inside list-disc flex-col gap-1 text-muted-foreground">
-            <li>
-              <strong>Base (Common Ancestor)</strong>
-              : The original content before the branches diverged
-            </li>
-            <li>
-              <strong>Target Branch</strong>
-              : How the file changed in your current branch
-            </li>
-            <li>
-              <strong>Cherry-pick</strong>
-              : How the file changed in the commit you&apos;re trying to apply
-            </li>
-          </ul>
-          <p className="text-xs text-muted-foreground">
-            The conflict occurs because both branches modified the same parts of the file differently.
-          </p>
-        </div>
-      </Alert>
+      <CollapsibleHint icon={<InfoIcon className="size-4" />} title="How to read this view">
+        <p>Each file shows how both sides changed it since their common ancestor:</p>
+        <HintList>
+          <li>Base: the file at the common ancestor; drag the left divider to show it;</li>
+          <li>Target Branch: the changes from the base to the branch the commit is copied onto;</li>
+          <li>Cherry-pick: the changes from the base to the commit that does not apply.</li>
+        </HintList>
+        <p>The commit conflicts where both sides changed the same lines.</p>
+      </CollapsibleHint>
 
       {conflicts.length > 0
         ? (
@@ -102,7 +87,7 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
   const baseDiff = useMemo(() => getBaseDiffData(conflict), [conflict])
 
   return (
-    <ResizablePanelGroup orientation="horizontal" defaultLayout={defaultLayout ?? initialLayout} onLayoutChanged={onLayoutChanged} className="h-[600px] w-full">
+    <ResizablePanelGroup orientation="horizontal" defaultLayout={defaultLayout ?? initialLayout} onLayoutChanged={onLayoutChanged} className="h-[min(600px,60vh)] w-full">
       <ResizablePanel id="base" collapsible collapsedSize={0} minSize="15">
         <DiffPanel
           icon={GitCommitHorizontalIcon}
@@ -153,7 +138,7 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
 }
 
 function PanelHandle() {
-  return <ResizableHandle className="mx-1 w-1 cursor-col-resize transition-colors hover:bg-primary" />
+  return <ResizableHandle className="mx-1 w-1 cursor-col-resize transition-colors hover:bg-border" />
 }
 
 function CommitPopover({ commit }: { commit: CommitRef }) {

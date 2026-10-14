@@ -439,11 +439,10 @@ export const tauriMockScript = () => {
       const params = payload?.params || payload
       const repositoryPath = params?.repositoryPath || ""
       
-      // For NO_REPO test cases, return a TauriError instead of proxying
+      // For NO_REPO test cases, fail as the backend does (`branch_prefix.rs`): Tauri rejects with the CommandError
+      // ({ message }), which the bindings return as `{ status: "error", error }`
       if (repositoryPath.includes("NO_REPO")) {
-        const pathParts = repositoryPath.split("/")
-        const repoName = pathParts[pathParts.length - 1]
-        throw new Error(`TauriError: Repository not accessible: ${repoName}`)
+        throw { name: "CommandError", message: `Repository not accessible: ${repositoryPath}` }
       }
       
       // For real repositories, proxy to test server

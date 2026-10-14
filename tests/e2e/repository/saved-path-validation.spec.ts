@@ -44,8 +44,10 @@ test.describe("Repository Validation", () => {
     // Check that the error alert is displayed
     await expect(errorAlert).toBeVisible({ timeout: 10000 })
 
-    // Check that the error message mentions repository not being accessible
+    // Check that the error message mentions repository not being accessible, once: the command error is the title
     await expect(errorAlert).toContainText("Repository not accessible")
+    await expect(errorAlert.getByText(/Repository not accessible/)).toHaveCount(1)
+    await expect(errorAlert).not.toContainText("Error:")
 
     // Capture snapshot showing the error state
     await captureHtmlSnapshot(page.locator("body"), "repository-validation-error")

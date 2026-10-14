@@ -14,7 +14,7 @@ export function InlineIssueReferenceInput({ branchName }: { branchName: string }
 
   const commitCount = branch?.commitCount ?? 0
   const isValid = issueReferencePattern.test(issueReference)
-  const errorMessage = issueReference && !isValid ? "Issue reference must be in format like ABC-123" : undefined
+  const errorMessage = issueReference && !isValid ? "Issue reference must be in the form ABC-123" : undefined
 
   return (
     <InlineInputDialog

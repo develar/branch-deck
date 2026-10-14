@@ -14,10 +14,12 @@ export interface FileDiffListProps {
   keyPrefix: string
   conflictMarkerCommits?: Record<string, ConflictCommit>
   diffViewMode?: ConflictDiffViewMode
+  /** A muted line above the diff of the file at the same index ("No conflict markers in this file: …") */
+  fileNotes?: readonly (string | null)[]
 }
 
 /** Accordion of file diffs (collapsed by default); conflict markers in added lines get an annotation. */
-export function FileDiffList({ fileDiffs, keyPrefix, conflictMarkerCommits, diffViewMode = "unified" }: FileDiffListProps) {
+export function FileDiffList({ fileDiffs, keyPrefix, conflictMarkerCommits, diffViewMode = "unified", fileNotes }: FileDiffListProps) {
   return (
     <AccordionPrimitive.Root multiple className="flex flex-col gap-2">
       {fileDiffs.map((diff, index) => (
@@ -25,9 +27,11 @@ export function FileDiffList({ fileDiffs, keyPrefix, conflictMarkerCommits, diff
           key={`${keyPrefix}-${index}`}
           value={`item-${index}`}
           className="overflow-hidden rounded-lg border border-border"
+          data-testid="file-diff"
         >
           <CollapsibleFileHeader fileName={diff.newFile.fileName} />
           <AccordionPrimitive.Panel className="border-t border-border">
+            {fileNotes?.[index] && <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">{fileNotes[index]}</p>}
             <ConflictFileDiffView diff={diff} conflictMarkerCommits={conflictMarkerCommits} diffViewMode={diffViewMode} />
           </AccordionPrimitive.Panel>
         </AccordionPrimitive.Item>

@@ -30,11 +30,12 @@ interface MarkerStyle {
 }
 
 const markerStyles: Record<ConflictMarkerType, MarkerStyle> = {
+  // the side of the target: what is already in the branch the commit is copied onto
   "conflict-start": {
     icon: GitBranchIcon,
-    iconClassName: "text-destructive",
-    textClassName: "text-destructive",
-    borderClassName: "border-destructive",
+    iconClassName: "text-info",
+    textClassName: "text-info",
+    borderClassName: "border-info",
     description: "Current changes (HEAD)",
   },
   "conflict-base": {
@@ -88,11 +89,11 @@ export function ConflictMarkerExtension({ data }: { data: ConflictLineData }) {
 
   return (
     <div className={cn("border-l-4 bg-muted", style.borderClassName)}>
-      <div className="flex items-center gap-2 px-4 py-2">
+      <div className="flex items-center gap-2 px-4 py-1.5 text-xs">
         <div className="flex items-center gap-2">
-          <Icon className={cn("size-4", style.iconClassName)} />
-          <span className={cn("text-sm font-medium", style.textClassName)}>{style.description}</span>
-          <div className="text-xs text-muted-foreground">
+          <Icon className={cn("size-3.5", style.iconClassName)} />
+          <span className={cn("font-medium", style.textClassName)}>{style.description}</span>
+          <div className="text-muted-foreground">
             {reference && (isCommitHash(reference)
               ? <CommitHashPopover hash={reference} message={commit?.message} author={commit?.author} authorTime={commit?.authorTime} />
               : <span>{reference}</span>)}

@@ -15,6 +15,8 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/components/commit/MovableCommitList.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
+  - ../../src/components/shared/ChoiceChip.tsx
+  - ../../src/components/ai/BranchNameSuggestions.tsx
   - ../../src/components/branch/InlineRenameBranchInput.tsx
   - ../../src/components/branch/InlineUngroupConfirm.tsx
   - ../../src/stores/inline-row-action.ts
@@ -153,6 +155,9 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 - "Move to…" is an outline `xs` button in the primary colour. The remove-prefix action is a ghost `xs` button.
 - A droppable branch row has a dashed `outline-primary/30`. The row under the pointer gets `bg-primary/10` and a solid
   primary outline. The unassigned card gets a primary ring.
+- The chips of the form are `xs` buttons (`ChoiceChip`) in one style for the existing branches and the AI suggestions:
+  the chip whose name the input holds is soft primary (`bg-primary/10 text-primary`, `aria-pressed`), the others
+  `secondary`. A suggestion still being generated is a disabled `secondary` chip with a spinner and "Generating…".
 - The new branch zone is a dashed `border-primary/50` nested panel (`rounded-lg`) with a `GitBranchPlus` icon.
 - The drag image is a primary badge "N commits".
 - A nested branch row is indented under the issue's icon, behind a `border-l border-border` rule.

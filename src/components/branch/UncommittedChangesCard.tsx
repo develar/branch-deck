@@ -1,10 +1,9 @@
-import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { OnDemandFileDiffList } from "@/components/conflict/OnDemandFileDiffList"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { HelpPopover } from "@/components/shared/HelpPopover"
-import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
+import { NestedPanel } from "@/components/shared/NestedPanel"
 import type { UncommittedChangesResult } from "@/lib/bindings"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
@@ -14,30 +13,30 @@ export interface UncommittedChangesCardProps {
   error: string | null
 }
 
-/** Preview of the uncommitted changes in the amend form. */
+/** Preview of the uncommitted changes in the amend form, a panel nested in the expanded row. */
 export function UncommittedChangesCard({ diffData, loading, error }: UncommittedChangesCardProps) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const hasChanges = !loading && !error && diffData?.hasChanges === true
 
   return (
-    <Card className="gap-0 overflow-hidden py-0" data-testid="uncommitted-changes-card">
-      <div className="border-b border-border p-4 sm:px-6">
-        <SectionCardHeader
-          title="Uncommitted Changes"
-          count={diffData?.files.length ?? 0}
-          itemSingular="file"
-          itemPlural="files"
-          actions={(
-            <div className="flex items-center gap-3">
-              {hasChanges && <DiffViewToggle />}
-              <HelpPopover label="About amending uncommitted changes">
-                <p>This will amend your uncommitted changes to the tip commit of this virtual branch.</p>
-                <p>The original commit message and author information will be preserved.</p>
-              </HelpPopover>
-            </div>
-          )}
-        />
-      </div>
+    <NestedPanel
+      data-testid="uncommitted-changes-card"
+      header={{
+        title: "Uncommitted Changes",
+        count: diffData?.files.length ?? 0,
+        itemSingular: "file",
+        itemPlural: "files",
+        actions: (
+          <div className="flex items-center gap-3">
+            {hasChanges && <DiffViewToggle />}
+            <HelpPopover label="About amending uncommitted changes">
+              <p>This will amend your uncommitted changes to the tip commit of this virtual branch.</p>
+              <p>The original commit message and author information will be preserved.</p>
+            </HelpPopover>
+          </div>
+        ),
+      }}
+    >
 
       {loading
         ? (
@@ -55,6 +54,6 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
           : !diffData?.hasChanges
               ? <p className="bd-padding-content text-sm text-muted-foreground">No uncommitted changes to amend</p>
               : diffData.files.length > 0 && <OnDemandFileDiffList files={diffData.files} keyPrefix="uncommitted" diffViewMode={diffViewMode} />}
-    </Card>
+    </NestedPanel>
   )
 }

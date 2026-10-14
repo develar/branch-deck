@@ -41,7 +41,8 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
       result.unshift({
         label: formatPathWithTruncation(invalidPath, homeDir),
         value: invalidPath,
-        error: pathValidation.errorDetails,
+        // the message of the error, under the path
+        error: pathValidation.errorDetails ?? pathValidation.error,
         project: { path: invalidPath, cachedBranchPrefix: undefined },
       })
     }

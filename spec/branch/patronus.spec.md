@@ -286,8 +286,11 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
   code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
-  Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Create Merge Request" (the
-  branch is pushed first; the merge request opens in the browser) or "Open IJ-CR-7", and Recheck. Start stays possible.
+  Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Patronus counts code-owner
+  approvals in a Space merge request.", "Create Space Merge Request" (the branch is pushed first; the merge request
+  opens in the browser) or "Open IJ-CR-7", and Recheck. Start stays possible.
+- The UI must name the system a review button creates or opens in: the user may review on GitHub, while only the Space
+  merge request counts.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals, create the merge request and start with it`)
 - The start links the merge request of the branch (`spaceReview`), so its approvals count.
@@ -340,8 +343,8 @@ offers to fetch the baseline, so the header shows that an update brings the bran
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push at once when the robot finished meanwhile`)
-- The push of the Safe Push form ("Push and Start Safe Push", or the push before "Create Merge Request") is for a new
-  robot: the dialog offers "Cancel and Push" instead of the restart and says "The new Safe Push takes the pushed
+- The push of the Safe Push form ("Push and Start Safe Push", or the push before "Create Space Merge Request") is for a
+  new robot: the dialog offers "Cancel and Push" instead of the restart and says "The new Safe Push takes the pushed
   commit." The form then starts the one robot of the branch, with the merge request; a restart would run the branch
   twice, the restarted robot without the merge request. The push of the Dry Run form keeps the restart: a dry run
   doesn't replace the Safe Push.
@@ -418,6 +421,10 @@ offers to fetch the baseline, so the header shows that an update brings the bran
 
 - The pre-check is a hint: the review check of the robot decides (the chip shows it). `/space/merge-requests` finds only
   an open merge request from the branch into the target.
+- Open: does the code-owner check of a repository (PAT-A-109) accept the approvals of a GitHub pull request review of
+  the branch? To be asked of Patronus. Until it is answered, the form offers only the Space merge request and says so
+  ("Create Space Merge Request", "Patronus counts code-owner approvals in a Space merge request."). If GitHub reviews
+  count, the form also offers "Create Pull Request on GitHub" and the start passes the pull request.
 
 - The REST API is marked unstable (PAT-A-11): an unknown status or push mode shows as "Unknown status" instead of
   failing the list.

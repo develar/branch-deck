@@ -1,9 +1,10 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
 
+/** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of a `CommandError` */
 export function getErrorDetails(error: unknown): string {
   if (error instanceof Error) {
-    return error.toString()
+    return error.message
   }
   // CommandError returned by Tauri commands
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {

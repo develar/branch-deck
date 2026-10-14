@@ -73,7 +73,7 @@ test.describe("Issue Reference Feature", () => {
       inlineIssueReference.getForm(page),
       input,
       "invalid!@#",
-      "Issue reference must be in format like ABC-123",
+      "Issue reference must be in the form ABC-123",
     )
 
     // Valid format should work

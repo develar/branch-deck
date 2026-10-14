@@ -1,13 +1,13 @@
 import { useCallback } from "react"
 import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { CommitList } from "@/components/commit/CommitList"
 import { FileDiffList } from "@/components/conflict/FileDiffList"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
+import { SectionPanel } from "@/components/shared/NestedPanel"
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { getMergeBase } from "@/lib/merge-conflict"
 import { openSubWindow } from "@/lib/window-management"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
@@ -17,12 +17,17 @@ export interface MissingCommitsDetailsProps {
   /** Required for the "Open in Window" action */
   conflict?: MergeConflictInfo
   branchName?: string
-  /** Rendered in the `missing-commits` sub-window: no "Open in Window" action */
+  /** The branch the commit is copied onto, for the title of the sub-window */
+  onto?: string
+  /** Rendered in the `missing-commits` sub-window: an island, no "Open in Window" action */
   isInWindow?: boolean
 }
 
-/** Commits missing from the target branch that touched the conflicting files, with their file diffs. */
-export function MissingCommitsDetails({ missingCommits, conflict, branchName, isInWindow = false }: MissingCommitsDetailsProps) {
+/**
+ * Commits missing from the target branch that touched the conflicting files, with their file diffs: a nested panel in
+ * the expanded row, an island in the sub-window.
+ */
+export function MissingCommitsDetails({ missingCommits, conflict, branchName, onto, isInWindow = false }: MissingCommitsDetailsProps) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const hasAnyFileDiffs = missingCommits.some(commit => commit.fileDiffs.length > 0)
 
@@ -44,52 +49,46 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, is
       conflictCommitMessage: conflict.commit.message,
       conflictCommitAuthorTime: conflict.commit.authorTime,
       conflictCommitCommitterTime: conflict.commit.committerTime,
-      branchName: branchName || "Unknown",
+      branchName,
+      onto,
       missingCommits: analysis.missingCommits,
-      mergeBase: {
-        hash: analysis.mergeBaseHash,
-        subject: analysis.mergeBaseSubject,
-        message: analysis.mergeBaseMessage,
-        author: analysis.mergeBaseAuthor,
-        time: analysis.mergeBaseTime,
-      },
+      mergeBase: getMergeBase(analysis),
       divergenceSummary: analysis.divergenceSummary,
     }
 
     openSubWindow({
       windowId: "missing-commits",
       url: "/missing-commits",
-      title: `Missing Commits Analysis - ${branchName || "Unknown Branch"}`,
+      title: branchName ? `Missing commits · ${branchName}` : "Missing commits",
       data,
     }).catch((error: unknown) => notifyError("Failed to open window", error))
   }
 
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-none">
-      <div className="border-b border-border p-4 sm:px-6">
-        <SectionCardHeader
-          title="Missing Commits Details"
-          count={missingCommits.length}
-          itemSingular="commit"
-          itemPlural="commits"
-          badgeColor="warning"
-          actions={((hasAnyFileDiffs && isInWindow) || !isInWindow) && (
-            <>
-              {/* in the main window the conflicting files above carry the one diff view toggle */}
-              {hasAnyFileDiffs && isInWindow && <DiffViewToggle />}
-              {!isInWindow && (
-                <Button size="xs" variant="ghost" onClick={openMissingCommitsWindow}>
-                  <AppWindowIcon data-icon="inline-start" />
-                  Open in Window
-                </Button>
-              )}
-            </>
-          )}
-        />
-      </div>
-
+    <SectionPanel
+      island={isInWindow}
+      data-testid="missing-commits"
+      header={{
+        title: "Missing Commits Details",
+        count: missingCommits.length,
+        itemSingular: "commit",
+        itemPlural: "commits",
+        badgeColor: "warning",
+        actions: ((hasAnyFileDiffs && isInWindow) || !isInWindow) && (
+          <>
+            {/* in the main window the conflicting files above carry the one diff view toggle */}
+            {hasAnyFileDiffs && isInWindow && <DiffViewToggle />}
+            {!isInWindow && (
+              <Button size="xs" variant="ghost" onClick={openMissingCommitsWindow}>
+                <AppWindowIcon data-icon="inline-start" />
+                Open in Window
+              </Button>
+            )}
+          </>
+        ),
+      }}
+    >
       <CommitList commits={missingCommits} variant="detailed" showFileCount renderAfterCommit={renderAfterCommit} />
-
-    </Card>
+    </SectionPanel>
   )
 }

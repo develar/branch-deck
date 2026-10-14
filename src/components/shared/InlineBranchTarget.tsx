@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { GitBranchIcon } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { AIStatusIndicator } from "@/components/ai/AIStatusIndicator"
 import { BranchNameSuggestions } from "@/components/ai/BranchNameSuggestions"
+import { ChoiceChip } from "@/components/shared/ChoiceChip"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import type { InlineInputDialogHandle } from "@/components/shared/InlineInputDialog"
@@ -144,10 +144,10 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
                 <p className="text-xs text-muted-foreground">Existing branches:</p>
                 <div className="flex flex-wrap gap-2">
                   {targets.map(name => (
-                    <Button key={name} size="xs" variant={name === sanitizedBranchName ? "outline" : "secondary"} onClick={() => choose(name)}>
+                    <ChoiceChip key={name} chosen={name === sanitizedBranchName} onClick={() => choose(name)}>
                       <GitBranchIcon data-icon="inline-start" />
                       {name}
-                    </Button>
+                    </ChoiceChip>
                   ))}
                 </div>
               </div>
@@ -157,6 +157,7 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
               branchPrefix={effectiveBranchPrefix}
               commits={commits}
               isActive={isActive}
+              selectedName={sanitizedBranchName}
               onSelect={choose}
             />
           </>

@@ -1,6 +1,8 @@
 import { useEffect, useEffectEvent } from "react"
 import { SparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
+import { ChoiceChip, softPrimaryClassName } from "@/components/shared/ChoiceChip"
 import { useAIToggle } from "@/hooks/useAIToggle"
 import { useBranchSuggestions } from "@/hooks/useBranchSuggestions"
 import type { Commit } from "@/lib/bindings"
@@ -10,18 +12,17 @@ export interface BranchNameSuggestionsProps {
   branchPrefix: string
   commits: readonly Commit[]
   isActive: boolean
+  /** The name in the input: its suggestion is the chosen chip */
+  selectedName: string
   /** `isAuto`: the first suggestion is auto-populated (the receiver applies it only to an empty, untouched input) */
   onSelect: (name: string, isAuto?: boolean) => void
 }
-
-/** Soft primary button: tinted primary background, primary text */
-const primarySoftClassName = "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary"
 
 /** Assumed number of suggestions for the loading placeholders */
 const EXPECTED_SUGGESTION_COUNT = 2
 
 /** AI branch name suggestions below the inline branch creator input; on first use, asks whether to enable AI. */
-export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, isActive, onSelect }: BranchNameSuggestionsProps) {
+export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, isActive, selectedName, onSelect }: BranchNameSuggestionsProps) {
   const { isInitial, setAIMode } = useAIToggle()
   const { suggestions, isGenerating, loadingProgress } = useBranchSuggestions({ repositoryPath, branchPrefix, commits, isActive })
 
@@ -48,10 +49,7 @@ export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, i
           Suggestions:
         </p>
         {isGenerating && loadingProgress > 0 && (
-          <div className="text-xs text-muted-foreground">
-            {Math.round(loadingProgress)}
-            %
-          </div>
+          <div className="text-xs text-muted-foreground tabular-nums">{`${Math.round(loadingProgress)}%`}</div>
         )}
       </div>
 
@@ -62,32 +60,23 @@ export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, i
                 <Button variant="secondary" size="xs" onClick={() => void setAIMode("disabled")}>
                   Not now
                 </Button>
-                <Button variant="ghost" size="xs" className={primarySoftClassName} onClick={() => void setAIMode("enabled")}>
+                <Button variant="ghost" size="xs" className={softPrimaryClassName} onClick={() => void setAIMode("enabled")}>
                   Enable AI
                 </Button>
               </>
             )
           : (
               <>
-                {suggestions.map((suggestion, index) => (
-                  <Button
-                    key={suggestion.name}
-                    size="xs"
-                    variant={index === 0 ? "ghost" : "secondary"}
-                    className={index === 0 ? primarySoftClassName : undefined}
-                    onClick={() => onSelect(suggestion.name)}
-                  >
-                    <span>{suggestion.name}</span>
-                  </Button>
+                {suggestions.map(suggestion => (
+                  <ChoiceChip key={suggestion.name} chosen={suggestion.name === selectedName} onClick={() => onSelect(suggestion.name)}>
+                    {suggestion.name}
+                  </ChoiceChip>
                 ))}
                 {Array.from({ length: pendingSlotCount }, (_, index) => (
-                  <div
-                    key={`loading-${index}`}
-                    className="inline-flex animate-pulse items-center justify-center gap-1 rounded-lg border bg-background px-2 py-1 text-xs font-medium"
-                  >
-                    <SparklesIcon className="size-3 animate-spin text-muted-foreground" />
-                    <span className="text-muted-foreground">Generating…</span>
-                  </div>
+                  <Button key={`loading-${index}`} variant="secondary" size="xs" disabled>
+                    <Spinner data-icon="inline-start" />
+                    Generating…
+                  </Button>
                 ))}
               </>
             )}

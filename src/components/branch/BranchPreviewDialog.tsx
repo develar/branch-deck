@@ -25,6 +25,7 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
+import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
 import { getPushButtonState } from "@/hooks/usePushButton"
@@ -203,7 +204,8 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
 
 /** A merge conflict or a sync error of the branch; the expanded row shows the details. */
 function BranchErrorNotice({ branch }: { branch: Branch }) {
-  const baselineBranch = useBranchSync(state => state.baselineBranch)
+  // the parent of a stacked branch, else the baseline: what the expanded row says too
+  const conflictBase = useConflictBase(branch.name)
   const genericError = branch.errorDetails?.Generic
   const conflictCommit = branch.commits.find(commit => commit.error?.MergeConflict != null)
   if (genericError === undefined && conflictCommit === undefined && branch.status !== "MergeConflict") {
@@ -220,7 +222,7 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
               <AlertDescription>
                 {conflictCommit === undefined
                   ? "A commit of the branch does not apply cleanly. Expand the branch to see the conflicting files."
-                  : `“${getCommitSubject(conflictCommit)}” does not apply cleanly onto ${baselineBranch ?? "the baseline"}. Expand the branch to see the conflicting files.`}
+                  : `“${getCommitSubject(conflictCommit)}” does not apply cleanly onto ${conflictBase ?? "the baseline"}. Expand the branch to see the conflicting files.`}
               </AlertDescription>
             </>
           )

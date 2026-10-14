@@ -81,7 +81,8 @@ export function BranchCreator() {
             <Alert variant="destructive" data-testid="error-alert">
               <CircleXIcon />
               <AlertTitle>{errorTitle}</AlertTitle>
-              {pathValidation.errorDetails && <AlertDescription>{pathValidation.errorDetails}</AlertDescription>}
+              {/* a command error is both the title and the details: said once */}
+              {pathValidation.errorDetails && pathValidation.errorDetails !== errorTitle && <AlertDescription>{pathValidation.errorDetails}</AlertDescription>}
             </Alert>
           )
         : hasCompletedSync && branchCount === 0 && unassignedCommitCount === 0 && (

@@ -1,17 +1,16 @@
 import { TriangleAlertIcon } from "lucide-react"
-import { CommitHeader } from "@/components/commit/CommitHeader"
+import { CommitMetadata } from "@/components/commit/CommitMetadata"
+import type { CommitMetadataProps } from "@/components/commit/CommitMetadata"
 
 export interface ConflictCommitContextProps {
-  title?: string
-  commitMessage: string
-  commitHash: string
-  commitAuthorTime: number
-  commitCommitterTime: number
-  branchName?: string
+  /** `formatConflictTitle`: "“<subject>” does not apply cleanly onto <base>" */
+  title: string
+  /** The meta line of the commit under the title; the expanded row has the commit row above it instead */
+  meta?: CommitMetadataProps
 }
 
-/** The commit that cannot be applied, shown at the top of the conflict sub-windows. */
-export function ConflictCommitContext({ title, commitMessage, commitHash, commitAuthorTime, commitCommitterTime, branchName }: ConflictCommitContextProps) {
+/** The commit that does not apply: the title of the conflict views, in the expanded row and in the sub-windows. */
+export function ConflictCommitContext({ title, meta }: ConflictCommitContextProps) {
   return (
     <div className="flex items-start gap-2">
       {/* one line high: centred on the title */}
@@ -19,14 +18,8 @@ export function ConflictCommitContext({ title, commitMessage, commitHash, commit
         <TriangleAlertIcon className="size-4 text-destructive" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm font-medium text-foreground">{title || "Cherry-pick conflict"}</p>
-        <CommitHeader
-          subject={commitMessage.split("\n", 1)[0]!}
-          hash={commitHash}
-          authorTime={commitAuthorTime}
-          committerTime={commitCommitterTime}
-          extra={branchName ? [<span key="branch">{branchName}</span>] : undefined}
-        />
+        <p className="text-sm font-medium text-pretty text-foreground" data-testid="conflict-title">{title}</p>
+        {meta && <CommitMetadata {...meta} />}
       </div>
     </div>
   )

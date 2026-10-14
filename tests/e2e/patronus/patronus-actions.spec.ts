@@ -282,7 +282,9 @@ test.describe("Patronus actions", () => {
       await expect(review).toHaveAttribute("data-status", "required")
       await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team (suggested: Alice)")
 
-      await review.getByRole("button", { name: "Create Merge Request" }).click()
+      // the button and the block name the system the approvals count in
+      await expect(review).toContainText("Patronus counts code-owner approvals in a Space merge request.")
+      await review.getByRole("button", { name: "Create Space Merge Request" }).click()
       // pushed first: Space opens a merge request of a pushed branch
       await expect(page.getByText("Branch JIRA-456 pushed successfully")).toBeVisible()
       await expect(review).toHaveAttribute("data-status", "approved")

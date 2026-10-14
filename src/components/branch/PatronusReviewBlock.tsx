@@ -15,7 +15,7 @@ export interface PatronusReviewBlockProps {
 
 /**
  * The code-owner review of a Safe Push: nothing needed; approved in the merge request; or the groups that still have to
- * approve, with the merge request to open or to create, and Recheck. A Safe Push without the approvals fails, but the
+ * approve, with the Space merge request to open or to create (the one place Patronus counts the approvals), and Recheck. A Safe Push without the approvals fails, but the
  * start stays possible: approvals may arrive while it runs up to its review check.
  */
 export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusReviewBlockProps) {
@@ -57,6 +57,8 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
         {requirement.groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}
       </ul>
       <p>A Safe Push fails without these approvals.</p>
+      {/* the review may happen on GitHub, but only the Space merge request counts (PAT-A-109): say which system */}
+      <p>Patronus counts code-owner approvals in a Space merge request.</p>
       <div className="flex flex-wrap gap-2">
         {mergeRequest === null
           ? (
@@ -69,11 +71,11 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
                     if (url !== null) {
                       openMergeRequest(url)
                     }
-                  }, (error: unknown) => notifyError("Cannot create the merge request", error))
+                  }, (error: unknown) => notifyError("Cannot create the Space merge request", error))
                 }}
               >
                 {review.isCreatingMergeRequest ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-                Create Merge Request
+                Create Space Merge Request
               </Button>
             )
           : (

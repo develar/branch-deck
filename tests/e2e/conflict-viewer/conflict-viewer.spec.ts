@@ -31,6 +31,9 @@ test.describe("Conflict Viewer Feature", () => {
 
       // Wait for conflict viewer to be visible
       const conflictSection = await waitForConflictViewer(page, bugFixDetails)
+      // the badge says "Merge conflict"; the title names the commit and what it does not apply onto
+      await expect(bugFixDetails.getByTestId("conflict-title")).toHaveText(/^“Implement secure password hashing” does not apply cleanly onto (origin\/)?master$/)
+      await expect(bugFixDetails.getByTestId("divergence-insight")).toContainText("2 missing commits modified the conflicting files")
 
       // Capture snapshot with Diff tab (default view)
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-diff-tab")
@@ -46,6 +49,27 @@ test.describe("Conflict Viewer Feature", () => {
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer-3way-tab")
     })
 
+    test("should list every conflicting file in the Diff View, also one without conflict markers", async ({ page }) => {
+      const bugFixBranch = findBranchRow(page, "bug-fix")
+      await expandBranch(page, bugFixBranch)
+      const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
+      await waitForConflictViewer(page, bugFixDetails)
+
+      const conflictingFiles = bugFixDetails.getByTestId("conflicting-files")
+      // "Conflicts only" is on by default
+      await expect(conflictingFiles.getByRole("switch")).toBeChecked()
+      const badge = conflictingFiles.locator("[data-slot=badge]").first()
+      await expect(badge).toHaveText(/^[1-9]\d* files?$/)
+      const fileCount = Number.parseInt((await badge.textContent())!, 10)
+
+      // the accordion is never empty under the badge: a file without conflict markers keeps its whole diff
+      const files = conflictingFiles.getByRole("tabpanel").getByTestId("file-diff")
+      await expect(files).toHaveCount(fileCount)
+      const file = files.first()
+      await file.getByRole("button", { name: "src/main/kotlin/com/example/service/UserService.kt" }).click()
+      await expect(file).toContainText("No conflict markers in this file: showing the whole diff")
+    })
+
     test("should expand/collapse file accordions in missing commits details", async ({ page }) => {
       // Find the bug-fix branch that has conflicts
       const bugFixBranch = findBranchRow(page, "bug-fix")
@@ -58,8 +82,8 @@ test.describe("Conflict Viewer Feature", () => {
       // Wait for conflict viewer to be visible
       await waitForConflictViewer(page, bugFixDetails)
 
-      // Find the file accordion button and wait for it to be visible
-      const fileAccordion = bugFixDetails.locator("button:has-text('src/main/kotlin/com/example/service/UserService.kt')").first()
+      // Find the file accordion button of a missing commit (the conflicting files above list the same file)
+      const fileAccordion = bugFixDetails.getByTestId("missing-commits").locator("button:has-text('src/main/kotlin/com/example/service/UserService.kt')").first()
       await expect(fileAccordion).toBeVisible()
 
       // Capture initial state (accordion collapsed) - capture the entire details row
