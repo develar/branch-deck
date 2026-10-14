@@ -1,9 +1,9 @@
 use anyhow::{Result, anyhow};
 use branch_integration::archive::{REF_RENAME_MUTEX, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::amend_operations::prepare_drop_commits;
 use git_ops::model::{BranchKind, qualified_branch_name, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::rewrite_plan::prepare_drop_commits;
 use serde::{Deserialize, Serialize};
 use std::sync::PoisonError;
 use tracing::{debug, instrument};

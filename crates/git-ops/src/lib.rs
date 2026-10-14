@@ -12,6 +12,7 @@ pub mod notes;
 pub mod ref_transaction;
 pub mod reword_commits;
 pub mod rewrite_guard;
+pub mod rewrite_plan;
 
 #[cfg(test)]
 mod amend_operations_test;
@@ -36,3 +37,9 @@ mod merge_conflict_tests;
 
 #[cfg(test)]
 mod notes_test;
+
+#[cfg(test)]
+mod rewrite_plan_test;
+
+#[cfg(test)]
+mod rewrite_test_utils;

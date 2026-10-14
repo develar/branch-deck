@@ -146,7 +146,8 @@ root commit.
 
 There is no `commit -a` and no `rebase --autosquash` fallback. A range with merges is refused (invariant 4).
 
-Code: `crates/git-ops/src/amend_operations.rs`.
+Code: `crates/git-ops/src/amend_operations.rs`, with the shared replay and merge helpers in
+`crates/git-ops/src/rewrite_plan.rs`.
 
 #### Drop and unapply
 
@@ -158,7 +159,8 @@ git replay --ref-action=print --onto=<base> --ref=refs/branch-deck/replay <d_i>.
 ```
 
 The last run is `<d_k>..HEAD`. That is at most k processes for k dropped commits, whatever the length of the range.
-A conflict makes `replay` exit with 1, without output, and nothing has changed.
+A conflict makes `replay` exit with 1, without output, and nothing has changed. A drop is a rewrite plan
+(`prepare_plan`) whose steps are all `Drop`.
 
 Unapply moves the virtual branch to the unapplied namespace. Under `REF_RENAME_MUTEX`, one `for-each-ref` picks a free
 name, and one transaction contains:
@@ -170,7 +172,7 @@ name, and one transaction contains:
 A failed drop therefore never leaves a renamed branch behind. The dropped content stays in the working tree, so it
 shows as unstaged changes, and files that the dropped commits added become untracked.
 
-Code: `crates/git-ops/src/amend_operations.rs`, `crates/sync-core/src/unapply_branch.rs`,
+Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/sync-core/src/unapply_branch.rs`,
 `crates/branch-integration/src/archive.rs`.
 
 #### Virtual branch sync
@@ -273,7 +275,7 @@ recovery hint (`git reset -q`).
 - Implementation: `crates/git-executor/src/git_info.rs`, `crates/git-executor/src/git_command_executor.rs`,
   `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
-  `crates/git-ops/src/amend_operations.rs`
+  `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Unapply](../../spec/branch/unapply.spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),

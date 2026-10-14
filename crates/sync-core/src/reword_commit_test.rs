@@ -242,7 +242,7 @@ fn rewrite_refused_during_merge() {
   )
   .unwrap_err()
   .to_string();
-  let drop_error = git_ops::amend_operations::drop_commits_from_head(test_repo.git_executor(), path, std::slice::from_ref(&commit))
+  let drop_error = git_ops::rewrite_plan::drop_commits_from_head(test_repo.git_executor(), path, std::slice::from_ref(&commit))
     .unwrap_err()
     .to_string();
 

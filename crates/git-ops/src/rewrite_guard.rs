@@ -22,18 +22,28 @@ impl RewriteTarget {
   }
 }
 
-/// Check that the checked out branch can be rewritten from `oldest_rewritten` (inclusive) to HEAD:
+/// Check that the checked out branch can be rewritten from `oldest_rewritten` (inclusive) to HEAD, see
+/// `check_rewrite_range`
+#[instrument(skip(git_executor))]
+pub fn check_rewrite(git_executor: &GitCommandExecutor, repo_path: &str, oldest_rewritten: &str) -> Result<RewriteTarget> {
+  // `X^@` names all parents of X, so excluding them keeps X itself in the range, also when X is the root commit
+  check_rewrite_range(git_executor, repo_path, &[&format!("{oldest_rewritten}^@")])
+}
+
+/// Check that the commits of `HEAD ^exclude...` on the checked out branch can be rewritten:
 /// no rebase, merge, cherry-pick or revert in progress, HEAD on a branch and no merge commit in the range.
 /// Merges are refused rather than flattened: neither `git replay` nor our commit writer recreate them.
 #[instrument(skip(git_executor))]
-pub fn check_rewrite(git_executor: &GitCommandExecutor, repo_path: &str, oldest_rewritten: &str) -> Result<RewriteTarget> {
+pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, exclude: &[&str]) -> Result<RewriteTarget> {
   ensure_no_operation_in_progress(git_executor, repo_path)?;
   let branch = get_current_branch(git_executor, repo_path)?;
   let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repo_path)?;
 
-  // `^X^@` excludes all parents of X, so the range includes X itself, also when X is the root commit
-  let exclude_parents = format!("^{oldest_rewritten}^@");
-  let merge = git_executor.execute_command(&["rev-list", "--min-parents=2", "-n1", &head, &exclude_parents, "--"], repo_path)?;
+  let exclude: Vec<String> = exclude.iter().map(|rev| format!("^{rev}")).collect();
+  let mut args = vec!["rev-list", "--min-parents=2", "-n1", &head];
+  args.extend(exclude.iter().map(String::as_str));
+  args.push("--");
+  let merge = git_executor.execute_command(&args, repo_path)?;
   if !merge.is_empty() {
     return Err(anyhow!(
       "Cannot rewrite history that contains merge commit {}: Branch Deck rewrites only linear history",

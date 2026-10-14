@@ -1,6 +1,7 @@
 use crate::commit_writer::{NewCommit, NewParent, read_raw_commits, write_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_guard::check_rewrite;
+use crate::rewrite_plan::short_id;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -99,8 +100,4 @@ fn complete_line(message: &str) -> Vec<u8> {
     bytes.push(b'\n');
   }
   bytes
-}
-
-fn short_id(id: &str) -> &str {
-  id.get(..8).unwrap_or(id)
 }
