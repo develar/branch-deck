@@ -120,19 +120,15 @@ All git runs through `GitCommandExecutor`:
 
 Only messages change, so every tree stays the same and the index and the working tree are already correct.
 
-1. Read the first-parent history ahead of the baseline with its mapping notes
-   (`log --first-parent --format=%H%x1f%N HEAD ^<baseline>`; the whole history on a local baseline branch, as the
-   commit list does). Every reworded commit must be on it, or the reword is refused; the oldest one starts the range.
+1. Read the first-parent history (`rev-list --first-parent HEAD`). Every reworded commit must be on it; the oldest
+   one starts the range.
 2. Read the commits of the range as raw objects with one `cat-file --batch`.
 3. Write the new commits in one `fast-import --date-format=raw --signed-commits=strip` stream:
    - each commit copies its `author` and `committer` lines and its `encoding`;
    - an unchanged message keeps its bytes; a new one ends with a newline, like `commit-tree -m`;
    - the tree is set with `M 040000 <tree> ""`;
    - commits are chained by marks on a temporary ref `refs/branch-deck/tmp/<pid>-<time>-<n>`;
-   - `get-mark` prints the new ids;
-   - a notes commit carries the mapping notes to the new commits (`N inline :<mark>`). A reworded commit keeps its
-     note only when its virtual commit stays the same: the subject without the grouping prefix and the body did not
-     change, as in a move. Without this, every move or reword would rebuild every virtual branch after it.
+   - `get-mark` prints the new ids.
 4. Run one transaction that moves the branch with CAS and deletes the temporary ref.
 
 `fast-import` objects become readable only when its stream ends, so it suits batches whose commits are all known up
@@ -338,13 +334,6 @@ Virtual branches never touch HEAD, the index or the working tree.
 2. Each created commit is written with `commit-tree`, with the grouping prefix stripped from the subject and
    `branch-deck` as committer. The next commit merges onto it, and a conflict view reads it, so it must be readable at
    once. That is why the `fast-import` writer is not used here.
-   - **Deterministic copies.** The committer date is the newest committer date of the original and of every commit
-     below it in the virtual branch, the base included (the base's date comes with its tree lookup). The same
-     originals on the same base therefore give the same ids, even with the notes lost. The dates are unix seconds in
-     the local timezone, like the author date: the commit list does not read the original timezones yet.
-   - **Reuse checks the parent.** A commit whose note maps it to a commit of the existing branch reuses that commit
-     only if its first parent is the new parent (`rev-list --parents <branch> ^<base>`). A commit added below, or a
-     new base, copies the rest again. A branch whose commits are all reused still moves if its old tip had more.
 3. Known trees are seeded into the tree cache (`%T` of the listed commits, the tree of each new commit), and the
    cherry-pick takes the parent from the commit list instead of asking git.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
@@ -353,6 +342,27 @@ Virtual branches never touch HEAD, the index or the working tree.
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/notes.rs`,
 `crates/sync-core/src/branch_processor.rs`. The integration-detection cache writes its notes in one `fast-import` as
 well (`crates/branch-integration/src/cache.rs`).
+
+#### Virtual commit reuse
+
+A sync reuses a virtual commit when the original's mapping note points to it; otherwise it copies the original again.
+- **Reuse checks the parent.** The mapped commit must be in the existing branch with the new parent as its first
+  parent (`rev-list --parents <branch> ^<base>`, one call per branch). A commit added below, or a new base, copies the
+  rest again. A branch whose commits are all reused still moves if its old tip had more commits.
+- **Deterministic copies.** The committer date is the newest committer date of the original, the originals below it
+  and the base (the base's date is read with its tree). The same originals on the same base give the same ids, even
+  after the notes are lost. The dates are unix seconds in the local timezone, like the author date: the commit list
+  does not read the original timezones yet.
+- **Rewords carry the notes.** A reword or move recreates every commit after the oldest reworded one, and its
+  `fast-import` stream also writes the old commits' mapping notes onto the new ones (`N inline :<mark>`). A reworded
+  commit keeps its note only if its virtual commit stays the same: the subject without the grouping prefix and the
+  body are unchanged, as in a move. Without this, each move would rebuild every virtual branch after it.
+- **Bounded walk.** A reword reads only the first-parent history ahead of the baseline, notes included, with one
+  `log --first-parent --format=%H%x1f%N HEAD ^<baseline>` (the whole history on the local baseline branch, as the
+  commit list does), and refuses a commit outside it.
+
+Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
+`crates/git-ops/src/reword_commits.rs`, `crates/sync-core/src/reword_commit.rs`.
 
 ### Index policy
 
@@ -437,7 +447,7 @@ recovery hint (`git reset -q`).
 
 | Operation | Before | After |
 |---|---|---|
-| Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `log` (bounded by the baseline) + 1 `cat-file` + 1 `fast-import` (notes included) + 1 `update-ref`, plus the guard and the baseline detection |
+| Reword or move of n commits | n `commit-tree` + n `merge-base --is-ancestor` | 1 `rev-list` + 1 `cat-file` + 1 `fast-import` + 1 `update-ref`, plus the guard |
 | Drop k commits from a range of n | up to n `merge-tree` + n `commit-tree` + `reset` | at most k `replay` + 1 `update-ref` + 1 `read-tree` |
 | Amend into a non-HEAD commit | n `merge-tree` + n `commit-tree`, or a rebase | 1 `merge-tree` + 1 `fast-import` + 1 `replay` + 1 `update-ref` |
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
