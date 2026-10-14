@@ -130,7 +130,7 @@ test.describe("Archived branch merged by a baseline commit", () => {
     await expandBranch(page, row)
 
     const line = card.getByTestId("archived-branch-integration-commit")
-    await expect(line).toHaveText(/^Merged as [0-9a-f]{8} by Patronus, \d+ hours ago$/)
+    await expect(line).toHaveText(/^Merged as [0-9a-f]{8} by Patronus$/)
     await testCopyButtonOnHover(page, line, /^[0-9a-f]{40}$/, "Copy the commit hash")
   })
 })
