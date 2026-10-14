@@ -112,8 +112,8 @@ is outgoing compares content, not hashes: the question is whether the remote has
   ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
 - A branch that waits for its author, an open pull request with changes requested or failing checks
-  ([Pull Requests](../branch/pull-requests.spec.md)) or a robot that failed on the commit the branch is at
-  ([Patronus](../branch/patronus.spec.md)), must put a `destructive` dot on the icon of the indicator. The overview
+  ([Pull Requests](../branch/pull-requests.spec.md)) or a robot that failed on the branch as it is, also rebuilt on a
+  newer baseline since ([Patronus](../branch/patronus.spec.md)), must put a `destructive` dot on the icon of the indicator. The overview
   explains it with a line per such branch, in the table order, below its title: "ABC-123 needs attention: changes
   requested, failing checks", "ABC-123 needs attention: failed Safe Push".
   [@test] ../../src/lib/outgoing-attention.test.ts (`names what each branch waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)

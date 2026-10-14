@@ -331,6 +331,11 @@ export function useBranchRemoteTip(name: string): string | null {
   return useStore(branchSyncStore, state => state.branches[name]?.remoteStatus?.remoteTip ?? null)
 }
 
+/** The remote status of the branch, null until loaded; re-rendered only when a new status replaces it */
+export function useBranchRemoteStatus(name: string): RemoteStatus | null {
+  return useStore(branchSyncStore, state => state.branches[name]?.remoteStatus ?? null)
+}
+
 export function useIsBranchPushing(name: string): boolean {
   return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, name))
 }

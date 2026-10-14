@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
-import { formatAuthorAttention, formatAvailabilityHint, formatChecks, getPullRequestChipState } from "@/lib/pull-request"
+import { formatAuthorAttention, formatAvailabilityHint, formatChecks, formatPullRequestCommitNotice, getPullRequestChipState } from "@/lib/pull-request"
+import type { RemoteStatus } from "@/stores/branch-sync"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
@@ -23,26 +25,42 @@ function pullRequest(patch: Partial<PullRequest> = {}): PullRequest {
 }
 
 const failing: ChecksSummary = { state: "failing", passed: 9, failed: 1, pending: 2, failedNames: ["tests"] }
+/** The remote branch is at the head ("tip"), the local branch has a commit more */
+const unpushed: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
 
 describe("getPullRequestChipState", () => {
   it("colours an open pull request by its review decision", () => {
-    expect(getPullRequestChipState(pullRequest({ reviewDecision: "approved" }), "tip")).toEqual({ icon: "open", color: "success", label: "Approved", checksFailing: false, outdated: false })
-    expect(getPullRequestChipState(pullRequest({ reviewDecision: "changesRequested" }), "tip")).toMatchObject({ icon: "open", color: "error", label: "Changes requested" })
-    expect(getPullRequestChipState(pullRequest(), "tip")).toMatchObject({ icon: "open", color: "neutral", label: "Review required" })
-    expect(getPullRequestChipState(pullRequest({ reviewDecision: null }), "tip")).toMatchObject({ icon: "open", color: "neutral", label: "Open" })
+    expect(getPullRequestChipState(pullRequest({ reviewDecision: "approved" }), "tip", null)).toEqual({ icon: "open", color: "success", label: "Approved", checksFailing: false, commit: "current", outdated: false })
+    expect(getPullRequestChipState(pullRequest({ reviewDecision: "changesRequested" }), "tip", null)).toMatchObject({ icon: "open", color: "error", label: "Changes requested" })
+    expect(getPullRequestChipState(pullRequest(), "tip", null)).toMatchObject({ icon: "open", color: "neutral", label: "Review required" })
+    expect(getPullRequestChipState(pullRequest({ reviewDecision: null }), "tip", null)).toMatchObject({ icon: "open", color: "neutral", label: "Open" })
   })
 
   it("shows the state of a draft, a merged and a closed pull request instead of the decision", () => {
-    expect(getPullRequestChipState(pullRequest({ isDraft: true, reviewDecision: "approved" }), "tip")).toMatchObject({ icon: "draft", color: "neutral", label: "Draft" })
-    expect(getPullRequestChipState(pullRequest({ state: "merged", reviewDecision: "approved" }), "tip")).toMatchObject({ icon: "merged", color: "info", label: "Merged" })
-    expect(getPullRequestChipState(pullRequest({ state: "closed" }), "tip")).toMatchObject({ icon: "closed", color: "neutral", label: "Closed" })
+    expect(getPullRequestChipState(pullRequest({ isDraft: true, reviewDecision: "approved" }), "tip", null)).toMatchObject({ icon: "draft", color: "neutral", label: "Draft" })
+    expect(getPullRequestChipState(pullRequest({ state: "merged", reviewDecision: "approved" }), "tip", null)).toMatchObject({ icon: "merged", color: "info", label: "Merged" })
+    expect(getPullRequestChipState(pullRequest({ state: "closed" }), "tip", null)).toMatchObject({ icon: "closed", color: "neutral", label: "Closed" })
   })
 
-  it("marks failing checks and a head that is not the local tip, for open pull requests only", () => {
-    expect(getPullRequestChipState(pullRequest({ checks: failing }), "other")).toMatchObject({ checksFailing: true, outdated: true })
-    expect(getPullRequestChipState(pullRequest({ checks: { ...failing, state: "pending" } }), undefined)).toMatchObject({ checksFailing: false, outdated: false })
+  it("marks failing checks and a head the branch changed since, for open pull requests only", () => {
+    expect(getPullRequestChipState(pullRequest({ checks: failing }), "fixed", unpushed)).toMatchObject({ checksFailing: true, commit: "changedLocally", outdated: true })
+    expect(getPullRequestChipState(pullRequest({ checks: { ...failing, state: "pending" } }), undefined, null)).toMatchObject({ checksFailing: false, outdated: false })
+    // the sync rebuilt the branch on a newer baseline: new hashes, the commits the pull request shows
+    expect(getPullRequestChipState(pullRequest(), "rebuilt", testRemoteStatus({ remoteTip: "tip" }))).toMatchObject({ commit: "rebased", outdated: false })
     // a merged pull request keeps its last head
-    expect(getPullRequestChipState(pullRequest({ state: "merged", checks: failing }), "other")).toMatchObject({ checksFailing: false, outdated: false })
+    expect(getPullRequestChipState(pullRequest({ state: "merged", checks: failing }), "fixed", unpushed)).toMatchObject({ checksFailing: false, commit: "current", outdated: false })
+  })
+})
+
+describe("formatPullRequestCommitNotice", () => {
+  it("asks for a push when the branch changed, waits for GitHub after one, and says quietly that it shows an earlier build", () => {
+    const shown = pullRequest({ headRefOid: "3264f30f0123" })
+    const notice = (localTip: string, remote: RemoteStatus) => formatPullRequestCommitNotice(shown, getPullRequestChipState(shown, localTip, remote), remote.remoteTip)
+    const ahead = testRemoteStatus({ remoteTip: "3264f30f0123", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+    expect(notice("88de421d4567", ahead)).toBe("Shows 3264f30f; the branch has changed since: push to update the pull request.")
+    expect(notice("88de421d4567", testRemoteStatus({ remoteTip: "88de421d4567" }))).toBe("Shows 3264f30f; GitHub doesn't show the pushed 88de421d yet.")
+    expect(notice("88de421d4567", testRemoteStatus({ remoteTip: "3264f30f0123" }))).toBe("Shows an earlier build of the same commits.")
+    expect(notice("3264f30f0123", ahead)).toBeNull()
   })
 })
 

@@ -12,7 +12,7 @@ export interface OutgoingAttention {
 
 /**
  * The branches of the table, in its order, whose open pull request has changes requested or failing checks, or whose
- * robot failed on the commit the branch is at
+ * robot failed on the branch as it is (also rebuilt on a newer baseline since)
  */
 export function collectOutgoingAttention(
   rows: readonly BranchTableRow[],
@@ -27,11 +27,12 @@ export function collectOutgoingAttention(
     }
     const branch = branches[row.name]
     const localTip = branch?.commits[0]?.hash
+    const remote = branch?.remoteStatus ?? null
     const pullRequest = pullRequests[row.name]
-    const robot = findBranchRobot(robots, row.name, localTip, branch?.remoteStatus?.remoteTip ?? null)
+    const robot = findBranchRobot(robots, row.name, localTip, remote?.remoteTip ?? null)
     const reasons = [
       pullRequest === undefined ? null : formatAuthorAttention(pullRequest),
-      robot === undefined ? null : formatPatronusAttention(robot, localTip),
+      robot === undefined ? null : formatPatronusAttention(robot, localTip, remote),
     ].filter(reason => reason !== null)
     if (reasons.length > 0) {
       result.push({ branchName: row.name, reason: reasons.join(", ") })

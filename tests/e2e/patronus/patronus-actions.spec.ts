@@ -139,6 +139,30 @@ test.describe("Patronus actions", () => {
     expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
   })
 
+  test("should push and restart a failed robot whose branch changed since, from the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // failed on an older commit; the fix is not on the remote yet
+    const older = robot("ABC-123", "failed-robot", { status: "failure", sourceRevision: "older-commit", finishTime: 1704142800 })
+    await setupRobots(page, setupRepo, syncAndWaitForBranches, older)
+    const order: string[] = []
+    await routeCommand(page, "push_branch", (params) => {
+      order.push("push")
+      return pushOutcome(params.branchName as string)
+    })
+    await routeCommand(page, "restart_patronus_robot", (params) => {
+      order.push(`restart ${params.robotId as string}`)
+      return robot("ABC-123", "restarted-robot")
+    })
+
+    const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
+    await expect(popover.getByTestId("patronus-outdated")).toContainText("Push and restart to test the current branch.")
+    await popover.getByRole("button", { name: "Push and Restart" }).click()
+
+    // the restart takes the commit just pushed
+    await expect(page.getByText("Safe Push restarted")).toBeVisible()
+    expect(order).toEqual(["push", "restart failed-robot"])
+    await expect(chip(page, "ABC-123")).toHaveText("Running")
+  })
+
   test("should show the profile, the checks and the problems in the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches, FAILED)
     await routeCommand(page, "get_patronus_robot_details", () => ({

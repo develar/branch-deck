@@ -1,6 +1,21 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
-import { findBranchRow } from "./branch-helpers"
+import { findBranchRow, getPushButton } from "./branch-helpers"
+import type { PushResult } from "./push-helpers"
+import { routePush } from "./push-helpers"
+
+/** The commit the review took (a robot's source, a pull request's head) that the local branch no longer is at */
+export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+/**
+ * Pushes the branch with its push button and waits for it; the remote answers with `result` (`routePush`), e.g. the
+ * remote status of a branch whose remote is at `EARLIER_COMMIT`
+ */
+export async function pushBranchFromRow(page: Page, branchName: string, result: PushResult = {}): Promise<void> {
+  await routePush(page, { [branchName]: result })
+  await getPushButton(findBranchRow(page, branchName)).click()
+  await expect(page.getByText(`Branch ${branchName} pushed successfully`)).toBeVisible()
+}
 
 /** Hovers a status chip (pull request, Patronus robot) and returns its details popover */
 export async function hoverStatusChip(page: Page, chip: Locator, popoverTestId: string): Promise<Locator> {

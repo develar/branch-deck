@@ -40,8 +40,8 @@ repositories: all operations run through the Git CLI.
 - **GitHub pull requests**: the PR number, review state and checks of each branch, read with the
   [`gh`](https://cli.github.com) CLI.
 - **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
-  merged, and whether it tests the commit the branch is at. Start a Safe Push or a Dry Run with a merge profile,
-  restart or cancel it from the branch; a push that would make a running Safe Push fail asks first. Before a Safe
+  merged, and whether the branch changed since it started (a sync that only rebuilt the branch on a newer baseline did
+  not). Start a Safe Push or a Dry Run with a merge profile, restart (pushing first) or cancel it from the branch; a push that would make a running Safe Push fail asks first. Before a Safe
   Push, the code-owner approvals it needs, with the merge request to create or to open. When a Safe Push merged, a
   toast (or an OS notification in the background) says so and fetches the baseline on request. Uses the token of the
   Safe Push CLI.

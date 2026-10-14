@@ -5,7 +5,7 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, switchBranchPreview } from "../helpers/review-status-helpers"
+import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -13,8 +13,8 @@ const RUNNING = robot("JIRA-456", "running-robot", { name: "JIRA-456 fix the dat
 const FAILED = robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })
 const MERGED = robot("feature-db", "merged-robot", { status: "success", finishTime: 1704142800 })
 const DRY_RUN = robot("feature-docs", "dry-run-robot", { status: "success", pushMode: "dryRun", finishTime: 1704142800 })
-// tested a commit the local branch no longer has
-const OUTDATED = robot("feature-api", "outdated-robot", { status: "canceled", sourceRevision: "0123456789abcdef0123456789abcdef01234567", cancellationReason: "Canceled by the user" })
+// tested a commit the local branch no longer is at, and the remote doesn't have (the branch is not pushed)
+const OUTDATED = robot("feature-api", "outdated-robot", { status: "canceled", sourceRevision: EARLIER_COMMIT, cancellationReason: "Canceled by the user" })
 const ALL = availableRobots(RUNNING, FAILED, MERGED, DRY_RUN, OUTDATED)
 
 const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
@@ -76,10 +76,32 @@ test.describe("Patronus chip", () => {
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })
 
-  test("should say when the robot tests another commit than the local branch", async ({ page }) => {
-    const popover = await hoverChip(page, "feature-api")
-    await expect(popover.getByTestId("patronus-outdated")).toContainText("Tests 01234567; the branch is at ")
+  test("should say when the branch changed since the robot started, and how to test the branch as it is", async ({ page }) => {
+    // the remote doesn't have the change: a restart would test the commit the remote has, so the push comes first
+    let popover = await hoverChip(page, "feature-api")
+    await expect(popover.getByTestId("patronus-outdated")).toHaveText(/^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and restart to test the current branch\.$/)
+    await expect(popover.getByRole("button", { name: "Push and Restart" })).toBeVisible()
+    await expect(popover.getByRole("button", { name: "Restart", exact: true })).toHaveCount(0)
     await expect(popover.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
+    await page.keyboard.press("Escape")
+    await expect(popover).toBeHidden()
+
+    // pushed since the robot started: a restart takes the pushed commit
+    await pushBranchFromRow(page, "feature-api")
+    await expect(getChip(page, "feature-api").getByTestId("patronus-outdated-dot")).toBeVisible()
+    popover = await hoverChip(page, "feature-api")
+    await expect(popover.getByTestId("patronus-outdated")).toHaveText(/: the result won't cover the newest commits\. Restart to test the current branch\.$/)
+    await expect(popover.getByRole("button", { name: "Restart", exact: true })).toBeVisible()
+    await expect(popover.getByRole("button", { name: "Push and Restart" })).toHaveCount(0)
+  })
+
+  test("should say only quietly that a robot started on an earlier build of the same commits", async ({ page }) => {
+    // the remote branch is at the robot's commit and has the commits of the branch, which the sync rebuilt on a newer baseline
+    await pushBranchFromRow(page, "feature-api", { remoteTip: EARLIER_COMMIT })
+    await expect(getChip(page, "feature-api").getByTestId("patronus-outdated-dot")).toHaveCount(0)
+    const popover = await hoverChip(page, "feature-api")
+    await expect(popover.getByTestId("patronus-rebased")).toHaveText("Started on an earlier build of the same commits.")
+    await expect(popover.getByTestId("patronus-outdated")).toHaveCount(0)
   })
 
   test("should show the robot in the branch preview", async ({ page }) => {

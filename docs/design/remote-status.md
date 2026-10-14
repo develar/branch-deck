@@ -131,6 +131,15 @@ status text and the header bars use it; the bars add lightness for authorship (s
 ### Handling Rebased Branches
 When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped).
 
+### Review Status
+The commit a review took, the source revision of a Patronus robot or the head of a pull request, is compared with the
+remote tip and the counts, never with the local tip: the sync rebuilds an unchanged branch on every newer baseline, and
+a hash comparison made a false "the branch changed" after each sync. The branch changed since the review when that
+commit is not the remote tip, or the branch is not up to date. The remote tip at that commit with an up-to-date branch
+is the same commits on an older baseline: no warning, a quiet line in the details (`getReviewCommitState` in
+`src/lib/review-commit.ts`; [Patronus](../../spec/branch/patronus.spec.md),
+[Pull Requests](../../spec/branch/pull-requests.spec.md)).
+
 ## Alternatives Considered
 
 - **Count every commit ahead by hash, the baseline included** (the earlier design):

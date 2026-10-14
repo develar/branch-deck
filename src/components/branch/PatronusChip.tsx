@@ -1,20 +1,21 @@
 import { useState } from "react"
 import type { ComponentType } from "react"
-import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, TriangleAlertIcon } from "lucide-react"
+import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
-import { InlineCode } from "@/components/shared/InlineCode"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { PatronusChipKind } from "@/lib/patronus"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { formatCheckCounts } from "@/lib/check-counts"
-import { canCancelRobot, canRestartRobot, formatPushMode, getPatronusChipState, openRobot } from "@/lib/patronus"
+import { pushBranch } from "@/lib/git/push"
+import { canCancelRobot, formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
-import { useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
+import { useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
 import { cancelPatronusRobot, isPatronusAvailable, restartPatronusRobot, useBranchRobot, useRobotNeedsReview } from "@/stores/patronus"
 
@@ -30,20 +31,21 @@ const icons: Readonly<Record<PatronusChipKind, ComponentType<{ className?: strin
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Running", "Failed", "Merged", "Dry run passed"), in its
- * hue; a `warning` dot when it tests another commit than the local branch. Hover shows the details, a click opens the
- * robot in Patronus. Nothing without a robot. `compact` (the outgoing overview, where the branch names need the room)
- * shows the shield without the state text.
+ * hue; a `warning` dot when the branch changed since the robot took its commit (a branch only rebuilt on a newer
+ * baseline did not). Hover shows the details, a click opens the robot in Patronus. Nothing without a robot. `compact`
+ * (the outgoing overview, where the branch names need the room) shows the shield without the state text.
  */
 export function PatronusChip({ branchName, compact = false }: { branchName: string, compact?: boolean }) {
   const robot = useBranchRobot(branchName)
   const localTip = useBranchTip(branchName)
+  const remote = useBranchRemoteStatus(branchName)
   const [open, setOpen] = useState(false)
   const needsReview = useRobotNeedsReview(robot?.id)
   if (robot === undefined) {
     return null
   }
 
-  const chip = getPatronusChipState(robot, localTip, needsReview)
+  const chip = getPatronusChipState(robot, localTip, remote, needsReview)
   const Icon = icons[chip.kind]
   return (
     <StatusChip
@@ -55,7 +57,7 @@ export function PatronusChip({ branchName, compact = false }: { branchName: stri
         "data-color": chip.color,
         "data-outdated": chip.outdated || undefined,
       }}
-      details={<PatronusRobotDetails branchName={branchName} robot={robot} localTip={localTip} loadDetails={open} />}
+      details={<PatronusRobotDetails branchName={branchName} robot={robot} loadDetails={open} />}
       detailsTestId="patronus-popover"
       onActivate={() => openRobot(robot)}
       onOpenChange={setOpen}
@@ -70,22 +72,25 @@ export function PatronusChip({ branchName, compact = false }: { branchName: stri
 export interface PatronusRobotDetailsProps {
   branchName: string
   robot: PatronusRobot
-  localTip: string | undefined
   /** Asks Patronus for the profile, the checks and the problems (the popover is open) */
   loadDetails: boolean
 }
 
 /**
  * The mode and the state, the name, the target, the profile, the commit and the times, the checks and the problems, a
- * notice when the robot tests another commit than the local branch, then Restart, Cancel and "Open in Patronus". The
- * chip popover and the branch preview show it.
+ * notice when the branch changed since the robot took its commit (a quiet line when it was only rebuilt on a newer
+ * baseline), then Restart (Push and Restart for a change not pushed yet), Cancel and "Open in Patronus". The chip
+ * popover and the branch preview show it.
  */
-export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails }: PatronusRobotDetailsProps) {
+export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
-  const chip = getPatronusChipState(robot, localTip, needsReview)
+  const localTip = useBranchTip(branchName)
+  const remote = useBranchRemoteStatus(branchName)
+  const chip = getPatronusChipState(robot, localTip, remote, needsReview)
   const Icon = icons[chip.kind]
   const details = usePatronusRobotDetails(robot.id, robot.status, loadDetails)
-  const remoteTip = useBranchRemoteTip(branchName)
+  const restart = getRobotRestartAction(robot, branchName, localTip, remote, needsReview)
+  const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
   const mode = formatPushMode(robot.pushMode)
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="patronus-details">
@@ -141,18 +146,7 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
         )}
       </dl>
 
-      {chip.outdated && robot.sourceRevision !== null && localTip !== undefined && (
-        <p className="flex items-start gap-1.5 text-xs text-warning" data-testid="patronus-outdated">
-          <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
-          <span>
-            {"Tests "}
-            <InlineCode plain>{formatShortHash(robot.sourceRevision)}</InlineCode>
-            {"; the branch is at "}
-            <InlineCode plain>{formatShortHash(localTip)}</InlineCode>
-            {" now."}
-          </span>
-        </p>
-      )}
+      <ReviewCommitNotice text={notice} outdated={chip.outdated} testId="patronus" />
 
       {details !== null && details.problems.length > 0 && (
         <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
@@ -179,10 +173,17 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
             Safe Push…
           </Button>
         )}
-        {canRestartRobot(robot, branchName, remoteTip, needsReview) && (
+        {restart === "restart" && (
           <Button variant="outline" size="xs" onClick={() => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)}>
             <RotateCcwIcon data-icon="inline-start" />
             Restart
+          </Button>
+        )}
+        {restart === "pushAndRestart" && (
+          // the restart takes the commit just pushed
+          <Button variant="outline" size="xs" onClick={() => void pushBranch(branchName, { restartRobot: robot })}>
+            <UploadIcon data-icon="inline-start" />
+            Push and Restart
           </Button>
         )}
         {canCancelRobot(robot) && (
@@ -203,13 +204,12 @@ export function PatronusRobotDetails({ branchName, robot, localTip, loadDetails 
 /** The robot of the branch in the branch preview, above the commits; nothing without one */
 export function BranchPatronusSection({ branchName }: { branchName: string }) {
   const robot = useBranchRobot(branchName)
-  const localTip = useBranchTip(branchName)
   if (robot === undefined) {
     return null
   }
   return (
     <section aria-label="Patronus" className="rounded-lg border border-border p-3" data-testid="branch-preview-patronus">
-      <PatronusRobotDetails branchName={branchName} robot={robot} localTip={localTip} loadDetails />
+      <PatronusRobotDetails branchName={branchName} robot={robot} loadDetails />
     </section>
   )
 }

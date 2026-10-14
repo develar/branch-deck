@@ -5,7 +5,7 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
-import { hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, switchBranchPreview } from "../helpers/review-status-helpers"
+import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -22,8 +22,8 @@ const CHANGES_REQUESTED = pullRequest("ABC-123", 761, {
 const DRAFT = pullRequest("feature-docs", 762, { isDraft: true })
 const MERGED = pullRequest("feature-db", 763, { state: "merged", reviewDecision: "approved" })
 const CLOSED = pullRequest("feature-ui", 764, { state: "closed" })
-// shows a commit the local branch no longer has
-const OUTDATED = pullRequest("feature-api", 765, { headRefOid: "0123456789abcdef0123456789abcdef01234567" })
+// shows a commit the local branch no longer is at, and the remote doesn't have (the branch is not pushed)
+const OUTDATED = pullRequest("feature-api", 765, { headRefOid: EARLIER_COMMIT })
 const ALL = availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED)
 
 const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
@@ -89,9 +89,18 @@ test.describe("Pull request chip", () => {
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })
 
-  test("should say when the pull request does not show the local branch", async ({ page }) => {
+  test("should say when the branch changed since the pull request's head", async ({ page }) => {
     const popover = await hoverChip(page, "feature-api")
-    await expect(popover.getByTestId("pull-request-outdated")).toHaveText("Not updated: the pull request shows 01234567. Push to update it.")
+    await expect(popover.getByTestId("pull-request-outdated")).toHaveText("Shows 01234567; the branch has changed since: push to update the pull request.")
+  })
+
+  test("should say only quietly that the pull request shows an earlier build of the same commits", async ({ page }) => {
+    // the remote branch is at the head and has the commits of the branch, which the sync rebuilt on a newer baseline
+    await pushBranchFromRow(page, "feature-api", { remoteTip: EARLIER_COMMIT })
+    await expect(getChip(page, "feature-api").getByTestId("pull-request-outdated-dot")).toHaveCount(0)
+    const popover = await hoverChip(page, "feature-api")
+    await expect(popover.getByTestId("pull-request-rebased")).toHaveText("Shows an earlier build of the same commits.")
+    await expect(popover.getByTestId("pull-request-outdated")).toHaveCount(0)
   })
 
   test("should refresh after a push", async ({ page, repo }) => {
