@@ -294,7 +294,7 @@ pub fn regroup_commits_core(git_executor: &GitCommandExecutor, repository_path: 
 
 /// `regroup_commits_core` with one more check of the validated result before anything is written: `accept` refuses
 /// it with an error, e.g. a plan field the caller handles (the descriptions of `bd group`)
-#[instrument(skip(git_executor, plan, accept), fields(branches = plan.branches.len(), unassign = plan.unassign.len()))]
+#[instrument(skip(git_executor, plan, options, accept), fields(branches = plan.branches.len(), unassign = plan.unassign.len(), dry_run = options.dry_run))]
 pub fn regroup_commits_accepted(
   git_executor: &GitCommandExecutor,
   repository_path: &str,

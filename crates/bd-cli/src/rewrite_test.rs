@@ -1,4 +1,5 @@
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, with_header, write};
+use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -226,7 +227,7 @@ fn issue_groups_plan_and_undo() {
 }
 
 #[test_log::test]
-fn group_with_descriptions_and_sync_under_one_lock() {
+fn group_writes_descriptions_and_syncs() {
   let (repo, ids) = repo_with(&["Add login", "ABC-1 Fix crash"]);
   let head = repo.head();
   let plan = json!({
@@ -239,6 +240,7 @@ fn group_with_descriptions_and_sync_under_one_lock() {
   let (exit_code, output) = group(&repo, &plan, &["--expect-head", &short(&head), "--sync"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["rewritten"], &output["described"]), (&json!(1), &json!(["ABC-1", "auth"])));
+  assert_eq!(output.get("replaced_descriptions"), None, "no text was there before");
   assert!(output["undo_token"].is_string(), "{output}");
   let synced: Vec<(&Value, &Value)> = output["sync"]["branches"]
     .as_array()
@@ -261,13 +263,14 @@ fn group_with_descriptions_and_sync_under_one_lock() {
     "{again}"
   );
 
-  // descriptions only: no rewrite, no --expect-head needed
+  // descriptions only: no rewrite, no --expect-head needed; the replaced text is printed
   let (exit_code, described) = group(&repo, &json!({ "descriptions": { "auth": { "title": "Login" } } }), &[]);
   assert_eq!(exit_code, 0, "{described}");
   assert_eq!(
     (&described["rewritten"], &described["described"], described.get("sync")),
     (&json!(0), &json!(["auth"]), None)
   );
+  assert_eq!(described["replaced_descriptions"], json!({ "auth": { "title": "Add login", "body": "The login form." } }));
   assert_eq!(git(&repo, &["config", "branch.test-user/virtual/auth.description"]), "Login");
 }
 
@@ -289,6 +292,42 @@ fn a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token() {
   assert_eq!(subjects(&repo), ["(a) Add shared", "Change shared"]);
 }
 
+#[test_log::test]
+fn a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token() {
+  let (repo, ids) = repo_with(&["Add login", "Tidy up"]);
+  // another git process writes the config: `git config` can't lock it, the regroup doesn't need it
+  let config_lock = repo.path().join(".git/config.lock");
+  std::fs::write(&config_lock, "").unwrap();
+  let plan = json!({ "branches": { "auth": [short(&ids[0])] }, "descriptions": { "auth": { "title": "Login" } } });
+  let (exit_code, output) = group(&repo, &plan, &["--sync"]);
+  std::fs::remove_file(&config_lock).unwrap();
+
+  assert_error(&output, exit_code, 5, "git_error");
+  assert_eq!((&output["rewritten"], output.get("described"), output.get("sync")), (&json!(1), None, None), "{output}");
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &output, "rewrite with an error");
+  assert_eq!(description_count(&repo), 0);
+  let (exit_code, undone) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
+  assert_eq!(exit_code, 0, "{undone}");
+  assert_eq!(subjects(&repo), ["Add login", "Tidy up"]);
+}
+
+#[test_log::test]
+fn a_stacked_branch_is_described_by_its_leaf() {
+  let (repo, ids) = repo_with(&["(auth) Add auth", "Add login"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let branches = json!({ "auth/login": [short(&ids[1])] });
+  let (exit_code, output) = group(
+    &repo,
+    &json!({ "branches": branches, "descriptions": { "auth/login": { "title": "Login" } } }),
+    &["--dry-run"],
+  );
+  assert_error(&output, exit_code, 2, "invalid_plan");
+  assert!(output["error"]["message"].as_str().unwrap().contains("`login`"), "{output}");
+  let (exit_code, output) = group(&repo, &json!({ "branches": branches, "descriptions": { "login": { "title": "Login" } } }), &["--dry-run"]);
+  assert_eq!((exit_code, &output["described"]), (0, &json!(["login"])), "{output}");
+}
+
 /// The branch descriptions in the git config
 fn description_count(repo: &TestRepo) -> usize {
   let (output, _) = repo
@@ -306,6 +345,7 @@ fn descriptions_are_validated_with_the_plan() {
   for descriptions in [
     json!({ "auth": { "title": "" } }),
     json!({ "auth": { "title": "Two\nlines" } }),
+    json!({ "auth": { "title": "Two\rlines" } }),
     json!({ "auth": { "body": "No title" } }),
     json!({ "auth": { "title": "Login", "draft": true } }),
     // a branch that no commit is in after the plan
@@ -333,6 +373,11 @@ fn descriptions_are_validated_with_the_plan() {
   std::fs::write(file.path(), plan.to_string()).unwrap();
   let (exit_code, output) = run_in(&repo, &["check", "--plan", file.path().to_str().unwrap()]);
   assert_eq!(exit_code, 0, "{output}");
+
+  // a misspelt field names `descriptions` among the expected ones
+  let (exit_code, output) = group(&repo, &json!({ "description": { "auth": { "title": "Login" } } }), &[]);
+  assert_error(&output, exit_code, 2, "invalid_plan");
+  assert!(output["error"]["message"].as_str().unwrap().contains("`descriptions`"), "{output}");
 
   // a dry run can't sync
   let (exit_code, output) = group(&repo, &plan, &["--dry-run", "--sync"]);

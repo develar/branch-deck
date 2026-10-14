@@ -197,8 +197,9 @@ passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no l
 3. After the ref transaction: one `git config` per changed description (the exception of the batch rule).
 4. With `--sync`: the sync of `bd sync` (`sync_locked`).
 
-A failure in step 3 or 4 leaves the rewrite in place; the output keeps the undo token and names the error in
-`after_write_error`.
+A failure in step 3 or 4 leaves the rewrite in place: the output keeps the undo token and has the error as `error`.
+A failed description write stops the later ones and skips step 4. The undo moves HEAD and the issue groups back, not
+the descriptions or the virtual branches; the output lists the texts the descriptions replaced.
 
 Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/move_commits.rs`,
 `crates/sync-core/src/issue_groups.rs`, `crates/sync-core/src/repository_lock.rs`.

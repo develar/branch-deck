@@ -31,7 +31,7 @@ use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic
 
 #[derive(Debug, clap::Args)]
 pub struct SuggestArgs {
-  /// Ignore the `(prefix)` of the subjects: cluster every commit as if it had none
+  /// Ignore the `(prefix)` of the subjects and the issue groups: cluster every commit as if it had neither
   #[arg(long)]
   pub fresh: bool,
   /// No merge of two clusters by score makes a branch of more commits

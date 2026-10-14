@@ -24,8 +24,16 @@ pub fn parse_group_plan(text: &str) -> Result<GroupPlan, CliError> {
     Some(descriptions) => serde_json::from_value::<BTreeMap<String, Description>>(descriptions).map_err(invalid)?,
     None => BTreeMap::new(),
   };
+  // `RegroupPlan` lists the fields it knows; `descriptions` is removed before it parses
+  let regroup = serde_json::from_value(value).map_err(|e| {
+    let mut error = invalid(e);
+    if error.message.contains("unknown field") {
+      error.message = format!("{}, or `{DESCRIPTIONS}`", error.message);
+    }
+    error
+  })?;
   Ok(GroupPlan {
-    regroup: serde_json::from_value(value).map_err(invalid)?,
+    regroup,
     descriptions: descriptions.into_iter().map(|(branch, description)| (branch, description.trimmed())).collect(),
   })
 }
@@ -46,17 +54,36 @@ pub fn check_descriptions(descriptions: &BTreeMap<String, Description>, commits:
   }
   let unknown: Vec<&str> = descriptions.keys().map(String::as_str).filter(|branch| !branches.contains(branch)).collect();
   if !unknown.is_empty() {
+    // a stacked branch is described by its leaf, as `bd describe` names it
+    let leaves: Vec<String> = unknown
+      .iter()
+      .filter_map(|branch| branch.rsplit_once('/').map(|(_, leaf)| leaf))
+      .filter(|leaf| branches.contains(leaf))
+      .map(|leaf| format!("`{leaf}`"))
+      .collect();
+    let hint = if leaves.is_empty() {
+      String::new()
+    } else {
+      format!("; a stacked branch is named by its leaf: {}", leaves.join(", "))
+    };
     return Err(RegroupError::InvalidPlan {
-      message: format!("Descriptions of branches that have no commits after the plan: {}", unknown.join(", ")),
+      message: format!("Descriptions of branches that have no commits after the plan: {}{hint}", unknown.join(", ")),
       commits: Vec::new(),
     });
   }
   Ok(())
 }
 
-/// The branches whose description differs from `descriptions`, with their `branch.<name>.description` key; one
-/// `git config --get-regexp` for all of them
-pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMap<String, Description>) -> Result<Vec<(&'a str, String, &'a Description)>, CliError> {
+/// A description that the plan replaces or adds: its branch, its config key, the new text and the current one
+pub struct DescriptionChange<'a> {
+  pub branch: &'a str,
+  pub key: String,
+  pub description: &'a Description,
+  pub previous: Option<Description>,
+}
+
+/// The descriptions that differ from `descriptions`, with the current texts; one `git config --get-regexp` for all
+pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMap<String, Description>) -> Result<Vec<DescriptionChange<'a>>, CliError> {
   if descriptions.is_empty() {
     return Ok(Vec::new());
   }
@@ -64,17 +91,26 @@ pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMa
   let mut changed = Vec::new();
   for (branch, description) in descriptions {
     let (reference, key) = description_key(context, branch)?;
-    if current.remove(&reference).as_ref() != Some(description) {
-      changed.push((branch.as_str(), key, description));
+    let previous = current.remove(&reference);
+    if previous.as_ref() != Some(description) {
+      changed.push(DescriptionChange {
+        branch,
+        key,
+        description,
+        previous,
+      });
     }
   }
   Ok(changed)
 }
 
-/// Write the changed descriptions: one `git config` process per branch, git has no batch writer
-pub fn write_descriptions(context: &RepoContext, changed: &[(&str, String, &Description)]) -> Result<(), CliError> {
-  for (_, key, description) in changed {
-    write_description(context, key, description)?;
+/// Write the changed descriptions in order: one `git config` process per branch, git has no batch writer. Returns how
+/// many were written, and the error that stopped the rest
+pub fn write_descriptions(context: &RepoContext, changed: &[DescriptionChange]) -> (usize, Option<CliError>) {
+  for (written, change) in changed.iter().enumerate() {
+    if let Err(error) = write_description(context, &change.key, change.description) {
+      return (written, Some(error));
+    }
   }
-  Ok(())
+  (changed.len(), None)
 }

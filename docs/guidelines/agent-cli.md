@@ -76,6 +76,9 @@ An error looks like this:
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `lease_rejected`, `locked` and `network_error`.
 
+One output carries an `error` next to its other fields: a rewrite (`bd group` and the others) whose step after the
+rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd group`).
+
 ## Commands
 
 ### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`
@@ -301,7 +304,8 @@ rebuilds the virtual branches, under the same repository lock.
   - a key in two issue groups, or in an issue group and in `ungroup_issues`, a key to ungroup that is in none, an
     invalid key or name, a key that no commit without a prefix carries, and a fixup the issue groups would separate
     from its target (`fixup! <id>` has no issue key) are `invalid_plan` too.
-- `descriptions` maps a branch (the group name, as for `bd describe`) to its pull request text `{title, body}`. bd
+- `descriptions` maps a branch (the group name, as for `bd describe`: the leaf of a stacked branch) to its pull
+  request text `{title, body}`. bd
   validates it with the plan: a title of one line that is not empty, and a branch that has commits after the plan (a
   prefix branch, an issue branch or an issue group); else `invalid_plan`, and nothing is written. After the ref
   transaction bd writes the texts that differ from the current ones, as `bd describe` does: one `git config` process
@@ -327,12 +331,17 @@ rebuilds the virtual branches, under the same repository lock.
   `H1..H2+groups:G1..G2` for both; `G1` is zeros when there were no issue groups before.
 - `--dry-run` writes nothing and adds `changes` (`{id, from, to}` subjects) and, with stacked branches on, `forest`
   (`{name, parent, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
-- `described` lists the branches whose description the plan changes (with `--dry-run`: would change).
+- `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
+  `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
+  can, with the replaced text.
 - `--sync` runs `bd sync` after the writes, without a gap in the lock, so no other rewrite comes between them, and
   adds its output as `sync`. The exit code is 1 when a branch conflicts, as for `bd sync`. `--sync` doesn't go with
   `--dry-run` (`invalid_arguments`): a dry run writes nothing, and `bd check` is the trial sync of a plan.
-- `after_write_error` (`{code, message, …}`, as in an error) is set when a description write or the sync fails after
-  the rewrite: the rewrite stays, `undo_token` undoes it, and the exit code is that error's.
+- `error` (`{code, message, commits, retryable}`, as in an error output) is set when a step after the rewrite fails:
+  a description write, which also skips the sync and leaves the later descriptions unwritten, or the sync. The
+  rewrite stands, `undo_token` reverts it, and the exit code is that error's.
+- `bd undo` moves back only HEAD and the issue groups: the descriptions stay, and the virtual branches stay as the
+  sync built them until the next `bd sync`.
 
 ### `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`
 
@@ -544,9 +553,9 @@ error. The first line of `bd help agent` names the version too.
 
 ### `bd help agent`
 
-Prints the workflow below as plain text, about 4.5 KB. `agent_help_test.rs` keeps it true: it names every command, and
-every long option unless the test lists it in `NOT_IN_AGENT_HELP`, and every `bd <command>` and `--option` it names
-exists.
+Prints the workflow below as plain text, about 5 KB. `agent_help_test.rs` keeps it true. The help must name every
+command and, for each command, every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as
+`status --limit`). An option counts for the command named last before it, and it must exist for that command.
 
 ### `bd install [--uninstall]`, `bd help skill`
 
@@ -574,14 +583,17 @@ Finder has a minimal one. `--uninstall` removes the skills and the symlink if it
    closer look, run `bd status --brief` and `bd commits --brief`: per commit the group, issue key, fixup target and
    `areas`, the `units` that must stay together and the `dependencies` `{from, to}`. Run `bd commits <id>… --patch`
    or `bd commits --unassigned` for the commits that are unclear, and `bd status --stats` for the size of each branch.
-2. Edit the plan where the clusters are wrong. Only after you move commits, run `bd check --plan plan.json` until
-   every branch is `ok`: move the `missing_commits` of a conflict into the branch, or stack the branch on the one that
-   has them.
-3. Add the pull request title and body of each branch to `descriptions`, and run
+2. Edit the plan where the clusters are wrong. `bd suggest` exits with 1 when its own check fails, so edit it then
+   too. After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
+   `bd check --plan plan.json` until every branch is `ok`: move the `missing_commits` of a conflict into the branch,
+   or stack the branch on the one that has them.
+3. Add `descriptions` (the pull request title and body) for the branches that have none (`description` in
+   `bd status`); replace one only when the user asks. A stacked branch is named by its leaf. Run
    `bd group --expect-head <head> --sync --plan plan.json` with the `head` of `bd suggest`. On `head_moved`,
    `groups_moved` or `locked` (exit 3), read again and retry. On a sync conflict (exit 1), regroup the commits the
-   change needs into the same branch or its parent, and run `bd sync` again. `bd undo` with the printed token reverts
-   the rewrite and the issue groups.
+   change needs into the same branch or its parent, and run `bd sync` again. On another exit with `error` and an
+   `undo_token`, the rewrite stands: run `bd sync` again, or undo it. `bd undo` with the printed token reverts the
+   rewrite and the issue groups, not the descriptions; run `bd sync` after it.
 4. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
    lines it prints, piping each `body` into its command.
 

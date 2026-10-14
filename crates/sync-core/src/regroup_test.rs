@@ -352,6 +352,28 @@ fn waits_for_the_repository_lock() {
 }
 
 #[test]
+fn a_held_lock_is_not_taken_again() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["One"]);
+  let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let one = plan(&[("a", &[&ids[0]])], &[]);
+  let without = RegroupOptions {
+    lock_timeout: Duration::ZERO,
+    ..RegroupOptions::default()
+  };
+  let error = regroup_commits_core(repo.git_executor(), path(&repo), &one, &without).unwrap_err();
+  assert!(matches!(error, RegroupError::Locked(_)), "{error}");
+
+  // the caller writes more under the same lock after the regroup (`bd group --sync`)
+  let with = RegroupOptions {
+    held_lock: Some(&held),
+    ..without
+  };
+  regroup_commits_core(repo.git_executor(), path(&repo), &one, &with).unwrap();
+  assert_eq!(subjects(&repo, 1), ["(a) One"]);
+}
+
+#[test]
 fn undo_restores_the_previous_head() {
   let repo = repo(false);
   let ids = commits(&repo, &["One", "Two"]);

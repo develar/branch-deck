@@ -98,10 +98,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - `status`, `commits`, `suggest`, `check`, `schema` and `version` must write no ref, config, index or working tree:
-  at most git objects and the object cache (none with `--no-cache`); `bd --help` and `bd help agent` must say so in
-  one line.
+  at most git objects and the object cache (none with `--no-cache`), and HEAD must stay; `bd --help` and
+  `bd help agent` must say so in one sentence.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
+  A rewrite whose step after the rewrite failed must print its output with that `error` in it, so that the undo
+  token stays.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error.
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
@@ -208,15 +210,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_errors_and_exit_codes`)
 - Fixups not in the plan must follow their targets.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`fixups_follow_their_targets`)
-- `descriptions` of the plan (`{branch: {title, body}}`) must be validated with it, before anything is written: a
-  title of one line that is not empty, and a branch that has commits after the plan, else `invalid_plan`. bd must
-  write the ones that differ after the ref transaction, under the same lock, as `bd describe` does, and list them in
-  `described`; a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_descriptions_and_sync_under_one_lock`, `descriptions_are_validated_with_the_plan`)
+- `descriptions` of the plan (`{branch: {title, body}}`, the leaf for a stacked branch) must be validated with it,
+  before anything is written: a title of one line that is not empty, and a branch that has commits after the plan,
+  else `invalid_plan`. bd must write the ones that differ after the ref transaction, under the same lock, as
+  `bd describe` does, list the written ones in `described` and the texts they replaced in `replaced_descriptions`;
+  a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
 - `--sync` must run the sync of `bd sync` after the writes, without releasing the repository lock in between, and add
-  its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write or sync must
-  keep the rewrite output and name the error in `after_write_error`. `--sync` must not go with `--dry-run`.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_descriptions_and_sync_under_one_lock`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
+  its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
+  sync; it and a failed sync must keep the rewrite output, with the `error` in it and its exit code. `--sync` must not
+  go with `--dry-run`.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`a_held_lock_is_not_taken_again`)
 - `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
   move the branch only from the HEAD the plan was computed for.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`expect_head_is_a_compare_and_swap`)
@@ -369,8 +374,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd help agent`
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
-  --sync` with the descriptions in the plan, and `bd push` after the user approves. It must name every command and
-  every long option except a listed few, and name no command or option that doesn't exist.
+  --sync` with descriptions for the branches that have none, and `bd push` after the user approves. It must name
+  every command and, per command, every long option except a listed few, and name no command, and no option for a
+  command, that doesn't exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)

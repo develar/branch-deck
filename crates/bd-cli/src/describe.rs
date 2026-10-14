@@ -77,7 +77,7 @@ impl Description {
 
   /// A pull request needs a title of one line
   pub fn has_valid_title(&self) -> bool {
-    !self.title.is_empty() && !self.title.contains('\n')
+    !self.title.is_empty() && !self.title.contains(['\n', '\r'])
   }
 
   fn to_text(&self) -> String {
@@ -161,8 +161,10 @@ pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOu
     if !description.has_valid_title() {
       return Err(CliError::new(ErrorCode::InvalidArguments, "The description needs a title of one line: pass --title"));
     }
-    write_description(context, &key, &description)?;
     let changed = current.as_ref() != Some(&description);
+    if changed {
+      write_description(context, &key, &description)?;
+    }
     (Some(description), changed)
   } else {
     (current, false)

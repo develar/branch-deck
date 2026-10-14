@@ -5,7 +5,7 @@
 use crate::context::RepoContext;
 use crate::describe::Description;
 use crate::error::{CliError, ErrorBody, ErrorCode};
-use crate::group_plan::{changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
+use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
 use crate::status::read_head;
 use crate::sync_command::{SyncOutput, lock, sync_locked};
@@ -114,22 +114,25 @@ pub struct RewriteOutput {
   /// With --map: old -> new id of every commit ahead of the baseline
   #[serde(skip_serializing_if = "Option::is_none")]
   pub map: Option<Vec<IdMapping>>,
-  /// The branches whose description the plan's `descriptions` set (or, with --dry-run, would set): the ones that differ
+  /// The branches whose description the plan's `descriptions` wrote (with --dry-run: would write), the ones that differ
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub described: Vec<String>,
+  /// The texts those descriptions replaced, by branch; `bd undo` doesn't restore them, `bd describe` can
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  pub replaced_descriptions: BTreeMap<String, Description>,
   /// With --sync: the `bd sync` output after the rewrite; exit code 1 when a branch conflicts
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sync: Option<SyncOutput>,
-  /// A step after the rewrite failed (a description or the sync): the rewrite stays (`undo_token` undoes it), and the
-  /// exit code is this error's
+  /// A step after the rewrite failed: a description write (the sync is skipped then) or the sync. The rewrite stays,
+  /// `undo_token` reverts it, and the exit code is this error's
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub after_write_error: Option<ErrorBody>,
+  pub error: Option<ErrorBody>,
 }
 
 impl RewriteOutput {
-  /// 0, 1 when the sync conflicts, or the exit code of `after_write_error`
+  /// 0, 1 when the sync conflicts, or the exit code of `error`
   pub fn exit_code(&self) -> i32 {
-    match (&self.after_write_error, &self.sync) {
+    match (&self.error, &self.sync) {
       (Some(error), _) => error.code.exit_code(),
       (None, Some(sync)) if sync.has_conflicts() => ErrorCode::Conflict.exit_code(),
       _ => 0,
@@ -217,8 +220,8 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
 }
 
 /// Run `regroup` under the repository lock (none for a dry run), then under the same lock write the changed
-/// `descriptions` and, with --sync, sync. A failure after the rewrite is `after_write_error`, so the output keeps the
-/// undo token
+/// `descriptions` and, with --sync, sync. A failure after the rewrite is the `error` of the rewrite output, so the
+/// output keeps the undo token
 fn rewrite(
   context: &RepoContext,
   operation: &str,
@@ -234,24 +237,31 @@ fn rewrite(
     held_lock: held_lock.as_ref(),
   };
   // read before the rewrite: only the writes can fail after it
-  let described = changed_descriptions(context, descriptions)?;
+  let changed = changed_descriptions(context, descriptions)?;
   let outcome = regroup(&options).map_err(regroup_error)?;
   let mut output = rewrite_output(context, operation, args, &outcome);
-  output.described = described.iter().map(|(branch, _, _)| (*branch).to_string()).collect();
   if args.dry_run {
+    set_described(&mut output, &changed);
     return Ok(output);
   }
-  if let Err(error) = write_descriptions(context, &described) {
-    output.after_write_error = Some(error.to_output().error);
+  let (written, error) = write_descriptions(context, &changed);
+  set_described(&mut output, &changed[..written]);
+  if let Some(error) = error {
+    output.error = Some(error.to_output().error);
     return Ok(output);
   }
   if args.sync {
     match sync_locked(context) {
       Ok(sync) => output.sync = Some(sync),
-      Err(error) => output.after_write_error = Some(error.to_output().error),
+      Err(error) => output.error = Some(error.to_output().error),
     }
   }
   Ok(output)
+}
+
+fn set_described(output: &mut RewriteOutput, changes: &[DescriptionChange]) {
+  output.described = changes.iter().map(|change| change.branch.to_string()).collect();
+  output.replaced_descriptions = changes.iter().filter_map(|change| Some((change.branch.to_string(), change.previous.clone()?))).collect();
 }
 
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
@@ -375,8 +385,9 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
         .collect()
     }),
     described: Vec::new(),
+    replaced_descriptions: BTreeMap::new(),
     sync: None,
-    after_write_error: None,
+    error: None,
   }
 }
 

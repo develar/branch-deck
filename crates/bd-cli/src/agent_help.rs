@@ -31,30 +31,33 @@ Errors: {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"retryable\"}
 `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 
 Workflow:
-1. `bd suggest`: a plan, clustered and checked by a trial sync. Per cluster `change` (kept, renamed, merged, split,
-   new) against the branches in `from`, `why` (one line to quote to the user), `weak` (review these first),
-   `issue_keys` and `areas`. Whole issue branches that belong together go into `issue_groups` of the plan: no subject
-   changes. --fresh ignores the current prefixes and issue groups. To look closer: `bd status --brief`, and
-   `bd commits --brief` (per commit its group, issue key, fixup target and `areas`; `units`, the commits that must
-   stay together; `dependencies` {from, to}: `from` touches lines `to` added). `bd commits <id>... --patch` or
-   `bd commits --unassigned` for unclear commits, `bd status --stats` for the size of each branch.
+1. `bd suggest`: a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the plan). Per
+   cluster `change` (kept, renamed, merged, split, new) against the branches in `from`, `why` (one line to quote to
+   the user), `weak` (review these first), `issue_keys` and `areas`. Whole issue branches that belong together go
+   into `issue_groups` of the plan: no subject changes. `bd suggest --fresh` ignores the current prefixes and issue
+   groups. To look closer: `bd status --brief`, and `bd commits --brief` (per commit its group, issue key, fixup
+   target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to}: `from` touches lines
+   `to` added). `bd commits <id>... --patch` or `bd commits --unassigned` for unclear commits, `bd status --stats`
+   for the size of each branch.
 2. The plan: {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]},
    \"ungroup_issues\": [keys], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}}. A path is a branch name, or
    `parent/leaf` for a stacked branch (`git config branchdeck.stacks true`). Fixups follow their targets; a commit
-   goes with, or stacks on, the commits it depends on. Only after you move commits: `bd check --plan plan.json`.
-   Per branch `ok`, `conflict` {commit, subject, files, missing_commits}, `blocked_by` or `problems`. Exit 1 until
-   every branch is ok: move the missing commits into the branch, or stack it on the branch that has them. Merges are
-   cached: variants are fast.
-3. Add the pull request title and body of each branch to `descriptions`, then
+   goes with, or stacks on, the commits it depends on. After any change of `branches`, `unassign`, `issue_groups` or
+   `ungroup_issues`: `bd check --plan plan.json`. Per branch `ok`, `conflict` {commit, subject, files,
+   missing_commits}, `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits into the
+   branch, or stack it on the branch that has them.
+3. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
+   `bd status`); replace one only when the user asks. `<branch>` is the leaf for a stacked branch. Then
    `bd group --expect-head <head of suggest> --sync --plan plan.json`: one message-only rewrite, the issue groups,
-   the descriptions and a sync, under one repository lock. It prints the new `groups`, an `undo_token` and `sync`:
-   per branch created, updated, unchanged, blocked, error or merge_conflict (the commit, the files and the commits
-   it likely needs). Exit 1 on a conflict: regroup so that a change and what it needs are in one branch or its
-   parent, and `bd sync` again. `head_moved`, `groups_moved` or `locked` (exit 3): read again and retry. --dry-run
-   prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and
-   `bd unstack <branch>`, with the same options; `bd describe <branch> --title ... --body ...` for one branch.
-   `bd undo <undo_token>` moves HEAD and the issue groups back; pass the token as printed, with full ids
-   (`<head>..<head>`, `groups:<id>..<id>`, or both joined by `+`).
+   the descriptions and a sync, under one repository lock. It prints the new `groups`, an `undo_token`,
+   `replaced_descriptions` and `sync` (per branch `status`; a `conflict` names the commit, the files and the commits
+   it needs). Exit 1 on a conflict: regroup so that a change and what it needs are in one branch or its parent, and
+   `bd sync` again. Another exit with `error` and an `undo_token`: the rewrite stands (a failed description write
+   skips the sync); `bd sync` again, or undo. `head_moved`, `groups_moved` or `locked` (exit 3): read again and
+   retry. `bd group --dry-run` prints the changed subjects and writes nothing. Also `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>`, with the
+   same options; `bd describe <branch> --title ... --body ...` for one branch. `bd undo <undo_token>` moves HEAD and
+   the issue groups back (pass the token as printed, with full ids: `<head>..<head>`, `groups:<id>..<id>`, or both
+   joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.
 4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes): it syncs,
    pushes parents first with a lease per ref, and prints a ready `gh pr create` per branch (pipe its `body` into
    it). `push_refused` (exit 4): a branch didn't sync, is behind its remote branch, or its parent isn't on the
@@ -65,8 +68,8 @@ Workflow:
 Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits between
 branches. Exit 2 (invalid_plan, not_ahead_of_baseline): change the plan.
 
-`bd install` puts `bd` into ~/.local/bin (macOS, Linux) and a skill for coding agents into ~/.claude/skills and
-~/.agents/skills; `bd help skill` prints that skill.
+`bd install` puts `bd` into ~/.local/bin and a skill into ~/.claude/skills and ~/.agents/skills; `bd help skill`
+prints the skill.
 "
 );
 
