@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import type { DroppedCommit } from "@/lib/bindings"
 import { getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import { blockingBranchOf, needsPush } from "@/lib/stack"
@@ -10,7 +11,16 @@ export interface PushButtonState {
   text: string
   color: UIColor
   tooltip: string
+  /** The remote commits a force push drops, listed under the tooltip; null when it drops none */
+  dropped: DroppedCommits | null
   disabled: boolean
+}
+
+export interface DroppedCommits {
+  /** The newest ones, newest first */
+  commits: readonly DroppedCommit[]
+  /** How many more the push drops than listed */
+  more: number
 }
 
 /**
@@ -21,7 +31,7 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
     const blocker = blockingBranchOf(branch)
-    return { text: "Push", color: "neutral", tooltip: blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`, disabled: true }
+    return { text: "Push", color: "neutral", tooltip: blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`, dropped: null, disabled: true }
   }
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
@@ -29,6 +39,7 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
 
   let text = "Push"
   let tooltip = "Push branch to remote"
+  let dropped: DroppedCommits | null = null
   if (remoteStatus != null && texts != null) {
     const { commitsAhead } = remoteStatus
     if (action === "upToDate") {
@@ -45,6 +56,10 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
       tooltip = mine > 0
         ? `Force push ${mine} of your commits.\n${texts.tooltip}`
         : `Force push (no local authored changes).\n${texts.tooltip}`
+      const { commitsBehind, droppedCommits } = remoteStatus
+      if (commitsBehind > 0 && droppedCommits.length > 0) {
+        dropped = { commits: droppedCommits, more: Math.max(0, commitsBehind - droppedCommits.length) }
+      }
     }
     else if (commitsAhead > 0) {
       text = `Push (${commitsAhead})`
@@ -60,6 +75,7 @@ export function getPushButtonState(branch: Branch, isSyncing: boolean, isPushing
     text,
     color: getPushColor(branch) ?? "primary",
     tooltip,
+    dropped,
     disabled: isPushing || isSyncing || branch.status === "Syncing" || action === "upToDate",
   }
 }

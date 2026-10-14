@@ -107,6 +107,11 @@ test.describe("Force push", () => {
     await getPushButton(row).click()
     const forcePush = row.getByRole("button", { name: "Force Push (1)" })
     await expect(forcePush).toBeEnabled()
+    // the description lists what the force push drops
+    await forcePush.hover()
+    const dropped = page.getByTestId("dropped-commits")
+    await expect(dropped).toContainText("Fix login")
+    await expect(dropped).toContainText("Ann · c0ffee01 · 3 hours ago")
 
     await forcePush.click()
 

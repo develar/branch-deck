@@ -7,6 +7,7 @@ targets:
   - ../../src/components/repository/OutgoingPopover.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/hooks/usePushSummary.ts
   - ../../src/hooks/usePushButton.ts
@@ -162,6 +163,10 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`)
   [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to create a branch deleted on the remote`, `names the distinct authors in the order of the commits`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)
+- The description of a push that drops remote commits must list them under its text, newest first: subject, author,
+  short id and age, then "and N more" past the ten listed.
+  [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push the remote refuses while the lease holds (a hook, a protected branch) must be an error, nothing recorded.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
 
@@ -177,7 +182,9 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   grid, so the bars and the counts line up; a long branch name is truncated; a row bar sits on a `bg-muted` track.
 - The push buttons are aligned to the end of the rows.
 - The branch name is a plain button that underlines on hover.
-- The push button opens its description on hover, as in the branch row.
+- The push button opens its description on hover, as in the branch row. The dropped commits sit below a
+  `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
+  one truncated line, the author, the `font-mono` short id and the age a muted line below it.
 
 ## Testing / Local Run
 
