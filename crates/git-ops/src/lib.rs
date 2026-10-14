@@ -1,6 +1,7 @@
 pub mod amend_operations;
 pub mod cache;
 pub mod cherry_pick;
+pub mod commit_files;
 pub mod commit_list;
 pub mod commit_utils;
 pub mod commit_writer;
@@ -23,6 +24,9 @@ mod amend_operations_test;
 
 #[cfg(test)]
 mod cherry_pick_test_utils;
+
+#[cfg(test)]
+mod commit_files_test;
 
 #[cfg(test)]
 mod commit_utils_test;

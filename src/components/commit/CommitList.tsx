@@ -12,6 +12,7 @@ import { CommitHeader } from "@/components/commit/CommitHeader"
 import { CommitPreviewDialog } from "@/components/commit/CommitPreviewDialog"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
+import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useRewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
@@ -30,6 +31,7 @@ export interface CommitListProps<T extends CommitUnion> {
   variant?: CommitListVariant
   /** For the status variant: passed to the merge conflict viewer */
   branchName?: string
+  /** Show the file count a commit carries (`fileDiffs` of a missing commit) until its files are loaded */
   showFileCount?: boolean
   showAuthor?: boolean
   /** Marks the first commit as the amend target */
@@ -66,6 +68,7 @@ export interface CommitListProps<T extends CommitUnion> {
 /**
  * Commit table used by the branch tables, the unassigned commits card and the conflict views.
  * Space (over a row, or on the last clicked row of the focused table) and the row's message button open the commit preview.
+ * The files of the commits are loaded with one call when the list is shown; the meta lines show the counts once known.
  */
 export function CommitList<T extends CommitUnion>({
   commits,
@@ -84,6 +87,7 @@ export function CommitList<T extends CommitUnion>({
   renderAfterCommit,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
+  const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
 
   // stable callbacks for the memoized rows, reading the latest props
   const latestRef = useRef({ selection, contextMenuItems, onDragCommits, onDragEnd })
@@ -157,6 +161,8 @@ export function CommitList<T extends CommitUnion>({
         ref={tableRef}
         className="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
         tabIndex={selectable ? 0 : -1}
+        // the meta lines get their file counts
+        aria-busy={isLoadingFiles || undefined}
         onKeyDown={handleKeyDown}
       >
         <tbody className="divide-y divide-border">
@@ -318,6 +324,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
   const hasBody = hasCommitMessageBody(fullSubject, commit.message)
 
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
+  const fileStats = useCommitFileStats(hash)
 
   return (
     // gap-3: the header and the error or conflict below it (the header alone has no sibling)
@@ -330,6 +337,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         authorTime={commit.authorTime}
         committerTime={commit.committerTime}
         fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
+        fileStats={fileStats}
         subjectPrefix={autosquash !== "" && <FixupMarker marker={autosquash.trim()} commitId={hash} />}
         subjectAddon={(
           <>

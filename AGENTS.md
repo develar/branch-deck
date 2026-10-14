@@ -88,6 +88,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
   (`spec/repository/activity.spec.md`).
+- **Commit files**: "3 files · +42 −7" on the commit meta line, the Files section with on-demand diffs in the commit
+  preview (`F`), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per list, cached by commit id in the object
+  cache (`spec/commit/commit-files.spec.md`).
 
 ## Development Rules
 

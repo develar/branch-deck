@@ -27,16 +27,18 @@ pub const DEFAULT_MAP_SIZE: usize = 1 << 30;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Store {
   CommitDiff,
+  CommitFiles,
   CommitTree,
   MergeResult,
 }
 
-const STORES: [Store; 3] = [Store::CommitDiff, Store::CommitTree, Store::MergeResult];
+const STORES: [Store; 4] = [Store::CommitDiff, Store::CommitFiles, Store::CommitTree, Store::MergeResult];
 
 impl Store {
   fn base_name(self) -> &'static str {
     match self {
       Self::CommitDiff => "commit_diff",
+      Self::CommitFiles => "commit_files",
       Self::CommitTree => "commit_tree",
       Self::MergeResult => "merge_result",
     }
@@ -71,7 +73,7 @@ type RawDatabase = Database<Bytes, Bytes>;
 
 struct Inner {
   env: Env,
-  databases: [RawDatabase; 3],
+  databases: [RawDatabase; 4],
 }
 
 /// A handle to the cache of one repository; cheap to clone. A disabled cache misses every read and drops every write
@@ -230,7 +232,7 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     txn.commit()?;
     databases
   };
-  let databases: [RawDatabase; 3] = databases.try_into().map_err(|_| "unexpected number of databases")?;
+  let databases: [RawDatabase; 4] = databases.try_into().map_err(|_| "unexpected number of databases")?;
   Ok(Inner { env, databases })
 }
 

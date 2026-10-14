@@ -7,8 +7,11 @@ use axum::{
   },
 };
 use futures::stream::{Stream, StreamExt};
+use git_ops::commit_files::{CommitFiles, GetCommitFileDiffParams, GetCommitFilesParams, GetCommitsFilesParams, read_commit_file_diff, read_commit_files_cached};
+use git_ops::conflict_analysis::FileDiff;
 use git_ops::model::{BranchError, BranchSyncStatus};
 use model_types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
+use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::atomic::AtomicBool;
@@ -761,6 +764,41 @@ pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(pa
   run_blocking("Failed to get uncommitted changes", move || core_get_uncommitted_changes(&git_executor, params))
     .await
     .map(Json)
+}
+
+// The commit files commands run real git on the fixture repository, without the object cache: an LMDB environment
+// per test repository would stay open (and keep its files) for the life of the server
+
+pub async fn get_commit_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFilesParams>) -> Result<Json<CommitFiles>, StatusCode> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_blocking("Failed to get commit files", move || {
+    read_commit_files_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), std::slice::from_ref(&params.commit_id))?
+      .pop()
+      .ok_or_else(|| anyhow::anyhow!("No files read for {}", params.commit_id))
+  })
+  .await
+  .map(Json)
+}
+
+pub async fn get_commits_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitsFilesParams>) -> Result<Json<Vec<CommitFiles>>, StatusCode> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_blocking("Failed to get the files of commits", move || {
+    read_commit_files_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), &params.commit_ids)
+  })
+  .await
+  .map(Json)
+}
+
+pub async fn get_commit_file_diff(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFileDiffParams>) -> Result<Json<FileDiff>, StatusCode> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_blocking("Failed to get the diff of a commit file", move || {
+    read_commit_file_diff(&git_executor, &params.repository_path, &params.commit_id, &params.path, params.old_path.as_deref())
+  })
+  .await
+  .map(Json)
 }
 
 #[derive(Deserialize)]

@@ -1,5 +1,6 @@
 use crate::cache::{CacheConfig, ObjectCache, SCHEMA_VERSION};
 use crate::commit_diff::{FileChange, Hunk};
+use crate::commit_files::{CommitFile, FileStatus};
 use crate::merge_result::{MergeKey, MergeResult};
 use std::path::Path;
 use std::process::Command;
@@ -44,6 +45,31 @@ fn round_trip() {
   let found = cache.get_commit_diffs(&["c1".to_string(), "c2".to_string()]);
   assert_eq!(found.len(), 1);
   assert_eq!(found["c1"], files);
+
+  // the same id in another store is another value
+  let commit_files = vec![
+    CommitFile {
+      path: "new name.txt".to_string(),
+      status: FileStatus::Renamed,
+      old_path: Some("old name.txt".to_string()),
+      additions: 3,
+      deletions: 1,
+      binary: false,
+    },
+    CommitFile {
+      path: "b.bin".to_string(),
+      status: FileStatus::Added,
+      old_path: None,
+      additions: 0,
+      deletions: 0,
+      binary: true,
+    },
+  ];
+  cache.put_commit_files([("c1", &commit_files)]);
+  let found = cache.get_commit_files(&["c1".to_string(), "c2".to_string()]);
+  assert_eq!(found.len(), 1);
+  assert_eq!(found["c1"], commit_files);
+  assert_eq!(cache.get_commit_diffs(&["c1".to_string()])["c1"], files);
 
   cache.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
   assert_eq!(

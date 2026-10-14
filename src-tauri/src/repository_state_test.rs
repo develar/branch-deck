@@ -1,4 +1,5 @@
 use crate::repository_state::RepositoryStateCache;
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -42,4 +43,23 @@ fn issue_config_is_loaded_from_vcs_xml() {
 
   let without_config = TempDir::new().unwrap();
   assert!(cache.issue_config(without_config.path().to_str().unwrap()).is_none());
+}
+
+#[test]
+fn object_cache_lives_in_the_common_dir_of_the_repository() {
+  let cache = RepositoryStateCache::new();
+  let git = GitCommandExecutor::new();
+  let repository = TempDir::new().unwrap();
+  let path = repository.path().to_str().unwrap();
+  git.execute_command(&["init", "--quiet"], path).unwrap();
+
+  assert!(cache.object_cache(&git, path).is_enabled());
+  assert!(repository.path().join(".git/branch-deck/cache").is_dir());
+  // remembered: the second call runs no git, so it works without the repository
+  std::fs::remove_dir_all(repository.path().join(".git")).unwrap();
+  assert!(cache.object_cache(&git, path).is_enabled());
+
+  // outside a repository, the cache is disabled
+  let plain = TempDir::new().unwrap();
+  assert!(!cache.object_cache(&git, plain.path().to_str().unwrap()).is_enabled());
 }

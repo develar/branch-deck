@@ -22,6 +22,9 @@ pub mod static_files;
 pub mod tauri_command_bridge;
 
 #[cfg(test)]
+mod commit_files_test;
+
+#[cfg(test)]
 mod sse_test;
 
 use state::{AppState, TestRepository};
@@ -99,6 +102,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
+    .route("/invoke/get_commit_files", post(tauri_command_bridge::get_commit_files))
+    .route("/invoke/get_commits_files", post(tauri_command_bridge::get_commits_files))
+    .route("/invoke/get_commit_file_diff", post(tauri_command_bridge::get_commit_file_diff))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     // AI command endpoints
     .route("/invoke/suggest_branch_name_stream", post(tauri_command_bridge::suggest_branch_name_stream))

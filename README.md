@@ -55,6 +55,9 @@ repositories: all operations run through the Git CLI.
   Safe Push CLI.
 - **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a
   branch, split or unapply a branch.
+- **Commit files**: every commit row says how many files and lines it changes ("3 files · +42 −7"). The commit
+  preview lists the files after the message, each expanding to its diff (`F` hides them), and the context menu copies
+  the changed paths.
 - **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation
   (`.idea/vcs.xml`).
 - **Agent CLI** (`branch-deck cli`, or the binary symlinked as `bd`; `bd.exe` next to the app on Windows): a coding

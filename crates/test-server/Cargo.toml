@@ -33,6 +33,7 @@ listenfd = "1.0"
 # Use the git operations crate
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
+object-cache = { path = "../object-cache" }
 test-utils = { path = "../test-utils" }
 sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }

@@ -7,6 +7,7 @@ description = "Git operations and repository management for Branch Deck"
 [dependencies]
 # Core git functionality
 git-executor = { path = "../git-executor" }
+object-cache = { path = "../object-cache" }
 
 # Core utilities (shared via workspace)
 anyhow.workspace = true
@@ -27,7 +28,7 @@ test-log = { workspace = true }
 
 [features]
 default = []
-specta = ["dep:specta"]
+specta = ["dep:specta", "object-cache/specta"]
 
 [lints]
 workspace = true

@@ -37,7 +37,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 
 ## Non-goals
 
-- The preview does not show a diff or a file list.
+- The preview does not show a diff or a file list. The meta line of each commit counts its files and lines, as in a
+  commit row ([Commit Files](../commit/commit-files.spec.md)).
 - The preview does not edit the commit messages; the commit preview does.
 - The preview does not resolve a merge conflict; the expanded row shows the conflict viewer.
 

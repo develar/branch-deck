@@ -502,6 +502,32 @@ the commits it misses.
 - `merge_result` ((base, commit, target) trees → result tree or conflict files) and `commit_tree` (commit → tree) are
   read and written by `bd check` through the `MergeMemo` of the tree cache (`crates/git-ops/src/merge_memo.rs`); a
   sync doesn't pass a memo yet.
+- `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
+  commit rows (see "Commit files" below). It is a store of its own: an entry without hunks in `commit_diff` would
+  read as "no hunks" to `bd`.
+
+#### Commit files
+
+The commit rows show "3 files · +42 −7", and the commit preview lists the files with their diffs
+([Commit Files](../../spec/commit/commit-files.spec.md)). Both are read-only:
+- **One process per list.** `get_commits_files` reads the commits of an expanded branch (or the unassigned commits)
+  with one `diff-tree --stdin --raw --numstat -z -r -M --root --diff-merges=first-parent`, the ids on stdin. The output
+  is NUL-separated: each commit id, its `--raw` entries (status letter, paths verbatim), then its `--numstat` entries in
+  the same order (`-` counts for a binary file). `get_commit_files` is the same for one commit, when a preview shows a
+  commit no list loaded. The ids must be full object ids, so none reads as an option or a revision.
+- **Cached by commit id** in the `commit_files` store of the object cache: the commits the output lists are written
+  back, so a commit seen once costs no process again, also in a later session. A commit the output doesn't list (no
+  changes, or not fetched yet) is not cached. The app resolves `--git-common-dir` once per repository
+  (`RepositoryStateCache`) to open the cache; outside a repository the cache is disabled and the read still runs.
+- **Diffs on demand.** `get_commit_file_diff` runs one `diff-tree -p --no-commit-id -U3 <commit> -- :(literal)<path>
+  [:(literal)<old path>]` when a file is first expanded: both paths of a rename, so `-M` pairs them and the patch
+  shows the changes, and literal pathspecs, so `*.rs` names only itself. The whole patch is the hunk text of the diff
+  view, as for an uncommitted file.
+- The frontend keeps the files by commit id in memory (`src/stores/commit-files.ts`) and asks only for the ids it
+  doesn't have; a second request for an id waits for the one in flight.
+
+Code: `crates/git-ops/src/commit_files.rs`, `crates/object-cache/src/commit_files.rs`,
+`src-tauri/src/commands/commit_files.rs`, `src-tauri/src/repository_state.rs`.
 
 #### Trial sync (check)
 
@@ -688,6 +714,7 @@ recovery hint (`git reset -q`).
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
+| File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
 
 ## Follow-ups
 
@@ -710,8 +737,9 @@ recovery hint (`git reset -q`).
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
   `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
   `crates/sync-core/src/update_project.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
-  `crates/object-cache/src/cache.rs`
-- Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Move Commits](../../spec/branch/move-commits.spec.md),
+  `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`
+- Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
+  [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
   [Squash Fixups](../../spec/commit/fixups.spec.md),
   [Unapply](../../spec/branch/unapply.spec.md), [Update Project](../../spec/repository/update-project.spec.md),

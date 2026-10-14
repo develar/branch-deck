@@ -5,6 +5,7 @@ import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
+import { CommitFilesSection } from "@/components/commit/CommitFilesSection"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
@@ -17,11 +18,13 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
+import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { isMac } from "@/lib/platform"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { useBranchSync } from "@/stores/branch-sync"
+import { toggleCommitFilesSection, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
 
 export interface CommitPreviewDialogProps {
   commits: readonly CommitUnion[]
@@ -38,8 +41,9 @@ export interface CommitPreviewDialogProps {
 }
 
 /**
- * Centered preview of one commit of a list, as Quick Look shows a file: the whole subject, the meta line and the body.
- * ↑/↓ show the previous or next commit of the list, Space and Escape close it, E edits the message.
+ * Centered preview of one commit of a list, as Quick Look shows a file: the whole subject, the meta line, the body and
+ * the changed files. ↑/↓ show the previous or next commit of the list, Space and Escape close it, E edits the message,
+ * F shows or hides the files.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -62,6 +66,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   const [isSaving, setIsSaving] = useState(false)
   const isSyncing = useBranchSync(state => state.isSyncing)
   const canEdit = onSaveMessage !== undefined && commit !== undefined && !isSyncing
+  const fileStats = useCommitFileStats(hash)
+  const isFilesOpen = useIsCommitFilesSectionOpen()
 
   // the body has the focus, so PageUp/PageDown scroll it
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -114,6 +120,10 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
       event.preventDefault()
       startEdit()
     }
+    else if (event.code === "KeyF") {
+      event.preventDefault()
+      toggleCommitFilesSection()
+    }
   }
 
   return (
@@ -150,6 +160,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
               authorTime={commit.authorTime}
               committerTime={commit.committerTime}
               fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
+              fileStats={fileStats}
+              coloredLineCounts
             />
           </PreviewDialogHeader>
 
@@ -168,9 +180,14 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
                     onChange={event => setDraft(event.target.value)}
                   />
                 )
-              : hasCommitMessageBody(subject, commit.message)
-                ? <CommitMessageBody message={commit.message} className="text-sm leading-6" />
-                : <p className="text-sm text-muted-foreground">No description</p>}
+              : (
+                  <div className="flex flex-col gap-5">
+                    {hasCommitMessageBody(subject, commit.message)
+                      ? <CommitMessageBody message={commit.message} className="text-sm leading-6" />
+                      : <p className="text-sm text-muted-foreground">No description</p>}
+                    {isFilesOpen && <CommitFilesSection commitId={hash} />}
+                  </div>
+                )}
           </PreviewDialogBody>
 
           <PreviewDialogFooter
@@ -192,6 +209,10 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
               : (
                   <>
                     <PreviewNavigationHints count={commits.length} />
+                    <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
+                      <Kbd>F</Kbd>
+                      Files
+                    </Button>
                     {onSaveMessage !== undefined && (
                       <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
                         <Kbd>E</Kbd>

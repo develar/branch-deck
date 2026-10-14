@@ -25,6 +25,7 @@ import {
   PreviewDialogHeader,
   PreviewNavigationHints,
 } from "@/components/shared/PreviewDialogFrame"
+import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
@@ -82,6 +83,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const patronusAvailable = usePatronusAvailable()
 
   const bodyRef = useRef<HTMLDivElement>(null)
+  // the meta line of each commit shows its files
+  const isLoadingFiles = useCommitFiles(open && branch !== undefined ? branch.commits.map(getCommitHash) : [])
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, index, names.length, next => onNameChange(names[next]!), onClose)) {
@@ -130,7 +133,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
             <div className="flex flex-col gap-5">
               <BranchErrorNotice branch={branch} />
               {renderReviewSections?.(branch)}
-              <ol data-testid="branch-preview-commits" className="flex flex-col divide-y divide-border">
+              <ol data-testid="branch-preview-commits" aria-busy={isLoadingFiles || undefined} className="flex flex-col divide-y divide-border">
                 {branch.commits.map(commit => <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} />)}
               </ol>
             </div>
@@ -238,6 +241,8 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
 
 function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
   const subject = getCommitSubject(commit)
+  const hash = getCommitHash(commit)
+  const fileStats = useCommitFileStats(hash)
   return (
     <li data-testid="branch-preview-commit" className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-1">
@@ -245,7 +250,13 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
           <CommitSubject subject={subject} clamp={false} />
           {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
         </div>
-        <CommitMetadata hash={getCommitHash(commit)} newHash={commit.hash} authorTime={commit.authorTime} committerTime={commit.committerTime} />
+        <CommitMetadata
+          hash={hash}
+          newHash={commit.hash}
+          authorTime={commit.authorTime}
+          committerTime={commit.committerTime}
+          fileStats={fileStats}
+        />
       </div>
       {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} className="text-sm leading-6" />}
     </li>

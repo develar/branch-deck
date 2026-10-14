@@ -4,7 +4,10 @@ import { ChevronDownIcon } from "lucide-react"
 import { CopyButton } from "@/components/shared/CopyButton"
 
 export interface CollapsibleFileHeaderProps {
+  /** The path the copy button copies */
   fileName: string
+  /** The header text; `fileName` by default (`old → new` for a rename) */
+  label?: string
   /** Rendered before the chevron (e.g. a status badge); must not be interactive */
   actions?: ReactNode
 }
@@ -13,11 +16,11 @@ export interface CollapsibleFileHeaderProps {
  * Accordion item header showing a file name. The trigger button holds only the file name, but its `::after` covers the
  * whole header, so a click anywhere toggles the item; the copy button sits above it (no button nested in the trigger).
  */
-export function CollapsibleFileHeader({ fileName, actions }: CollapsibleFileHeaderProps) {
+export function CollapsibleFileHeader({ fileName, label = fileName, actions }: CollapsibleFileHeaderProps) {
   return (
     <AccordionPrimitive.Header className="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50">
       <AccordionPrimitive.Trigger className="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset">
-        {fileName}
+        {label}
       </AccordionPrimitive.Trigger>
       <CopyButton
         text={() => fileName}

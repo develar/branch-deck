@@ -4,6 +4,7 @@ pub mod amend_to_branch;
 pub mod archived_branches;
 pub mod branch_prefix;
 pub mod clear_model_cache;
+pub mod commit_files;
 pub mod fetch_baseline;
 pub mod menu_commands;
 pub mod move_commits;
