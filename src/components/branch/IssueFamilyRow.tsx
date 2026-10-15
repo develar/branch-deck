@@ -11,9 +11,10 @@ export interface IssueFamilyRowProps {
 export function IssueFamilyRow({ issueKey, branchCount }: IssueFamilyRowProps) {
   return (
     <tr data-testid="issue-family-row" data-issue-key={issueKey}>
-      <td colSpan={4} className="px-6 py-(--bd-cell-y)">
+      {/* the icon where the folder buttons are (after the lanes of a table with stacks), its name at the branch names */}
+      <td colSpan={4} className="py-(--bd-cell-y) pr-6 pl-(--bd-tree-x)">
         <div className="flex items-center gap-2">
-          {/* the size of the folder button of a branch row, so the nested rule lines up */}
+          {/* the size of the folder button of a branch row, so the family guide lines up */}
           <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
             <CircleDotIcon className="size-4" />
           </span>

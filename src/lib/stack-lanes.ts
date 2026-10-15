@@ -86,12 +86,30 @@ export function layoutStack(root: string, childrenOf: (name: string) => readonly
 }
 
 /** The lanes the table draws: the highest lane of a row plus one; 0 without stacked branches */
-export function laneCountOf(rows: readonly { readonly lanes?: StackLanes | null }[]): number {
+export function laneCountOf(lanes: readonly (StackLanes | null)[]): number {
   let count = 0
-  for (const row of rows) {
-    if (row.lanes != null) {
-      count = Math.max(count, row.lanes.lane + 1)
+  for (const it of lanes) {
+    if (it !== null) {
+      count = Math.max(count, it.lane + 1)
     }
   }
   return count
+}
+
+/**
+ * The lanes that run on below a branch row, beside its inline form and its expanded commits: the lanes passing it,
+ * and its own while the branch has children or its commits are shown below
+ */
+export function lanesBelow(lanes: StackLanes, commitsBelow: boolean): readonly number[] {
+  return lanes.down || commitsBelow ? [...lanes.through, lanes.lane].sort((a, b) => a - b) : lanes.through
+}
+
+/**
+ * The padding of the content of a row below a branch row in a table with stacks (`--bd-row-inset`): right of the lanes
+ * and the family guide, 1.5rem before the name, so the commit subjects and the form titles (`px-6`) start at the name
+ */
+export function laneContentInsetClass(familyIndent: 0 | 1): string {
+  return familyIndent === 1
+    ? "pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem+var(--bd-family-step))]"
+    : "pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem)]"
 }

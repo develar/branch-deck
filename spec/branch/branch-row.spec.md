@@ -1,6 +1,6 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the tree of stacked and issue branches, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the Actions cell with the push button, "Safe Push…" and the "⋯" menu, hover and click, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the Actions cell with the push button, "Safe Push…" and the "⋯" menu, hover and click, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
@@ -12,6 +12,7 @@ targets:
   - ../../src/stores/inline-row-action.ts
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
+  - ../../src/components/branch/StackLanes.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/BranchStatusBadge.tsx
   - ../../src/components/branch/StatusChip.tsx
@@ -60,8 +61,9 @@ The branch table lists the active virtual branches, one row per branch; the arch
 a sync archived. A row reads from left to right: the folder that expands the commits and the branch name, the commit
 count, the Status cell and the actions. The Status cell has one status text and up to three chips (the pull request,
 the Patronus robot, the landed commits), each kind in its own column, so a look down the table compares like with
-like. Stacked branches and the branches of an issue hang under their parent as a tree, and the rail of an expanded
-parent's commits runs into the rule of its children.
+like. Stacked branches are a graph, root on top, with a lane per line that runs in parallel and a node per branch in the
+colour of its status; the branches of an issue hang one indent level under it. The commits of an expanded branch sit
+on its lane.
 
 ## Goals
 
@@ -69,7 +71,8 @@ parent's commits runs into the rule of its children.
 - Keep the table still: chips that load after the sync do not reflow it, and a long subject truncates.
 - One meaning per colour, in the row and in its chips: `info` merged or landed, `warning` attention, `destructive` a
   failure, the push colour for the push.
-- Show a stack as one tree: the rail of a parent's commits and the rule of its children are one line.
+- Show a stack as one graph: a straight chain is one line, a fork opens a lane, and the commits of a branch sit on its
+  line, which runs on into its children.
 
 ## Non-goals
 
@@ -95,9 +98,9 @@ parent's commits runs into the rule of its children.
 
 ### Name cell
 
-- The name cell must show, in this order: the folder button that expands the commits, the branch name with its issue
-  keys as links, the issue chip of a branch whose issue has no row above it, the fixup count, a mark (the archived
-  "New"), then the summary, muted.
+- The name cell must show, in this order: the stack graph (in a table with stacks, [Tree](#tree)), the folder button
+  that expands the commits, the branch name with its issue keys as links, the issue chip of a branch whose issue has no
+  row above it, the fixup count, a mark (the archived "New"), then the summary, muted.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in branch names`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
@@ -113,18 +116,36 @@ parent's commits runs into the rule of its children.
 
 ### Tree
 
-- A branch nested under the branch of its issue, under its issue row or under the branch it stacks on must be indented
-  one step per level (`--bd-nesting-step`, 1.75rem) and draw one rule per level over the whole row height. The rule of
-  level n sits 2rem + (n − 1) steps from the cell edge, under the left wall of the folder icon of the row above.
-  [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`)
+- In a table with stacked branches, the name cell must start with the stack graph: a column of lanes (`--bd-lane-width`,
+  1rem each, as many as the table needs), the node of the branch on its lane and, over the whole row height, the lanes
+  passing the row, the line up into the node from its parent above, the line down from it to its children or its
+  commits, and the curve from the parent's lane into the node of a side child. Every name starts at the same x. A table
+  without a branch stacked on another has no lane column and renders as before.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `has no lanes while no branch is stacked on another`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+- The node must be an 8px circle in the colour of the status: the push colour, `destructive` for an error or a
+  conflict, `warning` for a blocked branch, `info` for a landed one. It is filled while the branch has work for the
+  remote (and for an error or a conflict), hollow when it is up to date or landed. It replaces the dot of the status
+  text, which a table with stacks drops.
+  [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and name the pull request base`)
+- A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
+  with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
+  column. An issue row without a branch of its own heads its branches with the issue key and the count of its
+  branches; its icon box has the size of the folder button and sits where the folder buttons are, so the guide of its
+  branches sits under the icon.
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`, `heads the branches of an issue without a branch of its own with an issue row`)
-- The commits of an expanded branch at depth d must sit behind a rail at the rule of level d + 1, with the rules of
-  the branch's own levels beside them, so the tree continues past them. When the next rows are its children, the rail
-  must run to the bottom of the cell, into their rule.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`indents a family member and the stack on it one level, with the lanes of the stack inside`)
+- In a table with stacks, the commits of an expanded branch must sit on its lane, a dot per commit at its subject line,
+  beside the lanes that run on below the row. The lane runs on into the children below, or ends at the last commit of
+  a branch without children. Without stacks they sit behind a neutral rail under the folder icon, which runs into the
+  guide of the family below; a family member keeps its guide beside them.
 - The commit subjects must start at the branch name.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should continue the commit rail of a parent into the rule of its children`)
-- An issue row without a branch of its own heads its branches with the issue key and the count of its branches. Its
-  icon box has the size of the folder button, so the rule of its branches sits under the icon.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should carry the commits of a branch on its lane, into the lines of its children`)
+- In a table with stacks, the inline form row and the amend conflict row of a branch must draw the lanes that run on
+  and the family guide, so the graph doesn't pause; their content starts right of them, the title at the branch name.
+  [@test] ../../src/lib/stack-lanes.test.ts (`runs the lanes passing a row on below it, and its own while it has children or shows its commits`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should draw the lanes beside the inline form of a stacked branch`)
 
 ### Commits cell
 
@@ -134,9 +155,9 @@ parent's commits runs into the rule of its children.
 ### Status cell
 
 - The Status cell must be a grid of three columns: the status text (7rem at least), the pull request chip, then the
-  Patronus chip and the Landed chip, in this order, and the muted "on login" of a stacked branch whose parent has work
-  for the remote ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A missing chip leaves its column empty,
-  and the next chip keeps its own column.
+  Patronus chip and the Landed chip, in this order, and the muted "on master" of a stacked branch built elsewhere
+  because its parent has no commits ([Blocked](#blocked)). A missing chip leaves its column empty, and the next chip
+  keeps its own column.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
@@ -146,7 +167,8 @@ parent's commits runs into the rule of its children.
   status ("not pushed", "up to date", "3 (5)↑ · 2↓"), then the result of the sync ("created", "updated", "unchanged").
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
-  ([Push colours](../repository/outgoing.spec.md#push-colours)).
+  ([Push colours](../repository/outgoing.spec.md#push-colours)). In a table with stacks the node of the row is the dot
+  ([Tree](#tree)).
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`, `is neutral for a safe push of no commit of the user`)
@@ -288,21 +310,30 @@ parent's commits runs into the rule of its children.
 ### Row
 
 - Every cell has the vertical padding `--bd-cell-y` (6px), so a row is 36px around the 24px folder button, as dense as
-  an IntelliJ list. The name cell has `px-6`, a nested one `pl-8 pr-6`; the other cells `px-4`, `w-px` and
-  `whitespace-nowrap`. The Status `<th>` has `min-w-[16rem]`.
+  an IntelliJ list. The name cell has `px-6`, a family member `pl-8 pr-6`; in a table with stacks `pl-(--bd-lane-start)`
+  (1.25rem, the left edge of a lane-0 node under the header text) and `pr-6`, the folder button at `--bd-tree-x` after
+  the lane column. The other cells have `px-4`, `w-px` and `whitespace-nowrap`. The Status `<th>` has `min-w-[16rem]`.
 - The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
 - An expanded row fades its commits in (150ms, opacity only).
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
   repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the summary
   `text-xs text-muted-foreground`, the prefix of a subject `font-mono text-muted-foreground/70`.
-- The tree rules and the commit rail are neutral `border-l border-border` lines (`bd-nesting-level`,
-  `bd-nesting-leaf` and `--bd-nesting-step` in `src/index.css`).
+- The family guide and the commit rail of a table without stacks are neutral `border-l border-border` lines
+  (`bd-family-guide`, `bd-family-rule` and `--bd-family-step` in `src/index.css`); with stacks the guide is a `w-px
+  bg-border` line over the cell.
+- The lanes (`StackLanes.tsx`) are 1px strokes in `--bd-lane-line`, the muted foreground at 40% over the card: opaque,
+  so the curve of a fork doesn't darken the line it leaves, and stronger than a separator. One SVG per cell stretches
+  over the row (`preserveAspectRatio="none"`, `vector-effect: non-scaling-stroke`); the fork is a quadratic curve from
+  the parent's lane at the top of the row into the left edge of the node, and the lines end at the edge of the node.
+  The node is `size-2 rounded-full` with a 1.5px border in the status colour (`currentColor`), `bg-current` when
+  filled; its `ring` (an outline 2px off it) is kept for a running robot. The commit dots are 5px in `--bd-lane-dot`
+  (`bd-lane-rail`), the content of the rows below a branch row starts at `--bd-row-inset`.
 - The commit count is `text-sm text-muted-foreground`.
 
 ### Status
 
 - The grid is `grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2`; the third column is a
-  `flex items-center gap-2` of the Patronus and the Landed chip, then the `text-xs text-muted-foreground` "on login".
+  `flex items-center gap-2` of the Patronus and the Landed chip, then the `text-xs text-muted-foreground` "on master".
 - The status text is `text-sm text-muted-foreground`, at most `max-w-40` and truncated, after a `size-1.5` dot. The
   badge is the subtle badge of its colour.
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
@@ -348,11 +379,12 @@ parent's commits runs into the rule of its children.
 ## Testing / Local Run
 
 - `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-lanes.test.ts`,
-  `src/stores/branch-sync.test.ts`, `src/lib/push-summary.test.ts`, `src/lib/integration-commit.test.ts`,
-  `src/stores/archived-branches.test.ts`.
+  `src/stores/branch-sync.test.ts`, `src/hooks/useStatusBadge.test.ts`, `src/lib/push-summary.test.ts`,
+  `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
 - `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/archived-branches`, the chip
   specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a failure is a `page.route` of the command with
-  status 500). E2E reads the status text by `data-testid="branch-status"`, the tree rules by `nesting-rule`, the rail by
+  status 500). E2E reads the status text by `data-testid="branch-status"`, the graph by `data-lane` on the row,
+  `lane-node` (`data-color`, `data-filled`) and `lane-lines`, the family guide by `family-guide`, the rail by
   `commit-rail` and the archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
 
 ## Open Questions / Risks
@@ -361,8 +393,15 @@ parent's commits runs into the rule of its children.
   third column follows the width of the pull request chip of its row: the chips line up across rows with short texts
   and the same chips only.
 - 16rem fits the status text and one or two chips; a row with all three widens the column once, when they load.
-- The inline form row and the amend conflict row of a nested branch draw no tree rules: the tree pauses while a form is
-  open.
+- In a table without stacks, the inline form row and the amend conflict row of a family member draw no guide: the guide
+  pauses while a form is open.
+- The first branch stacked on another switches the table to the lane column: every name moves right by its width.
+- The SVG units assume the 36px row: a taller row (a cell that wraps) stretches the fork curve, and the lines end a
+  little off the edge of the node.
+- The lane of a branch without children ends at its last commit through a line that starts far above it and is cut
+  by the vertical clip of the rail (`clip-path: inset(0 -100vw)`), which also cuts a focus ring above or below it.
+- The commits are listed newest first, under the parent drawn above: no dot says which commit the children are built
+  on.
 - The commit subjects start at the name from `sm` up only: below it the commit rows have `px-4`, the name cell `px-6`.
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.
@@ -375,6 +414,6 @@ parent's commits runs into the rule of its children.
 - [Outgoing Commits](../repository/outgoing.spec.md): the push labels, the push colours and the push
 - [Pull Requests](pull-requests.spec.md), [Patronus](patronus.spec.md), [Landed Commits](../repository/landed-commits.spec.md):
   the chips
-- [Stacked Branches](stacked-branches.spec.md): the tree
+- [Stacked Branches](stacked-branches.spec.md): the order of the rows and the lane layout
 - [Branch Preview](branch-preview.spec.md), [Move Commits](move-commits.spec.md)
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

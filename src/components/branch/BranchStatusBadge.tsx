@@ -8,8 +8,9 @@ import type { Branch } from "@/stores/branch-sync"
 /**
  * Sync/remote status of an active branch; the full description is a tooltip, as in the branch preview.
  * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a colour dot.
+ * In a table with stacks the node of the branch is the dot (`showDot` false).
  */
-export function BranchStatusBadge({ branch }: { branch: Branch }) {
+export function BranchStatusBadge({ branch, showDot = true }: { branch: Branch, showDot?: boolean }) {
   const status = useStatusBadge(branch)
   const exceptional = status.badge === true
   return (
@@ -22,7 +23,7 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
             ? <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate tabular-nums" data-testid="branch-status" />
             : <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" />}
         >
-          {!exceptional && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
+          {!exceptional && showDot && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
           {exceptional ? status.text : <span className="truncate" data-testid="branch-status">{status.text}</span>}
         </TooltipTrigger>
         <TooltipContent className="max-w-sm break-words whitespace-pre-line">{status.tooltip}</TooltipContent>

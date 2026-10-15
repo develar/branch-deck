@@ -1,15 +1,14 @@
 import { cn } from "cn"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
-import { usePushButton } from "@/hooks/usePushButton"
 import { describeParentState, passedParentOf } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranch } from "@/stores/branch-sync"
 
 /**
- * "on auth" for a stacked branch, where the tree of the branch table isn't visible: the branch it is built on, "on
- * master" when its declared parent has no commits, and the declared parent of a branch that isn't built (blocked, or
- * with a stack problem); nothing for a root
+ * "on auth" for a stacked branch, where the stack graph of the branch table isn't visible: the branch it is built on,
+ * "on master" when its declared parent has no commits, and the declared parent of a branch that isn't built (blocked,
+ * or with a stack problem); nothing for a root
  */
 export function StackBaseLabel({ name, className }: { name: string, className?: string }) {
   const stack = useBranch(name)?.stack
@@ -22,17 +21,11 @@ export function StackBaseLabel({ name, className }: { name: string, className?: 
 }
 
 /**
- * The base in the Status cell of a stacked branch. "on login" while its push button pushes the stack or offers it: an
- * ancestor has work for the remote, so a pull request of the branch alone would include the ancestor's commits. Else
- * "on master" when the declared parent has no commits, with why in its tooltip ("air-misc landed · IJAI-1184 is built
- * on master").
+ * "on master" in the Status cell of a stacked branch built elsewhere, because its declared parent has no commits, with
+ * why in its tooltip ("air-misc landed · IJAI-1184 is built on master"). The stack graph of the table shows the parent
+ * otherwise.
  */
-export function UnpushedParentLabel({ branch }: { branch: Branch }) {
-  const push = usePushButton(branch, false, false)
-  return push.action === null ? <PassedParentLabel branch={branch} /> : <StackBaseLabel name={branch.name} />
-}
-
-function PassedParentLabel({ branch }: { branch: Branch }) {
+export function PassedParentLabel({ branch }: { branch: Branch }) {
   const baseline = useBaselineOnRemote()
   const passed = passedParentOf(branch)
   if (passed === null) {

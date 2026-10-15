@@ -12,7 +12,8 @@ import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { LandedChip } from "@/components/branch/LandedChip"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
-import { UnpushedParentLabel } from "@/components/branch/StackBaseLabel"
+import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
+import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { beginCommitDrag, useCommitDropTarget } from "@/hooks/useCommitDrag"
@@ -20,6 +21,8 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
+import type { StackLanes } from "@/lib/stack-lanes"
+import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
@@ -39,12 +42,16 @@ const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference
 
 export interface BranchRowProps {
   name: string
-  /** Levels nested: under the row of its issue and under the branches it stacks on */
+  /** Levels nested: under the row of its issue and under the branches it stacks on (`data-depth`) */
   depth?: number
+  /** Under the row of its issue: one indent step, with the guide of the family */
+  familyIndent?: 0 | 1
+  /** Its place in the stack graph; null in a table without stacks */
+  lanes?: StackLanes | null
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
-  /** The next rows are nested under this one: the rail of its expanded commits continues into their rule */
-  hasChildren?: boolean
+  /** The next rows are the members of its issue family: the family guide runs beside its expanded commits into theirs */
+  familyBelow?: boolean
   expanded: boolean
   onToggleExpanded: (name: string) => void
   setExpanded: (name: string, expanded: boolean) => void
@@ -54,7 +61,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey = false, hasChildren = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, showIssueKey = false, familyBelow = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
@@ -111,6 +118,11 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
   }
   // the rows below the branch row: a drop on them is a drop on the branch
   const blockDropClass = dropTarget.isOver ? "bg-primary/5" : undefined
+  // the expanded commits sit on the lane of the branch: its line runs down from the node to them
+  const commitsOnLane = expanded && branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
+  // the lines beside the inline form and the amend conflict, and where their content starts
+  const gutter = lanes === null ? null : <LaneGutter lanes={lanesBelow(lanes, commitsOnLane)} familyIndent={familyIndent} />
+  const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
 
   return (
     <>
@@ -119,6 +131,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
         name={name}
         rowId={name}
         depth={depth}
+        lane={lanes?.lane}
         expanded={expanded}
         processing={processing}
         group
@@ -137,7 +150,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
       >
         <BranchNameCell
           name={name}
-          depth={depth}
+          familyIndent={familyIndent}
+          lanes={lanes === null ? undefined : <LaneCell lanes={lanes} branch={branch} familyIndent={familyIndent} lineDown={lanes.down || commitsOnLane} />}
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
           summary={branch.summary}
@@ -154,18 +168,18 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           {/*
             three columns, so each chip kind keeps its column across rows: the status text (7rem at least), the pull
-            request chip, then the Patronus and Landed chips and the parent a push leaves out; `justify-start` keeps the
-            auto columns at their content width
+            request chip, then the Patronus and Landed chips and "on master" of a branch built elsewhere;
+            `justify-start` keeps the auto columns at their content width
           */}
           <div className="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
-            <BranchStatusBadge branch={branch} />
+            <BranchStatusBadge branch={branch} showDot={lanes === null} />
             <div className="col-start-2 flex">
               <PullRequestChip branchName={name} />
             </div>
             <div className="col-start-3 flex items-center gap-2">
               <PatronusChip branchName={name} />
               <LandedChip branchName={name} />
-              <UnpushedParentLabel branch={branch} />
+              <PassedParentLabel branch={branch} />
             </div>
           </div>
         </td>
@@ -176,8 +190,9 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
         <tr className={blockDropClass} {...dropTarget.dropProps}>
-          <td id={portalTargetIdFor(name)} colSpan={columnCount} className="relative overflow-hidden p-0">
-            {processing && <InlineRowProgressBar />}
+          <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
+            {gutter}
+            {processing && <InlineRowProgressBar className={lanes === null ? undefined : "right-0 left-(--bd-row-inset) w-auto"} />}
             <Suspense fallback={null}>
               {activeInline.type === "issue-reference" && <InlineIssueReferenceInput key={`issue-reference:${name}`} branchName={name} />}
               {activeInline.type === "rename" && <InlineRenameBranchInput key={`rename:${name}`} branchName={name} />}
@@ -193,7 +208,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
 
       {activeInline?.type === "amend-conflict" && activeInline.conflictInfo && (
         <tr>
-          <td colSpan={columnCount} className="p-0">
+          <td colSpan={columnCount} className={cn("relative p-0", insetClass)}>
+            {gutter}
             {/* destructive: the amend failed on a conflict */}
             <div className="flex flex-col gap-3 border-b border-border bg-destructive/5 bd-padding-content">
               <div className="flex items-center justify-between">
@@ -218,8 +234,9 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
 
       {expanded && (
         <tr data-testid="branch-commits-row" className={blockDropClass} {...dropTarget.dropProps}>
-          <td colSpan={columnCount} className="px-0 py-(--bd-cell-y)">
-            <ActiveBranchExpanded branch={branch} depth={depth} hasChildren={hasChildren} highlightTipCommit={activeInline?.type === "amend-changes"} />
+          {/* with lanes, the cell positions their lines and the rail pads itself */}
+          <td colSpan={columnCount} className={lanes === null ? "px-0 py-(--bd-cell-y)" : "relative p-0"}>
+            <ActiveBranchExpanded branch={branch} familyIndent={familyIndent} lanes={lanes} familyBelow={familyBelow} highlightTipCommit={activeInline?.type === "amend-changes"} />
           </td>
         </tr>
       )}

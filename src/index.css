@@ -46,32 +46,93 @@
 }
 
 /*
- * The tree of the branch table (BranchNameCell, ActiveBranchExpanded). A nested row is indented by --bd-nesting-step per
- * level and draws one rule per level. The rule of level n sits 2rem + (n - 1) × step from the cell edge: under the left
- * wall of the folder icon of the row above (the icon starts at the px-6 cell padding, its rule 0.5rem in). The commit
- * rail of an expanded row of depth d is the rule of level d + 1, so a parent's commits continue into its children's
- * rule, and the commit subjects start at the branch name. Every cell of the table, the expanded one included, has the
- * vertical padding --bd-cell-y, which the rules span to run over the whole row: a 36px row around the 24px folder button.
+ * The tree of the branch table (BranchNameCell, StackLanes, ActiveBranchExpanded, BranchRow). Every cell has the
+ * vertical padding --bd-cell-y, which the lines span to run over the whole row: a 36px row around the 24px folder
+ * button.
+ *
+ * Stacks are a graph (StackLanes): a column of --bd-lane-count lanes, --bd-lane-width each, starts at --bd-lane-start
+ * in the name cell; the table sets the count and `bd-lanes`. The folder button of a row follows at --bd-tree-x, so
+ * every name starts at the same x. The expanded commits sit on the lane of their branch, a dot per commit
+ * (`bd-lane-rail`), their subjects at the branch name.
+ *
+ * An issue family is the one indent level: a member is --bd-family-step further in, with a guide over the whole row
+ * height 0.5rem right of --bd-tree-x, under the icon of the issue row above. Without lanes --bd-tree-x is the px-6 cell
+ * padding.
  */
 :root {
-  --bd-nesting-step: 1.75rem;
   --bd-cell-y: 0.375rem;
+  --bd-family-step: 1.75rem;
+  --bd-lane-width: 1rem;
+  --bd-lane-start: 1.25rem;
+  --bd-tree-x: 1.5rem;
+  /* the lines of the lanes, opaque (a fork overlaps the line it leaves) and stronger than a separator */
+  --bd-lane-line: color-mix(in oklab, var(--muted-foreground) 40%, var(--card));
+  /* the commit dots on a lane */
+  --bd-lane-dot: color-mix(in oklab, var(--muted-foreground) 70%, var(--card));
 }
 
-/* a level above the row's own: its rule over the whole row height, then the next level one step to the right */
-@utility bd-nesting-level {
+/* on the table with stacked branches, which sets --bd-lane-count */
+@utility bd-lanes {
+  --bd-lane-column: calc(var(--bd-lane-count) * var(--bd-lane-width));
+  --bd-tree-x: calc(var(--bd-lane-start) + var(--bd-lane-column) + 0.5rem);
+}
+
+/*
+ * without lanes, the guide of a family member: its rule over the whole row, then the folder icon one step right of the
+ * rule above, less the 0.5rem from the icon to its rule
+ */
+@utility bd-family-guide {
   @apply border-l border-border;
   margin-block: calc(var(--bd-cell-y) * -1);
   padding-block: var(--bd-cell-y);
-  padding-left: calc(var(--bd-nesting-step) - 1px);
+  padding-left: calc(var(--bd-family-step) - 0.5rem - 1px);
 }
 
-/* the row's own level: its rule, then the folder icon one step to the right of the rule above, less the 0.5rem from the icon to its rule */
-@utility bd-nesting-leaf {
+/* without lanes, the guide of a family member beside its expanded commits, whose rail is one step further right */
+@utility bd-family-rule {
   @apply border-l border-border;
   margin-block: calc(var(--bd-cell-y) * -1);
   padding-block: var(--bd-cell-y);
-  padding-left: calc(var(--bd-nesting-step) - 0.5rem - 1px);
+  padding-left: calc(var(--bd-family-step) - 1px);
+}
+
+/*
+ * The expanded commits of a branch on its lane (--bd-rail-lane), the commit rows --bd-row-inset into the cell: a dot
+ * per commit at the middle of its subject line. On a branch without children the lane ends at the last dot: its line
+ * starts far above and the vertical clip of the rail cuts it at the top of the cell.
+ */
+@layer components {
+  .bd-lane-rail {
+    /* only the top and the bottom: the dots lie left of the rail */
+    clip-path: inset(0 -100vw);
+    --bd-rail-dot-x: calc(var(--bd-lane-start) + (var(--bd-rail-lane) + 0.5) * var(--bd-lane-width) - var(--bd-row-inset));
+  }
+
+  /* the commit rows of the list, not those of a list inside a commit (the missing commits of a conflict) */
+  .bd-lane-rail tr[data-row-id]:not(.bd-lane-rail td tr) > td {
+    position: relative;
+  }
+
+  .bd-lane-rail tr[data-row-id]:not(.bd-lane-rail td tr) > td::before {
+    content: "";
+    position: absolute;
+    top: calc(1rem - 2.5px);
+    left: calc(var(--bd-rail-dot-x) - 2.5px);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--bd-lane-dot);
+  }
+
+  .bd-lane-rail[data-lane-end] tr[data-row-id]:last-child:not(.bd-lane-rail td tr) > td::after {
+    content: "";
+    position: absolute;
+    top: -100000px;
+    bottom: calc(100% - 1rem);
+    left: calc(var(--bd-rail-dot-x) - 0.5px);
+    width: 1px;
+    background: var(--bd-lane-line);
+  }
 }
 
 /* the 10px glyph of a Windows caption button: a utility, not a text-* step, which `cn` would drop as a colour */

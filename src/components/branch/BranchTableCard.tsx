@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import type { KeyboardEvent } from "react"
+import type { CSSProperties, KeyboardEvent } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
@@ -16,6 +16,7 @@ import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier } from "@/lib/preview-keys"
+import { laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { syncBranches, useBranchTableRows, useFoundCommits } from "@/stores/branch-sync"
 
@@ -25,8 +26,8 @@ const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreview
 const NEW_BRANCH_TARGET = "\u0000new-branch"
 
 /**
- * Table of active virtual branches, the branches of an issue nested under it and stacked branches under their parents. Subscribes to the row list only; each
- * row subscribes to its own branch.
+ * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
+ * on top. Subscribes to the row list only; each row subscribes to its own branch.
  * Space (over a branch row, or on the last toggled row of the focused table) opens the branch preview. Cmd/Ctrl-click
  * and Shift-click select branch rows: M or Enter opens "Move to…" for them, Cmd+A selects all, Escape clears.
  */
@@ -74,6 +75,8 @@ export function BranchTableCard() {
     }
   }, [branchKey, selectedBranches])
   const hasDrop = useCommitMove(state => state.drag !== null || state.newBranchDrop !== null)
+  // the lane column of the stack graph, as wide in every row (`bd-lanes` in index.css)
+  const laneCount = laneCountOf(rows.map(row => row.kind === "branch" ? row.lanes : null))
 
   if (rows.length === 0) {
     // with no branch yet, the zone is where dragged commits go
@@ -113,7 +116,13 @@ export function BranchTableCard() {
       <NewBranchDropZone />
       <div className="overflow-x-auto">
         {/* focusable, so a click on a row gives it the focus that Space falls back on */}
-        <table ref={tableRef} tabIndex={-1} className="w-full outline-none" onKeyDown={onTableKeyDown}>
+        <table
+          ref={tableRef}
+          tabIndex={-1}
+          className={cn("w-full outline-none", laneCount > 0 && "bd-lanes")}
+          style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
+          onKeyDown={onTableKeyDown}
+        >
           <thead className="border-b border-border">
             <tr>
               <TableHeader>Branch Name</TableHeader>
@@ -135,8 +144,10 @@ export function BranchTableCard() {
                   key={name}
                   name={name}
                   depth={row.depth}
+                  familyIndent={row.familyIndent}
+                  lanes={row.lanes}
                   showIssueKey={row.showIssueKey}
-                  hasChildren={next?.kind === "branch" && next.depth > row.depth}
+                  familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}
                   expanded={expandedKeys.has(name)}
                   onToggleExpanded={toggleExpanded}
                   setExpanded={setExpanded}

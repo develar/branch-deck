@@ -18,11 +18,10 @@ export interface BranchNameCellProps {
   canExpand?: boolean
   /** Archived branches: show only the last path segment */
   simplified?: boolean
-  /**
-   * Levels the row is nested: under the row of its issue and under the branches it stacks on. Each level indents it,
-   * with a rule under the icon of the row above
-   */
-  depth?: number
+  /** Under the row of its issue: indented one step, with the guide of the family under the icon of the row above */
+  familyIndent?: 0 | 1
+  /** The lanes of a table with stacks (`LaneCell`), before the folder button; the cell is their positioning box */
+  lanes?: ReactNode
   /** The issue of the branch, shown as a chip next to the name */
   issueKey?: string | null
   /** Fixup commits to squash into commits of the branch */
@@ -32,12 +31,13 @@ export interface BranchNameCellProps {
   onToggleExpanded: () => void
 }
 
-export function BranchNameCell({ name, summary = "", descriptionTitle = null, expanded, canExpand = true, simplified = false, depth = 0, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
+export function BranchNameCell({ name, summary = "", descriptionTitle = null, expanded, canExpand = true, simplified = false, familyIndent = 0, lanes, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   const shownSummary = getBranchSummary(summary, descriptionTitle)
   const content = (
-    // the rule spans the row height, under the icon of the row above (`--bd-nesting-step` in index.css)
-    <div className={cn("flex min-w-0 items-center gap-2", depth > 0 && "bd-nesting-leaf")} data-testid={depth > 0 ? "nesting-rule" : undefined}>
+    // without lanes, the family guide spans the row height, under the icon of the row above (`bd-family-guide` in index.css)
+    <div className={cn("flex min-w-0 items-center gap-2", lanes === undefined && familyIndent > 0 && "bd-family-guide")} data-testid={lanes === undefined && familyIndent > 0 ? "family-guide" : undefined}>
+      {lanes}
       {canExpand && (
         <Tooltip>
           <TooltipTrigger
@@ -74,25 +74,14 @@ export function BranchNameCell({ name, summary = "", descriptionTitle = null, ex
       )}
     </div>
   )
-  return (
-    // a nested row starts at its first rule (2rem), a top-level row at its folder icon
-    <td className={cn("w-full max-w-0 py-(--bd-cell-y)", depth > 0 ? "pr-6 pl-8" : "px-6")}>
-      <NestingRules levels={depth - 1}>{content}</NestingRules>
-    </td>
-  )
-}
-
-/**
- * The rules of `levels` tree levels around `children`, one `--bd-nesting-step` apart, each over the whole height of its
- * cell (`--bd-cell-y`). The branch row draws the levels above its own; its expanded commits draw all of its levels, so the tree
- * continues past them.
- */
-export function NestingRules({ levels, children }: { levels: number, children: ReactNode }) {
-  let nested = children
-  for (let level = 0; level < levels; level++) {
-    nested = <div className="bd-nesting-level" data-testid="nesting-rule">{nested}</div>
+  if (lanes !== undefined) {
+    // the lane column starts at --bd-lane-start; its lines span the cell
+    return <td className="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">{content}</td>
   }
-  return nested
+  return (
+    // a family member starts at its guide (2rem), any other row at its folder icon
+    <td className={cn("w-full max-w-0 py-(--bd-cell-y)", familyIndent > 0 ? "pr-6 pl-8" : "px-6")}>{content}</td>
+  )
 }
 
 /** The issue of a branch as a chip next to its name. */

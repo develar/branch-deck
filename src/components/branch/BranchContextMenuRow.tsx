@@ -15,6 +15,8 @@ interface BranchContextMenuRowProps {
   "data-testid"?: string
   /** Nesting level of the row, rendered as `data-depth` when it is nested */
   "depth"?: number
+  /** The lane of its node in the stack graph, rendered as `data-lane`; null without stacks */
+  "lane"?: number | null
   /** Commits from another list are dragged ("ready") or over the row ("over") */
   "dropTarget"?: "ready" | "over"
   "dropProps"?: {
@@ -40,7 +42,7 @@ interface BranchContextMenuRowProps {
  * Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click.
  * Focusable (not a tab stop): an inline form of the row gives the focus back to it when it closes.
  */
-export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, lane = null, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -50,6 +52,7 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             data-branch-name={name}
             data-row-id={rowId}
             data-depth={depth > 0 ? depth : undefined}
+            data-lane={lane ?? undefined}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
             data-selected={selected === undefined ? undefined : String(selected)}

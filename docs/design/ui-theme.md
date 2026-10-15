@@ -213,12 +213,13 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   matches Inter's metrics (SF Mono is 4% lower and exists only on macOS), and is the font of the IntelliJ editor the
   code comes from.
 - **Density** is the IntelliJ list density:
-  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the tree
-    rules span (`bd-nesting-level`, `bd-nesting-leaf`);
+  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the lanes
+    of the stack graph and the family guide span (`StackLanes`, `bd-family-guide`);
   - a two-line commit row is 50px (`bd-padding-list-item`, `py-1.5`, the subject 2px above the meta line);
   - island header rows are 40px; the table header is `text-xs font-medium text-muted-foreground` without a fill;
-  - the horizontal padding stays `px-6` (24px): the tree rule sits under the folder icon and the commit subjects start
-    at the branch name only with it.
+  - the horizontal padding stays `px-6` (24px): the family guide sits under the folder icon and the commit subjects
+    start at the branch name only with it; a table with stacks starts its lane column at 1.25rem instead, so a lane-0
+    node lines up with the header text.
 - **Motion**: an expanded branch row and an open `CollapsibleCard` fade their content in (`animate-in fade-in-0
   duration-150`, opacity only, so nothing a test measures moves). Under `prefers-reduced-motion` the enter and exit
   animations and the transitions are off; the progress indicators (`animate-spin`, `animate-carousel`, `animate-pulse`)

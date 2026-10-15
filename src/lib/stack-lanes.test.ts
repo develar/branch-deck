@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { StackLanes } from "@/lib/stack-lanes"
-import { laneCountOf, layoutStack } from "@/lib/stack-lanes"
+import { laneCountOf, lanesBelow, layoutStack } from "@/lib/stack-lanes"
 
 /**
  * `name:lane`, then `<n` for the lane a side child forks from, `^` for the line up into the node, `v` for the line down
@@ -58,7 +58,14 @@ describe("stack lanes", () => {
   it("counts the lanes of the rows", () => {
     const children: Record<string, string[]> = { root: ["side", "main"], side: ["leaf", "inner"], inner: ["x"], main: ["m2"], m2: ["m3"], m3: ["m4"] }
     const rows = layoutStack("root", name => children[name] ?? [])
-    expect(laneCountOf(rows)).toBe(3)
-    expect(laneCountOf([{ lanes: null }, {}])).toBe(0)
+    expect(laneCountOf(rows.map(row => row.lanes))).toBe(3)
+    expect(laneCountOf([null])).toBe(0)
+  })
+
+  it("runs the lanes passing a row on below it, and its own while it has children or shows its commits", () => {
+    const side: StackLanes = { lane: 1, forkFrom: 0, up: false, down: false, through: [0] }
+    expect(lanesBelow(side, false)).toEqual([0])
+    expect(lanesBelow(side, true)).toEqual([0, 1])
+    expect(lanesBelow({ ...side, down: true }, false)).toEqual([0, 1])
   })
 })

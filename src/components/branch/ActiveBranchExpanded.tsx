@@ -1,9 +1,9 @@
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import { cn } from "cn"
 import { InfoIcon, Layers2Icon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { NestingRules } from "@/components/branch/BranchNameCell"
+import { FamilyGuide, LaneLines } from "@/components/branch/StackLanes"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
@@ -11,6 +11,8 @@ import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveLis
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { restackBranch } from "@/hooks/useStackActions"
 import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
+import type { StackLanes } from "@/lib/stack-lanes"
+import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
@@ -18,16 +20,18 @@ export interface ActiveBranchExpandedProps {
   branch: Branch
   /** The amend form is open: mark the tip commit as the amend target */
   highlightTipCommit?: boolean
-  /** The nesting depth of the branch row: the rail follows its folder icon */
-  depth?: number
-  /** The next rows stack on the branch: the rail runs to the bottom of the cell, into their rule */
-  hasChildren?: boolean
+  /** Under the row of its issue: the commits are one step further in, beside the family guide */
+  familyIndent?: 0 | 1
+  /** The next rows are the members of its issue family: the guide of the family runs beside the commits into theirs */
+  familyBelow?: boolean
+  /** The place of the branch in the stack graph: the commits sit on its lane; null in a table without stacks */
+  lanes?: StackLanes | null
 }
 
-export function ActiveBranchExpanded({ branch, highlightTipCommit = false, depth = 0, hasChildren = false }: ActiveBranchExpandedProps) {
+export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes = null }: ActiveBranchExpandedProps) {
   const genericError = branch.errorDetails?.Generic
   return (
-    <CommitRail depth={depth} hasChildren={hasChildren}>
+    <CommitRail familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes}>
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
       {branch.status !== "Blocked" && <PassedParentAlert branch={branch} />}
       {genericError !== undefined
@@ -43,19 +47,45 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, depth
   )
 }
 
+interface CommitRailProps {
+  familyIndent: 0 | 1
+  familyBelow: boolean
+  lanes: StackLanes | null
+  children: ReactNode
+}
+
 /**
- * The neutral rail of the commits under the folder icon of the row, so the subjects start at the branch name. A nested
- * branch keeps the rules of its levels beside it (`NestingRules`), and the rail of a parent runs into the rule of its
- * children (`--bd-nesting-step` in index.css).
+ * The commits of an expanded branch, their subjects at the branch name. In a table with stacks they sit on the lane of
+ * the branch, a dot per commit (`bd-lane-rail` in index.css), beside the lanes that run on below the row; the lane of
+ * the branch runs on into its children, or ends at the last commit. Without stacks, a neutral rail under the folder
+ * icon, which runs into the family guide of the rows below; a family member keeps its guide beside it.
  */
-function CommitRail({ depth, hasChildren, children }: { depth: number, hasChildren: boolean, children: ReactNode }) {
+function CommitRail({ familyIndent, familyBelow, lanes, children }: CommitRailProps) {
+  if (lanes !== null) {
+    return (
+      <>
+        <LaneLines lanes={lanesBelow(lanes, false)} />
+        {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
+        <div
+          className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}
+          style={{ "--bd-rail-lane": lanes.lane } as CSSProperties}
+          data-lane-end={lanes.down ? undefined : ""}
+        >
+          <div className="flex flex-col gap-2 pr-6" data-testid="commit-rail">
+            {children}
+          </div>
+        </div>
+      </>
+    )
+  }
+  const rail = (
+    <div className={cn("flex flex-col gap-2 border-l border-border pr-6", familyBelow && "-mb-(--bd-cell-y) pb-(--bd-cell-y)")} data-testid="commit-rail">
+      {children}
+    </div>
+  )
   return (
     <div className="pl-8 animate-in duration-150 fade-in-0">
-      <NestingRules levels={depth}>
-        <div className={cn("flex flex-col gap-2 border-l border-border pr-6", hasChildren && "-mb-(--bd-cell-y) pb-(--bd-cell-y)")} data-testid="commit-rail">
-          {children}
-        </div>
-      </NestingRules>
+      {familyIndent === 1 ? <div className="bd-family-rule" data-testid="family-guide">{rail}</div> : rail}
     </div>
   )
 }

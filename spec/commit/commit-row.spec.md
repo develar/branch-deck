@@ -22,6 +22,7 @@ targets:
   - ../../src/lib/inline-code.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/branch/StackLanes.tsx
   - ../../src/components/commit/MovableCommitList.tsx
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/components/conflict/ConflictCommitContext.tsx
@@ -336,11 +337,14 @@ The commit hash popover shows the same header and body.
 
 ### Branch table
 
-- An expanded branch shows its commits behind a neutral `border-l border-border` rail.
-- The rail sits under the left wall of the folder icon: 2rem from the cell edge, one `--bd-nesting-step` further per
-  nesting level, where it continues into the rule of the branch's children
-  ([Branch Row](../branch/branch-row.spec.md)). The subjects start at the left edge of the branch name.
-- An archived branch uses the same rail.
+- In a table with stacked branches, an expanded branch shows its commits on its lane: a 5px dot (`--bd-lane-dot`) per
+  commit at the middle of its subject line, on the line of the lane, which runs on into the children of the branch or
+  ends at its last commit, beside the other lanes that run on ([Branch Row](../branch/branch-row.spec.md#tree)).
+- Without stacks, an expanded branch shows its commits behind a neutral `border-l border-border` rail under the left
+  wall of the folder icon: 2rem from the cell edge, one `--bd-family-step` further for a member of an issue family,
+  where it continues into the guide of the family below.
+- The subjects start at the left edge of the branch name.
+- An archived branch uses the rail.
 
 ### Commit hash popover
 

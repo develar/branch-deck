@@ -21,6 +21,7 @@ targets:
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/branch/StackLanes.tsx
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useStackActions.ts
@@ -56,8 +57,8 @@ built on the new head of `auth`'s virtual branch, so a pull request for `login` 
 of `auth`. Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
 its parent is declared. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
 nearest ancestor with commits, or the baseline. A branch that can't be placed, or whose parent can't be built, is
-reported and not rebuilt; the other branches still sync. The branch table shows the stacks as a tree, and the branch menu stacks, unstacks and
-renames branches.
+reported and not rebuilt; the other branches still sync. The branch table draws the stacks as a graph, and the branch
+menu stacks, unstacks and renames branches.
 
 ## Goals
 
@@ -197,8 +198,8 @@ renames branches.
   rule, "login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login
   is pushed." ("login has commits the remote lacks. … includes them until login is pushed." for a parent on the
   remote, the nearest ancestor with work) and a `Push oauth Only` button. Preview `P` pushes as the button does. While
-  the stack push runs, the button shows the branch it pushes ("Pushing login 45%") and a second click does nothing. In
-  this state, and while the button offers Push Stack, the Status cell shows the muted "on login" in its third column.
+  the stack push runs, the button shows the branch it pushes ("Pushing login 45%") and a second click does nothing. The
+  row doesn't name the parent: the stack graph shows it, and the description of the button explains Push Stack.
   [@test] ../../src/hooks/usePushButton.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing more from a row whose stack push runs`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`, `should push a stacked branch alone from the description of its button`)
@@ -256,12 +257,12 @@ renames branches.
 ### UI
 
 - The branch table must show each branch under the branch it stacks on, depth-first; among siblings the shortest
-  chain comes first (ties newest first), so the longest chain comes last and continues its parent's line. The rows
-  have one rule per level under the icon of the row above; its expanded commits follow the depth, and the rail of a
-  parent's commits runs into the rule of its children ([Branch Row](branch-row.spec.md)). A branch whose parent has no
-  row, or whose parents form a cycle, stays at the top level.
+  chain comes first (ties newest first), so the longest chain comes last and continues its parent's line. It draws
+  each stack as a graph, root on top, instead of a staircase: a straight chain is one line, a side child forks off on
+  a lane of its own, and the expanded commits of a branch sit on its line ([Branch Row](branch-row.spec.md#tree)). A
+  branch whose parent has no row, or whose parents form a cycle, stays at the top level.
   [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a branch whose parent has no row, or whose parents form a cycle, at the top level`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should continue the commit rail of a parent into the rule of its children`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should carry the commits of a branch on its lane, into the lines of its children`)
 - Each row must carry its place in the stack graph (`lanes`, `src/lib/stack-lanes.ts`): its lane, the lane a side
   child forks from, the line up into its node and down from it, and the lanes passing it. A straight chain stays on
   lane 0; at a fork the last child continues the parent's lane and each other child takes the lowest free lane for
@@ -301,9 +302,9 @@ renames branches.
   expanded, a `warning` alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
-- Where the tree isn't visible, a stacked branch must say what it is built on ("on auth", "on master" while its parent
-  has no commits): the Outgoing overview and the branch preview. The branch row says it only while the parent has work
-  for the remote ([Pull requests](#pull-requests)) or has no commits.
+- Where the stack graph isn't visible, a stacked branch must say what it is built on ("on auth", "on master" while its
+  parent has no commits): the Outgoing overview and the branch preview. The branch row says it only for a branch built
+  elsewhere ("on master"); the graph shows the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
 - A push of a stacked branch must count only its own commits as unpushed afterwards (`parentBranch`).
 
@@ -320,7 +321,7 @@ renames branches.
 
 ## References
 
-- [Branch Row](branch-row.spec.md): the tree rules and the blocked row
+- [Branch Row](branch-row.spec.md): the stack graph and the blocked row
 - [Virtual Branches](../../docs/design/virtual-branches.md)
 - [Git Operations](../../docs/design/git-operations.md)
 - [Fixups](../commit/fixups.spec.md)

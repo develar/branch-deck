@@ -18,9 +18,23 @@ async function tree(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-depth") ?? 0}`))
 }
 
-/** The x of each tree rule in a row, outermost first */
-async function ruleXs(row: Locator): Promise<number[]> {
-  return row.getByTestId("nesting-rule").evaluateAll(rules => rules.map(rule => Math.round(rule.getBoundingClientRect().left)))
+/** `name@lane` of the branch rows in display order: the lane of the node in the stack graph */
+async function lanes(page: Page): Promise<string[]> {
+  return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-lane")}`))
+}
+
+/** The x of the middle of the node of a branch */
+async function nodeX(page: Page, name: string): Promise<number> {
+  const box = await boxOf(findBranchRow(page, name).getByTestId("lane-node"))
+  return box.x + box.width / 2
+}
+
+/** The x of the middle of the commit dots of an expanded branch (the `::before` of the commit cells), one per commit */
+async function commitDotXs(page: Page, name: string): Promise<number[]> {
+  return getBranchDetailsRow(page, name).locator("tr[data-row-id] > td").evaluateAll(cells => cells.map((cell) => {
+    const dot = getComputedStyle(cell, "::before")
+    return cell.getBoundingClientRect().left + Number.parseFloat(dot.left) + Number.parseFloat(dot.width) / 2
+  }))
 }
 
 async function boxOf(locator: Locator): Promise<{ x: number, y: number, width: number, height: number }> {
@@ -36,6 +50,21 @@ test.describe("Stacked branches", () => {
     await verifyCommitCount(findBranchRow(page, "login"), "1 commit")
 
     expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    // a graph, not a staircase: the chain auth → login → oauth stays on lane 0, session forks off it on lane 1
+    expect(await lanes(page)).toEqual(["docs@0", "auth@0", "session@1", "login@0", "oauth@0"])
+    const authX = await nodeX(page, "auth")
+    expect(Math.abs(await nodeX(page, "oauth") - authX)).toBeLessThanOrEqual(1)
+    expect(Math.round(await nodeX(page, "session") - authX)).toBe(16)
+    // every name starts at the same x, whatever the lane
+    const nameX = async (name: string) => Math.round((await boxOf(findBranchRow(page, name).getByText(name, { exact: true }))).x)
+    expect(await nameX("session")).toBe(await nameX("docs"))
+    expect(await nameX("oauth")).toBe(await nameX("docs"))
+    // the node is the dot of the status: filled in the push colour while the branch is not pushed
+    const node = findBranchRow(page, "login").getByTestId("lane-node")
+    await expect(node).toHaveAttribute("data-color", "primary")
+    await expect(node).toHaveAttribute("data-filled", "true")
+    // the graph shows what a branch is built on: the row doesn't say it
+    await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
     // the preview has no tree: it says what the branch is built on
     await findBranchRow(page, "oauth").hover()
     await page.keyboard.press("Space")
@@ -52,32 +81,51 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "login").getByTestId("branch-issue-key")).toHaveCount(0)
   })
 
-  test("should continue the commit rail of a parent into the rule of its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should carry the commits of a branch on its lane, into the lines of its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     await expandBranch(page, findBranchRow(page, "auth"))
-    await expandBranch(page, findBranchRow(page, "login"))
+    await expandBranch(page, findBranchRow(page, "oauth"))
 
-    const authRail = await boxOf(getBranchDetailsRow(page, "auth").getByTestId("commit-rail"))
-    const loginRail = await boxOf(getBranchDetailsRow(page, "login").getByTestId("commit-rail"))
-    const railX = Math.round(authRail.x)
-    const loginRailX = Math.round(loginRail.x)
-    // session and login hang from the rail of auth, oauth from the rail of login, one step further
-    expect(await ruleXs(findBranchRow(page, "session"))).toEqual([railX])
-    expect(await ruleXs(findBranchRow(page, "login"))).toEqual([railX])
-    expect(await ruleXs(findBranchRow(page, "oauth"))).toEqual([railX, loginRailX])
-    // the commits of login keep the rule of its level beside them
-    expect(await ruleXs(getBranchDetailsRow(page, "login"))).toEqual([railX])
-    expect(loginRailX - railX).toBe(28)
-    // a rail runs to the bottom of its cell, into the rule of the first child
-    const session = await boxOf(findBranchRow(page, "session"))
-    expect(Math.abs(authRail.y + authRail.height - session.y)).toBeLessThanOrEqual(1)
-    const oauth = await boxOf(findBranchRow(page, "oauth"))
-    expect(Math.abs(loginRail.y + loginRail.height - oauth.y)).toBeLessThanOrEqual(1)
+    // the commits of auth sit on its lane, which runs on beside them to the bottom of the cell, into session and login
+    const authX = await nodeX(page, "auth")
+    for (const dotX of await commitDotXs(page, "auth")) {
+      expect(Math.abs(dotX - authX)).toBeLessThanOrEqual(1)
+    }
+    const authLines = await boxOf(getBranchDetailsRow(page, "auth").getByTestId("lane-lines"))
+    expect(Math.abs(authLines.x + 8 - authX)).toBeLessThanOrEqual(1)
+    const authDetails = await boxOf(getBranchDetailsRow(page, "auth"))
+    expect(Math.abs(authLines.y + authLines.height - (authDetails.y + authDetails.height))).toBeLessThanOrEqual(1)
+    // oauth has no children: its lane ends at its last commit, no line runs on below it
+    await expect(getBranchDetailsRow(page, "oauth").getByTestId("commit-rail").locator("xpath=..")).toHaveAttribute("data-lane-end", "")
+    await expect(getBranchDetailsRow(page, "oauth").getByTestId("lane-lines")).toHaveCount(0)
+    for (const dotX of await commitDotXs(page, "oauth")) {
+      expect(Math.abs(dotX - authX)).toBeLessThanOrEqual(1)
+    }
     // the commit subjects start at the branch name
-    const name = await boxOf(findBranchRow(page, "login").getByText("login", { exact: true }))
-    const subject = await boxOf(getBranchCommitRow(page, "login", "Add login form").getByText("Add login form", { exact: true }))
+    const name = await boxOf(findBranchRow(page, "oauth").getByText("oauth", { exact: true }))
+    const subject = await boxOf(getBranchCommitRow(page, "oauth", "Add OAuth provider").getByText("Add OAuth provider", { exact: true }))
     expect(Math.abs(subject.x - name.x)).toBeLessThanOrEqual(1)
+  })
+
+  test("should draw the lanes beside the inline form of a stacked branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+
+    await openContextMenu(page, findBranchRow(page, "session"))
+    await clickContextMenuItem(page, "Rename…")
+    const formRow = page.locator("[data-branch-name=session] + tr")
+    await expect(formRow.getByTestId("inline-rename-input")).toBeVisible()
+    // the line of auth passes the form on lane 0 down to login; session has no children, its lane 1 ends at its node
+    const lines = await boxOf(formRow.getByTestId("lane-lines"))
+    expect(Math.abs(lines.x + 8 - await nodeX(page, "auth"))).toBeLessThanOrEqual(1)
+    expect(Math.round(lines.width)).toBe(16)
+    const row = await boxOf(formRow)
+    expect(Math.abs(lines.height - row.height)).toBeLessThanOrEqual(1)
+    // the form starts right of the lanes, its title at the branch name
+    const name = await boxOf(findBranchRow(page, "session").getByText("session", { exact: true }))
+    const title = await boxOf(formRow.getByRole("heading", { name: "Rename session" }))
+    expect(Math.abs(title.x - name.x)).toBeLessThanOrEqual(1)
   })
 
   test("should block the children of a parent that doesn't build", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -199,10 +247,9 @@ test.describe("Stacked branches", () => {
     // the E2E server has no remote: answer the pushes and record their order
     const pushes = await routePush(page, {})
 
-    // login isn't pushed yet: the button of oauth pushes the stack, its description offers oauth alone; the row says what it is built on
+    // login isn't pushed yet: the button of oauth pushes the stack, its description offers oauth alone
     const oauth = findBranchRow(page, "oauth")
-    await expect(oauth.getByTestId("stack-base")).toHaveText("on login")
-    await expect(findBranchRow(page, "auth").getByTestId("stack-base")).toHaveCount(0)
+    await expect(oauth.getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
     const button = getPushButton(oauth)
     await expect(button).toHaveText("Push Stack (3)")
     await expect(button).toBeEnabled()
@@ -216,8 +263,10 @@ test.describe("Stacked branches", () => {
     await button.click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
-    // the parents are on the remote: nothing to choose any more
-    await expect(oauth.getByTestId("stack-base")).toHaveCount(0)
+    // the stack is on the remote: its nodes are hollow
+    for (const name of ["auth", "login", "oauth"]) {
+      await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-filled", "false")
+    }
     // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth into login
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("3 commits · created 3 remote branches")
