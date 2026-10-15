@@ -25,6 +25,7 @@ targets:
   - ../../src/lib/update-state.ts
   - ../../src/lib/transfer-progress.ts
   - ../../src/lib/agent-prompt.ts
+  - ../../src-tauri/src/commands/agent_cli.rs
   - ../../src/lib/update-conflict.ts
 ---
 
@@ -53,7 +54,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 - No count of incoming commits anywhere: a monorepo gets hundreds, and only conflicts matter. The state is up to date,
   applies cleanly, conflicts in N files, or blocked by uncommitted changes. The user's own commits that the baseline
   already has are named, not counted as incoming ([Landed Commits](landed-commits.spec.md)).
-- Branch Deck does not resolve conflicts and does not launch an agent; it copies a prompt.
+- Branch Deck does not resolve conflicts and does not launch an agent; it copies a prompt. A blocked update goes to
+  `bd update`, which never stashes; a conflict still gets the git steps.
 - No merge of the upstream (`pull --no-rebase`), no update of submodules.
 
 ## Requirements
@@ -264,7 +266,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
   [@test] ../../src/lib/update-conflict.test.ts (`gives one time when the commit landed within an hour of being written`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
-- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block.
+- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. Once the
+  app knows its bd (`agent_cli_command`, read when the dialog opens, so the copy needs no wait), it says that the
+  prompt asks about each file, then updates with bd.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
 - The primary button "Copy Prompt for Agent" copies a prompt and confirms in place: it says "Copied" (`CopyCheckIcon`)
   for a moment, as a copy button does, and no toast covers the dialog. Both cases offer it: an overlap of uncommitted
@@ -282,7 +286,14 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/agent-prompt.test.ts (`names the commits on both sides of each likely conflicting file`)
   [@test] ../../src/lib/agent-prompt.test.ts (`states the rules and the steps`)
   [@test] ../../src/lib/agent-prompt.test.ts (`leaves out the file list when the conflicting files are unknown`)
-- The blocked prompt asks to stash, update, pop and merge, keeping the uncommitted changes uncommitted.
+- With the app's bd, the blocked prompt must list the files, say that other sessions work in the tree, forbid to
+  stash, reset, check out or commit them, ask the agent to ask the user about each file, and then to run
+  `<bd> -C <repository> update --no-fetch` and continue as its output says. The conflict prompt keeps the git steps.
+  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, sends a blocked update to the user and then to bd, never to a stash`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, keeps the git steps for a conflict`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
+- Without a known bd, the blocked prompt asks to stash, update, pop and merge, keeping the uncommitted changes
+  uncommitted.
   [@test] ../../src/lib/agent-prompt.test.ts (`asks to stash, update and restore uncommitted changes that block the update`)
 
 ## User Experience

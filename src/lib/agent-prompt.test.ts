@@ -29,7 +29,7 @@ const conflict = check({
 
 describe("buildAgentPrompt", () => {
   it("names the repository, the branch, the upstream and the exact ids", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: Date.UTC(2026, 9, 14, 7, 30) })
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: Date.UTC(2026, 9, 14, 7, 30), bd: null })
     expect(prompt).toContain("Rebase the branch `master` of the Git repository at /work/repo onto `origin/master`")
     expect(prompt).toContain(`- HEAD (master): ${H}`)
     expect(prompt).toContain(`- origin/master (fetched 2026-10-14T07:30:00.000Z): ${U}`)
@@ -37,13 +37,13 @@ describe("buildAgentPrompt", () => {
   })
 
   it("lists the local commits oldest first", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null })
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd: null })
     expect(prompt).toContain("My local commits, oldest first:\n- aaaaaaaa (auth) Add login\n- bbbbbbbb (auth) Change line 2")
     expect(prompt).not.toContain("fetched")
   })
 
   it("names the commits on both sides of each likely conflicting file", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null })
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd: null })
     // an upstream commit with its author, when it was written, and when it landed (the committer time)
     const upstream = "cccccccc Change line 2 upstream (Dana Lee, authored 2023-11-14, in origin/master since 2023-11-16)"
     expect(prompt).toContain([
@@ -57,7 +57,7 @@ describe("buildAgentPrompt", () => {
   })
 
   it("states the rules and the steps", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null })
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd: null })
     expect(prompt).toContain("Keep every commit message unchanged, including the `(prefix)`")
     expect(prompt).toContain("Don't squash, reorder, split or drop commits.")
     expect(prompt).toContain("Don't push.")
@@ -70,12 +70,30 @@ describe("buildAgentPrompt", () => {
   })
 
   it("leaves out the file list when the conflicting files are unknown", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/r", check: check({ status: "conflict", files: [], commits: [], upstreamCommits: [] }), fetchTime: null })
+    const prompt = buildAgentPrompt({ repositoryPath: "/r", check: check({ status: "conflict", files: [], commits: [], upstreamCommits: [] }), fetchTime: null, bd: null })
     expect(prompt).not.toContain("Files that likely conflict")
   })
 
+  it("with bd, sends a blocked update to the user and then to bd, never to a stash", () => {
+    const blockedCheck = check({ status: "blocked", paths: ["src/app.txt", "build.out"] })
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blockedCheck, fetchTime: null, bd: "/Users/me/.local/bin/bd" })
+    expect(prompt).toBe([
+      "Branch Deck can't update `master` at /work/my repo onto `origin/master`: my uncommitted changes are in files that origin/master also changes:",
+      "- src/app.txt",
+      "- build.out",
+      "Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file. When I say the files are ready, run `/Users/me/.local/bin/bd -C '/work/my repo' update --no-fetch` and continue as its output says.",
+    ].join("\n"))
+    expect(prompt).not.toContain("git stash")
+  })
+
+  it("with bd, keeps the git steps for a conflict", () => {
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd: "'/Applications/Branch Deck.app/Contents/MacOS/branch-deck' cli" })
+    expect(prompt).toContain("1. `git rebase origin/master`.")
+    expect(prompt).not.toContain("update --no-fetch")
+  })
+
   it("asks to stash, update and restore uncommitted changes that block the update", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: check({ status: "blocked", paths: ["src/app.txt", "build.out"] }), fetchTime: null })
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: check({ status: "blocked", paths: ["src/app.txt", "build.out"] }), fetchTime: null, bd: null })
     expect(prompt).toContain("Update the branch `master` of the Git repository at /work/repo to `origin/master`.")
     expect(prompt).toContain("My uncommitted changes that overlap the upstream:\n- src/app.txt\n- build.out")
     expect(prompt).toContain("1. `git stash push --include-untracked`.")

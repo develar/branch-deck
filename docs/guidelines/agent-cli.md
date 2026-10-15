@@ -637,7 +637,13 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
 It prints `{"schema":1,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false}`. `on_path`
 says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed
-`branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere.
+`branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
+symlink it names the app binary with `cli` (`/Applications/…/branch-deck cli`): the bare app binary starts the app.
+
+The app's prompts name bd the same way without an install: the Tauri command `agent_cli_command`
+(`bd_command` in `install.rs`) returns the `bd` symlink when it points at the running app, else the app binary with
+`cli` (on Windows `bd.exe` next to the app), quoted for a shell. It writes nothing, so the bd of a prompt is always the
+version of the app that copied it.
 
 ## Agent workflow
 
@@ -666,4 +672,5 @@ ask what to do with each file; never stash, reset, check out or commit them. Aft
 
 The agent never reorders, squashes or drops commits: a plan only moves commits between branches. The Update Project
 hand-off prompt (`src/lib/agent-prompt.ts`) states the same rule for an agent that rebases; it also forbids a push,
-which here the agent runs only after the user approves.
+which here the agent runs only after the user approves. For an update blocked by uncommitted changes, the prompt
+sends the agent to the user about each file and then to `bd update --no-fetch`; a conflict still gets the git steps.

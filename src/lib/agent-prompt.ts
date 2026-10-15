@@ -8,6 +8,8 @@ export interface AgentPromptInput {
   check: UpdateCheck
   /** When the upstream was fetched (ms), if known */
   fetchTime: number | null
+  /** The command that runs this app's bd, quoted for a shell (`agent_cli_command`); null when it is not known */
+  bd: string | null
 }
 
 /** Rules every hand-off states: Branch Deck must find the same commits, grouped the same way, afterwards */
@@ -48,13 +50,35 @@ function stateLines(check: UpdateCheck, fetchTime: number | null): string {
   ])
 }
 
+/** A word for a POSIX shell: single-quoted unless it is plain */
+function shellQuote(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`
+}
+
+/**
+ * The blocked prompt with bd: other sessions may work in the same tree, so the agent must not stash, reset, check out
+ * or commit the files; it asks the user, then lets bd update, which writes only the files the update changes
+ */
+function bdBlockedPrompt(repositoryPath: string, check: UpdateCheck, paths: readonly string[], bd: string): string {
+  const { branch, upstream } = check
+  return [
+    `Branch Deck can't update \`${branch}\` at ${repositoryPath} onto \`${upstream}\`: my uncommitted changes are in files that ${upstream} also changes:`,
+    bullets(paths),
+    `Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file. When I say the files are ready, run \`${bd} -C ${shellQuote(repositoryPath)} update --no-fetch\` and continue as its output says.`,
+  ].join("\n")
+}
+
 /**
  * The prompt for an external coding agent that does the update Branch Deck refused: a rebase with conflicts, or one
  * blocked by uncommitted changes on files that the upstream changed. Copied to the clipboard; the agent runs git in a
- * terminal, so it is told the exact state and what it must not change.
+ * terminal, so it is told the exact state and what it must not change. With `bd`, a blocked update goes back to bd
+ * once the user has decided about the files.
  */
-export function buildAgentPrompt({ repositoryPath, check, fetchTime }: AgentPromptInput): string {
+export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: AgentPromptInput): string {
   const { state, branch, upstream } = check
+  if (state.status === "blocked" && bd !== null) {
+    return bdBlockedPrompt(repositoryPath, check, state.paths, bd)
+  }
   const sections: string[] = []
   if (state.status === "conflict") {
     sections.push(

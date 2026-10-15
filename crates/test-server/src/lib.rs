@@ -113,6 +113,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/check_model_status/{repo_id}", post(tauri_command_bridge::check_model_status))
     // Menu command endpoints
     .route("/invoke/update_menu_checkbox", post(tauri_command_bridge::update_menu_checkbox))
+    .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
     // Health check
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback

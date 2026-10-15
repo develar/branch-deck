@@ -808,6 +808,13 @@ pub struct UpdateMenuCheckboxRequest {
   checked: bool,
 }
 
+/// The bd command the copied prompts name: a fixed path, the app's `agent_cli_command` reads the running binary
+pub const AGENT_CLI_COMMAND: &str = "/Users/test/.local/bin/bd";
+
+pub async fn agent_cli_command() -> Json<&'static str> {
+  Json(AGENT_CLI_COMMAND)
+}
+
 pub async fn update_menu_checkbox(Json(request): Json<UpdateMenuCheckboxRequest>) -> StatusCode {
   // No-op for tests - just log and return success
   tracing::debug!("Menu checkbox updated: {} = {}", request.menu_id, request.checked);

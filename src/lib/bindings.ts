@@ -137,6 +137,12 @@ export const commands = {
 	getCommitFileDiff: (params: GetCommitFileDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_commit_file_diff", { params })),
 	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
 	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
+	/**
+	 *  The command line that runs this app's bd, for the prompts the app copies: the `bd` symlink in `~/.local/bin` when it
+	 *  points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it), quoted for a shell. Writes
+	 *  nothing and needs no install, so the bd of a prompt is always the version of the app that wrote it
+	 */
+	agentCliCommand: () => typedError<string, CommandError>(__TAURI_INVOKE("agent_cli_command")),
 	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("download_model", { progress })),
 	checkModelStatus: () => typedError<ModelStatus, CommandError>(__TAURI_INVOKE("check_model_status")),
 	cancelModelDownload: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_model_download")),

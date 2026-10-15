@@ -83,19 +83,61 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
   })
 }
 
-/// The command `bd help skill` names: the installed `bd` symlink when it is this binary's, else the binary itself
-pub fn skill_command(environment: &Environment) -> String {
-  let Ok(target) = app_binary(environment) else {
-    return "bd".to_string();
-  };
+/// How to run the bd of this binary, without writing anything: the `bd` symlink in `~/.local/bin` when it points at
+/// this binary, else the binary itself, with the `cli` subcommand on macOS and Linux, where the bare app binary starts
+/// the app (on Windows `bd.exe` next to the app, the console binary)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BdCommand {
+  pub program: PathBuf,
+  /// `cli` when `program` is the app binary
+  pub subcommand: Option<&'static str>,
+}
+
+impl BdCommand {
+  /// `program [cli]` with the path as it is: the skill says to quote it
+  pub fn display(&self) -> String {
+    let program = display(&self.program);
+    match self.subcommand {
+      Some(subcommand) => format!("{program} {subcommand}"),
+      None => program,
+    }
+  }
+
+  /// The command for a shell, the path quoted when it needs it: a POSIX shell's single quotes, on Windows double quotes
+  pub fn for_shell(&self) -> String {
+    let program = display(&self.program);
+    let plain = !program.is_empty() && program.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@' | '+'));
+    let program = if plain {
+      program
+    } else if cfg!(windows) {
+      format!("\"{program}\"")
+    } else {
+      format!("'{}'", program.replace('\'', r"'\''"))
+    };
+    match self.subcommand {
+      Some(subcommand) => format!("{program} {subcommand}"),
+      None => program,
+    }
+  }
+}
+
+/// The bd of this binary, see `BdCommand`
+pub fn bd_command(environment: &Environment) -> Result<BdCommand, CliError> {
+  let target = app_binary(environment)?;
   #[cfg(unix)]
   if let Some(home) = &environment.home {
     let link = home.join(LINK_DIR).join("bd");
     if links_to(&link, &target) {
-      return display(&link);
+      return Ok(BdCommand { program: link, subcommand: None });
     }
   }
-  display(&target)
+  let subcommand = (!cfg!(windows)).then_some("cli");
+  Ok(BdCommand { program: target, subcommand })
+}
+
+/// The command `bd help skill` names: `bd_command`, or `bd` when the binary is unknown
+pub fn skill_command(environment: &Environment) -> String {
+  bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.display())
 }
 
 /// The binary the command runs: on macOS and Linux the app binary (a `bd` symlink resolves to it), on Windows `bd.exe`

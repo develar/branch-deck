@@ -1,5 +1,5 @@
 use crate::fixture_test::{environment, run_json};
-use crate::install::{SKILL_DIRS, SKILL_NAME};
+use crate::install::{BdCommand, SKILL_DIRS, SKILL_NAME, bd_command};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -97,4 +97,53 @@ fn a_file_in_the_way_is_refused() {
   environment.path = Some("/usr/bin".into());
   let (exit_code, output) = run_json(&environment, &["install"]);
   assert_eq!((exit_code, &output["on_path"]), (0, &json!(false)), "{output}");
+}
+
+/// The command of the app's prompts: the installed link when it is this app's, else the app binary with `cli`, which
+/// without `cli` would start the app
+#[cfg(unix)]
+#[test_log::test]
+fn the_bd_command_is_the_link_to_this_app_or_the_app_with_cli() {
+  let (home, app) = home_with_app();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let mut environment = environment(&home);
+  environment.home = Some(home.clone());
+  environment.executable = Some(app.clone());
+
+  let command = bd_command(&environment).unwrap();
+  assert_eq!(
+    command,
+    BdCommand {
+      program: app.clone(),
+      subcommand: Some("cli")
+    }
+  );
+  assert_eq!(command.display(), format!("{} cli", app.display()));
+  let mut out = Vec::new();
+  assert_eq!(crate::run_with(["help", "skill"].map(std::ffi::OsString::from), &environment, &mut out), 0);
+  assert!(String::from_utf8(out).unwrap().contains(&format!("bd is `{} cli`", app.display())));
+
+  // a link to another binary is not this app's bd
+  let link = home.join(".local/bin/bd");
+  std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+  std::os::unix::fs::symlink("/old/branch-deck", &link).unwrap();
+  assert_eq!(bd_command(&environment).unwrap().subcommand, Some("cli"));
+  std::fs::remove_file(&link).unwrap();
+  std::os::unix::fs::symlink(&app, &link).unwrap();
+  let command = bd_command(&environment).unwrap();
+  assert_eq!(
+    command,
+    BdCommand {
+      program: link.clone(),
+      subcommand: None
+    }
+  );
+  assert_eq!(command.for_shell(), link.display().to_string());
+
+  // a path with a space or a quote is quoted for a POSIX shell
+  let spaced = BdCommand {
+    program: "/Applications/Branch Deck.app/Contents/MacOS/it's".into(),
+    subcommand: Some("cli"),
+  };
+  assert_eq!(spaced.for_shell(), r"'/Applications/Branch Deck.app/Contents/MacOS/it'\''s' cli");
 }

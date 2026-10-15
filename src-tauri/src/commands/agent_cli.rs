@@ -1,5 +1,5 @@
 use bd_cli::context::Environment;
-use bd_cli::install::{InstallArgs, install};
+use bd_cli::install::{InstallArgs, bd_command, install};
 use model_tauri::command_error::CommandError;
 use std::ffi::OsString;
 use tracing::{instrument, warn};
@@ -34,6 +34,18 @@ pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
   })
   .await
   .map_err(|e| CommandError::new(format!("The install task failed: {e}")))?
+}
+
+/// The command line that runs this app's bd, for the prompts the app copies: the `bd` symlink in `~/.local/bin` when it
+/// points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it), quoted for a shell. Writes
+/// nothing and needs no install, so the bd of a prompt is always the version of the app that wrote it
+#[tauri::command]
+#[specta::specta]
+#[instrument]
+pub fn agent_cli_command() -> Result<String, CommandError> {
+  bd_command(&Environment::from_process())
+    .map(|command| command.for_shell())
+    .map_err(|e| CommandError::new(e.message))
 }
 
 /// `PATH` of an interactive login shell of the user (`$SHELL`), where `~/.local/bin` is usually added; `None` on Windows

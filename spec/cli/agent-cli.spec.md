@@ -442,4 +442,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, with "Copy Path"
   (the full path of `bd`); a failure is the error toast "Cannot install the Agent CLI".
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
+- Without the symlink to this binary, `bd help skill` must name the app binary with `cli`, never the bare app binary,
+  which starts the app. The app's `agent_cli_command` must return the same command without writing anything, quoted
+  for a shell: the symlink when it points at the running app, else the app binary with `cli` (`bd.exe` on Windows).
+  [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

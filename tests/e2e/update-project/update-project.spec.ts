@@ -153,10 +153,14 @@ test.describe("Update Project", () => {
     await expect(dialog.getByRole("heading")).toHaveText("Your uncommitted changes block the update")
     await expect(dialog.getByTestId("update-blocked-paths").locator("li")).toHaveAttribute("data-path", "src/app.txt")
 
+    // the prompt sends the agent to the user, then to the app's own bd (`agent_cli_command`), never to a stash
+    await expect(dialog).toContainText("the prompt asks you about each file, then updates with bd.")
     await dialog.getByTestId("copy-agent-prompt").click()
     const prompt = await readClipboard(page)
-    expect(prompt).toContain("My uncommitted changes that overlap the upstream:\n- src/app.txt")
-    expect(prompt).toContain("`git stash push --include-untracked`")
+    expect(prompt).toContain("my uncommitted changes are in files that origin/master also changes:\n- src/app.txt\n")
+    expect(prompt).toContain("Don't stash, reset, check out or commit these files. Ask me what to do with each file.")
+    expect(prompt).toMatch(/run `\/Users\/test\/\.local\/bin\/bd -C \S+ update --no-fetch` and continue as its output says\./)
+    expect(prompt).not.toContain("git stash")
   })
 
   test("should be muted when up to date", async ({ page, setupRepo, syncAndWaitForBranches }) => {
