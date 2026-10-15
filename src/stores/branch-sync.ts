@@ -33,7 +33,12 @@ export interface RemoteStatus {
   exists: boolean
   unpushedCommits: string[]
   commitsAhead: number
+  /** Remote commits whose content the branch lacks that are no older version of a commit it has: a push drops them */
   commitsBehind: number
+  /** Remote commits that are older versions of commits amended here: a push replaces them */
+  commitsAmended: number
+  /** Remote commits that are older versions of the commits of the branches it is built on: a push replaces them */
+  commitsRestacked: number
   myCommitsAhead: number
   /** The remote branch is an ancestor of the local one; a rebased branch is not, its push is a force push */
   fastForward: boolean
@@ -605,7 +610,7 @@ export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus):
   updateBranch(name, branch => ({ ...branch, remoteStatus }))
 }
 
-type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits">
+type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "commitsAmended" | "commitsRestacked" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits">
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
   return {
@@ -613,6 +618,8 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     unpushedCommits: update.unpushedCommits,
     commitsAhead: update.unpushedCommits.length,
     commitsBehind: update.commitsBehind,
+    commitsAmended: update.commitsAmended,
+    commitsRestacked: update.commitsRestacked,
     myCommitsAhead: update.myUnpushedCount ?? 0,
     fastForward: update.fastForward,
     lastPushTime: update.lastPushTime ?? 0,

@@ -13,7 +13,11 @@ export interface PushResult {
   outcome?: "pushed" | "remoteMoved"
   unpushedCommits?: string[]
   commitsBehind?: number
-  /** Defaults to no remote commit the branch lacks */
+  /** Older versions of commits amended here on the remote */
+  commitsAmended?: number
+  /** Older versions of the commits of the branches it is built on on the remote */
+  commitsRestacked?: number
+  /** Defaults to no remote commit the branch lacks, none an older version either */
   fastForward?: boolean
   remoteTip?: string
   droppedCommits?: DroppedCommit[]
@@ -45,6 +49,8 @@ export const PUSH_TIME = 1704139200
 export function pushOutcome(branchName: string, result: PushResult = {}) {
   const unpushedCommits = result.unpushedCommits ?? []
   const commitsBehind = result.commitsBehind ?? 0
+  const commitsAmended = result.commitsAmended ?? 0
+  const commitsRestacked = result.commitsRestacked ?? 0
   return {
     type: result.outcome ?? "pushed",
     remoteStatus: {
@@ -53,9 +59,11 @@ export function pushOutcome(branchName: string, result: PushResult = {}) {
       unpushedCommits,
       commitsBehind,
       droppedCommits: result.droppedCommits ?? [],
+      commitsAmended,
+      commitsRestacked,
       remoteTip: result.remoteTip ?? `${branchName}-pushed`,
       myUnpushedCount: unpushedCommits.length,
-      fastForward: result.fastForward ?? commitsBehind === 0,
+      fastForward: result.fastForward ?? (commitsBehind === 0 && commitsAmended === 0 && commitsRestacked === 0),
       lastPushTime: PUSH_TIME,
     },
   }

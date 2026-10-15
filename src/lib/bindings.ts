@@ -1091,13 +1091,27 @@ export type RemoteStatusUpdate = {
 	remoteTip: string | null,
 	/**  Commits of the branch whose content the remote lacks, oldest first; all the commits of a branch not on the remote */
 	unpushedCommits: string[],
-	/**  Commits of the remote whose content the branch lacks: a push drops them */
+	/**
+	 *  Commits of the remote whose content the branch lacks and that are no older version of a commit it has: a push drops
+	 *  them
+	 */
 	commitsBehind: number,
 	/**
 	 *  The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`
 	 *  (`commits_behind` is the total)
 	 */
 	droppedCommits: DroppedCommit[],
+	/**
+	 *  Commits of the remote that are older versions of commits amended here (author, author time and subject match an
+	 *  unpushed commit of the branch, the changes differ; a copy with the same changes on moved lines counts nowhere): a
+	 *  push replaces them
+	 */
+	commitsAmended: number,
+	/**
+	 *  Commits of the remote that are older versions of commits of the branches a stacked branch is built on (they were
+	 *  amended or rebuilt since the branch was pushed): a push replaces them
+	 */
+	commitsRestacked: number,
 	/**  Of the unpushed commits, the ones authored by the current user */
 	myUnpushedCount: number,
 	/**  The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites */

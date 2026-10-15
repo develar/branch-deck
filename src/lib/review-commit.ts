@@ -1,3 +1,4 @@
+import { isRemoteUpToDate } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 
 /**
@@ -7,7 +8,8 @@ import type { RemoteStatus } from "@/stores/branch-sync"
  * - `current`: the branch is at the commit, or nothing known says otherwise (the remote status is not loaded yet);
  * - `rebased`: the remote branch is at the commit and the branch has the same commits, rebuilt on a newer baseline;
  * - `changedOnRemote`: the remote branch moved on since, and the branch has nothing the remote lacks;
- * - `changedLocally`: the branch has work the remote lacks (or lacks commits the remote has): a push is due.
+ * - `changedLocally`: the branch has work the remote lacks (or lacks commits the remote has, older versions of amended
+ *   or restacked commits included): a push is due.
  */
 export type ReviewCommitState = "current" | "rebased" | "changedOnRemote" | "changedLocally"
 
@@ -17,8 +19,7 @@ export function getReviewCommitState(commit: string | null, localTip: string | u
     return "current"
   }
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
-  const upToDate = remote.exists && remote.commitsAhead === 0 && remote.commitsBehind === 0
-  if (!upToDate) {
+  if (!isRemoteUpToDate(remote)) {
     return "changedLocally"
   }
   if (commit !== remote.remoteTip) {

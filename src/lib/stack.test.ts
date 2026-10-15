@@ -138,6 +138,17 @@ describe("pull request bases of stacked branches", () => {
     expect(buttonStackPushOrder("oauth", name => dropping[name])).toEqual([])
   })
 
+  it("pushes an amended or restacked ancestor with the stack and asks nothing: its push replaces older versions", () => {
+    const tree: Record<string, Branch> = {
+      auth: testBranch("auth", null, { remoteStatus: { ...unpushed, commitsAmended: 1, fastForward: false } }),
+      // no commit of its own to push: the remote has the older version of auth's commit
+      login: testBranch("login", "auth", { remoteStatus: { ...pushed, commitsRestacked: 1, fastForward: false } }),
+      oauth: testBranch("oauth", "login", { remoteStatus: { ...unpushed, commitsRestacked: 1, fastForward: false } }),
+    }
+    expect(buttonStackPushOrder("oauth", name => tree[name])).toEqual(["auth", "login", "oauth"])
+    expect(stackChildrenPushOrder("auth", ["login", "oauth"], name => tree[name])).toEqual(["auth", "login", "oauth"])
+  })
+
   it("pushes the branch and its children that have work for the remote, parents first", () => {
     const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false }
     const tree: Record<string, Branch> = {

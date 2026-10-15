@@ -1,11 +1,14 @@
 import type { DroppedCommit } from "@/lib/bindings"
-import { formatPushCount, getPushAction } from "@/lib/push-summary"
+import { formatPushCount, getPushAction, isRemoteUpToDate, replacesOlderVersions } from "@/lib/push-summary"
 import { formatTimestamp } from "@/lib/time"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
 
 export interface StatusTexts {
-  /** Compact display text, e.g. "3↑" | "1 (3)↑ · 2↓" | "0 (3)↑" | "2↓" | "up to date" | "not pushed" */
+  /**
+   * Compact display text, e.g. "3↑" | "1 (3)↑ · 2↓" | "0 (3)↑" | "2↓" | "1↑ · 1 amended" | "4↑ · restacked" |
+   * "restacked" | "up to date" | "not pushed"
+   */
   text: string
   /** Full descriptive text */
   tooltip: string
@@ -48,8 +51,27 @@ function formatRemoteHas(remote: RemoteStatus): string {
   return `The remote has ${plural(remote.commitsBehind, "commit", "commits")} your branch doesn't${formatByAuthors(remote.droppedCommits)}.`
 }
 
-export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, lastPushTime, fastForward } = remote
+/** "an older version of 1 commit", "older versions of 2 commits": `what` counts `count` commits */
+function olderVersions(count: number, what: string): string {
+  return `${count === 1 ? "an older version" : "older versions"} of ${what}`
+}
+
+/** "The remote has an older version of 1 commit amended here." */
+function formatAmended(count: number): string {
+  return `The remote has ${olderVersions(count, plural(count, "commit", "commits"))} amended here.`
+}
+
+/** "Rebuilt on the new auth: the remote has older versions of 2 of its commits." */
+function formatRestacked(count: number, parent: string | null): string {
+  return `Rebuilt on the new ${parent ?? "parent"}: the remote has ${olderVersions(count, `${count} of its commits`)}.`
+}
+
+/**
+ * The texts of a remote status. `parent`: the branch a stacked branch is built on (`effectiveBase`), which the remote
+ * has older versions of commits of when the branch is restacked
+ */
+export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null): RemoteStatusTexts {
+  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, lastPushTime, fastForward } = remote
   const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
 
   const withPushTime = (lines: readonly string[]): string => {
@@ -58,7 +80,7 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
   }
 
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
-  if (exists && commitsAhead === 0 && commitsBehind === 0) {
+  if (isRemoteUpToDate(remote)) {
     return { text: "up to date", tooltip: withPushTime(fastForward ? [upToDateText] : [upToDateText, onlyRebasedText]) }
   }
 
@@ -72,13 +94,36 @@ export function buildRemoteStatusTexts(remote: RemoteStatus): RemoteStatusTexts 
   if (commitsAhead > 0) {
     lines.push(formatCommitsToPush(mine, commitsAhead))
   }
+  if (commitsAmended > 0) {
+    lines.push(formatAmended(commitsAmended))
+  }
+  if (commitsRestacked > 0) {
+    lines.push(formatRestacked(commitsRestacked, parent))
+  }
   if (commitsBehind > 0) {
     lines.push(formatRemoteHas(remote))
   }
-  else if (!fastForward) {
+  else if (!fastForward && !replacesOlderVersions(remote)) {
     lines.push(rebasedText)
   }
-  return { text: formatPushCount(mine, commitsAhead, commitsBehind), tooltip: withPushTime(lines) }
+  const text = formatPushCount({ mine, count: commitsAhead, amended: commitsAmended, restacked: commitsRestacked, behind: commitsBehind })
+  return { text, tooltip: withPushTime(lines) }
+}
+
+/**
+ * The first line of the description of a force push, what it replaces: "Force push replaces 1 commit amended here.",
+ * "Force push replaces the older versions of auth's commits."; a push that drops remote commits or replaces rebased
+ * copies "replaces the remote branch."
+ */
+export function formatForcePushLine(remote: RemoteStatus, parent: string | null = null): string {
+  const replaced: string[] = []
+  if (remote.commitsBehind === 0 && remote.commitsAmended > 0) {
+    replaced.push(`${plural(remote.commitsAmended, "commit", "commits")} amended here`)
+  }
+  if (remote.commitsBehind === 0 && remote.commitsRestacked > 0) {
+    replaced.push(`the older versions of ${parent === null ? "the parent" : parent}'s commits`)
+  }
+  return `Force push replaces ${replaced.length === 0 ? "the remote branch" : replaced.join(" and ")}.`
 }
 
 /** " (by Ann and Bob)" after a count of commits; nothing without authors */
@@ -123,6 +168,9 @@ export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus):
   }
   if (action === null) {
     return { title, description: "The remote has the branch's commits now. Nothing was pushed.", action }
+  }
+  if (replacesOlderVersions(remote)) {
+    return { title, description: "The remote has older versions of the branch's commits. Nothing was pushed.", action }
   }
   return { title, description: "The remote has no commits the branch lacks. Nothing was pushed.", action }
 }

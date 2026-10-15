@@ -384,6 +384,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   process holds it) and print per branch the status (`created`, `updated`, `unchanged`, `error`, `merge_conflict`),
   the commit count, the new tip and the remote state, plus the unassigned count.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`)
+- The remote state must count the remote commits a push drops (`behind`, `dropped_commits`) apart from the older
+  versions of commits it has ([Outgoing Commits](../repository/outgoing.spec.md#what-is-outgoing)): `amended` (of
+  commits amended here) and `restacked` (of commits of the branches it is built on), each left out at 0.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
 - A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
   exit code must be 1.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
@@ -405,8 +409,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children`)
 - It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
   without `--force` (a parent taken along too, with `--alone` as the way out), and with `--alone` a stacked branch
-  whose parent is neither on the remote nor pushed with it.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
+  whose parent is neither on the remote nor pushed with it. Older versions of commits amended or restacked here are
+  not behind: such a branch pushes without `--force`, and a parent with only them is taken along.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`)
 - `--with-children` must add the branches stacked on the named ones, directly or further down, parents first, to the
   same atomic push, as the app's Push with Children does ([Stacked Branches](../branch/stacked-branches.spec.md)); a
   blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must

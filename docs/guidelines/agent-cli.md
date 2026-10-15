@@ -662,7 +662,10 @@ detection of archived branches and the update check of the checked out branch. I
 - `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
   commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with
   (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:
-  `{"commit","subject","author","author_time"}`.
+  `{"commit","subject","author","author_time"}`. Older versions of commits the branch has are not `behind`: `amended`
+  counts those of commits amended here, `restacked` those of commits of the branches it is built on (amended or
+  rebuilt since it was pushed); same author, author time and subject without the prefix, a push replaces them. Both
+  are left out at 0.
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`), or `error`.
 - `update.landing` lists the local commits the fetched baseline already has (the update drops them), and `landed` what
   landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with
@@ -685,9 +688,11 @@ is right only once they are on the remote. `--alone` pushes only the named branc
      "command":"gh pr create --base master --head develar/virtual/auth --title 'Add login' --body-file -"}}]}
 ```
 
-- Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has
-  commits it lacks (`behind`) without `--force` (also a parent taken along: `--alone` leaves it), and with `--alone` a
-  stacked branch whose parent isn't on the remote or pushed with it. `--all` needs `--yes`. A branch refused as behind is in `error.branches` with its remote status, as below.
+- Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has commits
+  it lacks (`behind`) without `--force` (also a parent taken along: `--alone` leaves it), and with `--alone` a stacked
+  branch whose parent isn't on the remote or pushed with it. `amended` and `restacked` need no `--force`: the push
+  replaces older versions of commits the branch has, and a parent with only them goes along. `--all` needs `--yes`. A
+  branch refused as behind is in `error.branches` with its remote status, as below.
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`.

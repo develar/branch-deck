@@ -856,7 +856,7 @@ Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
    that commit. Step 1 decides whether the push may drop commits; the lease only makes sure it drops nothing the sync
    didn't see. With `--remote` other than `origin`, which the sync compares with, `bd push` computes the remote status
    of the branches it pushes against that remote's remote-tracking refs (`compute_remote_status_for_branch` with the
-   remote, 2 to 5 processes per branch), so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not
+   remote, 2 to 7 processes per branch), so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not
    a configured remote is `no_remote`: a URL has no remote-tracking refs.
 4. A rejection fetches the rejected branches (`fetch_remote_branches`) and lists them in `lease_rejected` with their
    new remote status (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The
@@ -871,10 +871,11 @@ The app's push (`push_branch`) and `bd push` share one lease (`crates/sync-core/
 either one leaves the next push of the other valid. A push replaces exactly the remote state the user saw:
 
 - The remote status of a branch names the commit it was computed against (`remote_tip`) and lists the commits a push
-  drops ([Remote Status](remote-status.md)). The push button sends that commit back (`expected_remote`, null when
-  the row showed no remote branch), and `prepare_push_expecting` leases on it. A Force Push drops what the row
-  listed and nothing else, also when Branch Deck's last push is older than someone else's fetched commit; a plain
-  push after the user brought that commit into the branch goes through as well.
+  drops ([Remote Status](remote-status.md)); older versions of commits amended or restacked here are counted apart
+  (`commits_amended`, `commits_restacked`), a push replaces them without asking. The push button sends that commit back
+  (`expected_remote`, null when the row showed no remote branch), and `prepare_push_expecting` leases on it. A Force
+  Push drops what the row listed and nothing else, also when Branch Deck's last push is older than someone else's
+  fetched commit; a plain push after the user brought that commit into the branch goes through as well.
 - The sync `bd push` runs first gives it the same view, so `bd push` leases on the sync's `remote_tip` too.
 - A background fetch that moves the remote-tracking ref can't defeat the lease the way a bare
   `--force-with-lease=<ref>` can: the status computed after it lists the fetched commits as dropped (`behind`), and

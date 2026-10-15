@@ -58,6 +58,33 @@ describe("getPushButtonState", () => {
     })
   })
 
+  it("says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour", () => {
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false })).toMatchObject({
+      text: "Force Push (1)",
+      color: "primary",
+      tooltip: "Force push replaces 1 commit amended here.\n1 commit to push.\nThe remote has an older version of 1 commit amended here.",
+      dropped: null,
+      confirm: false,
+    })
+    // nothing of its own to push: the remote has its parent's commits as they were
+    const restacked = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsRestacked: 2, fastForward: false }) })
+    expect(getPushButtonState(restacked)).toMatchObject({
+      text: "Force Push",
+      color: "primary",
+      tooltip: "Force push replaces the older versions of login's commits.\nRebuilt on the new login: the remote has older versions of 2 of its commits.",
+      dropped: null,
+      confirm: false,
+      disabled: false,
+    })
+    // someone else's commit beside an amended one: the push drops it, and asks first
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1) })).toMatchObject({
+      color: "warning",
+      tooltip: "Force push replaces the remote branch.\n1 commit to push.\nThe remote has an older version of 1 commit amended here.\nThe remote has 1 commit your branch doesn't (by Ann).",
+      dropped: { commits: commits(1), more: 0 },
+      confirm: true,
+    })
+  })
+
   it("says that everything is pushed, and when, for an up to date branch", () => {
     expect(state({})).toMatchObject({ text: "Push", tooltip: "Everything is pushed.", disabled: true })
     expect(state({ lastPushTime: 1704139200 }).tooltip).toMatch(/^Everything is pushed\.\n\nPushed /)

@@ -42,7 +42,7 @@ export function getStatusBadge(branch: Branch, landedIn: string | null = null): 
 
   // remote status is the most actionable; it has the colour of the push button
   if (branch.remoteStatus != null) {
-    return { ...buildRemoteStatusTexts(branch.remoteStatus), color: getPushColor(branch) ?? "neutral" }
+    return { ...buildRemoteStatusTexts(branch.remoteStatus, branch.stack?.effectiveBase ?? null), color: getPushColor(branch) ?? "neutral" }
   }
 
   switch (branch.status) {

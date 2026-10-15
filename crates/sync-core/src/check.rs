@@ -167,6 +167,8 @@ impl CheckSession {
         .filter(|(name, _)| strip_branch_namespace(name, branch_prefix, BranchKind::Virtual).is_some())
         .map(|(name, tip)| (name.clone(), tip.clone()))
         .collect(),
+      // no remote status
+      ancestor_keys: HashMap::new(),
     };
 
     let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());

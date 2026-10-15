@@ -1,7 +1,7 @@
 # Remote Status for Virtual Branches
 
 **Status:** Implemented  
-**Updated:** 2026-10-14  
+**Updated:** 2026-10-15  
 **Tags:** [git, remote-status, virtual-branches]
 
 ## Problem
@@ -26,8 +26,13 @@ Additionally, when virtual branches are rebased onto the latest baseline, they c
 Compare content, not hashes, with Git's cherry-pick algorithm:
 - **Commits ahead** are the commits whose content the remote lacks: the baseline and the rebased copies of pushed
   commits are left out. A branch only rebased onto a newer baseline is up to date.
-- **Commits behind** are the remote commits whose content the branch lacks: a push drops them. The status lists the
-  newest ten (`dropped_commits`: id, subject, author, time), so the Force Push button can say what it drops.
+- **Commits behind** are the remote commits whose content the branch lacks, sorted by what a push does with them:
+  - **amended**: an older version of a commit of the branch, amended here (`commits_amended`); one that makes the same
+    changes, only on other lines around them, is a rebased copy and counts nowhere;
+  - **restacked**: an older version of a commit of a stack ancestor, which was amended or rebuilt since the branch was
+    pushed: a child's remote branch has its parent's commits as they were (`commits_restacked`);
+  - **dropped**: the rest, work a push drops (`commits_behind`). The status lists the newest ten of them
+    (`dropped_commits`: id, subject, author, time), so the Force Push button can say what it drops.
 - **Remote tip** (`remote_tip`) is the commit of the remote-tracking ref the counts were computed against. A push leases on it: it
   replaces the remote branch only as the status showed it ([Git Operations](git-operations.md), "Push lease").
 - **"My commits"** are the commits ahead authored by the user.
@@ -81,6 +86,24 @@ flowchart TD
    **Rationale**: The sync reports a branch as rewritten only in the sync that rewrote it; the next sync or a restart
    reported the same remote state as a plain push. The refs give the same answer every time.
 
+7. **Decision**: A remote commit whose identity matches a commit the branch has is amended or restacked, not dropped
+   **Rationale**: An amend changes the content, so `--cherry-pick` can't match the older version on the remote, and
+   every such commit read "drops remote commits" in `warning`. In a stack it cascaded: one amend in a parent put a
+   `1↓` on every descendant, because a child's remote branch contains the parent's commits as they were (11 of 28
+   branches of a real repository, every one a false alarm). An amend and a rebuild keep the author, the author time
+   and the subject, so the identity of [landed commits](integration-detection.md) tells the older version from
+   someone's work: `CommitKey` (`crates/sync-core/src/commit_key.rs`, author email, author time, subject without the
+   `(prefix)`), shared with `landed.rs`. A remote commit with the key of an unpushed commit of the branch is
+   amended, unless both make the same changes: a commit rebuilt on a parent or a baseline that changed the lines
+   around its change has another patch id, which `--cherry-pick` can't match, and is only a rebased copy (in a real
+   stack the children of the amended parent had such copies, which read "1 amended" though nobody touched them). With
+   the key of a commit of a stack ancestor (the effective base, then its base, down to the baseline) it is restacked;
+   the rest stays dropped. `commits_behind` and `dropped_commits` keep their meaning, what a push drops, so the
+   confirmation, the `warning` hue and `bd push`'s refusal without `--force` stay for real drops only.
+   **Risk**: a different amend made elsewhere (another clone, the IDE of another machine) with the same author email,
+   author time and subject is replaced without a question, as an older version would be. It needs the same author,
+   so it is the user's own work in another form; landed commits accept the same rule.
+
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
@@ -89,13 +112,26 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   returns the commit it points to (`remote_tip`), in the one process the existence check needs anyway. The
   [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
   The walks below use this commit, not the ref name, so a fetch meanwhile can't make the counts disagree with it.
-- **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H %ae ^baseline
-  origin/branch...local`; the user's commits are the ones whose author email matches.
+- **Commits ahead and mine**: one walk, `git rev-list --cherry-pick --right-only --format=%H%x00%ae%x00%at%x00%s
+  ^baseline origin/branch...local`; the user's commits are the ones whose author email matches, and the identity
+  (`CommitKey`) of each unpushed commit is what an amended remote commit matches: the new version of an amended commit
+  has other content, so it is unpushed.
 - **Commits behind (patch-aware)**: `git rev-list --cherry-pick --left-only --date-order
-  --format=%H%x00%at%x00%an%x00%s <remote tip>...local`, newest first (a child before its parent): the line count
-  is `commits_behind`, the first ten are `dropped_commits`.
-- **Fast-forward**: `git merge-base --is-ancestor <remote tip> local`, when nothing is behind.
-- **Branch not on the remote**: `git rev-list --format=%H %ae ^baseline local`.
+  --format=%H%x00%at%x00%an%x00%ae%x00%s <remote tip>...local`, newest first (a child before its parent). A line with
+  the identity of an unpushed commit is an older version of it, one with the identity of a stack ancestor's commit
+  restacked; the rest is `commits_behind`, and its first ten are `dropped_commits`.
+- **Amended or a rebased copy**: only when an older version was found, one `git diff-tree --stdin -p -U0` of the
+  pairs and one `git patch-id --stable` of its output: without context lines, and with the line numbers and
+  whitespace a patch id ignores, equal ids are the same changes, a rebased copy; different ones are amended. The
+  approach of `update_resolve.rs`, which pairs landed commits by patch id.
+- **Stack ancestors**: the sync passes their identities, built once per sync (`ancestor_keys` in `sync.rs`) from the
+  commits of every branch along the chain of effective bases (`AncestorCommits::Known`, no process). The app's push and
+  `bd push` outside the sync read them only while a behind commit matches nothing of the branch: one `git rev-list
+  --format=%ae%x00%at%x00%s ^baseline <parent ref>` (`AncestorCommits::ReadWhenNeeded`); the parent's virtual branch
+  contains the commits of every ancestor.
+- **Fast-forward**: `git merge-base --is-ancestor <remote tip> local`, when nothing is behind (amended and restacked
+  included: the remote tip is no ancestor then).
+- **Branch not on the remote**: the same walk without the remote, `git rev-list ^baseline local`.
 
 The cherry-pick algorithm ensures accurate comparison:
 1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA)
@@ -119,18 +155,27 @@ Key components:
 - The commits behind are named for what they are, the remote's: "The remote has 2 commits your branch doesn't (by Ann
   and Bob).", never "commits you removed": after a rebase the patch-equivalent copies don't count, so what remains is
   someone else's work or the user's own dropped commit, and the authors tell which.
+- The older versions follow the commits to push, before the dropped ones: `1↑ · 1 amended`, `4↑ · restacked`,
+  `restacked` (nothing of its own to push), `1↑ · 1 amended · 2↓`. The description says "The remote has an older
+  version of 1 commit amended here." and "Rebuilt on the new auth: the remote has older versions of 2 of its
+  commits."; the Force Push button starts with what it replaces, "Force push replaces 1 commit amended here." or
+  "Force push replaces the older versions of auth's commits.", and its toast says "replaced 1 amended commit" or
+  "replaced the parent's older commits".
 
 ### Colours
 One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`),
 `warning` for a push that drops remote commits (behind), `primary` otherwise, also for the force push of a rebased
-branch, which only replaces the remote commits with their copies. Up to date, and a safe push of none of the user's
-commits, are neutral. The push button, the
+branch, which only replaces the remote commits with their copies, and of an amended or restacked one, which replaces
+their older versions. Up to date, and a safe push of none of the user's commits, are neutral; a restacked branch with
+nothing of its own to push keeps `primary`, its remote branch is behind the user's work. Whether the remote is up to
+date is one function, `isRemoteUpToDate`: nothing to push, nothing amended, restacked or dropped. The push button, the
 status text and the header bars use it; the bars add lightness for authorship (solid mine, light others'). See
 [Outgoing Commits](../../spec/repository/outgoing.spec.md).
 
 The `warning` hue is also the one push that asks first (`dropsRemoteCommits`): it drops someone else's work, so its
 click opens the description with the dropped commits and a destructive Force Push that pushes. A safe push, the force
-push of a rebased branch too, pushes on the click: asking there would teach the user to confirm without reading.
+push of a rebased, amended or restacked branch too, pushes on the click: asking there would teach the user to confirm
+without reading.
 
 ### Handling Rebased Branches
 When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped).
@@ -162,10 +207,13 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
 ## Performance Considerations
 
 - **Constraint**: Must not slow down status calculation
-- **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine, behind with the dropped
-  commits) and a `merge-base` only when nothing is behind; the `^baseline` exclusion keeps the walk to the branch's own
-  commits instead of every baseline commit since the last push. The commits ahead no longer carry baseline hashes to
-  the UI.
+- **Solution**: one `rev-parse` for the remote tip, two walks per branch (ahead with mine and the identities, behind
+  with the dropped commits and the identities) and a `merge-base` only when nothing is behind; the `^baseline`
+  exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push. The
+  commits ahead no longer carry baseline hashes to the UI. The identities of the stack ancestors cost the sync no
+  process (it has every branch's commits); a push outside the sync reads them with one `rev-list`, and only when a
+  behind commit matches nothing of the branch. Telling an amend from a rebased copy costs two processes, only for a
+  branch with an older version of its own commit.
 
 ## References
 

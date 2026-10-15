@@ -2,7 +2,7 @@ use super::test_helpers::{options_with_strategy, setup_test_repos};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use sync_core::remote_status::{DROPPED_COMMITS_LIMIT, compute_remote_status_for_branch};
+use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, StackParent, compute_remote_status_for_branch};
 use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
 use sync_types::{DroppedCommit, SyncEvent};
@@ -557,4 +557,212 @@ async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
     }
   );
   assert!(!result.fast_forward);
+}
+
+/// The remote status of `user/virtual/{branch}` in the events of a sync
+fn synced_status(events: &[SyncEvent], branch: &str) -> sync_types::RemoteStatusUpdate {
+  events
+    .iter()
+    .find_map(|event| match event {
+      SyncEvent::RemoteStatusUpdate(update) if update.branch_name == branch => Some(update.clone()),
+      _ => None,
+    })
+    .unwrap_or_else(|| panic!("{branch} has a remote status"))
+}
+
+/// The subjects of the dropped commits of a status, newest first
+fn dropped_subjects(status: &sync_types::RemoteStatusUpdate) -> Vec<&str> {
+  status.dropped_commits.iter().map(|commit| commit.subject.as_str()).collect()
+}
+
+/// The user amended a pushed commit: the remote has its older version, with the same author, author time and subject.
+/// The push replaces it; nothing of anyone's work is dropped
+#[test(tokio::test)]
+async fn an_amended_commit_is_amended_not_dropped() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(1_700_000_000));
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) Second", "second.txt", "second", Some(1_700_000_100));
+  scenario.run_sync("user").await;
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+
+  // the second commit amended: new content, the same author, author time and subject
+  scenario.local_repo.reset_hard("HEAD~1").unwrap();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) Second", "second.txt", "second, amended", Some(1_700_000_100));
+  let events = scenario.run_sync("user").await.get_events();
+
+  let status = synced_status(&events, "feature");
+  assert_eq!(status.unpushed_commits.len(), 1, "the amended commit is unpushed");
+  assert_eq!((status.commits_amended, status.commits_restacked, status.commits_behind), (1, 0, 0));
+  assert_eq!(status.dropped_commits, []);
+  assert!(!status.fast_forward, "the push replaces the older version");
+}
+
+/// A stack whose parent commit was amended: the child's remote branch has the parent's commit as it was. Restacked,
+/// in the sync (the ancestors' commits known) and outside it (read from the parent's virtual branch), never dropped
+#[test(tokio::test)]
+async fn a_child_of_an_amended_parent_is_restacked() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
+  let base = scenario.local_repo.head();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth", Some(1_700_000_000));
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  scenario.run_sync("user").await;
+  scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
+  scenario.local_repo.push("origin", "user/virtual/login").unwrap();
+
+  // the auth commit amended; login's own commit stays as it is
+  scenario.local_repo.reset_hard(&base).unwrap();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth, amended", Some(1_700_000_000));
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  let events = scenario.run_sync("user").await.get_events();
+
+  let auth = synced_status(&events, "auth");
+  assert_eq!((auth.commits_amended, auth.commits_restacked, auth.commits_behind), (1, 0, 0));
+  let login = synced_status(&events, "login");
+  assert_eq!(login.unpushed_commits, Vec::<String>::new(), "login's own commit is on the remote by content");
+  assert_eq!((login.commits_amended, login.commits_restacked, login.commits_behind), (0, 1, 0));
+  assert!(!login.fast_forward);
+
+  // a push computes it without the sync's commits: the parent's virtual branch is read
+  let pushed = compute_remote_status_for_branch(
+    &scenario.git_executor,
+    scenario.local_repo.path().to_str().unwrap(),
+    "origin",
+    "user/virtual/login",
+    "login",
+    Some(&scenario.user_email),
+    "origin/main",
+    Some(StackParent {
+      virtual_ref: "user/virtual/auth",
+      ancestors: AncestorCommits::ReadWhenNeeded,
+    }),
+  )
+  .unwrap();
+  assert_eq!((pushed.commits_amended, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
+}
+
+/// Someone else's commit with the subject and the author time of a commit of the branch is someone else's work: the
+/// author email is part of the identity, a push drops it
+#[test(tokio::test)]
+async fn another_authors_commit_stays_dropped() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  let first = scenario.local_repo.create_commit_with_timestamp("(feature) Fix", "fix.txt", "mine", Some(1_700_000_000));
+  scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+
+  scenario.upstream_repo.checkout("user/virtual/feature").unwrap();
+  scenario.upstream_repo.reset_hard("main").unwrap();
+  configure_test_author(&scenario.upstream_repo, "other@example.com", "Other User");
+  scenario.upstream_repo.create_commit_with_timestamp("Fix", "fix.txt", "theirs", Some(1_700_000_000));
+  scenario.local_repo.fetch_prune("origin").unwrap();
+
+  let result = feature_status(&scenario);
+
+  assert_eq!((result.commits_amended, result.commits_restacked, result.commits_behind), (0, 0, 1));
+  assert_eq!(dropped_subjects(&result), ["Fix"]);
+  assert_eq!(result.dropped_commits[0].author, "Other User");
+}
+
+/// The remote has the older version of a commit amended here and someone else's commit: the push replaces the one
+/// and drops the other, which alone counts as behind and is listed
+#[test(tokio::test)]
+async fn an_amended_commit_and_a_dropped_one_are_told_apart() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  let base = scenario.local_repo.head();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(1_700_000_000));
+  let second = scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) Second", "second.txt", "second", Some(1_700_000_100));
+  scenario.local_repo.create_branch_at("user/virtual/feature", &second).unwrap();
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+
+  scenario.upstream_repo.checkout("user/virtual/feature").unwrap();
+  configure_test_author(&scenario.upstream_repo, "other@example.com", "Other User");
+  scenario
+    .upstream_repo
+    .create_commit_with_timestamp("Their fix", "theirs.txt", "theirs", Some(1_700_000_200));
+  scenario.local_repo.fetch_prune("origin").unwrap();
+
+  // the second commit amended
+  scenario.local_repo.reset_hard(&base).unwrap();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(1_700_000_000));
+  let amended = scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) Second", "second.txt", "second, amended", Some(1_700_000_100));
+  scenario
+    .local_repo
+    .git_executor()
+    .execute_command(&["branch", "-f", "user/virtual/feature", &amended], scenario.local_repo.path().to_str().unwrap())
+    .unwrap();
+
+  let result = feature_status(&scenario);
+
+  assert_eq!(result.unpushed_commits, [amended]);
+  assert_eq!((result.commits_amended, result.commits_restacked, result.commits_behind), (1, 0, 1));
+  assert_eq!(dropped_subjects(&result), ["Their fix"]);
+  assert!(!result.fast_forward);
+}
+
+/// A pushed commit rebuilt on a baseline that changed the lines around its change: its patch differs, so
+/// `--cherry-pick` can't match the remote copy, but it makes the same changes. A rebased copy, neither amended nor
+/// dropped: the push replaces it as any rebased commit
+#[test(tokio::test)]
+async fn a_rebased_copy_whose_context_moved_is_not_amended() {
+  let scenario = TestScenario::new();
+  let lines = |changed: &[(usize, &str)]| {
+    (1..=10)
+      .map(|line| {
+        changed
+          .iter()
+          .find(|(at, _)| *at == line)
+          .map_or_else(|| format!("line {line}\n"), |(_, text)| format!("{text}\n"))
+      })
+      .collect::<String>()
+  };
+  scenario.local_repo.checkout("main").unwrap();
+  scenario.configure_author();
+  scenario.local_repo.create_commit("Add lines", "lines.txt", &lines(&[]));
+  scenario.local_repo.push("origin", "main").unwrap();
+  scenario.local_repo.checkout_new_branch("development").unwrap();
+  let pushed = scenario
+    .local_repo
+    .create_commit_with_timestamp("(feature) Change line 5", "lines.txt", &lines(&[(5, "five")]), Some(1_700_000_000));
+  scenario.local_repo.create_branch_at("user/virtual/feature", &pushed).unwrap();
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+
+  // the baseline changes line 2, in the context of the change; the branch is rebuilt on it
+  scenario.local_repo.checkout("main").unwrap();
+  scenario.local_repo.create_commit("Change line 2", "lines.txt", &lines(&[(2, "two")]));
+  scenario.local_repo.push("origin", "main").unwrap();
+  scenario.local_repo.checkout("user/virtual/feature").unwrap();
+  scenario.local_repo.rebase("origin/main").unwrap();
+  let rebased = scenario.local_repo.head();
+
+  let result = feature_status(&scenario);
+
+  assert_eq!(result.unpushed_commits, [rebased], "its patch differs from the pushed one");
+  assert_eq!((result.commits_amended, result.commits_restacked, result.commits_behind), (0, 0, 0));
+  assert!(!result.fast_forward, "the push replaces the remote copy");
 }

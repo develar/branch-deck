@@ -24,7 +24,7 @@ targets:
 # Activity
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
@@ -57,7 +57,8 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   [@test] ../../src/stores/activity.test.ts (`keeps the log of each repository apart, newest first`, `records nothing without a repository`)
 - A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
   ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the
-  rebased copies"; a remote that moved since its status says so, nothing pushed. The words come from the remote status
+  rebased copies", "replaced 1 amended commit", "replaced the parent's older commits"; a remote that moved since its
+  status says so, nothing pushed. The words come from the remote status
   the push was made against.
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
   [@test] ../../src/stores/activity.test.ts (`keeps the remote commits a force push dropped`)

@@ -1,6 +1,6 @@
 use crate::push_lease::{PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use crate::remote_command::execute_remote_command_with_progress;
-use crate::remote_status::compute_remote_status_for_branch;
+use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -64,7 +64,10 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
       branch_name,
       params.my_email.as_deref(),
       &params.baseline_branch,
-      parent_ref.as_deref(),
+      parent_ref.as_deref().map(|virtual_ref| StackParent {
+        virtual_ref,
+        ancestors: AncestorCommits::ReadWhenNeeded,
+      }),
     )
     .context("Failed to compute remote status")
   };

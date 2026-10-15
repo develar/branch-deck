@@ -64,6 +64,7 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
     git_executor: GitCommandExecutor::new(),
     tree_id_cache: TreeIdCache::new(),
     existing_tips: existing_tips(test_repo),
+    ancestor_keys: HashMap::new(),
   };
   let job = BranchJob {
     branch_name: branch.to_string(),

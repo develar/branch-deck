@@ -6,7 +6,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/git/push"
 import { landedBranchDescription } from "@/lib/landed"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
-import { buildRemoteStatusTexts } from "@/lib/remote-status"
+import { buildRemoteStatusTexts, formatForcePushLine } from "@/lib/remote-status"
 import { buttonStackPushOrder, formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -138,7 +138,8 @@ export function getPushButtonState(
     return { text: "Push", color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, pushesStack: false, action: null, childrenAction: null }
   }
   const remoteStatus = branch.remoteStatus
-  const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
+  const parent = branch.stack?.effectiveBase ?? null
+  const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus, parent) : null
   const pushAction = getPushAction(branch)
 
   let text = "Push"
@@ -154,7 +155,7 @@ export function getPushButtonState(
     }
     else if (pushAction === "force") {
       text = withCount("Force Push")
-      tooltip = `Force push replaces the remote branch.\n${texts.tooltip}`
+      tooltip = `${formatForcePushLine(remoteStatus, parent)}\n${texts.tooltip}`
       const { commitsBehind, droppedCommits } = remoteStatus
       if (commitsBehind > 0 && droppedCommits.length > 0) {
         dropped = { commits: droppedCommits, more: Math.max(0, commitsBehind - droppedCommits.length) }

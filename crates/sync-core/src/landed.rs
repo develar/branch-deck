@@ -13,7 +13,8 @@
 //! IDE, `git pull --rebase`) is reported too.
 
 use crate::autosquash::plan_autosquash;
-use crate::commit_grouper::{GroupingInputs, parse_subject, stripped_subject};
+use crate::commit_grouper::{GroupingInputs, parse_subject};
+use crate::commit_key::{CommitKey, subject_of};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
@@ -47,36 +48,6 @@ pub struct LandedQuery<'a> {
   pub grouping: &'a GroupingInputs,
 }
 
-/// A commit identified across a rebase: the author email, the author time and the subject without the `(prefix)`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Key {
-  email: String,
-  time: u32,
-  subject: String,
-}
-
-impl Key {
-  fn new(email: &str, time: u32, message: &str) -> Self {
-    Self {
-      email: email.to_string(),
-      time,
-      // the subject of the virtual branch commit, as it was pushed
-      subject: stripped_subject(&subject_of(message)).trim().to_string(),
-    }
-  }
-}
-
-/// The subject as git's `%s` reads it: the first paragraph of the message, its lines joined by a space
-fn subject_of(message: &str) -> String {
-  message
-    .trim_start()
-    .lines()
-    .take_while(|line| !line.trim().is_empty())
-    .map(str::trim)
-    .collect::<Vec<_>>()
-    .join(" ")
-}
-
 /// The subject as the branch shows it: without the `(prefix)`, a fixup keeps its marker (`fixup! Add login`)
 fn shown_subject(subject: &str) -> String {
   let parsed = parse_subject(subject);
@@ -89,7 +60,7 @@ fn shown_subject(subject: &str) -> String {
 /// A commit of the upstream, or one that stays local
 #[derive(Debug, Clone)]
 struct KeyedCommit {
-  key: Key,
+  key: CommitKey,
   /// The subject with the `(prefix)`, which names the branch
   subject: String,
   upstream: UpstreamCommit,
@@ -121,7 +92,7 @@ fn read_keyed(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String
         );
         let subject = subject_of(message);
         Some(KeyedCommit {
-          key: Key::new(email, author_time.parse().ok()?, message),
+          key: CommitKey::from_message(email, author_time.parse().ok()?, message),
           subject,
           upstream: UpstreamCommit {
             id: id.to_string(),
@@ -155,7 +126,7 @@ fn read_upstream(git_executor: &GitCommandExecutor, repo_path: &str, local: &[Co
 }
 
 /// The upstream commit of each key; the newest when two share one
-fn by_key(upstream: &[KeyedCommit]) -> HashMap<&Key, &UpstreamCommit> {
+fn by_key(upstream: &[KeyedCommit]) -> HashMap<&CommitKey, &UpstreamCommit> {
   let mut by_key = HashMap::with_capacity(upstream.len());
   for commit in upstream {
     by_key.entry(&commit.key).or_insert(&commit.upstream);
@@ -190,7 +161,7 @@ pub fn landed_candidates(git_executor: &GitCommandExecutor, repo_path: &str, sco
   let by_key = by_key(&upstream);
   let matched: HashSet<&str> = local
     .iter()
-    .filter(|commit| by_key.contains_key(&Key::new(&commit.author_email, commit.author_timestamp, &commit.message)))
+    .filter(|commit| by_key.contains_key(&CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message)))
     .map(|commit| commit.id.as_str())
     .collect();
   if matched.is_empty() {
@@ -217,7 +188,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
     return Ok(Vec::new());
   }
   let remaining = query.remaining.map(|revs| read_keyed(git_executor, repo_path, revs, &[])).transpose()?;
-  let remaining_keys: Option<HashSet<&Key>> = remaining.as_ref().map(|commits| commits.iter().map(|c| &c.key).collect());
+  let remaining_keys: Option<HashSet<&CommitKey>> = remaining.as_ref().map(|commits| commits.iter().map(|c| &c.key).collect());
 
   let upstream = read_upstream(git_executor, repo_path, &local, query.base, query.upstream_head)?;
   let by_key = by_key(&upstream);
@@ -227,7 +198,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   // gone without a counterpart
   let mut unmatched: Vec<&Commit> = Vec::new();
   for commit in &local {
-    let key = Key::new(&commit.author_email, commit.author_timestamp, &commit.message);
+    let key = CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message);
     if remaining_keys.as_ref().is_some_and(|keys| keys.contains(&key)) {
       continue;
     }

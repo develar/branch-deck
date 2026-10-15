@@ -5,7 +5,8 @@
 //!
 //! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
 //! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
-//! state; the refusal of a branch behind its remote without `--force` decides whether it may drop commits. A rejected
+//! state; the refusal of a branch behind its remote without `--force` decides whether it may drop commits (an older
+//! version of a commit amended or restacked here is replaced, not dropped: `remote.amended`, `remote.restacked`). A rejected
 //! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync
 //! compares with, the remote status of the pushed branches is computed the same way against that remote.
 
@@ -23,7 +24,7 @@ use sync_core::grouping::branch_tips;
 use sync_core::pull_requests::{parse_github_repository, resolve_github_repository};
 use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use sync_core::remote_command::execute_remote_command_accepting;
-use sync_core::remote_status::compute_remote_status_for_branch;
+use sync_core::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -43,7 +44,7 @@ pub struct PushArgs {
   #[arg(long, requires = "branches")]
   pub alone: bool,
   /// Push branches the remote has commits for that they don't (behind > 0): the push drops the commits the sync
-  /// counted, nothing pushed since
+  /// counted, nothing pushed since. Older versions of commits amended or restacked here need no --force
   #[arg(long)]
   pub force: bool,
   /// Lease on this remote commit: the push replaces the remote branch only if it is still there. Pass the
@@ -213,7 +214,11 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
     let remote_state = remote_status(context, &remote, &synced.baseline, branch, &full_name, parent_ref.as_deref())?;
     let along = implicit.contains(*name);
-    if along && remote_state.as_ref().is_some_and(|remote| remote.exists && remote.unpushed == 0 && remote.behind == 0) {
+    if along
+      && remote_state
+        .as_ref()
+        .is_some_and(|remote| remote.exists && remote.unpushed == 0 && remote.behind == 0 && remote.amended == 0 && remote.restacked == 0)
+    {
       // on the remote as it is: nothing to take along
       continue;
     }
@@ -373,9 +378,18 @@ fn remote_status(context: &RepoContext, remote: &str, baseline: &str, branch: &S
   if remote == "origin" {
     return Ok(branch.remote.clone());
   }
-  let status = compute_remote_status_for_branch(&context.git, &context.repository, remote, full_name, &branch.name, None, baseline, parent_ref)?;
+  let status = compute_remote_status_for_branch(&context.git, &context.repository, remote, full_name, &branch.name, None, baseline, stack_parent(parent_ref))?;
   let short = context.short_ids(RemoteSummary::ids(&status));
   Ok(Some(RemoteSummary::new(&status, branch.commit_count, &short)))
+}
+
+/// The parent of a stacked branch for a remote status computed outside the sync: its ancestors' commits are read only
+/// when a remote commit matches none of the branch's
+fn stack_parent(parent_ref: Option<&str>) -> Option<StackParent<'_>> {
+  parent_ref.map(|virtual_ref| StackParent {
+    virtual_ref,
+    ancestors: AncestorCommits::ReadWhenNeeded,
+  })
 }
 
 /// The full id of the commit `rev` names
@@ -420,7 +434,7 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
         &candidate.synced.name,
         None,
         baseline,
-        parent_ref.as_deref(),
+        stack_parent(parent_ref.as_deref()),
       )
     })
     .collect();

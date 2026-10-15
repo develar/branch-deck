@@ -21,6 +21,7 @@ targets:
   - ../../src/lib/remote-status.ts
   - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
+  - ../../crates/sync-core/src/commit_key.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../src/lib/git/push.ts
@@ -33,7 +34,7 @@ targets:
 # Outgoing Commits
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
@@ -54,8 +55,8 @@ The overview answers "what is my work waiting on" without scanning the branch ta
   have work for the remote ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)); the description of
   its button names each push.
 - The overview does not fetch: it shows the remote status of the last sync or push.
-- The indicator does not count the commits the remote has and the branch lacks; a force push drops them, and its row
-  says how many.
+- The indicator does not count the commits the remote has and the branch lacks; a force push drops or replaces them,
+  and its row says how many.
 
 ## Requirements
 
@@ -85,12 +86,27 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The state of a branch must follow the label of its push button:
   - "create" for a branch not on the remote (`Create Remote (3)`);
-  - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, or the branch was rebased
-    onto a newer baseline (`Force Push`). It follows the remote branch and the local one, not the result of the last
-    sync, so it stays the same across syncs and restarts;
+  - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, older versions of commits
+    amended or restacked (below), or the branch was rebased onto a newer baseline (`Force Push`). It follows the
+    remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
   - "push" otherwise (`Push (2)`).
-  [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
+  [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`, `force pushes a branch whose remote has older versions of commits amended or restacked`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
+- A remote commit whose content the branch lacks must be told by its identity, the author email, the author time and
+  the subject without the `(prefix)` (as [landed commits](landed-commits.spec.md) are): amended when an unpushed
+  commit of the branch has it (an older version of a commit amended here) and makes other changes, a rebased copy
+  counted nowhere when it makes the same changes on lines that moved around them, restacked when a commit of a branch
+  it is built on has it (the parent was amended or rebuilt since the branch was pushed: the child's remote branch has
+  the parent's commits as they were), dropped otherwise. Only the dropped ones are behind (`commitsBehind`,
+  `droppedCommits`): a push replaces the older versions and drops the rest. Another author's commit is dropped, also
+  with the subject and the time of a commit of the branch. The sync knows the commits of the ancestors; a push
+  outside it reads them from the parent's virtual branch, only while a remote commit matches nothing of the branch.
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`)
+- A branch is up to date only when the remote has nothing to receive and nothing the branch lacks, older versions
+  included (`isRemoteUpToDate`); the push button, the status text and the review status of a robot or a pull request
+  decide by it.
+  [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`)
+  [@test] ../../src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
 - The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
   `commitsBehind` counts them all. A push leases on that commit ([Push](#push)).
@@ -99,10 +115,12 @@ is outgoing compares content, not hashes: the question is whether the remote has
   commits.
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)
 - The count of a push must read `3↑` when its commits are all the user's, and `mine (total)↑` only when some are
-  others' (`1 (3)↑`; `0 (3)↑` when none is theirs), then `· 2↓` for the remote commits it drops, `2↓` alone for a
-  force push that sends no commit. The status text of the branch row and the overview row read the same.
-  [@test] ../../src/lib/push-summary.test.ts (`reads as the status text of a branch row, the total in parentheses only when some commits are others'`)
-  [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`)
+  others' (`1 (3)↑`; `0 (3)↑` when none is theirs), then `· 1 amended` for the older versions of commits amended
+  here, `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits it drops, in that
+  order; a push that sends no commit starts with the next part (`2↓`, `restacked`, `1 amended`). The status text of
+  the branch row and the overview row read the same.
+  [@test] ../../src/lib/push-summary.test.ts (`reads as the status text of a branch row, the total in parentheses only when some commits are others'`, `names the older versions a push replaces after the commits it sends, before the ones it drops`)
+  [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`, `says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`)
 
 ### Indicator
 
@@ -160,13 +178,15 @@ One rule colours a push wherever it shows: the push button and the status text o
 indicator and the row bars of the overview. The hue says how risky the push is, the lightness whose commits it sends.
 
 - The hue must follow the risk of the push: `warning` when it drops remote commits the branch lacks (`· N↓`), `primary`
-  otherwise. A force push of a rebased branch only replaces the remote commits with their rebased copies: it is safe,
-  `primary`, and keeps the `Force Push` label, which says what git does.
+  otherwise. A force push of a rebased branch only replaces the remote commits with their rebased copies, one of an
+  amended or restacked branch their older versions: it is safe, `primary`, and keeps the `Force Push` label, which
+  says what git does.
   [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`)
 - Up to date is neutral. A safe push of no commit of the user is neutral too (muted button, grey status dot): there is
   nothing of theirs to push. A first push and a push that drops remote commits keep their hue whoever authored the
-  commits.
-  [@test] ../../src/lib/push-summary.test.ts (`is neutral for a safe push of no commit of the user`)
+  commits, and so does a push that replaces older versions (`restacked` with nothing of its own to push): the remote
+  branch is behind the user's work.
+  [@test] ../../src/lib/push-summary.test.ts (`is neutral for a safe push of no commit of the user`, `keeps the push hue for a restacked branch with no commit of the user to push`)
 - The status text of a push state is muted text with a dot of the push colour, never a badge: a force push after a sync
   is routine. Only an error or a conflict is a badge.
 - The overview must stay open across a push and follow its result: a pushed branch leaves the list, a branch whose
@@ -190,16 +210,26 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   [branch preview](../branch/branch-preview.spec.md) says it.
   [@test] ../../src/lib/remote-status.test.ts (`says what the remote has that the branch lacks, and by whom`, `says that everything is pushed in one sentence, and when it was pushed`, `says that the push creates a branch not on the remote`)
   [@test] ../../src/hooks/usePushButton.test.ts (`says that everything is pushed, and when, for an up to date branch`)
+- The older versions must read as such, never as commits the branch lacks: "The remote has an older version of 1
+  commit amended here.", "Rebuilt on the new auth: the remote has older versions of 2 of its commits." (`auth` is the
+  branch it is built on). A force push that drops nothing starts with what it replaces, "Force push replaces 1 commit
+  amended here.", "Force push replaces the older versions of auth's commits." (both joined by "and"), pushes on the
+  click and lists no dropped commits; with dropped commits beside them it starts with "Force push replaces the remote
+  branch." and asks as below. A remote that moved to older versions says "The remote has older versions of the
+  branch's commits. Nothing was pushed."
+  [@test] ../../src/lib/remote-status.test.ts (`says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`, `names what a force push replaces when it drops nothing`, `offers the push the button would show when the remote lacks nothing of the branch`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push that went through is a `success` toast in the words of its [Activity](activity.spec.md) entry, from the
   remote status the push was made against (`describePush`): "Pushed JIRA-456" / "3 commits · created the remote
-  branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies" or "1 commit ·
-  dropped 1 remote commit"; with the pull request action ([Pull Requests](../branch/pull-requests.spec.md)) it stays
+  branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies", "1 commit ·
+  replaced 1 amended commit", "replaced the parent's older commits" or "1 commit · dropped 1 remote commit"; with the
+  pull request action ([Pull Requests](../branch/pull-requests.spec.md)) it stays
   10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason. One action is one toast: a push that
   is a step of another action (a Safe Push start, a merge request, Push and Restart, [Patronus](../branch/patronus.spec.md))
   has none, and a push of several branches of a stack is one toast
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
-  [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
+  [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
 - A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
   branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
@@ -221,13 +251,13 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   short id and age, then "and N more" past the ten listed.
   [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
-- A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens
-  its description with the dropped commits and a `Force Push (1)` button below them, which pushes. Leaving the button
-  keeps the question open; Escape, a click elsewhere or on the push button again dismisses it, and nothing is pushed.
-  A safe push (Push, Create Remote, the Force Push of a rebased branch) pushes on the click. The action of the
-  remote-moved toast and P in the [branch preview](../branch/branch-preview.spec.md) ask the same way: the toast opens
-  the question of the row's push button (scrolled into view), P that of the preview's footer.
-  [@test] ../../src/hooks/usePushButton.test.ts (`asks first only for a push that drops remote commits`)
+- A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens its
+  description with the dropped commits and a `Force Push (1)` button below them, which pushes. Leaving the button keeps
+  the question open; Escape, a click elsewhere or on the push button again dismisses it, and nothing is pushed. A safe
+  push (Push, Create Remote, the Force Push of a rebased, amended or restacked branch) pushes on the click. The action
+  of the remote-moved toast and P in the [branch preview](../branch/branch-preview.spec.md) ask the same way: the toast
+  opens the question of the row's push button (scrolled into view), P that of the preview's footer.
+  [@test] ../../src/hooks/usePushButton.test.ts (`asks first only for a push that drops remote commits`, `says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show what the remote has when it moved since the status, and force push over it from the toast`, `should push a rebased branch at once: its force push drops nothing`)
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should ask before P force pushes over a commit the branch lacks`)
 - The description must open on hover also while the button is disabled: "Everything is pushed.", why a blocked

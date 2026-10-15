@@ -24,4 +24,14 @@ describe("getLaneNode", () => {
     // a push that drops remote commits
     expect(getLaneNode({ ...notPushed, remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false }) })).toEqual({ color: "warning", filled: true })
   })
+
+  it("is a filled node in the push colour for an amended or restacked branch: its push replaces older versions", () => {
+    const restacked = testBranch("login", "auth", { remoteStatus: testRemoteStatus({ commitsRestacked: 1, fastForward: false }) })
+    expect(getStatusBadge(restacked)).toMatchObject({ text: "restacked", color: "primary" })
+    expect(getLaneNode(restacked)).toEqual({ color: "primary", filled: true })
+    const amended = testBranch("auth", null, { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false }) })
+    expect(getLaneNode(amended)).toEqual({ color: "primary", filled: true })
+    // someone else's commit beside them is still a drop
+    expect(getLaneNode({ ...restacked, remoteStatus: testRemoteStatus({ commitsRestacked: 1, commitsBehind: 1, fastForward: false }) })).toEqual({ color: "warning", filled: true })
+  })
 })

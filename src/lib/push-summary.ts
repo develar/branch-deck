@@ -11,10 +11,26 @@ export type PushAction = OutgoingState | "upToDate"
 
 type RemoteStatusInput = Pick<Branch, "remoteStatus">
 
+type RemoteCounts = Pick<RemoteStatus, "exists" | "commitsAhead" | "commitsBehind" | "commitsAmended" | "commitsRestacked">
+
+/**
+ * The remote branch has the branch as it is, by content: nothing to push, and no remote commit the branch lacks, as an
+ * older version (amended, restacked) or as work a push drops. A branch only rebased onto a newer baseline is up to date.
+ */
+export function isRemoteUpToDate(remote: RemoteCounts): boolean {
+  return remote.exists && remote.commitsAhead === 0 && remote.commitsBehind === 0 && !replacesOlderVersions(remote)
+}
+
+/** The remote has older versions of commits of the branch (amended here) or of its stack ancestors (restacked) */
+export function replacesOlderVersions(remote: Pick<RemoteStatus, "commitsAmended" | "commitsRestacked">): boolean {
+  return remote.commitsAmended > 0 || remote.commitsRestacked > 0
+}
+
 /**
  * The action of the push button of a branch, null while its remote status is not loaded. The remote status compares
  * content: a branch only rebased onto a newer baseline is up to date, the remote has its work. A push that is not a
- * fast-forward (the remote has commits the branch lacks, or the branch was rebased) is a force push.
+ * fast-forward (the remote has commits the branch lacks, older versions of amended or restacked commits, or the branch
+ * was rebased) is a force push.
  */
 export function getPushAction(branch: RemoteStatusInput): PushAction | null {
   const remoteStatus = branch.remoteStatus
@@ -24,10 +40,10 @@ export function getPushAction(branch: RemoteStatusInput): PushAction | null {
   if (!remoteStatus.exists) {
     return "create"
   }
-  if (remoteStatus.commitsAhead === 0 && remoteStatus.commitsBehind === 0) {
+  if (isRemoteUpToDate(remoteStatus)) {
     return "upToDate"
   }
-  if (remoteStatus.commitsBehind > 0 || !remoteStatus.fastForward) {
+  if (remoteStatus.commitsBehind > 0 || replacesOlderVersions(remoteStatus) || !remoteStatus.fastForward) {
     return "force"
   }
   return "push"
@@ -38,7 +54,8 @@ export type PushHue = Extract<UIColor, "primary" | "warning">
 
 /**
  * Hue of a push, by its risk: `warning` when it drops remote commits the branch lacks, `primary` otherwise. A force push
- * of a rebased branch only replaces the remote commits with their copies: it is safe.
+ * of a rebased branch only replaces the remote commits with their copies, one of an amended or restacked branch their
+ * older versions: it is safe.
  */
 export function getPushHue(commitsBehind: number): PushHue {
   return commitsBehind > 0 ? "warning" : "primary"
@@ -68,7 +85,7 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
   if (before === null || action === null || action === "upToDate") {
     return { title: `Pushed ${branchName}` }
   }
-  // a force push may only drop remote commits
+  // a force push may only replace or drop remote commits
   const parts = before.commitsAhead === 0 ? [] : [formatCommitCount(before.commitsAhead)]
   if (action === "create") {
     return { title: `Pushed ${branchName}`, description: [...parts, "created the remote branch"].join(" · ") }
@@ -77,14 +94,30 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
     return { title: `Pushed ${branchName}`, description: parts[0] }
   }
   const behind = before.commitsBehind
+  const replaced = formatReplaced(before)
   if (behind === 0) {
-    return { title: `Force pushed ${branchName}`, description: [...parts, "replaced the rebased copies"].join(" · ") }
+    return { title: `Force pushed ${branchName}`, description: [...parts, replaced ?? "replaced the rebased copies"].join(" · ") }
+  }
+  if (replaced !== null) {
+    parts.push(replaced)
   }
   return {
     title: `Force pushed ${branchName}`,
     description: [...parts, `dropped ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}`].join(" · "),
     warning: true,
   }
+}
+
+/** "replaced 1 amended commit", "replaced the parent's older commits", both joined by "and"; null when neither */
+function formatReplaced({ commitsAmended, commitsRestacked }: Pick<RemoteStatus, "commitsAmended" | "commitsRestacked">): string | null {
+  const replaced: string[] = []
+  if (commitsAmended > 0) {
+    replaced.push(plural(commitsAmended, "amended commit", "amended commits"))
+  }
+  if (commitsRestacked > 0) {
+    replaced.push("the parent's older commits")
+  }
+  return replaced.length === 0 ? null : `replaced ${replaced.join(" and ")}`
 }
 
 /** A push of a branch, by the remote status it was made against */
@@ -138,7 +171,8 @@ export function describeStackPush(pushes: readonly BranchPush[]): PushNews {
 
 /**
  * Colour of the push button and the status text of a branch; null while its remote status is not loaded.
- * Neutral when up to date, and for a safe push of no commit of the user: there is nothing of theirs to push.
+ * Neutral when up to date, and for a safe push of no commit of the user: there is nothing of theirs to push. A push that
+ * replaces older versions of amended or restacked commits keeps the hue: the remote branch is behind the user's work.
  */
 export function getPushColor(branch: RemoteStatusInput): UIColor | null {
   const action = getPushAction(branch)
@@ -147,7 +181,7 @@ export function getPushColor(branch: RemoteStatusInput): UIColor | null {
   }
   const remoteStatus = branch.remoteStatus!
   const hue = getPushHue(remoteStatus.commitsBehind)
-  if (action === "upToDate" || (action !== "create" && hue === "primary" && remoteStatus.myCommitsAhead === 0)) {
+  if (action === "upToDate" || (action !== "create" && hue === "primary" && remoteStatus.myCommitsAhead === 0 && !replacesOlderVersions(remoteStatus))) {
     return "neutral"
   }
   return hue
@@ -163,6 +197,10 @@ export interface OutgoingBranch {
   state: OutgoingState
   /** Commits on the remote that a force push drops */
   behind: number
+  /** Older versions of commits amended here on the remote, which the push replaces */
+  amended: number
+  /** Older versions of the commits of the branches it is built on on the remote, which the push replaces */
+  restacked: number
 }
 
 export interface PushSummary {
@@ -206,9 +244,9 @@ export function summarizePushState(branches: readonly SummaryInput[], isLanded: 
     if (action === "upToDate") {
       continue
     }
-    const { commitsAhead: count, commitsBehind, myCommitsAhead } = branch.remoteStatus!
+    const { commitsAhead: count, commitsBehind, commitsAmended, commitsRestacked, myCommitsAhead } = branch.remoteStatus!
     const mine = Math.min(myCommitsAhead, count)
-    summary.branches.push({ name: branch.name, count, mine, state: action, behind: commitsBehind })
+    summary.branches.push({ name: branch.name, count, mine, state: action, behind: commitsBehind, amended: commitsAmended, restacked: commitsRestacked })
     summary.total += count
     summary.mine += mine
     summary.byState[action]++
@@ -217,22 +255,44 @@ export function summarizePushState(branches: readonly SummaryInput[], isLanded: 
   return summary
 }
 
+/** What a push sends and what it replaces on the remote, `formatPushCount` writes it */
+export interface PushCount {
+  /** Of the commits to push, the user's */
+  mine: number
+  /** The commits to push */
+  count: number
+  /** Older versions of commits amended here */
+  amended: number
+  /** Older versions of the commits of the branches it is built on */
+  restacked: number
+  /** Remote commits the push drops */
+  behind: number
+}
+
 /**
  * The size of a push, as the status text of a branch row: `3↑` when the 3 commits are the user's, `1 (3)↑` when some
- * are others' (`0 (3)↑`: none is theirs), then `· 2↓` for the remote commits the push drops; `2↓` alone when it sends
- * no commit.
+ * are others' (`0 (3)↑`: none is theirs), then `· 1 amended` for the older versions of commits amended here,
+ * `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits the push drops. A part without
+ * commits to push starts the text: `2↓`, `restacked`.
  */
-export function formatPushCount(mine: number, count: number, behind: number): string {
+export function formatPushCount({ mine, count, amended, restacked, behind }: PushCount): string {
   const ahead = mine === count ? `${count}↑` : `${mine} (${count})↑`
-  if (behind === 0) {
-    return ahead
+  const parts: string[] = count === 0 ? [] : [ahead]
+  if (amended > 0) {
+    parts.push(`${amended} amended`)
   }
-  return count === 0 ? `${behind}↓` : `${ahead} · ${behind}↓`
+  if (restacked > 0) {
+    parts.push("restacked")
+  }
+  if (behind > 0) {
+    parts.push(`${behind}↓`)
+  }
+  return parts.length === 0 ? ahead : parts.join(" · ")
 }
 
 /** The size of an outgoing push, `formatPushCount` */
 export function formatOutgoingCount(branch: OutgoingBranch): string {
-  return formatPushCount(branch.mine, branch.count, branch.behind)
+  return formatPushCount(branch)
 }
 
 function plural(n: number, one: string, many: string): string {

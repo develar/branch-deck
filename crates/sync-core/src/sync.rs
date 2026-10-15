@@ -1,6 +1,7 @@
 use crate::baseline::detect_baseline_branch;
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
+use crate::commit_key::CommitKey;
 use crate::issue_groups::read_grouping_inputs;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
@@ -386,6 +387,37 @@ impl Schedule {
   }
 }
 
+/// The identities of the commits of the branches each stacked branch is built on (its effective base, then that one's,
+/// down to the baseline), for its remote status: a remote commit of the branch with one of them is an older version of
+/// an ancestor's commit, restacked, not dropped. Only branches with an effective base are in the map. From the commits
+/// the sync grouped, so no git process.
+fn ancestor_keys(branches: &IndexMap<String, Vec<Commit>>, stacks: Option<&IndexMap<String, BranchStack>>) -> HashMap<String, HashSet<CommitKey>> {
+  let Some(stacks) = stacks else { return HashMap::new() };
+  let base_of = |name: &str| stacks.get(name).and_then(|stack| stack.effective_base.as_deref());
+  let mut result = HashMap::new();
+  for name in branches.keys() {
+    let mut parent = base_of(name);
+    if parent.is_none() {
+      continue;
+    }
+    let mut keys = HashSet::new();
+    let mut seen = HashSet::from([name.as_str()]);
+    while let Some(ancestor) = parent
+      && seen.insert(ancestor)
+    {
+      let commits = branches.get(ancestor).map_or(&[][..], Vec::as_slice);
+      keys.extend(
+        commits
+          .iter()
+          .map(|commit| CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message)),
+      );
+      parent = base_of(ancestor);
+    }
+    result.insert(name.clone(), keys);
+  }
+  result
+}
+
 /// Report a branch that is not rebuilt this sync: its status and its commits as blocked
 fn report_not_built(progress: &dyn ProgressReporter, job: &BranchJob, status: BranchSyncStatus, reason: String) {
   let _ = progress.send(SyncEvent::CommitsBlocked {
@@ -618,6 +650,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       git_executor: git_executor.clone(),
       tree_id_cache: TreeIdCache::new(),
       existing_tips: virtual_tips(branch_refs, branch_prefix),
+      ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
     };
     process_branches(context, branches, branch_emails, parent_commit_hash, stacks).await
   };

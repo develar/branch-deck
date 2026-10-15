@@ -95,6 +95,8 @@ vi.mock("@/stores/branch-sync", () => ({
     unpushedCommits: [],
     commitsAhead: 0,
     commitsBehind: 0,
+    commitsAmended: 0,
+    commitsRestacked: 0,
     myCommitsAhead: 0,
     fastForward: true,
     lastPushTime: 1,

@@ -44,7 +44,8 @@ repositories: all operations run through the Git CLI.
   3-way merge view and lists the missing commits.
 - **Integration detection**: merged, rebased and squashed branches are detected and archived automatically.
 - **Push and remote status** per branch, with push or create remote in one click. The header sums up what is waiting
-  to be pushed, per branch, and marks the branches that need a force push.
+  to be pushed, per branch, and marks the branches that need a force push. Older versions of commits amended here or
+  in a parent (`1 amended`, `restacked`) are told from remote work a push would drop, which alone asks first.
 - **Update Project** (`⌘T`): fetches the baseline and rebases your local commits onto it. The header tells you
   beforehand whether the rebase is clean. On a conflict nothing is changed, and you can copy a ready prompt for a
   coding agent, which resolves the conflicts commit by commit with `bd update`, outside the working tree, so other

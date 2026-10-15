@@ -53,7 +53,7 @@ targets:
 # Branch Row
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
@@ -126,8 +126,9 @@ on its lane.
 - The node must be an 8px circle in the colour of the status: the push colour, `destructive` for an error or a
   conflict, `warning` for a blocked branch, `info` for a landed one. It is filled while the branch has work for the
   remote (and for an error or a conflict), hollow when it is up to date or landed. It replaces the dot of the status
-  text, which a table with stacks drops.
-  [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`)
+  text, which a table with stacks drops. An amended or restacked branch is a filled node in the push colour, `warning`
+  only with remote commits its push drops ([Push colours](../repository/outgoing.spec.md#push-colours)).
+  [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`, `is a filled node in the push colour for an amended or restacked branch: its push replaces older versions`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and name the pull request base`)
 - A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
   with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
@@ -164,7 +165,9 @@ on its lane.
 - The status text must follow the first that applies: the sync progress ("syncing 3/10…"), an error or a conflict
   ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
   baseline has all of ("landed", [Landed Commits](../repository/landed-commits.spec.md#before-the-update)), the remote
-  status ("not pushed", "up to date", "3 (5)↑ · 2↓"), then the result of the sync ("created", "updated", "unchanged").
+  status ("not pushed", "up to date", "3 (5)↑ · 2↓", "1↑ · 1 amended", "4↑ · restacked", "restacked",
+  [What is outgoing](../repository/outgoing.spec.md#what-is-outgoing)), then the result of the sync ("created",
+  "updated", "unchanged").
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)). In a table with stacks the node of the row is the dot

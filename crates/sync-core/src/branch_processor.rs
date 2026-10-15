@@ -1,4 +1,5 @@
-use crate::remote_status::compute_remote_status_for_branch;
+use crate::commit_key::CommitKey;
+use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
@@ -6,7 +7,7 @@ use git_ops::commit_list::Commit;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, create_or_update_commit};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, to_final_branch_name};
 use git_ops::ref_transaction::RefTransaction;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use sync_types::stack::BlockReason;
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, instrument, warn};
@@ -22,6 +23,9 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub tree_id_cache: TreeIdCache,
   /// Full name -> tip of every existing virtual branch, read with one `for-each-ref` per sync
   pub existing_tips: HashMap<String, String>,
+  /// Branch -> the identities of the commits of the branches it is built on, for its remote status (`ancestor_keys` in
+  /// `sync.rs`); a branch without them reads them when its status needs them
+  pub ancestor_keys: HashMap<String, HashSet<CommitKey>>,
 }
 
 /// One branch to rebuild
@@ -294,7 +298,10 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     &branch_name,
     my_email.as_deref(),
     &ctx.baseline_branch,
-    parent_ref.as_deref(),
+    parent_ref.as_deref().map(|virtual_ref| StackParent {
+      virtual_ref,
+      ancestors: ctx.ancestor_keys.get(&branch_name).map_or(AncestorCommits::ReadWhenNeeded, AncestorCommits::Known),
+    }),
   ) {
     let _ = ctx.progress.send(SyncEvent::RemoteStatusUpdate(remote_status));
   }

@@ -92,8 +92,17 @@ pub struct RemoteSummary {
   pub exists: bool,
   /// Commits of the virtual branch the remote doesn't have: all of them while there is no remote branch
   pub unpushed: usize,
-  /// Commits the remote has that the virtual branch doesn't: a push with --force drops them
+  /// Commits the remote has that the virtual branch doesn't: a push with --force drops them. An older version of a
+  /// commit the branch has is not one of them (`amended`, `restacked`)
   pub behind: u32,
+  /// Remote commits that are older versions of commits amended here (same author, author time and subject): a push
+  /// replaces them without --force
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub amended: u32,
+  /// Remote commits that are older versions of commits of the branches a stacked branch is built on, amended or rebuilt
+  /// since it was pushed: a push replaces them without --force
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub restacked: u32,
   /// The remote-tracking commit the counts compare with; `null` without a remote branch. `bd push --force` leases on
   /// it, as `--expect-remote` does
   pub head: Option<String>,
@@ -103,6 +112,11 @@ pub struct RemoteSummary {
   /// `head` in full, for the lease
   #[serde(skip)]
   pub head_id: Option<String>,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde's skip_serializing_if needs")]
+fn is_zero(value: &u32) -> bool {
+  *value == 0
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -121,6 +135,8 @@ impl RemoteSummary {
       exists: remote.remote_exists,
       unpushed: if remote.remote_exists { remote.unpushed_commits.len() } else { commit_count },
       behind: remote.commits_behind,
+      amended: remote.commits_amended,
+      restacked: remote.commits_restacked,
       head: remote.remote_tip.as_deref().map(|head| short.get(head).to_string()),
       dropped_commits: remote
         .dropped_commits

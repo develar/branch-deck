@@ -9,6 +9,7 @@ mod branch_processor;
 pub mod check;
 pub mod commit_grouper;
 pub mod commit_ids;
+pub mod commit_key;
 pub mod delete_archived_branch;
 pub mod git_setup;
 pub mod grouping;

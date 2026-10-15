@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushCount, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, isRemoteUpToDate, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -13,6 +13,20 @@ describe("describePush", () => {
     expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false }))).toEqual({
       title: "Force pushed auth",
       description: "1 commit · dropped 3 remote commits",
+      warning: true,
+    })
+  })
+
+  it("says that a push of an amended or restacked branch replaced the older versions, not that it dropped them", () => {
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toEqual({ title: "Force pushed auth", description: "1 commit · replaced 1 amended commit" })
+    expect(describePush("login", testRemoteStatus({ commitsRestacked: 2, fastForward: false }))).toEqual({ title: "Force pushed login", description: "replaced the parent's older commits" })
+    expect(describePush("login", testRemoteStatus({ commitsAhead: 2, commitsAmended: 2, commitsRestacked: 1, fastForward: false }))).toEqual({
+      title: "Force pushed login",
+      description: "2 commits · replaced 2 amended commits and the parent's older commits",
+    })
+    expect(describePush("auth", testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false }))).toEqual({
+      title: "Force pushed auth",
+      description: "1 commit · replaced 1 amended commit · dropped 1 remote commit",
       warning: true,
     })
   })
@@ -56,6 +70,15 @@ describe("getPushAction", () => {
     expect(getPushAction(branch("a", { remote: { commitsBehind: 1, fastForward: false } }))).toBe("force")
   })
 
+  it("force pushes a branch whose remote has older versions of commits amended or restacked", () => {
+    expect(getPushAction(branch("a", { remote: { commitsAhead: 1, commitsAmended: 1, fastForward: false } }))).toBe("force")
+    // nothing of its own to push: the remote has the older versions of its parent's commits
+    expect(getPushAction(branch("a", { remote: { commitsRestacked: 1, fastForward: false } }))).toBe("force")
+    expect(isRemoteUpToDate(testRemoteStatus({ commitsRestacked: 1 }))).toBe(false)
+    expect(isRemoteUpToDate(testRemoteStatus({ fastForward: false }))).toBe(true)
+    expect(isRemoteUpToDate(testRemoteStatus({ exists: false }))).toBe(false)
+  })
+
   it("is up to date for a branch only rebased onto a newer baseline: the remote has its work", () => {
     expect(getPushAction(branch("a", { remote: { fastForward: false } }))).toBe("upToDate")
     expect(summarizePushState([branch("a", { remote: { fastForward: false } })]).branches).toEqual([])
@@ -72,6 +95,15 @@ describe("getPushColor", () => {
     expect(getPushColor(branch("a", { remote: { commitsAhead: 1, commitsBehind: 1, fastForward: false } }))).toBe("warning")
     // a force push of a rebased branch only replaces the remote commits with their copies
     expect(getPushColor(branch("a", { remote: { commitsAhead: 2, myCommitsAhead: 1, fastForward: false } }))).toBe("primary")
+    // one of an amended or restacked branch their older versions
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false } }))).toBe("primary")
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false } }))).toBe("warning")
+  })
+
+  it("keeps the push hue for a restacked branch with no commit of the user to push", () => {
+    expect(getPushColor(branch("a", { remote: { commitsRestacked: 1, fastForward: false } }))).toBe("primary")
+    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, commitsRestacked: 1, fastForward: false } }))).toBe("primary")
+    expect(summarizePushState([branch("a", { remote: { commitsRestacked: 1, fastForward: false } })]).byHue).toEqual({ primary: 1, warning: 0 })
   })
 
   it("is neutral for a safe push of no commit of the user", () => {
@@ -94,9 +126,9 @@ describe("summarizePushState", () => {
     expect(summary.total).toBe(9)
     expect(summary.mine).toBe(6)
     expect(summary.branches).toEqual([
-      { name: "new", count: 3, mine: 3, state: "create", behind: 0 },
-      { name: "ahead", count: 5, mine: 2, state: "push", behind: 0 },
-      { name: "diverged", count: 1, mine: 1, state: "force", behind: 2 },
+      { name: "new", count: 3, mine: 3, state: "create", behind: 0, amended: 0, restacked: 0 },
+      { name: "ahead", count: 5, mine: 2, state: "push", behind: 0, amended: 0, restacked: 0 },
+      { name: "diverged", count: 1, mine: 1, state: "force", behind: 2, amended: 0, restacked: 0 },
     ])
     expect(summary.byState).toEqual({ push: 1, create: 1, force: 1 })
     expect(summary.byHue).toEqual({ primary: 2, warning: 1 })
@@ -111,8 +143,8 @@ describe("summarizePushState", () => {
     const rebased = branch("rebased", { remote: { commitsAhead: 1, myCommitsAhead: 1, fastForward: false }, commitCount: 4 })
     const summary = summarizePushState([created, rebased])
     expect(summary.branches).toEqual([
-      { name: "new", count: 3, mine: 1, state: "create", behind: 0 },
-      { name: "rebased", count: 1, mine: 1, state: "force", behind: 0 },
+      { name: "new", count: 3, mine: 1, state: "create", behind: 0, amended: 0, restacked: 0 },
+      { name: "rebased", count: 1, mine: 1, state: "force", behind: 0, amended: 0, restacked: 0 },
     ])
     expect(summary.total).toBe(4)
     expect(summary.byHue).toEqual({ primary: 2, warning: 0 })
@@ -153,7 +185,7 @@ describe("summarizePushState", () => {
 
 describe("formatOutgoingCount", () => {
   it("reads as the status text of a branch row, the total in parentheses only when some commits are others'", () => {
-    const outgoing: OutgoingBranch = { name: "a", count: 5, mine: 3, state: "push", behind: 0 }
+    const outgoing: OutgoingBranch = { name: "a", count: 5, mine: 3, state: "push", behind: 0, amended: 0, restacked: 0 }
     expect(formatOutgoingCount(outgoing)).toBe("3 (5)↑")
     expect(formatOutgoingCount({ ...outgoing, state: "force", behind: 2 })).toBe("3 (5)↑ · 2↓")
     expect(formatOutgoingCount({ ...outgoing, mine: 5 })).toBe("5↑")
@@ -162,6 +194,18 @@ describe("formatOutgoingCount", () => {
     expect(formatOutgoingCount({ ...outgoing, mine: 0 })).toBe("0 (5)↑")
     // a force push that sends no commit only drops the remote ones
     expect(formatOutgoingCount({ ...outgoing, count: 0, mine: 0, state: "force", behind: 2 })).toBe("2↓")
+  })
+})
+
+describe("formatPushCount", () => {
+  it("names the older versions a push replaces after the commits it sends, before the ones it drops", () => {
+    const count = { mine: 1, count: 1, amended: 0, restacked: 0, behind: 0 }
+    expect(formatPushCount({ ...count, amended: 1 })).toBe("1↑ · 1 amended")
+    expect(formatPushCount({ ...count, mine: 4, count: 4, restacked: 2 })).toBe("4↑ · restacked")
+    expect(formatPushCount({ ...count, mine: 0, count: 0, restacked: 2 })).toBe("restacked")
+    expect(formatPushCount({ ...count, mine: 0, count: 0, amended: 1 })).toBe("1 amended")
+    expect(formatPushCount({ ...count, mine: 2, count: 2, behind: 2 })).toBe("2↑ · 2↓")
+    expect(formatPushCount({ mine: 1, count: 3, amended: 1, restacked: 1, behind: 2 })).toBe("1 (3)↑ · 1 amended · restacked · 2↓")
   })
 })
 

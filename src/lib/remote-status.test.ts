@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { DroppedCommit } from "@/lib/bindings"
-import { buildRemoteMovedTexts, buildRemoteStatusTexts, formatAuthors } from "@/lib/remote-status"
+import { buildRemoteMovedTexts, buildRemoteStatusTexts, formatAuthors, formatForcePushLine } from "@/lib/remote-status"
 import { testRemoteStatus } from "@/stores/test-branch"
 
 function dropped(...authors: string[]): DroppedCommit[] {
@@ -23,6 +23,29 @@ describe("buildRemoteStatusTexts", () => {
     expect(buildRemoteStatusTexts({ ...diverged, droppedCommits: [] }).tooltip).toBe("1 commit to push.\nThe remote has 2 commits your branch doesn't.")
   })
 
+  it("says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks", () => {
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false }))).toEqual({
+      text: "1↑ · 1 amended",
+      tooltip: "1 commit to push.\nThe remote has an older version of 1 commit amended here.",
+    })
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 2, myCommitsAhead: 2, commitsAmended: 2, fastForward: false })).tooltip)
+      .toBe("2 commits to push.\nThe remote has older versions of 2 commits amended here.")
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 4, myCommitsAhead: 4, commitsRestacked: 2, fastForward: false }), "air-lane-document")).toEqual({
+      text: "4↑ · restacked",
+      tooltip: "4 commits to push.\nRebuilt on the new air-lane-document: the remote has older versions of 2 of its commits.",
+    })
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsRestacked: 1, fastForward: false }), "auth")).toEqual({
+      text: "restacked",
+      tooltip: "Rebuilt on the new auth: the remote has an older version of 1 of its commits.",
+    })
+    // someone else's commit is still named, after the older versions
+    const both = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false, droppedCommits: dropped("Ann") })
+    expect(buildRemoteStatusTexts(both)).toEqual({
+      text: "1↑ · 1 amended · 1↓",
+      tooltip: "1 commit to push.\nThe remote has an older version of 1 commit amended here.\nThe remote has 1 commit your branch doesn't (by Ann).",
+    })
+  })
+
   it("says that everything is pushed in one sentence, and when it was pushed", () => {
     expect(buildRemoteStatusTexts(testRemoteStatus())).toEqual({ text: "up to date", tooltip: "Everything is pushed." })
     expect(buildRemoteStatusTexts(testRemoteStatus({ fastForward: false })).tooltip)
@@ -34,6 +57,19 @@ describe("buildRemoteStatusTexts", () => {
     expect(buildRemoteStatusTexts(testRemoteStatus({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })))
       .toEqual({ text: "not pushed", tooltip: "2 commits to push.\nThe branch isn't on the remote yet: the push creates it." })
     expect(buildRemoteStatusTexts(testRemoteStatus({ exists: false })).tooltip).toBe("The branch isn't on the remote yet: the push creates it.")
+  })
+})
+
+describe("formatForcePushLine", () => {
+  it("names what a force push replaces when it drops nothing", () => {
+    expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toBe("Force push replaces 1 commit amended here.")
+    expect(formatForcePushLine(testRemoteStatus({ commitsRestacked: 2, fastForward: false }), "air-lane-document"))
+      .toBe("Force push replaces the older versions of air-lane-document's commits.")
+    expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 2, commitsRestacked: 1, fastForward: false }), "auth"))
+      .toBe("Force push replaces 2 commits amended here and the older versions of auth's commits.")
+    // a rebased branch, and one whose push drops remote commits
+    expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
+    expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 1, commitsBehind: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
   })
 })
 
@@ -69,6 +105,11 @@ describe("buildRemoteMovedTexts", () => {
       title: "login changed on the remote",
       description: "The remote has the branch's commits now. Nothing was pushed.",
       action: null,
+    })
+    expect(buildRemoteMovedTexts("login", testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toEqual({
+      title: "login changed on the remote",
+      description: "The remote has older versions of the branch's commits. Nothing was pushed.",
+      action: "Force Push",
     })
   })
 

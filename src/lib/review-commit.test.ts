@@ -13,6 +13,9 @@ describe("getReviewCommitState", () => {
     const ahead = testRemoteStatus({ remoteTip: "taken", unpushedCommits: ["c"], commitsAhead: 1, myCommitsAhead: 1 })
     expect(getReviewCommitState("taken", "fixed", ahead)).toBe("changedLocally")
     expect(getReviewCommitState("taken", "dropped", testRemoteStatus({ remoteTip: "taken", commitsBehind: 1 }))).toBe("changedLocally")
+    // the older version of a commit amended here, or of the parent's: the review took what a push replaces
+    expect(getReviewCommitState("taken", "amended", testRemoteStatus({ remoteTip: "taken", commitsAmended: 1 }))).toBe("changedLocally")
+    expect(getReviewCommitState("taken", "restacked", testRemoteStatus({ remoteTip: "taken", commitsRestacked: 1 }))).toBe("changedLocally")
     expect(getReviewCommitState("taken", "local", testRemoteStatus({ exists: false, unpushedCommits: ["c"], commitsAhead: 1 }))).toBe("changedLocally")
   })
 

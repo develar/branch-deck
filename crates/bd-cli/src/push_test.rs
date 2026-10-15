@@ -398,3 +398,51 @@ fn the_app_and_bd_share_the_lease() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(branch(&output, "auth")["status"], json!("up_to_date"));
 }
+
+/// A commit amended at the root of a stack: the root's remote branch has its older version (amended), the remote
+/// branches built on it have it as the commit of an ancestor (restacked). Neither is someone's work a push drops: `bd
+/// push` of the leaf pushes the stack without --force, also the restacked middle, which has no commit of its own to push
+#[test_log::test]
+fn amended_and_restacked_commits_push_without_force() {
+  let subjects = ["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth"];
+  let (repo, remote) = repo_with_remote(&subjects);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  // the auth commit amended with its author time and subject; the others as they were
+  git(&repo, &["reset", "--hard", "HEAD~3"]);
+  write(&repo, "f0.txt", "(auth) Add auth, amended");
+  commit_all(&repo, subjects[0], 1_700_000_000);
+  for (index, subject) in subjects.iter().enumerate().skip(1) {
+    write(&repo, &format!("f{index}.txt"), *subject);
+    commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100);
+  }
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let auth = &branch(&output, "auth")["remote"];
+  assert_eq!((&auth["unpushed"], &auth["amended"], &auth["behind"]), (&json!(1), &json!(1), &json!(0)));
+  for name in ["login", "oauth"] {
+    let remote = &branch(&output, name)["remote"];
+    assert_eq!((&remote["unpushed"], &remote["restacked"], &remote["behind"]), (&json!(0), &json!(1), &json!(0)), "{name}");
+  }
+  assert!(
+    auth.get("restacked").is_none() && branch(&output, "login")["remote"].get("amended").is_none(),
+    "a zero count is left out: {output}"
+  );
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
+
+  let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["status"])).collect();
+  assert_eq!(
+    statuses,
+    [(&json!("auth"), &json!("forced")), (&json!("login"), &json!("forced")), (&json!("oauth"), &json!("forced"))]
+  );
+  assert_eq!(
+    remote_tip(&remote, "test-user/virtual/login"),
+    git(&repo, &["rev-parse", "refs/heads/test-user/virtual/login"])
+  );
+}
