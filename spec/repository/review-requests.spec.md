@@ -117,6 +117,7 @@ GitHub" opens its files there.
   Settings; the toast shows on the next focus. The permission is asked on the first notification, never at start. A
   notification has no click action.
   [@test] ../../src/stores/review-requests.test.ts (`tells in the background by an OS notification, and in a toast on focus`)
+  [@test] ../../src/lib/os-notification.test.ts (`shows the toast at once while focused, else notifies and shows it on focus`, `sends no OS notification of a kind Settings turned off; the toast waits for the focus all the same`)
 - Each new request is an Activity entry "dave requested your review on #104" / its title, with "Open on GitHub"
   ([Activity](activity.spec.md)).
 - A new request is unread (a `bg-primary` dot) until it is opened, in the app or on GitHub.
@@ -238,7 +239,7 @@ GitHub" opens its files there.
 ## Testing / Local Run
 
 - `pnpm test:unit`: `src/lib/review-requests.test.ts` (ages, order, news, backoff), `src/stores/review-requests.test.ts`
-  (polling, notifications, pruning), `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
+  (polling, notifications, pruning), `src/lib/os-notification.test.ts`, `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/commit-patch.test.ts`.
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
   `POST /repositories/{id}/review-requests` sets what `get_review_requests` answers (`availableReviewRequests` for

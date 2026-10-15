@@ -424,6 +424,7 @@ reports in it and closes it once merged.
   shows on the next focus. The permission is asked on the first notification, never at start; without it, or without
   the plugin, nothing is said but the toast (`src/lib/os-notification.ts`).
   [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
+  [@test] ../../src/lib/os-notification.test.ts (`sends no OS notification of a kind Settings turned off; the toast waits for the focus all the same`)
 - Fetch fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
   the files (`fetch_baseline`). Meanwhile the Update button of the robot's repository shows the fetch ("Fetching 45%"),
   never the button of another repository selected meanwhile; then a sync of the robot's repository, if it is still the
