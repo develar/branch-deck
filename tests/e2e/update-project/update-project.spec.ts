@@ -128,11 +128,15 @@ test.describe("Update Project", () => {
     await expect(copy).toHaveText("Copied")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
     await expect(copy).toHaveText("Copy Prompt for Agent")
+    // the prompt sends the agent to the app's own bd (`agent_cli_command`): its resolve session, never the working tree
+    await expect(dialog).toContainText("the prompt resolves each commit with bd, outside the working tree.")
     const prompt = await readClipboard(page)
-    expect(prompt).toContain("Rebase the branch `master` of the Git repository at ")
-    expect(prompt).toMatch(/- src\/app.txt\n {2}- changed by my [0-9a-f]{8}\n {2}- changed upstream by [0-9a-f]{8} Change line 2 upstream \(Dana Lee, authored 2024-01-01, in origin\/master since 2024-01-02\)/)
-    expect(prompt).toMatch(/- [0-9a-f]{8} \(feature-auth\) Add login\n- [0-9a-f]{8} \(feature-auth\) Change line 2/)
+    expect(prompt).toContain("Update the branch `master` of the Git repository at ")
+    expect(prompt).toMatch(/- Likely conflict: src\/app.txt \(mine: [0-9a-f]{8}; upstream: [0-9a-f]{8} Change line 2 upstream, Dana Lee\)/)
+    expect(prompt).toMatch(/1\. `\/Users\/test\/\.local\/bin\/bd -C \S+ update --no-fetch`\./)
+    expect(prompt).toContain("Edit only the files at `edit`, never the same path in the working tree.")
     expect(prompt).toContain("Don't push.")
+    expect(prompt).not.toContain("git stash push")
 
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()

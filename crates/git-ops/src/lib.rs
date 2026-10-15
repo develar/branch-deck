@@ -13,11 +13,13 @@ pub mod merge_tree_output;
 pub mod model;
 pub mod notes;
 pub mod ref_transaction;
+pub mod resolve_check;
 pub mod reword_commits;
 pub mod rewrite_guard;
 pub mod rewrite_plan;
 pub mod squash_commits;
 pub mod update_branch;
+pub mod update_resolve;
 pub mod worktree_update;
 
 #[cfg(test)]

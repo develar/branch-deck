@@ -66,6 +66,8 @@ fn schema_lists_every_output() {
       "sync",
       "undo",
       "update",
+      "update_abort",
+      "update_status",
       "version"
     ]
   );
@@ -87,6 +89,8 @@ fn schema_lists_every_output() {
     "conflict",
     "head_moved",
     "uncommitted_overlap",
+    "unresolved_markers",
+    "session_stale",
     "git_error",
   ] {
     assert!(codes.contains(code), "{code} in {codes:?}");

@@ -39,7 +39,8 @@ Date: 2026-10-15
 Update Project (`⌘T`, as in IntelliJ) fetches the baseline (e.g. `origin/master`) and brings the checked out branch
 onto it: a fast-forward without local commits, otherwise a rebase of the local commits. It works with uncommitted and
 staged changes as long as the upstream doesn't change those files. A conflict or an overlap changes nothing; a dialog
-explains it and copies a ready prompt for a coding agent that does the rebase.
+explains it and copies a ready prompt for a coding agent. With the app's bd, the agent resolves a conflict in a resolve
+session of `bd update`, outside the working tree ([bd update](../cli/update.spec.md)).
 
 The header shows whether an update would apply cleanly, from a check that every sync runs against the last fetch.
 
@@ -54,8 +55,9 @@ The header shows whether an update would apply cleanly, from a check that every 
 - No count of incoming commits anywhere: a monorepo gets hundreds, and only conflicts matter. The state is up to date,
   applies cleanly, conflicts in N files, or blocked by uncommitted changes. The user's own commits that the baseline
   already has are named, not counted as incoming ([Landed Commits](landed-commits.spec.md)).
-- Branch Deck does not resolve conflicts and does not launch an agent; it copies a prompt. A blocked update goes to
-  `bd update`, which never stashes; a conflict still gets the git steps.
+- The app does not resolve conflicts and does not launch an agent; it copies a prompt. The agent resolves a conflict
+  with `bd update` and its resolve session, and a blocked update goes to the user, then to `bd update`; neither
+  stashes. Without a bd command, a conflict gets the git steps, which never stash either.
 - No merge of the upstream (`pull --no-rebase`), no update of submodules.
 
 ## Requirements
@@ -121,7 +123,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
-- `bd update --no-fetch` must update onto the last fetched baseline ([Agent CLI](../cli/agent-cli.spec.md)).
+- `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
 - A fast-forward must move the branch and update the files.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`fast_forward_updates_the_working_tree`)
@@ -150,8 +152,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   branch.
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_during_the_move_fails_on_the_head_lock`)
 - The working tree is written by `crates/git-ops/src/worktree_update.rs` only, called only from `update_branch.rs`
-  (the update and the undo that only `check_update_undo` builds); the safety scan fails on any other `read-tree -u`, `--reset` or `checkout-index`, and on
-  a change of the number of exempt argument lists.
+  (the update, the undo that only `check_update_undo` builds, and the finish of a resolve session, whose tip
+  `update_resolve.rs` reads from the session ref); the safety scan fails on any other `read-tree -u`, `--reset` or
+  `checkout-index`, and on a change of the number of exempt argument lists.
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`scanner_finds_read_tree_updates`)
 
@@ -268,7 +271,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 ### Conflict and blocked dialog
 
 - A conflict or a block after a click opens a dialog in the frame of the previews: it says nothing was changed and
-  when the baseline was fetched.
+  when the baseline was fetched. It reads the app's bd command in the repository when it opens (`agent_cli_command`),
+  so the copy needs no wait; Copy waits until it is read.
 - The conflict title counts the files, "1 file conflicts with origin/master" or "6 files conflict with origin/master";
   without known files it says "Your commits conflict with origin/master".
 - A conflict lists the files that likely conflict, each with the local commits ("yours", with their author time) and
@@ -276,23 +280,38 @@ The header shows whether an update would apply cleanly, from a check that every 
   than an hour, "Daniil Bubnov · authored 13 days ago · landed 2 hours ago", else one, "Daniil Bubnov, 13 days ago":
   a commit written long ago can have reached the upstream just now. The list of all local commits, oldest first, comes
   collapsed below; the commits that change a likely conflicting file are marked. Without known files that list is
-  open.
+  open. The line above the files says to rebase in a terminal or the IDE, or, with a bd command, that the prompt
+  resolves each commit with bd, outside the working tree.
   [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
   [@test] ../../src/lib/update-conflict.test.ts (`gives one time when the commit landed within an hour of being written`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
-- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It reads
-  the app's bd command in the repository when it opens (`agent_cli_command`), so the copy needs no wait; Copy waits
-  until it is read. It says that the prompt asks about each file, then updates with bd, or, without a bd command,
-  that you update again.
+- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It says
+  that the prompt asks about each file, then updates with bd, or, without a bd command, that you update again.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
 - The primary button "Copy Prompt for Agent" copies a prompt and confirms in place: it says "Copied" (`CopyCheckIcon`)
   for a moment, as a copy button does, and no toast covers the dialog. Both cases offer it: an overlap of uncommitted
   changes with the upstream needs the same merge as a conflict.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
-- The conflict prompt must contain the repository path, the branch, the upstream with the ids of HEAD, the upstream
-  and the merge base and the fetch time, the local commits oldest first, the likely conflicting files, the rules (keep
-  every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push, stash untracked changes
-  first and pop them at the end) and the steps (rebase, resolve keeping the upstream change and the intent of the
+- With a bd command, the conflict prompt must send the agent to bd's resolve session and keep it out of the working
+  tree: the repository path, the branch and the upstream; bd as the command to run as written (in PowerShell on
+  Windows), one JSON object per run, and `bd help update`; the state lines the user saw (HEAD and the upstream with
+  their ids, the fetch time, and per likely conflicting file "Likely conflict: <path> (mine: <ids>; upstream: <id>
+  <subject>, <author>)"); the steps: `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because
+  peers commit meanwhile), on exit 1 edit each file at `edit` keeping the change of `onto` and the intent of the
+  commit, `--take` or `--delete` for modify/delete, `bd update --continue --round <session.round>` until exit 0, then
+  build and test, and on a failure a `fixup! <subject>` commit with `bd fold`, or `bd undo <undo_token>`; report each
+  resolution with its dropped lines. The rules: other sessions work in the tree, so never `git rebase`, `git stash`,
+  `git checkout` or `git reset`; edit only the files at `edit`, never the same path in the working tree; keep every
+  message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push; exit 3 retries, exit 4 stops
+  and shows the error.
+  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, resolves a conflict in bd's session, outside the working tree`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for a conflict on Windows`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
+- Without a bd command, the conflict prompt must contain the repository path, the branch, the upstream with the ids of
+  HEAD, the upstream and the merge base and the fetch time, the local commits oldest first, the likely conflicting
+  files, the rules (keep every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push;
+  other sessions may work in the tree, so uncommitted changes stop the agent, which asks the user and never stashes,
+  resets, checks out or commits them) and the steps (rebase, resolve keeping the upstream change and the intent of the
   commit, build and test, continue, report each resolution). Each likely conflicting file names the local commits and
   the upstream commits that change it, each upstream one with its subject, author and both dates: "(Daniil Bubnov,
   authored 2026-10-01, in origin/master since 2026-10-14)".
@@ -304,12 +323,10 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The blocked prompt must never stash: it lists the files, says that other sessions work in the tree, forbids to
   stash, reset, check out or commit them, and asks the agent to ask the user about each file. Then, with the app's bd,
   it runs `<bd> -C <repository> update --no-fetch` (quoted for the shell, `& '…'` in PowerShell on Windows) and
-  continues as its output says; without one, it tells the user to update in Branch Deck again. The conflict prompt
-  keeps the git steps.
+  continues as its output says; without one, it tells the user to update in Branch Deck again.
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, sends a blocked update to the user and then to bd, never to a stash`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for the command of Windows`)
   [@test] ../../src/lib/agent-prompt.test.ts (`without bd, sends a blocked update to the user and back to Branch Deck, never to a stash`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, keeps the git steps for a conflict`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
 
 ## User Experience
@@ -348,5 +365,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 ## References
 
-- [Git Operations](../../docs/design/git-operations.md): "Update project", the exception to invariant 1.
+- [Git Operations](../../docs/design/git-operations.md): "Update project", the exception to invariant 1, and "Resolve
+  session".
+- [bd update](../cli/update.spec.md): the agent's update and its resolve session.
 - [Outgoing Commits](outgoing.spec.md): the overview whose footer shows the update state.

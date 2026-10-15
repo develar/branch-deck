@@ -67,16 +67,66 @@ function blockedPrompt(repositoryPath: string, check: UpdateCheck, paths: readon
   ].join("\n")
 }
 
+type ConflictState = Extract<UpdateCheck["state"], { status: "conflict" }>
+
+/** `Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc Change line 2 upstream, Dana Lee)` per file */
+function likelyConflictLines(state: ConflictState): string[] {
+  return groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(({ path, local, upstream }) => {
+    const sides = [
+      ...(local.length === 0 ? [] : [`mine: ${local.map(commit => formatShortHash(commit.id)).join(", ")}`]),
+      ...(upstream.length === 0 ? [] : [`upstream: ${upstream.map(commit => `${formatShortHash(commit.id)} ${commit.subject}, ${commit.author}`).join("; ")}`]),
+    ]
+    return `Likely conflict: ${sides.length === 0 ? path : `${path} (${sides.join("; ")})`}`
+  })
+}
+
+/**
+ * The conflict prompt with bd: the agent updates with `bd update --no-fetch` (the baseline the user saw) and resolves
+ * each round in the copies bd writes outside the working tree, never in the working tree itself; no `--expect-head`,
+ * because peers commit meanwhile and become more rounds
+ */
+function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state: ConflictState, fetchTime: number | null, bd: AgentCliCommand): string {
+  const { branch, upstream } = check
+  const run = (args: string) => `\`${bd.command} ${args}\``
+  const fetched = fetchTime === null ? "" : ` (fetched ${new Date(fetchTime).toISOString()})`
+  return [
+    `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.`,
+    `bd is \`${bd.command}\`${bd.powershell ? "; run it in PowerShell" : ""}. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. ${run("help update")} explains each field.`,
+    `State${fetched}:\n${bullets([
+      `HEAD (${branch}): ${check.head}`,
+      `${upstream}: ${check.upstreamHead}`,
+      ...likelyConflictLines(state),
+    ])}`,
+    `Steps:\n${numbered([
+      `${run("update --no-fetch")}.`,
+      "Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, use `--take` or `--delete` as its `hint` says.",
+      `${run("update --continue --round <session.round>")}. Exit 1 is the next commit: go to step 2. Exit 2: fix the files of \`error.paths\` and run it again.`,
+      `Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as \`fixup! <subject>\` and run ${run("fold")}, or run ${run("undo <undo_token>")} and tell me.`,
+      "Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
+    ])}`,
+    `Rules:\n${bullets([
+      "Other sessions work in this tree. Never run `git rebase`, `git stash`, `git checkout` or `git reset`.",
+      "Edit only the files at `edit`, never the same path in the working tree.",
+      ...RULES,
+      "Exit 3: run the same command again. Exit 4: stop and show me the error.",
+    ])}`,
+  ].join("\n\n")
+}
+
 /**
  * The prompt for an external coding agent that does the update Branch Deck refused: a rebase with conflicts, or one
- * blocked by uncommitted changes on files that the upstream changed. Copied to the clipboard; the agent runs git in a
- * terminal, so it is told the exact state and what it must not change. A blocked update goes to the user about each
- * file, then to bd.
+ * blocked by uncommitted changes on files that the upstream changed. Copied to the clipboard. With bd, a conflict is
+ * resolved in bd's resolve session, outside the working tree; without, the agent rebases in a terminal, told the exact
+ * state and what it must not change, and asks the user about uncommitted changes instead of stashing them. A blocked
+ * update goes to the user about each file, then to bd.
  */
 export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: AgentPromptInput): string {
   const { state, branch, upstream } = check
   if (state.status === "blocked") {
     return blockedPrompt(repositoryPath, check, state.paths, bd)
+  }
+  if (state.status === "conflict" && bd !== null) {
+    return conflictPromptWithBd(repositoryPath, check, state, fetchTime, bd)
   }
   const sections: string[] = []
   if (state.status === "conflict") {
@@ -98,7 +148,7 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: Agent
     sections.push(
       `Rules:\n${bullets([
         ...RULES,
-        "If `git status` shows uncommitted changes, run `git stash push --include-untracked` first and `git stash pop` at the end.",
+        "Other sessions may work in this tree: if `git status` shows uncommitted changes, stop and ask me what to do with them. Never stash, reset, check out or commit them.",
       ])}`,
       `Steps:\n${numbered([
         `\`git rebase ${upstream}\`.`,

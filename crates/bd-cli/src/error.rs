@@ -44,6 +44,22 @@ pub enum ErrorCode {
   /// Uncommitted, staged or untracked files sit on paths `bd update` (or its undo) writes; `paths` lists them. Nothing
   /// was changed; never stash them, ask the user
   UncommittedOverlap,
+  /// `bd update --continue` or `--abort` without a resolve session of this worktree
+  NoSession,
+  /// `--continue --round <n>` names another round than the open one; read `bd update --status` again
+  RoundMoved,
+  /// The resolve session can't continue: the branch was rewritten, HEAD left the branch, or the session belongs to
+  /// another worktree; `bd update --abort` removes it
+  SessionStale,
+  /// The conflict of a round is of a type bd can't resolve (binary, file/directory, rename, mode, submodule, symlink);
+  /// `paths` lists the files
+  UnsupportedConflict,
+  /// Conflict markers are left in the `edit` copies of `paths`
+  UnresolvedMarkers,
+  /// The `edit` copies of `paths` changed outside their conflict blocks
+  ResolutionOutsideConflict,
+  /// The files of `paths` have no resolution: no edited `edit` copy, no `--take`, no `--delete`
+  MissingResolution,
   /// A branch can't be pushed: not synced, behind its remote branch without --force, or its parent is not on the remote
   PushRefused,
   /// No remote to push to
@@ -63,14 +79,25 @@ impl ErrorCode {
   pub fn exit_code(self) -> i32 {
     match self {
       Self::Conflict => 1,
-      Self::InvalidArguments | Self::NotARepository | Self::NoBranchPrefix | Self::UnknownBranch | Self::InvalidPlan | Self::NotAheadOfBaseline => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked => 3,
+      Self::InvalidArguments
+      | Self::NotARepository
+      | Self::NoBranchPrefix
+      | Self::UnknownBranch
+      | Self::InvalidPlan
+      | Self::NotAheadOfBaseline
+      | Self::NoSession
+      | Self::UnresolvedMarkers
+      | Self::ResolutionOutsideConflict
+      | Self::MissingResolution => 2,
+      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::RoundMoved => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
       | Self::StagedOverlap
       | Self::UndoStale
       | Self::UncommittedOverlap
+      | Self::SessionStale
+      | Self::UnsupportedConflict
       | Self::PushRefused
       | Self::NoRemote
       | Self::InstallRefused => 4,
@@ -80,7 +107,10 @@ impl ErrorCode {
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
   pub fn retryable(self) -> bool {
-    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError)
+    matches!(
+      self,
+      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::RoundMoved | Self::NetworkError
+    )
   }
 }
 
@@ -159,7 +189,8 @@ pub struct ErrorBody {
   /// `lease_rejected` as bd fetched them, the ones behind of `push_refused`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub branches: Vec<ErrorBranch>,
-  /// The local files of `uncommitted_overlap`, relative to the repository
+  /// The files the error is about, relative to the repository: the local files of `uncommitted_overlap`, the
+  /// conflicting files of a refused resolution
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
   /// Whether the same command may succeed when retried

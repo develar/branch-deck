@@ -1,0 +1,625 @@
+use crate::fixture_test::{assert_error, git, run_in};
+use pretty_assertions::assert_eq;
+use serde_json::{Value, json};
+use std::path::Path;
+use test_utils::git_test_utils::TestRepo;
+
+const SHARED: &str = "one\ntwo\nthree\n";
+
+/// An upstream with `shared.txt` and its clone, the clone's `(auth)` commit and the upstream's change on line 2
+fn conflicting_clone() -> (TestRepo, TestRepo) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
+  clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
+  upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
+  (upstream, clone)
+}
+
+fn read(path: &str) -> String {
+  std::fs::read_to_string(path).unwrap()
+}
+
+fn file_of<'a>(output: &'a Value, path: &str) -> &'a Value {
+  output["session"]["files"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|file| file["path"] == json!(path))
+    .unwrap_or_else(|| panic!("{path} in {output}"))
+}
+
+fn edit_of(output: &Value, path: &str) -> String {
+  file_of(output, path)["edit"].as_str().unwrap().to_string()
+}
+
+fn worktree_status(repo: &TestRepo) -> String {
+  git(repo, &["status", "--porcelain", "--untracked-files=all"])
+}
+
+#[test_log::test]
+fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
+  let (upstream, clone) = conflicting_clone();
+  let head = clone.head();
+
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(
+    (&round["state"], &round["session"]["round"], &round["session"]["replayed"], &round["session"]["total"]),
+    (&json!("conflict"), &json!(1), &json!(0), &json!(1))
+  );
+  assert_eq!(round["session"]["commit"]["subject"], json!("(auth) Change line 2"));
+  let file = file_of(&round, "shared.txt");
+  assert_eq!((&file["kind"], &file["markers"]), (&json!("content"), &json!(1)), "{round}");
+  assert_eq!(read(file["onto"].as_str().unwrap()), "one\ntheirs\nthree\n");
+  assert_eq!(read(file["commit"].as_str().unwrap()), "one\nmine\nthree\n");
+  assert_eq!(read(file["before"].as_str().unwrap()), SHARED);
+  assert!(read(round["session"]["commit"]["patch"].as_str().unwrap()).contains("+mine"));
+  assert_eq!(file["upstream_commits"][0]["subject"], json!("Change line 2 upstream"));
+  // nothing moved, the working tree is as it was
+  assert_eq!(clone.head(), head);
+  assert_eq!(worktree_status(&clone), "");
+  assert!(git(&clone, &["for-each-ref", "--format=%(refname)", "refs/branch-deck/resolve/"]).contains("refs/branch-deck/resolve/main"));
+
+  // a rerun prints the same round
+  let (exit_code, again) = run_in(&clone, &["update"]);
+  assert_eq!(
+    (exit_code, &again["session"]["round"], edit_of(&again, "shared.txt")),
+    (1, &json!(1), edit_of(&round, "shared.txt")),
+    "{again}"
+  );
+
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs and mine\nthree\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--round", "1"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(done["state"], json!("rebase"));
+  assert_eq!(
+    done["resolutions"][0]["files"][0],
+    json!({ "path": "shared.txt", "how": "edited", "dropped_upstream_lines": ["theirs"], "dropped_commit_lines": ["mine"] })
+  );
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+  assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\ntheirs and mine\nthree\n");
+  assert_eq!(worktree_status(&clone), "");
+  assert_eq!(git(&clone, &["log", "-1", "--format=%s"]), "(auth) Change line 2");
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "");
+  assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("edited\tshared.txt"));
+  assert!(!Path::new(&edit_of(&round, "shared.txt")).exists(), "the copies are removed");
+  assert!(!clone.path().join(".git/branch-deck/resolve").exists());
+
+  // the undo of the update takes it back
+  let (exit_code, undo) = run_in(&clone, &["undo", done["undo_token"].as_str().unwrap()]);
+  assert_eq!(exit_code, 0, "{undo}");
+  assert_eq!(clone.head(), head);
+}
+
+/// bd with a git wrapper: `arms` are `case " $* " in` arms that run before the real git, with `{dir}` replaced by the
+/// directory of the wrapper (its log and marks)
+#[cfg(unix)]
+struct Wrapped {
+  directory: tempfile::TempDir,
+  environment: crate::context::Environment,
+}
+
+#[cfg(unix)]
+impl Wrapped {
+  fn new(repo: &TestRepo, arms: &str) -> Self {
+    let directory = tempfile::tempdir().unwrap();
+    let script = directory.path().join("git");
+    let arms = arms.replace("{dir}", directory.path().to_str().unwrap());
+    let text = format!(
+      "#!/bin/sh\necho \"$*\" >> '{}/log'\ncase \" $* \" in {arms}\nesac\nexec git \"$@\"\n",
+      directory.path().display()
+    );
+    std::fs::write(&script, text).unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut environment = crate::fixture_test::environment(repo.path());
+    environment.git = Some(script.to_str().unwrap().to_string());
+    Self { directory, environment }
+  }
+
+  fn run(&self, args: &[&str]) -> (i32, Value) {
+    let mut all = vec!["--prefix", crate::fixture_test::PREFIX];
+    all.extend_from_slice(args);
+    let _ = std::fs::remove_file(self.directory.path().join("log"));
+    crate::fixture_test::run_json(&self.environment, &all)
+  }
+
+  /// The git commands of the last run that start with `subcommand`
+  fn count(&self, subcommand: &str) -> usize {
+    let log = std::fs::read_to_string(self.directory.path().join("log")).unwrap_or_default();
+    log
+      .lines()
+      .filter(|line| line.split(' ').find(|word| !word.starts_with('-') && !word.contains('=')) == Some(subcommand))
+      .count()
+  }
+
+  fn mark(&self, name: &str) {
+    std::fs::write(self.directory.path().join(name), "").unwrap();
+  }
+}
+
+/// `n` local commits, each adding `f<i>.txt`; the one at `conflict_at` (1-based) changes line 2 of `shared.txt`, which
+/// the upstream changes too
+fn clone_with_commits(n: usize, conflict_at: usize) -> (TestRepo, TestRepo) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED)]);
+  for i in 1..=n {
+    if i == conflict_at {
+      clone.create_commit(&format!("(auth) Commit {i}"), "shared.txt", "one\nmine\nthree\n");
+    } else {
+      clone.create_commit(&format!("(auth) Commit {i}"), &format!("f{i}.txt"), &format!("{i}\n"));
+    }
+  }
+  upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
+  (upstream, clone)
+}
+
+/// ⌈log₂ n⌉
+fn search_replays(n: usize) -> usize {
+  usize::try_from(n.next_power_of_two().trailing_zeros()).unwrap()
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn the_first_conflict_is_found_with_a_binary_search() {
+  for (n, conflict_at) in [(1, 1), (10, 7), (10, 1), (10, 10)] {
+    let (upstream, clone) = clone_with_commits(n, conflict_at);
+    let wrapped = Wrapped::new(&clone, "");
+    let (exit_code, round) = wrapped.run(&["update"]);
+    assert_eq!(exit_code, 1, "{round}");
+    assert_eq!((&round["session"]["replayed"], &round["session"]["total"]), (&json!(conflict_at - 1), &json!(n)), "{round}");
+    assert_eq!(round["session"]["commit"]["subject"], json!(format!("(auth) Commit {conflict_at}")));
+    // the replay of the check, then the search
+    assert!(wrapped.count("replay") <= 1 + search_replays(n), "{n}/{conflict_at}: {} replays", wrapped.count("replay"));
+
+    std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs\nmine\nthree\n").unwrap();
+    let (exit_code, done) = wrapped.run(&["update", "--continue"]);
+    assert_eq!((exit_code, &done["state"], &done["replayed"]), (0, &json!("rebase"), &json!(n)), "{done}");
+    // one replay of the rest, none after the last commit
+    assert_eq!(wrapped.count("replay"), usize::from(conflict_at < n));
+    assert_eq!(git(&clone, &["rev-list", "--count", &format!("{}..HEAD", upstream.head())]), n.to_string());
+    assert_eq!(worktree_status(&clone), "");
+  }
+}
+
+/// The second local commit changes the line again: after the first round, it conflicts with the resolution
+#[test_log::test]
+fn a_second_conflict_opens_a_second_round_with_its_own_copies() {
+  let (_upstream, clone) = conflicting_clone();
+  clone.create_commit("(auth) Change line 2 again", "shared.txt", "one\nmine again\nthree\n");
+  let (_, round1) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round1, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+
+  let (exit_code, round2) = run_in(&clone, &["update", "--continue", "--round", "1"]);
+  assert_eq!(
+    (exit_code, &round2["session"]["round"], &round2["session"]["replayed"]),
+    (1, &json!(2), &json!(1)),
+    "{round2}"
+  );
+  assert_eq!(round2["session"]["resolutions"][0]["files"][0]["how"], json!("edited"));
+  let file = file_of(&round2, "shared.txt");
+  assert_eq!(read(file["onto"].as_str().unwrap()), "one\ntheirs mine\nthree\n");
+  assert_ne!(edit_of(&round2, "shared.txt"), edit_of(&round1, "shared.txt"));
+  assert!(!Path::new(&edit_of(&round1, "shared.txt")).exists(), "the copies of round 1 are gone");
+  // the round of the next step
+  let (exit_code, stale) = run_in(&clone, &["update", "--continue", "--round", "1"]);
+  assert_error(&stale, exit_code, (3, "round_moved"));
+
+  std::fs::write(edit_of(&round2, "shared.txt"), "one\ntheirs mine again\nthree\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue", "--round", "2"]);
+  assert_eq!((exit_code, done["resolutions"].as_array().map(Vec::len)), (0, Some(2)), "{done}");
+  assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\ntheirs mine again\nthree\n");
+  assert_eq!(git(&clone, &["log", "--format=%s", "-2"]), "(auth) Change line 2 again\n(auth) Change line 2");
+}
+
+#[test_log::test]
+fn markers_an_edit_outside_a_block_and_a_missing_file_are_refused() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  let edit = edit_of(&round, "shared.txt");
+  let merged = read(&edit);
+  let session = || git(&clone, &["rev-parse", "refs/branch-deck/resolve/main"]);
+  let before = session();
+
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "unresolved_markers"));
+  assert_eq!(output["error"]["paths"], json!(["shared.txt"]));
+
+  std::fs::write(&edit, "ONE\ntheirs mine\nthree\n").unwrap();
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "resolution_outside_conflict"));
+
+  std::fs::remove_file(&edit).unwrap();
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "missing_resolution"));
+  assert_eq!(session(), before, "a refusal moves nothing");
+
+  // `--status --materialize` brings the missing copy back
+  let (exit_code, status) = run_in(&clone, &["update", "--status", "--materialize"]);
+  assert_eq!((exit_code, &status["session"]["round"]), (0, &json!(1)), "{status}");
+  assert_eq!(read(&edit), merged);
+  std::fs::write(&edit, "edited\n").unwrap();
+  run_in(&clone, &["update", "--status", "--materialize"]);
+  assert_eq!(read(&edit), "edited\n", "--materialize writes only the missing copies");
+  run_in(&clone, &["update", "--status", "--materialize", "--force"]);
+  assert_eq!(read(&edit), merged);
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn a_symlink_at_edit_is_never_followed() {
+  let (_upstream, clone) = conflicting_clone();
+  let secret = clone.path().join("secret.txt");
+  std::fs::write(&secret, "secret\n").unwrap();
+  let (_, round) = run_in(&clone, &["update"]);
+  let edit = edit_of(&round, "shared.txt");
+  std::fs::remove_file(&edit).unwrap();
+  std::os::unix::fs::symlink(&secret, &edit).unwrap();
+
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "missing_resolution"));
+  // --force replaces the link instead of writing through it
+  run_in(&clone, &["update", "--status", "--materialize", "--force"]);
+  assert!(!std::fs::symlink_metadata(&edit).unwrap().file_type().is_symlink());
+  assert_eq!(std::fs::read_to_string(&secret).unwrap(), "secret\n");
+}
+
+/// The upstream deletes `gone.txt` and changes `kept.txt`; the local commit changes `gone.txt` and deletes `kept.txt`
+fn modify_delete_clone() -> (TestRepo, TestRepo) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("gone.txt", "gone\n"), ("kept.txt", "kept\n"), ("other.txt", "other\n")]);
+  git(&clone, &["rm", "-q", "kept.txt"]);
+  clone.create_commit("(auth) Change gone, delete kept", "gone.txt", "gone, changed\n");
+  git(&upstream, &["rm", "-q", "gone.txt"]);
+  upstream.create_commit("Change kept, delete gone", "kept.txt", "kept, changed\n");
+  (upstream, clone)
+}
+
+#[test_log::test]
+fn modify_delete_is_resolved_with_take_and_delete() {
+  let (_upstream, clone) = modify_delete_clone();
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  for path in ["gone.txt", "kept.txt"] {
+    assert_eq!(file_of(&round, path)["kind"], json!("modify_delete"), "{round}");
+  }
+  assert_eq!(file_of(&round, "gone.txt").get("onto"), None);
+  assert_eq!(file_of(&round, "kept.txt").get("commit"), None);
+  // the version left in the tree, unchanged, is no resolution
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "missing_resolution"));
+  assert_eq!(output["error"]["paths"], json!(["gone.txt", "kept.txt"]));
+  let (exit_code, output) = run_in(&clone, &["update", "--continue", "--take", "upstream:gone.txt"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let (exit_code, output) = run_in(&clone, &["update", "--continue", "--delete", "nope.txt"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+
+  let (exit_code, done) = run_in(&clone, &["update", "--continue", "--take", "commit:gone.txt", "--delete", "kept.txt"]);
+  assert_eq!(exit_code, 0, "{done}");
+  let hows: Vec<(&Value, &Value)> = done["resolutions"][0]["files"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|file| (&file["path"], &file["how"]))
+    .collect();
+  assert_eq!(hows, [(&json!("gone.txt"), &json!("commit")), (&json!("kept.txt"), &json!("deleted"))]);
+  assert_eq!(std::fs::read_to_string(clone.path().join("gone.txt")).unwrap(), "gone, changed\n");
+  assert!(!clone.path().join("kept.txt").exists());
+  assert_eq!(worktree_status(&clone), "");
+}
+
+#[test_log::test]
+fn binary_and_file_directory_conflicts_are_refused_and_start_no_session() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("bin.dat", "\0one"), ("df", "file\n")]);
+  clone.create_commit("(auth) Change the binary", "bin.dat", "\0mine");
+  upstream.create_commit("Change the binary upstream", "bin.dat", "\0theirs");
+  let (exit_code, output) = run_in(&clone, &["update"]);
+  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  assert_eq!(output["error"]["paths"], json!(["bin.dat"]));
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
+
+  git(&clone, &["reset", "-q", "--hard", "origin/master"]);
+  clone.create_commit("(auth) Change df", "df", "mine\n");
+  git(&upstream, &["rm", "-q", "df"]);
+  upstream.create_commit("df becomes a directory", "df/inner.txt", "inner\n");
+  let (exit_code, output) = run_in(&clone, &["update"]);
+  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
+}
+
+#[test_log::test]
+fn a_resolution_that_empties_the_commit_drops_it() {
+  let (upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  assert_eq!(round["session"]["commit"].get("hint"), None);
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--take", "onto:shared.txt"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!((&done["replayed"], &done["dropped_already_upstream"]), (&json!(0), &json!(1)));
+  assert_eq!(done["resolutions"][0].get("resolved"), None, "{done}");
+  assert_eq!(clone.head(), upstream.head());
+  assert_eq!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "list"]), "", "a dropped commit gets no note");
+}
+
+#[test_log::test]
+fn peers_commits_on_top_become_more_rounds() {
+  let (upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  // a peer commits in the same tree while the agent resolves: one clean commit, one that conflicts again
+  clone.create_commit("(peer) Add peer", "peer.txt", "peer\n");
+  clone.create_commit("(peer) Change line 2 too", "shared.txt", "one\nmine and peer\nthree\n");
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+
+  let (exit_code, round2) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!(
+    (exit_code, &round2["session"]["round"], &round2["session"]["replayed"], &round2["session"]["total"]),
+    (1, &json!(2), &json!(2), &json!(3)),
+    "{round2}"
+  );
+  assert_eq!(round2["session"]["commit"]["subject"], json!("(peer) Change line 2 too"));
+  std::fs::write(edit_of(&round2, "shared.txt"), "one\ntheirs mine and peer\nthree\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!((exit_code, &done["replayed"]), (0, &json!(3)), "{done}");
+  assert_eq!(
+    git(&clone, &["log", "--format=%s", &format!("{}..HEAD", upstream.head())]),
+    "(peer) Change line 2 too\n(peer) Add peer\n(auth) Change line 2"
+  );
+  assert_eq!(worktree_status(&clone), "");
+}
+
+#[test_log::test]
+fn a_rewritten_head_makes_the_session_stale_and_abort_removes_it() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  git(&clone, &["commit", "-q", "--amend", "-m", "(auth) Reworded"]);
+  let head = clone.head();
+
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (4, "session_stale"));
+  assert_eq!(output["error"]["retryable"], json!(false));
+  assert_eq!(clone.head(), head);
+
+  let (exit_code, aborted) = run_in(&clone, &["update", "--abort"]);
+  assert_eq!((exit_code, &aborted["worktree"], &aborted["round"]), (0, &json!("main"), &json!(1)), "{aborted}");
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/", "refs/notes/"]), "", "no session ref, no notes");
+  assert!(!Path::new(&edit_of(&round, "shared.txt")).exists());
+  assert!(!clone.path().join(".git/branch-deck/resolve").exists());
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "no_session"));
+}
+
+#[test_log::test]
+fn a_session_belongs_to_its_worktree_and_survives_a_gc_in_another() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  let linked = tempfile::tempdir().unwrap();
+  let linked_path = linked.path().join("wt");
+  git(&clone, &["worktree", "add", "-q", "-b", "other", linked_path.to_str().unwrap()]);
+  let linked_repo = |args: &[&str]| {
+    crate::fixture_test::run_json(
+      &crate::fixture_test::environment(&linked_path),
+      &[&["--prefix", crate::fixture_test::PREFIX][..], args].concat(),
+    )
+  };
+
+  let (exit_code, output) = linked_repo(&["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "no_session"));
+  let (exit_code, status) = linked_repo(&["update", "--status"]);
+  assert_eq!(
+    (exit_code, status.get("session"), &status["sessions"][0]["worktree"], &status["sessions"][0]["own"]),
+    (0, None, &json!("main"), &json!(false)),
+    "{status}"
+  );
+
+  // a gc in the other worktree, with every reflog expired, keeps what the session needs
+  let linked_git = |args: &[&str]| clone.git_executor().execute_command(args, linked_path.to_str().unwrap()).unwrap();
+  linked_git(&["reflog", "expire", "--expire=now", "--all"]);
+  linked_git(&["gc", "-q", "--prune=now"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!(exit_code, 0, "{done}");
+}
+
+#[test_log::test]
+fn an_orphaned_session_is_listed_and_aborted_by_its_worktree() {
+  let (_upstream, clone) = conflicting_clone();
+  let linked = tempfile::tempdir().unwrap();
+  let linked_path = linked.path().join("wt");
+  git(&clone, &["worktree", "add", "-q", "-b", "other", linked_path.to_str().unwrap()]);
+  let environment = crate::fixture_test::environment(&linked_path);
+  let (exit_code, round) = crate::fixture_test::run_json(&environment, &["--prefix", crate::fixture_test::PREFIX, "update"]);
+  assert_eq!((exit_code, &round["session"]["worktree"]), (1, &json!("wt")), "{round}");
+  git(&clone, &["worktree", "remove", "--force", linked_path.to_str().unwrap()]);
+
+  let (_, status) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(
+    (&status["sessions"][0]["worktree"], &status["sessions"][0]["orphaned"]),
+    (&json!("wt"), &json!(true)),
+    "{status}"
+  );
+  let (exit_code, aborted) = run_in(&clone, &["update", "--abort", "--worktree", "wt"]);
+  assert_eq!((exit_code, &aborted["worktree"]), (0, &json!("wt")), "{aborted}");
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "");
+}
+
+#[test_log::test]
+fn a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let session = git(&clone, &["rev-parse", "refs/branch-deck/resolve/main"]);
+
+  let (exit_code, checked) = run_in(&clone, &["--full-ids", "update", "--continue", "--dry-run"]);
+  assert_eq!((exit_code, &checked["dry_run"]), (0, &json!(true)), "{checked}");
+  assert_eq!(git(&clone, &["rev-parse", "refs/branch-deck/resolve/main"]), session, "a dry run moves nothing");
+  let resolved = checked["resolutions"][0]["resolved"].clone();
+  assert!(resolved.is_string(), "{checked}");
+  let (_, again) = run_in(&clone, &["--full-ids", "update", "--continue", "--dry-run"]);
+  assert_eq!(again["resolutions"][0]["resolved"], resolved);
+
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue"]);
+  assert_eq!((exit_code, &done["resolutions"][0]["resolved"], &done["head"]), (0, &resolved, &resolved), "{done}");
+}
+
+#[test_log::test]
+fn the_copies_go_to_dir_only_outside_every_worktree() {
+  let (_upstream, clone) = conflicting_clone();
+  let inside = clone.path().join("copies");
+  let (exit_code, output) = run_in(&clone, &["update", "--dir", inside.to_str().unwrap()]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  assert!(!inside.exists(), "a refused --dir that bd created is removed");
+
+  let outside = tempfile::tempdir().unwrap();
+  std::fs::write(outside.path().join("unrelated.txt"), "x").unwrap();
+  let (exit_code, output) = run_in(&clone, &["update", "--dir", outside.path().to_str().unwrap()]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  #[cfg(unix)]
+  {
+    let link = outside.path().join("link");
+    std::os::unix::fs::symlink(clone.path(), &link).unwrap();
+    let (exit_code, output) = run_in(&clone, &["update", "--dir", link.to_str().unwrap()]);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+  }
+
+  let empty = tempfile::tempdir().unwrap();
+  let (exit_code, round) = run_in(&clone, &["update", "--dir", empty.path().to_str().unwrap()]);
+  assert_eq!(exit_code, 1, "{round}");
+  let edit = edit_of(&round, "shared.txt");
+  assert!(Path::new(&edit).starts_with(std::fs::canonicalize(empty.path()).unwrap()), "{edit}");
+  std::fs::write(&edit, "one\ntheirs mine\nthree\n").unwrap();
+  let (exit_code, _) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!(exit_code, 0);
+  assert!(empty.path().exists(), "bd removes only what it wrote");
+  assert_eq!(std::fs::read_dir(empty.path()).unwrap().count(), 0);
+}
+
+/// The finish fails right at its move once (as a crash between the `applying` state and the move would leave it), and
+/// a `git switch` before the move refuses it: both leave the session to finish later
+#[cfg(unix)]
+#[test_log::test]
+fn an_interrupted_finish_is_completed_by_the_next_continue() {
+  let (upstream, clone) = conflicting_clone();
+  let wrapped = Wrapped::new(
+    &clone,
+    "*\" update-ref -m branch-deck: update project \"*) if [ -f '{dir}/fail' ]; then rm -f '{dir}/fail'; exit 1; fi;;\n\
+     *\" update-ref \"*\"--stdin\"*) if [ -f '{dir}/switch' ]; then rm -f '{dir}/switch'; git symbolic-ref HEAD refs/heads/peer; fi;;",
+  );
+  let (_, round) = wrapped.run(&["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let head = clone.head();
+
+  wrapped.mark("fail");
+  let (exit_code, output) = wrapped.run(&["update", "--continue"]);
+  assert_eq!(exit_code, 5, "{output}");
+  assert_eq!(clone.head(), head);
+  let (_, status) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(status["session"]["status"], json!("applying"), "{status}");
+
+  git(&clone, &["branch", "peer"]);
+  wrapped.mark("switch");
+  let (exit_code, output) = wrapped.run(&["update", "--continue"]);
+  assert_error(&output, exit_code, (3, "head_moved"));
+  git(&clone, &["symbolic-ref", "HEAD", "refs/heads/master"]);
+  assert_eq!(git(&clone, &["rev-parse", "master", "peer"]), format!("{head}\n{head}"));
+
+  let (exit_code, done) = wrapped.run(&["update", "--continue"]);
+  assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "");
+  assert_eq!(worktree_status(&clone), "");
+}
+
+/// The move commits, but the files fail to follow and the rollback fails too: HEAD stays at the new tip with the index
+/// and the files of the old one (`applied`), and the next `--continue` lets the files follow
+#[cfg(unix)]
+#[test_log::test]
+fn a_finish_killed_before_the_files_followed_is_recovered() {
+  let (upstream, clone) = conflicting_clone();
+  let wrapped = Wrapped::new(
+    &clone,
+    "*\" read-tree -m -u --no-recurse-submodules \"*) if [ -f '{dir}/fail' ]; then exit 1; fi;;\n\
+     *\" update-ref -m branch-deck: update project rolled back \"*) if [ -f '{dir}/fail' ]; then rm -f '{dir}/fail'; exit 1; fi;;",
+  );
+  let (_, round) = wrapped.run(&["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+
+  wrapped.mark("fail");
+  let (exit_code, output) = wrapped.run(&["update", "--continue"]);
+  assert_eq!(exit_code, 5, "{output}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head(), "the branch moved");
+  assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\nmine\nthree\n");
+  let (_, status) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(status["session"]["status"], json!("applied"), "{status}");
+  let (exit_code, output) = run_in(&clone, &["update", "--abort"]);
+  assert_eq!(exit_code, 5, "an applied session can't be aborted: {output}");
+
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+  assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\ntheirs mine\nthree\n");
+  assert_eq!(worktree_status(&clone), "");
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "");
+}
+
+#[test_log::test]
+fn local_changes_on_the_finish_keep_the_session_ready() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  std::fs::write(clone.path().join("shared.txt"), "a peer's edit\n").unwrap();
+
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (4, "uncommitted_overlap"));
+  assert_eq!(output["error"]["paths"], json!(["shared.txt"]));
+  let (_, status) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(
+    (&status["session"]["status"], &status["session"]["resolutions"][0]["files"][0]["how"]),
+    (&json!("ready"), &json!("edited")),
+    "{status}"
+  );
+  let (exit_code, pending) = run_in(&clone, &["update"]);
+  assert_eq!(
+    (exit_code, &pending["state"], &pending["session"]["next"]),
+    (1, &json!("pending"), &json!("bd update --continue")),
+    "{pending}"
+  );
+
+  std::fs::write(clone.path().join("shared.txt"), "one\nmine\nthree\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!((exit_code, done["resolutions"].as_array().map(Vec::len)), (0, Some(1)), "{done}");
+}
+
+#[test_log::test]
+fn likely_landed_commits_get_the_hint() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED)]);
+  let date = [("GIT_AUTHOR_DATE", "1700000000 +0000")];
+  let commit = |repo: &TestRepo, subject: &str, content: &str| {
+    std::fs::write(repo.path().join("shared.txt"), content).unwrap();
+    repo.git_executor().execute_command(&["add", "shared.txt"], repo.path().to_str().unwrap()).unwrap();
+    repo
+      .git_executor()
+      .execute_command_with_env(&["commit", "-q", "-m", subject], repo.path().to_str().unwrap(), &date)
+      .unwrap();
+  };
+  commit(&clone, "(auth) Change line 2", "one\nmine\nthree\n");
+  // the robot landed it with a fixup folded in
+  commit(&upstream, "Change line 2", "one\nmine, fixed\nthree\n");
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert!(round["session"]["commit"]["hint"].as_str().is_some_and(|hint| hint.starts_with("likely landed")), "{round}");
+}
+
+#[test_log::test]
+fn session_outputs_match_the_schema() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, schema) = crate::fixture_test::run_json(&crate::fixture_test::environment(clone.path()), &["schema"]);
+  let outputs = &schema["outputs"];
+  let (_, round) = run_in(&clone, &["update"]);
+  crate::schema_test::assert_covered(&outputs["update"], &outputs["update"], &round, "round");
+  let (_, status) = run_in(&clone, &["update", "--status"]);
+  crate::schema_test::assert_covered(&outputs["update_status"], &outputs["update_status"], &status, "status");
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let (_, checked) = run_in(&clone, &["update", "--continue", "--dry-run"]);
+  crate::schema_test::assert_covered(&outputs["update"], &outputs["update"], &checked, "checked");
+  let (_, aborted) = run_in(&clone, &["update", "--abort"]);
+  crate::schema_test::assert_covered(&outputs["update_abort"], &outputs["update_abort"], &aborted, "abort");
+  let (_, round) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let (_, done) = run_in(&clone, &["update", "--continue"]);
+  crate::schema_test::assert_covered(&outputs["update"], &outputs["update"], &done, "finish");
+}

@@ -158,9 +158,26 @@ pub struct UpdatePlan {
   files_change: bool,
   /// The revisions excluded from the replayed range besides the upstream (previous upstream tips)
   excluded: Vec<String>,
+  /// What the check read, kept apart from the public `check`: a resolve session starts from these (`update_resolve`)
+  pub(crate) checked: CheckedState,
+}
+
+/// The branch and the commits a check read
+#[derive(Debug, Clone)]
+pub(crate) struct CheckedState {
+  pub(crate) branch: String,
+  pub(crate) upstream: String,
+  pub(crate) head: String,
+  pub(crate) upstream_head: String,
+  pub(crate) base: String,
 }
 
 impl UpdatePlan {
+  /// Whether this is the check before an apply that found a conflict: the start of a resolve session
+  pub(crate) fn is_applicable_conflict(&self) -> bool {
+    self.purpose == CheckPurpose::Apply && matches!(self.check.state, UpdateState::Conflict { .. })
+  }
+
   /// HEAD after the replay of the local commits, also when local changes block the update; `None` up to date and on a
   /// conflict
   pub fn replayed_head(&self) -> Option<&str> {
@@ -193,6 +210,13 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     bail!("{branch} and {} have no common history", upstream.name);
   }
 
+  let checked = CheckedState {
+    branch: branch.clone(),
+    upstream: upstream.name.to_string(),
+    head: head.clone(),
+    upstream_head: upstream_head.clone(),
+    base: base.clone(),
+  };
   let mut plan = UpdatePlan {
     check: UpdateCheck {
       branch,
@@ -208,6 +232,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     replayed_head: None,
     files_change: false,
     excluded: Vec::new(),
+    checked,
   };
   if base == upstream_head {
     return Ok(plan);
@@ -717,7 +742,7 @@ impl std::fmt::Display for BranchSwitched {
 impl std::error::Error for BranchSwitched {}
 
 /// `BranchSwitched` unless HEAD is on `branch`
-fn ensure_head_on(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Result<()> {
+pub(crate) fn ensure_head_on(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Result<()> {
   let (output, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "--short", "HEAD"], repo_path)?;
   let actual = (exit_code == 0).then_some(output);
   if actual.as_deref() == Some(branch) {
@@ -738,10 +763,52 @@ fn ensure_head_on(git_executor: &GitCommandExecutor, repo_path: &str, branch: &s
 /// earlier. If the files can't follow, the branch moves back under the same check and the error says that nothing
 /// was changed
 fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, head: &str, new_head: &str, files_change: bool, operation: &str) -> Result<()> {
+  let none = RefTransaction::new();
+  move_branch_and_files_with(
+    git_executor,
+    repo_path,
+    &FileMove {
+      branch,
+      head,
+      new_head,
+      files_change,
+      operation,
+      with: &none,
+      rollback_with: &none,
+    },
+  )
+}
+
+/// A move of `move_branch_and_files_with`
+pub(crate) struct FileMove<'a> {
+  pub branch: &'a str,
+  pub head: &'a str,
+  pub new_head: &'a str,
+  pub files_change: bool,
+  pub operation: &'a str,
+  /// More ref changes in the transaction of the move (the state of a resolve session, its notes)
+  pub with: &'a RefTransaction,
+  /// The changes that undo `with`, in the transaction that moves the branch back
+  pub rollback_with: &'a RefTransaction,
+}
+
+/// `move_branch_and_files` with more ref changes in the move and in its rollback: the finish of a resolve session
+/// (`update_resolve`) moves its state with the branch. Only this module and `update_resolve` move a branch that the
+/// files follow
+pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo_path: &str, move_: &FileMove<'_>) -> Result<()> {
+  let &FileMove {
+    branch,
+    head,
+    new_head,
+    files_change,
+    operation,
+    with,
+    rollback_with,
+  } = move_;
   ensure_head_on(git_executor, repo_path, branch)?;
   let head_on_branch = || ensure_head_on(git_executor, repo_path, branch);
   let mut transaction = RefTransaction::new();
-  transaction.update("HEAD", new_head, Some(head)).create_reflog();
+  transaction.update("HEAD", new_head, Some(head)).create_reflog().extend(with);
   if let Err(e) = transaction.commit_while(git_executor, repo_path, operation, head_on_branch) {
     if e.downcast_ref::<BranchSwitched>().is_some() {
       return Err(e);
@@ -758,12 +825,63 @@ fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, bra
   }
 
   if files_change && let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head) {
-    let mut rollback = RefTransaction::new();
-    rollback.update("HEAD", head, Some(new_head)).create_reflog();
-    if let Err(rollback_error) = rollback.commit_while(git_executor, repo_path, &format!("{operation} rolled back"), head_on_branch) {
-      bail!("Files changed during the update, and {branch} could not be moved back to {head}: {rollback_error:#}; {e:#}");
+    if let Err(rollback_error) = roll_back(git_executor, repo_path, branch, head, new_head, operation, rollback_with) {
+      bail!("{rollback_error:#}; {e:#}");
     }
     bail!("Files changed during the update; nothing was changed: {e:#}");
+  }
+  Ok(())
+}
+
+/// Move the branch back from `new_head` to `head` with `rollback_with`, under the same check as the move; the files did
+/// not follow
+fn roll_back(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, head: &str, new_head: &str, operation: &str, rollback_with: &RefTransaction) -> Result<()> {
+  let mut rollback = RefTransaction::new();
+  rollback.update("HEAD", head, Some(new_head)).create_reflog().extend(rollback_with);
+  rollback
+    .commit_while(git_executor, repo_path, &format!("{operation} rolled back"), || {
+      ensure_head_on(git_executor, repo_path, branch)
+    })
+    .map_err(|e| anyhow!("The files could not follow, and {branch} could not be moved back to {head}: {e:#}"))
+}
+
+/// Local changes sit on paths the files of a moved branch must take; the branch moved back, nothing else changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilesBlocked {
+  pub paths: Vec<String>,
+}
+
+impl std::fmt::Display for FilesBlocked {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "Uncommitted, staged or untracked files sit on paths the update writes: {}", self.paths.join(", "))
+  }
+}
+
+impl std::error::Error for FilesBlocked {}
+
+/// Let the files follow a move of `branch` from `head` to `new_head` that a crash interrupted before the files followed
+/// (the finish of a resolve session, `update_resolve`): the exact check of `changed` first, then the guarded update.
+/// When local changes block it (`FilesBlocked`) or the update fails, the branch moves back with `rollback_with`
+pub(crate) fn files_follow(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch: &str,
+  head: &str,
+  new_head: &str,
+  changed: &[ChangedPath],
+  rollback_with: &RefTransaction,
+) -> Result<()> {
+  ensure_head_on(git_executor, repo_path, branch)?;
+  let blocked = blocking_paths(git_executor, repo_path, head, new_head, changed)?;
+  if !blocked.is_empty() {
+    roll_back(git_executor, repo_path, branch, head, new_head, UPDATE_OPERATION, rollback_with)?;
+    return Err(anyhow::Error::new(FilesBlocked { paths: blocked }));
+  }
+  if let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head) {
+    if let Err(rollback_error) = roll_back(git_executor, repo_path, branch, head, new_head, UPDATE_OPERATION, rollback_with) {
+      bail!("{rollback_error:#}; {e:#}");
+    }
+    bail!("Files changed during the update; {branch} moved back to {}: {e:#}", crate::rewrite_plan::short_id(head));
   }
   Ok(())
 }
@@ -853,7 +971,7 @@ fn local_commits(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&st
 
 /// The non-merge commits of `revs` that change any of `files` (the first `MAX_ATTRIBUTED_FILES`), oldest first, each
 /// with the files of the list it changes; the newest `limit` only, if given
-fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str], files: &[String], limit: Option<usize>) -> Result<Vec<UpdateCommit>> {
+pub(crate) fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str], files: &[String], limit: Option<usize>) -> Result<Vec<UpdateCommit>> {
   let max_count = limit.map(|limit| format!("--max-count={limit}"));
   let mut args = vec!["log", "--reverse", "--no-merges", "--no-renames", "--name-only", "-z", COMMIT_FORMAT];
   args.extend(max_count.as_deref());
@@ -895,30 +1013,33 @@ fn parse_commits(output: &str) -> Vec<UpdateCommit> {
 
 /// A path that differs between two trees, with its side in the old tree
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ChangedPath {
+pub(crate) struct ChangedPath {
   /// `A`, `D`, `M` or `T`: renames are a delete and an add
   status: char,
   /// The mode and the blob in the old tree, `000000` and the null id for an added path
   old_mode: String,
   old_id: String,
-  path: String,
+  /// The blob in the new tree, the null id for a deleted path
+  pub(crate) new_id: String,
+  pub(crate) path: String,
 }
 
 /// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format)
-fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
+pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
   let output = git_executor.execute_command_raw(&["diff-tree", "-r", "-z", "--no-renames", from, to], repo_path)?;
   let mut fields = output.split('\0').filter(|field| !field.is_empty());
   let mut paths = Vec::new();
   // `:<old mode> <new mode> <old id> <new id> <status>`, then the path
   while let (Some(meta), Some(path)) = (fields.next(), fields.next()) {
     let mut meta = meta.trim_start_matches(':').split(' ');
-    let (Some(old_mode), Some(_), Some(old_id), Some(_), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
+    let (Some(old_mode), Some(_), Some(old_id), Some(new_id), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
       bail!("Unexpected diff-tree output: {output}");
     };
     paths.push(ChangedPath {
       status: status.chars().next().unwrap_or('M'),
       old_mode: old_mode.to_string(),
       old_id: old_id.to_string(),
+      new_id: new_id.to_string(),
       path: path.to_string(),
     });
   }
@@ -929,7 +1050,7 @@ fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str,
 /// follow: the paths of a refused dry run on a copy of the index, or files that git ignores but sit where the update
 /// adds a file (`read-tree -u` would silently overwrite them, as `git checkout` does). Exact, but the dry run refreshes
 /// the whole index: the check before an update.
-fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
+pub(crate) fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
   if let Some(refusal) = dry_run_worktree_update(git_executor, repo_path, old, new)? {
     let paths = overlapping_local_changes(git_executor, repo_path, changed)?;
     if paths.is_empty() {

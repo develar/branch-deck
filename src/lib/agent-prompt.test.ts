@@ -61,7 +61,8 @@ describe("buildAgentPrompt", () => {
     expect(prompt).toContain("Keep every commit message unchanged, including the `(prefix)`")
     expect(prompt).toContain("Don't squash, reorder, split or drop commits.")
     expect(prompt).toContain("Don't push.")
-    expect(prompt).toContain("`git stash push --include-untracked` first and `git stash pop` at the end")
+    expect(prompt).toContain("if `git status` shows uncommitted changes, stop and ask me what to do with them")
+    expect(prompt).not.toContain("git stash")
     expect(prompt).toContain("1. `git rebase origin/master`.")
     expect(prompt).toContain("keep the upstream change and reapply the intent of my commit")
     expect(prompt).toContain("Build and run the tests")
@@ -107,10 +108,44 @@ describe("buildAgentPrompt", () => {
     expect(prompt).not.toContain("git ")
   })
 
-  it("with bd, keeps the git steps for a conflict", () => {
-    const bd = { command: "'/Applications/Branch Deck.app/Contents/MacOS/branch-deck' cli -C /work/repo", powershell: false }
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd })
-    expect(prompt).toContain("1. `git rebase origin/master`.")
-    expect(prompt).not.toContain("update --no-fetch")
+  const bd = { command: "'/Applications/Branch Deck.app/Contents/MacOS/branch-deck' cli -C /work/repo", powershell: false }
+
+  it("with bd, resolves a conflict in bd's session, outside the working tree", () => {
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: Date.UTC(2026, 9, 14, 7, 30), bd })
+    const run = (args: string) => `\`${bd.command} ${args}\``
+    expect(prompt).toBe([
+      "Update the branch `master` of the Git repository at /work/repo onto `origin/master` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.",
+      "",
+      `bd is \`${bd.command}\`. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. ${run("help update")} explains each field.`,
+      "",
+      "State (fetched 2026-10-14T07:30:00.000Z):",
+      `- HEAD (master): ${H}`,
+      `- origin/master: ${U}`,
+      "- Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc Change line 2 upstream, Dana Lee)",
+      "- Likely conflict: src/config.txt (upstream: cccccccc Change line 2 upstream, Dana Lee)",
+      "",
+      "Steps:",
+      `1. ${run("update --no-fetch")}.`,
+      "2. Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, use `--take` or `--delete` as its `hint` says.",
+      `3. ${run("update --continue --round <session.round>")}. Exit 1 is the next commit: go to step 2. Exit 2: fix the files of \`error.paths\` and run it again.`,
+      `4. Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as \`fixup! <subject>\` and run ${run("fold")}, or run ${run("undo <undo_token>")} and tell me.`,
+      "5. Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
+      "",
+      "Rules:",
+      "- Other sessions work in this tree. Never run `git rebase`, `git stash`, `git checkout` or `git reset`.",
+      "- Edit only the files at `edit`, never the same path in the working tree.",
+      "- Keep every commit message unchanged, including the `(prefix)` at the start of a subject: Branch Deck groups commits by it.",
+      "- Don't squash, reorder, split or drop commits.",
+      "- Don't push.",
+      "- Exit 3: run the same command again. Exit 4: stop and show me the error.",
+    ].join("\n"))
+    expect(prompt).not.toContain("--expect-head")
+  })
+
+  it("names PowerShell for a conflict on Windows", () => {
+    const powershell = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\repo'", powershell: true }
+    const prompt = buildAgentPrompt({ repositoryPath: "C:\\work\\repo", check: conflict, fetchTime: null, bd: powershell })
+    expect(prompt).toContain(`bd is \`${powershell.command}\`; run it in PowerShell.`)
+    expect(prompt).toContain(`1. \`${powershell.command} update --no-fetch\`.`)
   })
 })

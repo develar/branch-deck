@@ -1,5 +1,5 @@
 use crate::Cli;
-use crate::agent_help::{AGENT_HELP, READ_ONLY};
+use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP};
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use clap::CommandFactory;
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,7 +82,9 @@ fn named_in(text: &str) -> (BTreeSet<&str>, Vec<(Option<&str>, &str)>) {
 #[test]
 fn agent_help_names_every_command_and_option_that_exists() {
   let (global, commands) = options_of_commands();
-  let (named_commands, named) = named_in(AGENT_HELP);
+  // `bd help update` holds the options of the session; together the two texts name everything
+  let text = format!("{AGENT_HELP}\n{UPDATE_HELP}");
+  let (named_commands, named) = named_in(&text);
   let is_named = |command: Option<&str>, option: &str| named.iter().any(|&(c, o)| o == option && (command.is_none() || c == command));
 
   let mut missing = Vec::new();
@@ -102,7 +104,7 @@ fn agent_help_names_every_command_and_option_that_exists() {
       }
     }
   }
-  assert!(missing.is_empty(), "neither in `bd help agent` nor in NOT_IN_AGENT_HELP: {missing:?}");
+  assert!(missing.is_empty(), "neither in `bd help agent`, `bd help update` nor in NOT_IN_AGENT_HELP: {missing:?}");
 
   // every command and option the help names exists, an option for the command it follows
   let stale: Vec<String> = named
@@ -116,7 +118,7 @@ fn agent_help_names_every_command_and_option_that_exists() {
         .map(|command| format!("bd {command}")),
     )
     .collect();
-  assert!(stale.is_empty(), "`bd help agent` names what doesn't exist: {stale:?}");
+  assert!(stale.is_empty(), "`bd help agent` or `bd help update` names what doesn't exist: {stale:?}");
 
   let wrong: Vec<&&str> = NOT_IN_AGENT_HELP
     .iter()
@@ -174,6 +176,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["schema"],
     &["version"],
     &["update", "--dry-run"],
+    &["update", "--status"],
     &["fold", "--dry-run"],
   ];
   // with --no-cache first: no cache appears either

@@ -12,6 +12,7 @@ object-cache = { path = "../object-cache" }
 # Core utilities (shared via workspace)
 anyhow.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 
 # Git and file operations

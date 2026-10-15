@@ -27,7 +27,7 @@ pub mod sync_command;
 pub mod update_command;
 pub mod version;
 
-use crate::agent_help::{AGENT_HELP, READ_ONLY, skill_text};
+use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, skill_text};
 use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::context::{Environment, RepoContext, RepoOptions};
@@ -42,7 +42,7 @@ use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use crate::sync_command::sync;
-use crate::update_command::{UpdateArgs, UpdateOutput, update};
+use crate::update_command::{UpdateArgs, UpdateCommandOutput, update};
 use crate::version::{VERSION, version};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
@@ -97,8 +97,8 @@ enum Command {
   /// Undo a rewrite or an update with the `undo_token` it printed
   Undo(UndoArgs),
   /// Bring the checked out branch onto its baseline, as the app's Update Project: fetch, then a fast-forward or a replay
-  /// of the local commits, and the files follow. Exit 1 on a conflict; `uncommitted_overlap` (exit 4) when local changes
-  /// sit on files it writes. Nothing changes then
+  /// of the local commits, and the files follow. `uncommitted_overlap` (exit 4) when local changes sit on files it
+  /// writes. A conflict starts a resolve session (exit 1, `bd help update`): --continue, --abort, --status
   Update(UpdateArgs),
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets: one rewrite that keeps HEAD's tree
   Fold(FoldArgs),
@@ -121,7 +121,8 @@ enum Command {
   /// Let coding agents find bd: a `bd` symlink in ~/.local/bin (macOS, Linux) and the skill of `bd help skill` in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
-  /// `bd help agent`: the agent workflow; `bd help skill`: the skill `bd install` writes; `bd help`: the usage
+  /// `bd help agent`: the agent workflow; `bd help update`: the update and its resolve session; `bd help skill`: the
+  /// skill `bd install` writes; `bd help`: the usage
   Help { topic: Option<String> },
 }
 
@@ -193,7 +194,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Restack(args) => return print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
     Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
-    Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateOutput::exit_code),
+    Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),
@@ -207,10 +208,11 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
+    Command::Help { topic: Some(topic) } if topic == "update" => out.write_all(UPDATE_HELP.as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "skill" => out.write_all(skill_text(&skill_command(environment)).as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } => Err(CliError::new(
       ErrorCode::InvalidArguments,
-      format!("No help topic {topic:?}; try `bd help agent` or `bd help skill`"),
+      format!("No help topic {topic:?}; try `bd help agent`, `bd help update` or `bd help skill`"),
     )),
   };
   match result {
@@ -272,6 +274,8 @@ mod fold_test;
 mod install_test;
 #[cfg(test)]
 mod push_test;
+#[cfg(test)]
+mod resolve_test;
 #[cfg(test)]
 mod rewrite_test;
 #[cfg(test)]

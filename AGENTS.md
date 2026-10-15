@@ -72,7 +72,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits (also `bd fold`), with undo
   (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
 - **Update Project**: fetch and replay onto the baseline, in the app and as `bd update`, with `bd undo update:`; the
-  only working-tree write (`spec/repository/update-project.spec.md`).
+  only working-tree write (`spec/repository/update-project.spec.md`). A conflict in `bd update` starts a resolve
+  session: one round per conflicting commit, resolved in copies outside the working tree, state in git
+  (`spec/cli/update.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state via `gh`, also for a checkout mirrored to GitHub
@@ -148,9 +150,11 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure).
   Its functions are `pub(crate)` and only `update_branch.rs` calls them, for Update Project (`apply_update`, the app
-  and `bd update`) and its undo (`apply_update_undo` of an `UpdateUndo` that only `check_update_undo` builds, the
-  trees swapped). The scan counts its `-u` argument lists. Don't add another caller, another argument list, or a
-  public way to build a move; see "Update project" in the design doc.
+  and `bd update`), its undo (`apply_update_undo` of an `UpdateUndo` that only `check_update_undo` builds, the
+  trees swapped), and the finish of a resolve session (`update_resolve.rs` through the `pub(crate)`
+  `move_branch_and_files_with` and `files_follow`, to the tip it reads from the session ref). The scan counts its
+  `-u` argument lists. Don't add another caller, another argument list, or a public way to build a move; see "Update
+  project" in the design doc.
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
@@ -158,11 +162,13 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   message; related refs (unapply rename, temp refs) go into the same transaction. A move that the files follow (an
   update and its undo) updates `HEAD` itself (deref) and commits only if `symbolic-ref HEAD`, read while git holds the
   locks after `prepare`, is still the checked branch (`RefTransaction::commit_while`, else `BranchSwitched`); git
-  refuses `symref-verify HEAD` next to either form of the update.
+  refuses `symref-verify HEAD` next to either form of the update. The finish of a resolve session moves the session
+  ref and the notes ref (`refs/notes/branch-deck/resolve`, written only there) in that transaction.
 - **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
   lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
-- **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd fold`, `bd undo`, and
-  Update Project (the app and `bd update`, after the fetch) hold `$GIT_COMMON_DIR/branch-deck.lock`
+- **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd fold`, `bd undo`,
+  Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), and
+  `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
   A fetch never runs under it.
 - **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
@@ -171,10 +177,18 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
   user. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
-  `update-ref --stdin`). Never parse translated text: exit codes, `--porcelain`, `-z`. The one named exception: a
-  branch description costs one `git config` per changed branch (`bd describe`, `descriptions` of a `bd group` plan),
-  because git has no batch config writer; read them with one `--get-regexp`.
+  `update-ref --stdin`). A resolve session finds the first conflicting commit with a binary search over prefixes:
+  ⌈log₂ n⌉ `replay` runs, then one `replay` of the rest per round. Never parse translated text: exit codes,
+  `--porcelain`, `-z`. The one named exception: a branch description costs one `git config` per changed branch
+  (`bd describe`, `descriptions` of a `bd group` plan), because git has no batch config writer; read them with one
+  `--get-regexp`.
 - Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts.
+- **Resolve session store** (`resolve_copies.rs`): the copies an agent edits live in `branch-deck/resolve/` of the
+  worktree's git dir, or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked); flat names
+  `<key>-<basename>`, never tree paths; tree paths validated (no empty, `.`, `..` or `.git` component); regular files
+  only, bytes as git stores them without filters, never read or written through a symlink, every write a temporary
+  file plus a rename; delete only the files bd wrote. All other session state is in git
+  (`refs/branch-deck/resolve/<worktree id>`, a shared ref: a gc in another worktree prunes a `refs/worktree/` ref).
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.

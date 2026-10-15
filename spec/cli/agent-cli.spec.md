@@ -27,9 +27,7 @@ targets:
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
-  - ../../crates/bd-cli/src/update_command.rs
   - ../../crates/bd-cli/src/fold_command.rs
-  - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/autosquash.rs
   - ../../crates/bd-cli/src/suggest.rs
   - ../../crates/bd-cli/src/clustering.rs
@@ -74,7 +72,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
 - Reading changes nothing; a regroup or a fold changes commit messages only, never trees, the index or the working
-  tree. Only `bd update` and its undo write the working tree, and only the files the update changes.
+  tree. Only `bd update` and its undo write the working tree, through the guarded update.
 
 ## Non-goals
 
@@ -99,18 +97,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
 - `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
-  `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `update`, `fold`, `version` and `error` outputs,
-  and the real outputs must use only the properties it declares.
+  `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
+  `version` and `error` outputs, and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
-- `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run` and `fold --dry-run` must write no
-  ref, config, index or working tree: at most git objects (`update --dry-run` replays) and the object cache (none with
+- `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run`, `update --status` and
+  `fold --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` replays) and the object cache (none with
   `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so in one sentence.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
-  and `paths` (the local files) for `uncommitted_overlap`.
+  and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `bd update --continue` (the
+  conflicting files).
   A rewrite whose step after the rewrite failed must print its output with that `error` in it, so that the undo
   token stays.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -271,34 +270,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd update`
 
-- `bd update` must do what the app's Update Project does ([Update Project](../repository/update-project.spec.md)):
-  fetch the baseline, then, under the repository lock, check again and apply a clean update (`up_to_date`,
-  `fast_forward`, `rebase`), the files following through the guarded working-tree update. It must print the state,
-  the previous and the new HEAD, the `replayed` and `dropped_already_upstream` counts, the landed commits (`landed`)
-  and the undo token `update:<previous head>..<new head>` with full ids.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`update_fast_forwards_and_the_undo_moves_the_files_back`, `update_rebases_the_local_commits_and_keeps_unrelated_local_changes`)
-- The fetch must run before the lock and through the remote command policy; a failed fetch is `network_error`
-  (exit 5, retryable). A held lock is `locked` (exit 3) after the fetch.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`a_failed_fetch_is_a_network_error`, `the_update_waits_for_the_repository_lock_after_its_fetch`)
-- `--no-fetch` must update onto the last fetched baseline. `--dry-run` must imply `--no-fetch`, take no lock and
-  print what the update would do, writing at most git objects.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
-- A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
-  the undo.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`, `a_switch_during_the_move_fails_on_the_head_lock`)
-- A conflict must print `state: "conflict"` with the likely conflicting files, the local commits and the upstream
-  commits that change them, change nothing, and exit with 1.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`a_conflict_reports_the_files_and_commits_and_changes_nothing`)
-- Uncommitted, staged or untracked files on paths the update writes must be `uncommitted_overlap` (exit 4, not
-  retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`)
-- `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
-  following, under the lock; it must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
-  `undo_stale` (exit 4, not retryable) when the branch moved or HEAD switched since, and `invalid_arguments` when the
-  token is not the last update of the branch. It must print whether the landed report is the one from before the
-  update again (`landed_restored`). An undo of an undone update must exit 0 with `already_undone: true`.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`, `update_fast_forwards_and_the_undo_moves_the_files_back`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
+- `bd update`, `bd undo update:` and the resolve session of a conflicting update: [bd update](update.spec.md).
 
 ### `bd fold`
 
@@ -437,9 +409,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
   --sync` with descriptions for the branches that have none, and `bd push` after the user approves; one line names
-  `bd update` and `bd fold`, and the rules say that only `bd update` and its undo write the working tree. It must name
-  every command and, per command, every long option except a listed few, and name no command, and no option for a
-  command, that doesn't exist.
+  `bd update` and `bd fold` and sends a conflict to `bd help update`, and the rules say that only `bd update` and its
+  undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
+  and, per command, every long option except a listed few, and name no command, and no option for a command, that
+  doesn't exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
@@ -450,7 +423,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symlink in `~/.local/bin` to the app binary, replacing a symlink there and refusing anything else
   (`install_refused`); on Windows `bd.exe` next to the app.
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
-  bd, its full path, and `bd help agent` as the workflow; `bd help skill` must print the same text.
+  bd (grouping, and updating onto the baseline with its conflicts), its full path, `bd help agent` as the workflow and
+  `bd help update` for an update; `bd help skill` must print the same text.
 - It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
   symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, with "Copy Path"
   (the full path of `bd`); a failure is the error toast "Cannot install the Agent CLI".

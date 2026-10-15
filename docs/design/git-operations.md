@@ -50,7 +50,7 @@ flowchart TD
 ```
 
 Every path ends at one ref transaction. Only a content rewrite reaches the index step, and the working tree is never
-written, except by Update Project (its own section below).
+written, except by Update Project and the finish of its resolve session (their own sections below).
 
 ### Invariants
 
@@ -60,13 +60,16 @@ written, except by Update Project (its own section below).
    `crates/git-executor/src/worktree_safety_test.rs` scans the production sources and fails on such an argument list.
 
    **The one exception is Update Project** (see "Update project" below), which must bring the upstream's files into
-   the working tree, **and its undo**, which takes them out again. Both use a single two-way
+   the working tree, **its undo**, which takes them out again, **and the finish of a resolve session** (see "Resolve
+   session"), which is the same move to the tip that the session replayed. Both use a single two-way
    `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
    trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index, a
    check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes on the
    other paths survive byte for byte; any overlap refuses the whole move before anything moves. The exemption lives in
    `crates/git-ops/src/worktree_update.rs` only. Its functions are `pub(crate)`, and only `update_branch.rs` calls them:
-   for the app's Update Project, `bd update` and `bd undo update:`. The safety scan allows `-u` there and asserts the
+   for the app's Update Project, `bd update` and `bd undo update:`, and, through its `pub(crate)`
+   `move_branch_and_files_with` and `files_follow`, for the finish of a resolve session in `update_resolve.rs`, which
+   moves HEAD only to the tip it reads from the session ref. The safety scan allows `-u` there and asserts the
    number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
@@ -220,8 +223,9 @@ a message rewrite keeps HEAD's tree.
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
 the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync`, `bd push`, `bd fold` and
-`bd undo` take it, and so does Update Project (the app's and `bd update`) after its fetch; the app's sync doesn't take
-it yet. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
+`bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a resolve session under
+it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes none. The app's sync
+doesn't take it yet. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
 `locked`.
 
 **One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and
@@ -403,7 +407,8 @@ Details:
   `--max-count=50` (a monorepo upstream has thousands). At most 50 files go on the command line, which Windows limits
   to 32K characters. The result names the files, the commits and the upstream commits with their authors and
   committers and both times (`%an %at %cn %ct`: the committer time of an upstream commit is about when it landed), with
-  H, U and B, for the dialog and the agent prompt; nothing has changed.
+  H, U and B, for the dialog and the agent prompt; nothing has changed. In `bd update` (not `--dry-run`), a conflict
+  starts a resolve session under the same lock instead ("Resolve session" below).
 - **Dirty working tree.** Two-way `read-tree -m -u` updates a path only where `H` and `N` differ, and only if the index
   and the working tree still match `H` there. Uncommitted or staged changes on any other path stay byte for byte. A
   dirty or staged path that the update changes, an untracked file where it adds one, or an untracked file inside a
@@ -494,9 +499,159 @@ branch goes back to H. Then `bd update` again. Submodules are not
 updated (`--no-recurse-submodules`); a changed
 gitlink shows as a modified submodule until the user updates it.
 
-Code: `crates/git-ops/src/update_branch.rs` (check, apply and the undo check), `crates/git-ops/src/worktree_update.rs`
-(the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside
+Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and the moves of a resolve finish),
+`crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside
 sync), `crates/bd-cli/src/update_command.rs` (`bd update`, `bd undo update:`).
+
+#### Resolve session
+
+An update that conflicts starts a resolve session in `bd update` (spec: [bd update](../../spec/cli/update.spec.md)).
+The app's Update Project starts none. The session replays the local commits outside the working tree, one round per
+conflicting commit. The agent resolves a round in copies of the files, and `bd update --continue` commits the round.
+Only the finish moves the branch, and the files follow through the guarded update of "Update project". Code:
+`crates/git-ops/src/update_resolve.rs` (the state and the engine), `crates/git-ops/src/resolve_check.rs` (the checks),
+`crates/git-ops/src/merge_tree_output.rs` (the `-z` parser, shared with the sync's cherry-pick),
+`crates/sync-core/src/resolve_session.rs` (the lock and the output), `crates/sync-core/src/resolve_copies.rs` (the
+copies), `crates/bd-cli/src/update_command.rs`.
+
+**State in git.** All state of a session is in git; only the copies are files.
+
+- The session ref is `refs/branch-deck/resolve/<worktree id>`: `main` for the main worktree, else the name of the
+  linked worktree. It is a shared ref, not a `refs/worktree/` ref: a probe showed that a `gc --prune=now` in another
+  worktree prunes the objects of a `refs/worktree/` ref, because the gc of one worktree does not see the per-worktree
+  refs of another.
+- The ref points at a state commit. Its tree holds `state.json` (version 1, the only file that readers parse),
+  `round/merge` (a `040000` entry of the round's merge tree, which keeps the `edit` copies rebuildable) and
+  `round/{before,onto,commit}/<path>` (the stage blobs, by id). Its parents are the previous state, the replayed tip
+  and HEAD as the session knows it. The tip keeps the replayed commits reachable, and HEAD keeps the original local
+  commits reachable, which `--status --materialize` needs. Reachability goes through commit parents only, never a
+  gitlink, so every git command, a gc included, follows it.
+- `state.json` records the worktree's git dir, the branch, the upstream, the merge base, the upstream tip, the
+  excluded upstream tips, the local commits, how many are replayed, the tip, the round, the status, the open round
+  (the commit, the tip it replays onto, the merge tree, the conflicting files with their stages), the resolutions so
+  far, and the fixed committer.
+- Every step moves the ref with compare-and-swap. `--continue --round <n>` refuses another round (`round_moved`).
+- The states are `resolving` (a round is open), `ready` (every commit is replayed, the finish is next), `applying`
+  (the finish started, the branch has not moved) and `applied` (the branch moved, the files may not have followed).
+
+**Binding.** A session belongs to one worktree and one branch, and keeps the upstream tip it started with; it never
+fetches. There is one session per worktree, so no id is needed, and `bd update` with a session open prints the open
+round again (no fetch, nothing changed) and writes its missing copies. Before every step:
+
+- the git dir of the worktree must be the one in `state.json`; otherwise the session is `session_stale`, with
+  `bd update --abort --worktree <id>` as the way out. In another worktree, `--continue` finds no session of its own
+  (`no_session`);
+- the guards of step 0 run, and HEAD must be on the session's branch;
+- HEAD must contain the session's HEAD. Peers' commits on top of it (`merge-base --is-ancestor`, no merges) join the
+  local commits and are replayed as more rounds, usually clean. A rewritten HEAD is `session_stale` (exit 4, not
+  retryable); the session stays for `--abort`.
+
+`--status` lists every session of the repository with one `for-each-ref` and one `cat-file --batch`; a session whose
+git dir is gone is `orphaned`, and `--abort --worktree <id>` removes it.
+
+**The engine.**
+
+| Step | Command |
+|---|---|
+| Start | the check of "Update project" conflicted under the lock; `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits) |
+| Find the conflict | a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
+| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages |
+| The copies | one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs; one `log -1 --patch-with-stat` for `commit.patch` |
+| The state | one `fast-import` of the state commit on a temporary ref, one `update-ref --stdin` (create or CAS, the temporary ref deleted) |
+| `--continue` | one `cat-file --batch` of the session, one `cat-file --batch -Z` of the merge results for the checks, one `cat-file --batch` of the commit; one `fast-import` writes the resolved commit (`M 040000 <merge tree> ""`, then `M`/`D` per path, author and message of `c`, the fixed committer) and `ls`s its tree and its parent's; one `replay` of the rest, a binary search only when it exits with 1; one `fast-import` of the next state, one `update-ref --stdin` |
+
+- **Fixed committer.** Every commit the session writes, by `replay` (`GIT_COMMITTER_NAME`, `_EMAIL`, `_DATE`) and by
+  `fast-import`, has the committer and the date of the session start. So the same input gives the same ids: a rerun
+  after a failed step writes the same objects, and `--continue --dry-run` reports the id that `--continue` writes.
+  This is a stated deviation from invariant 5, where a content rewrite gets the current time.
+- **An empty result.** When the resolved tree equals its parent's (the `ls` of the same `fast-import`), the commit is
+  dropped, as `git replay` drops a commit that becomes empty: no `resolved` id and no note.
+- **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
+  without `before`) and `CONFLICT (modify/delete)`, on regular files (`100644`, `100755`) with the same mode on both
+  sides. Any other conflict type of the `-z` messages (binary, file/directory, rename/*, distinct modes), a symlink
+  (`120000`) or a gitlink (`160000`) stage, and an invalid path refuse the whole round with `unsupported_conflict`,
+  with the paths. A file/directory conflict names its moved side file (`df~<id>`) too. At the start no session is
+  created.
+- **Landed commits.** A local commit that the landed detection likely finds upstream gets the hint "likely landed:
+  take onto". It is never skipped: in a session no whole replay proves that leaving it out keeps every local change.
+
+**The checks of a round.** Every conflicting path needs an explicit resolution: an edited `edit` copy, `--take
+onto:<path>`, `--take commit:<path>` or `--delete <path>`. A take of a side that has no file deletes it. A missing
+copy is `missing_resolution`, never a delete, and so is an unchanged modify/delete copy (the version left in the tree
+decides nothing).
+
+- Hard: outside the conflict blocks, an edited content file must be byte for byte the `edit` copy that bd wrote (read
+  again from the merge tree, not from disk). The plain runs between the blocks are matched in order, leftmost, and the
+  regions between them replace the blocks. A changed plain line is `resolution_outside_conflict`; a marker line
+  (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>` of 7 characters) in a replaced region is `unresolved_markers`. Both
+  are exit 2, nothing written. Outside the blocks the merge already holds every change of both sides.
+- Report only: per file the lines that `onto` (`dropped_upstream_lines`) or the commit (`dropped_commit_lines`) added
+  in a block, not in the base, that the resolution no longer has, at most 20 per side. The agent shows them to the
+  user. An earlier gate that merged the result with the upstream again fired on nearly every correct resolution, and
+  is cut.
+
+**The copies (the store rule).** The copies are the only files of a session outside git objects, and all of them can
+be rebuilt from the session ref.
+
+- They live in `branch-deck/resolve/` of the worktree's git dir (`state.git_dir`), or in the directory of `--dir`.
+  Per round `r<n>/edit/`, `before/`, `onto/` and `commit/`, each file under the flat name `<key>-<basename>`, and
+  `r<n>/commit.patch`; `.branch-deck-resolve` marks the directory. A flat name can't reach outside the round
+  directory, can't collide with another file (two paths that differ only in case get distinct keys), and needs no
+  directories of the tree.
+- Tree paths are validated: no empty, `.` or `..` component, no `.git` in any case, no NUL, and on Windows no `\` and no
+  `:` (a drive prefix). Characters a file system may refuse are replaced in the flat name only.
+- Bytes are written and read in Rust, as git stores them, without filters. A write goes to a new temporary file that a
+  rename puts in place, which replaces a symlink at the target instead of writing through it. A read takes only a
+  regular file, and the file it opens must be the one `lstat` saw.
+- A new round gets a new directory, so a stale edit never applies to the next round, and the copies of the closed
+  round are removed. bd deletes only the file names it wrote, then the directories left empty, and removes the
+  session directory only when it created it.
+- `--dir <path>` (for a sandbox that keeps `.git` read only) must be absolute, not a symlink, not inside a worktree
+  (the git dir aside), and empty or marked; a refused directory that bd created is removed.
+
+**The finish**, when every commit is replayed (`finish` in `update_resolve.rs`), in four compare-and-swap steps:
+
+1. The exact check of steps 7 and 8 of "Update project" from HEAD to the tip (`blocking_paths`). Local changes there
+   are `uncommitted_overlap` with the paths; the state is committed as `ready` first, so no resolution is lost, and a
+   later `--continue` only finishes. Then one `fast-import` writes the `applying` and the `applied` state commits and
+   the notes commit, each on a temporary ref, and one transaction moves the session ref to `applying`.
+2. `move_branch_and_files_with` moves the branch as step 9 does: `update HEAD <tip> <head>` (deref), committed only
+   while git holds `HEAD.lock` and `symbolic-ref HEAD` is still the branch (`RefTransaction::commit_while`). The same
+   transaction moves the session ref to `applied`, moves the notes ref with CAS (or creates it) and deletes the
+   temporary refs. The reflog message is `branch-deck: update project`, so `bd undo update:<head>..<tip>` takes the
+   finish back.
+3. The files follow (step 10). On a failure the branch, the session ref (back to `applying`) and the notes ref move
+   back together in one transaction, under the same check.
+4. The session ref is deleted with CAS on `applied`, the landed report is written as after an update, and the copies
+   are removed.
+
+**Crash recovery.** A process killed at any step leaves a state that the next `--continue` completes:
+
+- `applying` (killed before step 2, or the move refused, e.g. by a `git switch`): nothing moved. The next
+  `--continue` runs the finish again, with the peers' commits replayed first.
+- `applied` (killed between steps 2 and 3, or the rollback failed): HEAD is at the tip, the index and the files may
+  still be at the old HEAD. The next `--continue` reads the index entries of the changed paths (`cat-file
+  --batch-check -Z` of `:<path>`). When every one is the tip's, the files did follow and only the session ref is
+  deleted. Otherwise `files_follow` in `update_branch.rs` runs the exact check and the guarded update, and on a block
+  or a failure moves the branch, the session ref and the notes ref back to `applying` together. `--abort` refuses an
+  `applied` session: the branch moved already.
+
+**The notes.** Each resolved commit gets a note in `refs/notes/branch-deck/resolve`: the session (the worktree and the
+start time), the round, the original commit and an outcome per path (`edited`, `onto`, `commit`, `deleted`). The
+content is deterministic. The resolution records stay in `state.json` until the finish; only the finish transaction
+writes the notes (on a temporary ref, moved with the branch), so `--abort` leaves none. User decision, 2026-10-15
+(option a): no bd rewrite carries these notes, so a note is an audit record of one session, valid until the next
+rewrite of that commit. A record that survives rewrites needs a store keyed by the landed key (author email, author
+time, subject without the prefix), as the issue groups are; that is a follow-up, only if the app shows "resolved by an
+agent".
+
+**Residual risk.**
+
+- A later round with an unsupported conflict stops the session: nothing is saved for it, every rerun gives the same
+  refusal, and `--abort` drops the earlier rounds too.
+- `--continue --dry-run` writes git objects and a temporary ref, which it deletes.
+- A peer that commits after the finish moved the branch but before the files followed commits on the index of the old
+  HEAD; the recovery then refuses with `session_stale`.
 
 #### Virtual branch sync
 
@@ -768,6 +923,15 @@ recovery hint (`git reset -q`).
    prompting. Forcing `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` would override `core.sshCommand` and break
    `SSH_ASKPASS` prompts.
 
+9. **Decision**: a conflicting update is resolved in a session of objects and refs, one round per commit, not in a
+   rebase of the working tree.
+   **Rationale**:
+   - in a shared working tree, `git rebase` and `git stash` move files under the other sessions and take their
+     changes; a session writes the working tree only at the finish, through the guarded update;
+   - all state in git (a ref, a state commit, notes) survives a context compaction of the agent and a crash, and every
+     step is one compare-and-swap; the copies are rebuildable;
+   - the fixed committer makes every step repeatable, at the cost of invariant 5's current time.
+
 ## Performance
 
 | Operation | Before | After |
@@ -781,6 +945,7 @@ recovery hint (`git reset -q`).
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
+| A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 9 processes (guards, reads, 2 `fast-import`, 1 `update-ref`) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
 
 ## Follow-ups
@@ -792,6 +957,7 @@ recovery hint (`git reset -q`).
   the files yet.
 - **Mapping notes** live on the default notes ref (`refs/notes/commits`), so they show up in the user's `git log`.
   Moving them to a private ref needs a migration that reads both refs.
+- **Resolve notes across rewrites**: a store keyed by the landed key, if the app shows "resolved by an agent".
 - **SSH stalls**: the low-speed limits apply to HTTP only. A dead SSH connection is bounded only by the user's
   `ServerAliveInterval`.
 
@@ -803,14 +969,16 @@ recovery hint (`git reset -q`).
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/amend_operations.rs`, `crates/git-ops/src/squash_commits.rs`,
   `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
-  `crates/sync-core/src/update_project.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
+  `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
+  `crates/git-ops/src/merge_tree_output.rs`, `crates/sync-core/src/resolve_session.rs`,
+  `crates/sync-core/src/resolve_copies.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
   [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
   [Squash Fixups](../../spec/commit/fixups.spec.md),
   [Unapply](../../spec/branch/unapply.spec.md), [Update Project](../../spec/repository/update-project.spec.md),
-  [Agent CLI](../../spec/cli/agent-cli.spec.md)
+  [Agent CLI](../../spec/cli/agent-cli.spec.md), [bd update](../../spec/cli/update.spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),
   [Async Patterns](async-patterns.md)
 - Git manuals: `git help replay`, `git help fast-import`, `git help merge-tree`, `git help read-tree` (two-way merge,

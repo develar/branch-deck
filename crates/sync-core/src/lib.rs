@@ -26,6 +26,8 @@ pub mod remote_status;
 pub mod remote_url;
 pub mod repository_lock;
 pub mod repository_validation;
+pub mod resolve_copies;
+pub mod resolve_session;
 pub mod reword_commit;
 pub mod squash;
 pub mod stack;

@@ -2746,6 +2746,7 @@ dependencies = [
  "object-cache",
  "pretty_assertions",
  "serde",
+ "serde_json",
  "specta",
  "tempfile",
  "test-log",

@@ -94,13 +94,14 @@ fn uncommitted_changes_on_updated_files_block_with_their_paths() {
 }
 
 #[test_log::test]
-fn a_conflict_reports_the_files_and_commits_and_changes_nothing() {
+fn a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing() {
   let (upstream, clone) = clone_of_upstream();
   clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
   upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
+  git(&clone, &["fetch", "-q", "origin"]);
   let head = clone.head();
 
-  let (exit_code, output) = run_in(&clone, &["update"]);
+  let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
   assert_eq!(exit_code, 1, "{output}");
   assert_eq!(output["state"], json!("conflict"));
   let conflict = &output["conflict"];
@@ -108,10 +109,11 @@ fn a_conflict_reports_the_files_and_commits_and_changes_nothing() {
   assert_eq!(conflict["commits"][0]["subject"], json!("(auth) Change line 2"));
   assert_eq!(conflict["commits"][0]["files"], json!(["shared.txt"]));
   assert_eq!(conflict["upstream_commits"][0]["subject"], json!("Change line 2 upstream"));
-  assert_eq!(output.get("undo_token"), None);
+  assert_eq!((output.get("undo_token"), output.get("session")), (None, None));
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "shared.txt"), "one\nmine\nthree\n");
   assert_eq!(status(&clone), "");
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "", "a dry run starts no session");
 }
 
 #[test_log::test]
@@ -210,7 +212,8 @@ fn update_outputs_match_the_schema() {
 
   clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
   upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
-  let (_, conflict) = run_in(&clone, &["update"]);
+  git(&clone, &["fetch", "-q", "origin"]);
+  let (_, conflict) = run_in(&clone, &["update", "--dry-run"]);
   assert_covered(update_schema, update_schema, &conflict, "update conflict");
 
   git(&clone, &["reset", "-q", "--hard", "origin/master"]);

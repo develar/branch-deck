@@ -1,9 +1,9 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: status, commits, suggest, check, schema, version and the dry runs of update and fold write no ref,
-config, index or working tree; at most git objects (the trial sync of check and suggest, the replay of update) and
-the object cache (none with --no-cache)."
+    "Read only: status, commits, suggest, check, schema, version, the dry runs of update and fold, and the session status
+of update write no ref, config, index or working tree; at most git objects (the trial sync of check and suggest, the
+replay of update) and the object cache (none with --no-cache)."
   };
 }
 
@@ -66,19 +66,65 @@ Workflow:
    or rejected, `error.branches[].remote.dropped_commits` lists what a push drops: show it, and only after the user
    approves, `bd push <branch> --force --expect-remote <remote.head>`.
 
-`bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project:
-exit 1 on a conflict, `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the
-user); `bd undo update:<id>..<id>` takes it back (`undo_stale`, exit 4, once the branch moved on). `bd fold`
-(--branch, --expect-head, --dry-run) folds fixup! commits.
+`bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
+`uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a
+resolve session (exit 1): `bd help update` explains it. `bd undo update:<id>..<id>` takes an update back
+(`undo_stale`, exit 4, once the branch moved on). `bd fold` (--branch, --expect-head, --dry-run) folds fixup! commits.
 
 Rules: never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; only
-`bd update` and its undo write the working tree, only the files the update changes; a plan only moves commits
-between branches. Exit 2 (invalid_plan, not_ahead_of_baseline): change the plan.
+`bd update` and its undo write the working tree, through the guarded update; a plan only moves commits between
+branches. Exit 2 (invalid_plan, not_ahead_of_baseline): change the plan.
 
 `bd install` puts `bd` into ~/.local/bin and a skill into ~/.claude/skills and ~/.agents/skills; `bd help skill`
 prints the skill.
 "
 );
+
+/// `bd help update`: the update and its resolve session (spec/cli/update.spec.md); `agent_help_test.rs` checks it with
+/// `AGENT_HELP` against the commands and options
+pub const UPDATE_HELP: &str = "\
+bd update: bring the checked out branch onto its baseline (e.g. origin/master), as the app's Update Project, and
+resolve its conflicts outside the working tree. Other sessions may work in the same tree: bd never stashes, resets or
+checks out, and only the finish writes the working tree, through the guarded update (only the files the update
+changes; local changes on them refuse it, `uncommitted_overlap` with `paths`).
+
+`bd update` fetches the baseline (--no-fetch: the last fetched state; --dry-run: the check only, no fetch, nothing
+written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase, with an `undo_token`. Exit 1: a
+commit conflicts, and a resolve session opens, one round per conflicting commit. The session belongs to this worktree
+and branch, and keeps the baseline it started with; peers' commits on top of HEAD join it as more rounds. Running
+`bd update` again prints the open round (and writes its missing copies).
+
+A round (`state: conflict`, `session`):
+- `session.commit`: the local commit being replayed, its `subject`, `body` and `patch` (the commit as a patch: the
+  intent to reapply). `hint` \"likely landed\": the baseline has it already, take `onto` for each file.
+- `session.files[]`: `path`, `kind`, and absolute paths: `edit` (the merge result with zdiff3 markers, the file to
+  edit), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits replayed so far),
+  `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
+- Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
+  intent of the commit; change only the lines between the markers, and remove every marker.
+- `kind` content: edit `edit`. `kind` modify_delete (one side deleted the file): `--take onto:<path>`,
+  `--take commit:<path>` or `--delete <path>`, or edit `edit`. Every file needs a resolution: a missing file is never a
+  delete.
+
+`bd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
+or applies the update (exit 0). --take and --delete resolve a file without an edit (repeatable).
+`bd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
+`unresolved_markers`, `resolution_outside_conflict` (a line outside the blocks changed) or `missing_resolution`, with
+`paths`: fix those files and run it again; nothing changed. `round_moved` (exit 3): read `bd update --status`.
+At exit 0, `resolutions[]` lists per round the `commit`, the `resolved` commit and per file `how` (edited, onto,
+commit, deleted) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side the resolution no
+longer has. Report each resolution to the user, these lines first. Then build and test: on a failure commit the fix
+as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
+
+`uncommitted_overlap` at the finish (exit 4) keeps the session: once the user moved those files, run
+`bd update --continue` again.
+`session_stale` (exit 4): the branch was rewritten or HEAD left it; `unsupported_conflict` (exit 4): a binary,
+file/directory, rename, mode or symlink conflict. Both: stop and show the user. `bd update --abort` removes the session
+and its copies (nothing else changed); --worktree <id> removes the session of another worktree.
+`bd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
+changes nothing; --materialize writes the missing copies, with --force all of them. --dir <path> puts the copies of a
+new session into an empty directory outside every worktree, for a sandbox that keeps .git read only.
+";
 
 /// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
 /// and others), naming bd by `command`, its full path. It only says when to use bd and where the workflow is, so it
@@ -89,8 +135,9 @@ pub fn skill_text(command: &str) -> String {
 ---
 name: branch-deck
 description: Group the commits of a Git branch into virtual branches and stacked pull requests with the `bd` command \
-line of Branch Deck. Use when the user asks to split, group, cluster or reorganize commits into branches or pull \
-requests, to stack branches, to sync or push virtual branches, or mentions Branch Deck.
+line of Branch Deck, update onto the baseline and resolve conflicts. Use when the user asks to split, group, cluster \
+or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to update \
+a branch onto its baseline or resolve its update conflicts, or mentions Branch Deck.
 ---
 
 # Branch Deck (`bd`)
@@ -99,10 +146,11 @@ bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` st
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
-virtual branches and pushes them. Only `bd update` (the branch onto its baseline) and its undo write the working tree.
+virtual branches and pushes them. Only `bd update` (the branch onto its baseline) and its undo write the working tree,
+through the guarded update.
 
 Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
-version.
+version. To update a branch or resolve its update conflicts, run `bd help update` instead.
 
 - Run bd in the repository, or pass `-C <repo>`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;

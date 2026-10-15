@@ -10,15 +10,15 @@ use crate::rewrite::{RewriteOutput, UndoOutput};
 use crate::status::{StatusBrief, StatusOutput};
 use crate::suggest::SuggestOutput;
 use crate::sync_command::SyncOutput;
-use crate::update_command::UpdateOutput;
+use crate::update_command::{UpdateAbortOutput, UpdateOutput, UpdateStatusOutput};
 use crate::version::VersionOutput;
 use schemars::{Schema, schema_for};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// `bd schema`: the JSON Schema of every output, by command; `rewrite` is the output of group, rename, restack and
-/// unstack, `commits_brief` and `status_brief` the outputs of `--brief`, and `error` is what any command prints when it
-/// fails
+/// unstack, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort` those of
+/// `bd update --status` and `--abort`, and `error` is what any command prints when it fails
 #[derive(Debug, Serialize)]
 pub struct SchemaOutput {
   pub schema: SchemaVersion,
@@ -44,6 +44,8 @@ pub fn schema_output() -> SchemaOutput {
       ("sync".to_string(), schema_for!(SyncOutput)),
       ("undo".to_string(), schema_for!(UndoOutput)),
       ("update".to_string(), schema_for!(UpdateOutput)),
+      ("update_abort".to_string(), schema_for!(UpdateAbortOutput)),
+      ("update_status".to_string(), schema_for!(UpdateStatusOutput)),
       ("version".to_string(), schema_for!(VersionOutput)),
     ]),
   }

@@ -9,14 +9,17 @@ use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, l
 use crate::regroup::is_full_id;
 use crate::remote_command::execute_remote_command_with_progress;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository};
+use crate::resolve_copies::{Materialize, prepare_dir};
+use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
 use crate::transfer_progress::TransferProgress;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::get_current_branch;
 use git_ops::update_branch::{
   AppliedUpdate, CheckPurpose, UndoCheck, UpdateCheck, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_guards, check_update_undo,
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 use sync_types::landed::LandedBranch;
 use sync_utils::timestamp::unix_now;
@@ -277,12 +280,50 @@ pub fn app_error(error: anyhow::Error) -> anyhow::Error {
   }
 }
 
-/// `update_project_core` with options (`bd update`). The fetch runs first, without the repository lock, so a slow
-/// network never blocks another writer; the check and the update then run under the lock, so the app, `bd` and their
-/// rewrites never interleave with an update. A held lock is a `RepositoryLocked` error, a failed fetch `FetchFailed`,
-/// a local baseline `NoUpstream`, a refused guard `GuardRefusal`
+/// `update_project_core` with options. The fetch runs first, without the repository lock, so a slow network never
+/// blocks another writer; the check and the update then run under the lock, so the app, `bd` and their rewrites never
+/// interleave with an update. A held lock is a `RepositoryLocked` error, a failed fetch `FetchFailed`, a local
+/// baseline `NoUpstream`, a refused guard `GuardRefusal`
 #[instrument(skip(git_executor, on_progress))]
 pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
+  match update_project_impl(git_executor, repo_path, options, on_progress, Resolve::No)? {
+    BdUpdate::Update(result) => Ok(*result),
+    BdUpdate::Session(_) => Err(anyhow!("an update without a resolve session started one")),
+  }
+}
+
+/// What `bd update` did: an update as the app's, or a step of a resolve session
+#[derive(Debug)]
+pub enum BdUpdate {
+  Update(Box<UpdateProjectResult>),
+  Session(Box<SessionOutcome>),
+}
+
+/// Whether a conflict of `update_project_impl` starts a resolve session
+#[derive(Debug, Clone, Copy)]
+enum Resolve<'a> {
+  No,
+  /// With the copies in this directory (`--dir`), else in the worktree's git dir
+  Yes(Option<&'a Path>),
+}
+
+/// `bd update`: `update_project_with`, but a conflict starts a resolve session under the same lock, with its copies in
+/// `dir` (`--dir`) or in the worktree's git dir. With a session open already, nothing is fetched or changed: the open
+/// round is shown again, and its missing copies written
+#[instrument(skip(git_executor))]
+pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, dir: Option<&Path>) -> Result<BdUpdate> {
+  if let Some(session) = own_session(git_executor, repo_path)? {
+    if dir.is_some() {
+      bail!("A resolve session is open already; --dir applies when a session starts");
+    }
+    let view = view_session(git_executor, repo_path, &session, Some(Materialize::Missing))?;
+    return Ok(BdUpdate::Session(Box::new(SessionOutcome::Round(view))));
+  }
+  update_project_impl(git_executor, repo_path, options, &|_| {}, Resolve::Yes(dir))
+}
+
+/// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
+fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
   let baseline_branch = detect_baseline_branch(git_executor, repo_path, "master")?;
   let upstream = resolve_baseline_upstream(git_executor, repo_path, &baseline_branch)?.ok_or_else(|| {
     anyhow::Error::new(NoUpstream {
@@ -327,6 +368,11 @@ pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, o
   )?;
   plan.check.fetched_at = fetched_at;
 
+  if let (UpdateState::Conflict { .. }, Resolve::Yes(dir)) = (&plan.check.state, resolve) {
+    let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir)).transpose()?;
+    let outcome = start_resolve(git_executor, repo_path, &plan, &grouping, dir)?;
+    return Ok(BdUpdate::Session(Box::new(outcome)));
+  }
   let mut landed = Vec::new();
   let applied = match &plan.check.state {
     UpdateState::Clean { .. } => {
@@ -341,15 +387,15 @@ pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, o
       None
     }
   };
-  Ok(UpdateProjectResult {
+  Ok(BdUpdate::Update(Box::new(UpdateProjectResult {
     check: plan.check,
     applied,
     landed,
-  })
+  })))
 }
 
 /// What an applied update landed, added to the report. The update is done: a failure here is logged, not returned.
-fn record_landed_update(
+pub(crate) fn record_landed_update(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   check: &UpdateCheck,

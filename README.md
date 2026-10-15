@@ -34,7 +34,9 @@ repositories: all operations run through the Git CLI.
   to be pushed, per branch, and marks the branches that need a force push.
 - **Update Project** (`⌘T`): fetches the baseline and rebases your local commits onto it. The header tells you
   beforehand whether the rebase is clean. On a conflict nothing is changed, and you can copy a ready prompt for a
-  coding agent. Uncommitted changes survive as long as upstream didn't touch the same files.
+  coding agent, which resolves the conflicts commit by commit with `bd update`, outside the working tree, so other
+  sessions in the same tree keep their files. Uncommitted changes survive as long as upstream didn't touch the same
+  files.
 - **Landed commits**: when a robot or a pull request brought your commits into the baseline, the header and the branch
   rows say so before the update, the update toast leads with it, and an island lists what landed (with the baseline
   commits, the robot or pull request) until you have seen it, also after an update made in the IDE.
@@ -72,8 +74,8 @@ repositories: all operations run through the Git CLI.
   `bd group --sync` call applies the plan (one validated rewrite of the commit messages that can be undone), writes
   the pull request texts of its `descriptions` and rebuilds the branches; `bd check` tries an edited plan first,
   without writing refs. `bd push` pushes the branches with a lease, parents first; `bd update` updates the branch
-  onto its baseline as Update Project does, with an undo, and `bd fold` folds the fixup commits; `bd help agent` prints
-  the workflow.
+  onto its baseline as Update Project does, with an undo, and resolves a conflict in a resolve session
+  (`bd help update`), and `bd fold` folds the fixup commits; `bd help agent` prints the workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
   `~/.agents/skills`, so coding agents know when to use it.
 - Auto-sync when the window gets focus (off by default, in the sync settings next to Sync), auto-update, light and

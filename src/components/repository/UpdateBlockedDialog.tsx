@@ -195,7 +195,11 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
         <div className="flex flex-col gap-4 text-sm">
           {state.status === "conflict" && (
             <>
-              <p className="text-muted-foreground">Rebase in a terminal or your IDE, or copy a prompt for a coding agent.</p>
+              <p className="text-muted-foreground">
+                {bd === null
+                  ? "Rebase in a terminal or your IDE, or copy a prompt for a coding agent."
+                  : "Rebase in a terminal or your IDE, or hand it to a coding agent: the prompt resolves each commit with bd, outside the working tree."}
+              </p>
               {state.files.length > 0 && (
                 <ul data-testid="update-conflict-files" className="flex flex-col gap-3">
                   {groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(file => (
@@ -228,8 +232,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
 
       <PreviewDialogFooter start={<span>{`${shown.branch} ← ${upstream}`}</span>}>
         <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
-        {/* the blocked prompt names bd: wait until it is known */}
-        <Button size="xs" data-testid="copy-agent-prompt" disabled={state.status === "blocked" && bd === undefined} onClick={() => void copyPrompt()}>
+        {/* both prompts name bd: wait until it is known */}
+        <Button size="xs" data-testid="copy-agent-prompt" disabled={bd === undefined} onClick={() => void copyPrompt()}>
           {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
           {isCopied ? "Copied" : "Copy Prompt for Agent"}
         </Button>
