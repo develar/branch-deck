@@ -1,35 +1,13 @@
 // @spec spec/repository/update-project.spec.md
-import type { Locator, Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
+import type { Box } from "../helpers/header-helpers"
+import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
 // The `behind_upstream` template: the header has every control, the Update button (a clean update) and the outgoing
-// indicator (feature-auth is not pushed). 960 px is the minimum width of the window (`min_inner_size`).
-const MIN_WINDOW = { width: 960, height: 700 }
-const HEADER_HEIGHT = 56
-
-interface Box {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-async function boxOf(locator: Locator): Promise<Box> {
-  await expect(locator).toBeVisible()
-  const box = await locator.boundingBox()
-  expect(box).not.toBeNull()
-  return box!
-}
-
-function overlaps(a: Box, b: Box): boolean {
-  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
-}
-
-function header(page: Page): Locator {
-  return page.getByTestId("configuration-header")
-}
+// indicator (feature-auth is not pushed).
 
 /** The controls whose position moved on every sync before: they must stay where they are */
 async function actionBoxes(page: Page): Promise<Box[]> {
@@ -44,21 +22,7 @@ test.describe("Header", () => {
   })
 
   test("should keep its controls apart on one line at the minimum window width", async ({ page }) => {
-    const headerBox = await boxOf(header(page))
-    expect(headerBox.height).toBeCloseTo(HEADER_HEIGHT, 0)
-
-    const ids = ["browse-repository-button", "update-project-button", "outgoing-indicator", "last-sync-time", "sync-button", "sync-settings-button"]
-    const boxes = await Promise.all(ids.map(id => boxOf(header(page).getByTestId(id))))
-    boxes.forEach((box, index) => {
-      // inside the header: nothing wraps to a second line or is pushed out of the card
-      expect(box.x, `${ids[index]} starts in the header`).toBeGreaterThanOrEqual(headerBox.x)
-      expect(box.x + box.width, `${ids[index]} ends in the header`).toBeLessThanOrEqual(headerBox.x + headerBox.width)
-      expect(box.y, `${ids[index]} is on the header line`).toBeGreaterThanOrEqual(headerBox.y)
-      expect(box.y + box.height, `${ids[index]} is on the header line`).toBeLessThanOrEqual(headerBox.y + headerBox.height)
-      for (let other = index + 1; other < boxes.length; other++) {
-        expect(overlaps(box, boxes[other]!), `${ids[index]} overlaps ${ids[other]}`).toBe(false)
-      }
-    })
+    await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
   })
 
   test("should not move while a sync runs", async ({ page }) => {

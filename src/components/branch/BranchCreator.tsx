@@ -4,7 +4,6 @@ import pDebounce from "p-debounce"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
-import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { GitSetupAlert } from "@/components/repository/GitSetupAlert"
 import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
@@ -79,8 +78,6 @@ export function BranchCreator() {
   const errorDetails = [errorLines.join("\n"), pathValidation.errorDetails === error ? "" : pathValidation.errorDetails].filter(Boolean).join("\n")
   return (
     <div className="flex flex-col gap-2" data-testid="branch-creator-root">
-      <ConfigurationHeader />
-
       <GitSetupAlert />
 
       {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} hasBranchPrefix={hasBranchPrefix} />}

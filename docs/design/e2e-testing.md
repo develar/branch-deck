@@ -109,6 +109,9 @@ Mock implementation:
 - **IPC Interception**: `mockIPC` redirects all Tauri commands
 - **Error Simulation**: Throws JavaScript Error to match Tauri behavior
 - **Result Wrapping**: Bindings layer wraps in `{status: "error", error: "..."}`
+- **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
+  `__e2eWindowCalls`; a test fires `tauri://resize` with `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar
+  renders as under a native title bar; `tests/e2e/repository/title-bar.spec.ts` sets it with `addInitScript`
 
 State isolation:
 - **Repository mapping**: `path_to_id` map for command routing

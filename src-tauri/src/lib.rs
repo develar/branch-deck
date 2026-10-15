@@ -117,6 +117,16 @@ fn export_bindings(builder: &Builder<tauri::Wry>, path: &std::path::Path) -> Res
   builder.export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path)
 }
 
+/// How the main window draws its title bar, passed to the page as `window.__BD_TITLE_BAR__` (`src/lib/title-bar.ts`):
+/// on macOS the toolbar sits in an overlay title bar beside the traffic lights, on Windows the window has no decorations
+/// and the toolbar draws the window buttons, Linux keeps the native title bar above the toolbar.
+#[cfg(target_os = "macos")]
+const MAIN_TITLE_BAR: Option<&str> = Some("overlay");
+#[cfg(target_os = "windows")]
+const MAIN_TITLE_BAR: Option<&str> = Some("custom");
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const MAIN_TITLE_BAR: Option<&str> = None;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let ts_builder = specta_builder();
@@ -186,17 +196,29 @@ pub fn run() {
       };
 
       // Create main window with initialization script
-      let init_script = format!("window.__TAURI_STORE__ = {store_data};");
+      let init_script = match MAIN_TITLE_BAR {
+        Some(title_bar) => format!("window.__TAURI_STORE__ = {store_data}; window.__BD_TITLE_BAR__ = \"{title_bar}\";"),
+        None => format!("window.__TAURI_STORE__ = {store_data};"),
+      };
 
-      tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+      let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
         .title("BranchDeck")
         .inner_size(1024.0, 900.0)
         // the header fits one line from 960 px (`ConfigurationHeader`); narrower, its controls would overlap
         .min_inner_size(960.0, 600.0)
         .initialization_script(&init_script)
         // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
-        .disable_drag_drop_handler()
-        .build()?;
+        .disable_drag_drop_handler();
+      // the toolbar of the page is the title bar (`MAIN_TITLE_BAR`)
+      #[cfg(target_os = "macos")]
+      let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        // the 14 px buttons centred in the 40 px toolbar
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 13.0));
+      #[cfg(target_os = "windows")]
+      let builder = builder.decorations(false).shadow(true);
+      builder.build()?;
 
       Ok(())
     })

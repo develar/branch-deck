@@ -2,7 +2,6 @@ import { lazy, Suspense, useState } from "react"
 import { Settings2Icon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -16,10 +15,13 @@ import { PullRequestStatusLine } from "@/components/repository/PullRequestStatus
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
+import { WindowControls } from "@/components/repository/WindowControls"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useOutgoingAttention } from "@/hooks/useOutgoingAttention"
 import { usePullRequestOverview } from "@/hooks/usePullRequestOverview"
 import { useTauriListen } from "@/hooks/useTauriListen"
+import { useWindowFrameState } from "@/hooks/useWindowFrameState"
+import { titleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProject } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
@@ -37,7 +39,13 @@ function renderReviewChips(branchName: string) {
   )
 }
 
+/**
+ * The toolbar of the main window, on the canvas above the islands. Where the page draws the title bar (`titleBar`) it is
+ * the title bar: its empty parts drag the window, on macOS it starts after the traffic lights (not in fullscreen, where
+ * they are hidden), on Windows it ends with the window buttons.
+ */
 export function ConfigurationHeader() {
+  const frame = useWindowFrameState()
   const isSyncing = useBranchSync(state => state.isSyncing)
   const branchCount = useBranchSync(state => state.branchOrder.length)
   const pathValidation = useRepository(state => state.pathValidation)
@@ -60,8 +68,17 @@ export function ConfigurationHeader() {
   })
 
   return (
-    <Card className="gap-0 py-0" data-testid="configuration-header">
-      <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
+    <header
+      className={cn(
+        "flex h-10 shrink-0 items-center gap-3 select-none",
+        titleBar === "overlay" && !frame.fullscreen ? "pl-20" : "pl-2",
+        titleBar === "custom" ? "pr-0" : "pr-2",
+      )}
+      data-testid="configuration-header"
+      data-title-bar={titleBar ?? "native"}
+      data-tauri-drag-region={titleBar === null ? undefined : "deep"}
+    >
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
         {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <RepositorySelector disabled={isSyncing} />
@@ -139,11 +156,12 @@ export function ConfigurationHeader() {
           </div>
         </div>
       </div>
+      {titleBar === "custom" && <WindowControls maximized={frame.maximized} />}
       {isRefusedDialogMounted && (
         <Suspense fallback={null}>
           <UpdateBlockedDialog check={refusedUpdate} onClose={closeRefusedUpdate} />
         </Suspense>
       )}
-    </Card>
+    </header>
   )
 }

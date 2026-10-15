@@ -96,6 +96,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Commit files**: "3 files · +42 −7" on the commit meta line, the Files section with on-demand diffs in the commit
   preview (`F`), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per list, cached by commit id in the object
   cache (`spec/commit/commit-files.spec.md`).
+- **Title bar**: the toolbar is the title bar, as in the IntelliJ new UI: beside the macOS traffic lights (overlay),
+  with its own window buttons on Windows (no decorations), below the native title bar on Linux; the page learns the kind
+  from `window.__BD_TITLE_BAR__` (`spec/repository/title-bar.spec.md`).
 
 ## Development Rules
 
@@ -209,7 +212,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `dark:` variants; the theme is handled by the tokens, which are the IntelliJ Islands values (`src/index.css`).
 - **Window and cards** (Islands layering, see [UI Theme](docs/design/ui-theme.md)):
   - the page canvas is `bg-canvas`; `bg-muted` is a translucent tint (hover, chips, code), not a surface;
-  - top-level blocks (header, tables, collapsible sections, alerts) are stock `Card` islands, or `CollapsibleCard`;
+  - top-level blocks (tables, collapsible sections, alerts) are `Card` islands, or `CollapsibleCard`; the toolbar
+    (`ConfigurationHeader`) lies on the canvas as the title bar ([Title Bar](spec/repository/title-bar.spec.md));
   - never put `bg-muted`/`bg-background` divs on the canvas, and never recolour a top-level `Card` with `bg-muted`;
   - nested panels inside a card use `rounded-lg` (`rounded-xl` at most).
 - **Radii** come only from `--radius` (`0.25rem`) in `src/index.css`. Never add radius classes to `src/components/ui/*`

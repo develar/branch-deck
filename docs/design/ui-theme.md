@@ -41,7 +41,7 @@ token, every colour is an IntelliJ value in `src/index.css`, and every top-level
 
 ```mermaid
 flowchart TD
-    W["Window canvas: body bg-canvas"] --> H["Header island: Card"]
+    W["Window canvas: body bg-canvas"] --> H["Toolbar on the canvas, the title bar: ConfigurationHeader"]
     W --> T["Branch table island: Card"]
     W --> U["Unassigned commits island: Card"]
     W --> A["Archived branches island: CollapsibleCard built on Card"]
@@ -50,8 +50,11 @@ flowchart TD
 ```
 
 - **Window canvas.** `body` is `bg-canvas` (base layer of `src/index.css`), the IntelliJ `MainWindow.background`.
-- **Islands.** Every top-level block on the canvas is a `Card` (`bg-card`, `ring-foreground/5`, no shadow). Examples are
-  the header, the tables, the collapsible sections, alerts and the sub-window context cards.
+- **Toolbar.** The one block on the canvas that is not an island: `ConfigurationHeader`, 40px high, is the title bar
+  of the main window, as the IntelliJ main toolbar lies on the main window background
+  ([Title Bar](../../spec/repository/title-bar.spec.md)). The islands scroll under it in their own container.
+- **Islands.** Every other top-level block on the canvas is a `Card` (`bg-card`, `ring-foreground/5`, no shadow).
+  Examples are the tables, the collapsible sections, alerts and the sub-window context cards.
 - **Dark mode.** The same tokens give islands (`#191A1C`) darker than the canvas (`#26282C`), which is what Islands Dark
   does. Popovers (`#26282C`) are lighter than the island under them. There are no `dark:` overrides.
 - **White fields.** `--background` stays white (the island colour in dark), so outline buttons and bordered fields
@@ -240,7 +243,8 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Spacing**:
   - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in
-    `BranchCreator` and `ConflictWindowPage`, a full-width `Container` with `px-2` and `py-2`;
+    `BranchCreator` and `ConflictWindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main
+    window, `py-2` in a sub-window);
   - islands take the full window width, as IntelliJ tool windows do.
 
 ### Verification

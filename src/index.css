@@ -79,6 +79,10 @@
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.25rem;
 
+  /* the glyphs of the Windows caption buttons (WindowControls) */
+  --font-window-controls: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  --text-window-control: 0.625rem;
+
   /* indeterminate progress bar (inline form rows) */
   --animate-carousel: carousel 2s ease-in-out infinite;
 
@@ -121,6 +125,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -190,6 +195,7 @@
   --accent-foreground: var(--foreground);
   /* error #C54E58, success #338555, warning #A56906 */
   --destructive: oklch(0.584 0.152 18.1);
+  --destructive-foreground: oklch(1 0 0);
   --success: oklch(0.553 0.11 154.6);
   --success-foreground: oklch(1 0 0);
   --warning: oklch(0.572 0.122 70.1);
@@ -238,6 +244,7 @@
     --primary-foreground: oklch(0.218 0.004 264.5);
     /* error #F57E84, success #6DB083, warning #D59637, violet #AB7DF8 */
     --destructive: oklch(0.729 0.146 18.2);
+    --destructive-foreground: oklch(0.218 0.004 264.5);
     --success: oklch(0.7 0.095 153.9);
     --success-foreground: oklch(0.218 0.004 264.5);
     --warning: oklch(0.719 0.131 73.5);

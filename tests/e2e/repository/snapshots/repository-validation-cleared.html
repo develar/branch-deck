@@ -1,86 +1,90 @@
 <body>
   <div class="isolate" id="root">
-    <div class="w-full px-2 py-2" data-testid="app-container">
-      <div class="flex flex-col gap-2" data-testid="branch-creator-root">
-        <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="configuration-header">
-          <div class="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
-            <div class="flex min-w-0 flex-1 items-center gap-3">
-              <div class="relative inline-flex items-center *:focus-visible:z-10 *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none min-w-0" data-slot="tooltip-trigger" data-trigger-disabled="" id="base-ui-[ID]">
-                <button aria-expanded="false" aria-haspopup="listbox" class="flex items-center justify-between gap-1.5 rounded-2xl border px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] duration-200 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 w-3xs min-w-0 border-input bg-background" data-size="sm" data-slot="select-trigger" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
-                  <span class="flex flex-1 text-left" data-slot="select-value">
-                    <span class="truncate" dir="rtl">
-                      <bdi>
-                        …/[REPO_ID]
-                      </bdi>
-                    </span>
+    <div class="flex h-dvh flex-col" data-testid="app-container">
+      <header class="flex h-10 shrink-0 items-center gap-3 select-none pl-2 pr-2" data-testid="configuration-header" data-title-bar="native">
+        <div class="flex min-w-0 flex-1 items-center justify-between gap-4">
+          <div class="flex min-w-0 flex-1 items-center gap-3">
+            <div class="relative inline-flex items-center *:focus-visible:z-10 *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none min-w-0" data-slot="tooltip-trigger" data-trigger-disabled="" id="base-ui-[ID]">
+              <button aria-expanded="false" aria-haspopup="listbox" class="flex items-center justify-between gap-1.5 rounded-2xl border px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] duration-200 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 w-3xs min-w-0 border-input bg-background" data-size="sm" data-slot="select-trigger" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
+                <span class="flex flex-1 text-left" data-slot="select-value">
+                  <span class="truncate" dir="rtl">
+                    <bdi>
+                      …/[REPO_ID]
+                    </bdi>
                   </span>
-                  <svg aria-hidden="true" class="lucide lucide-chevron-down pointer-events-none size-4 text-muted-foreground" />
-                </button>
-                <input aria-hidden="true" id="base-ui-[ID]-hidden-input" style="clip-path: inset(50%);  overflow: hidden;  white-space: nowrap;  border: 0px;  padding: 0px;  width: 1px;  height: 1px;  margin: 0px;  position: fixed;  top: 0px;  left: 0px" tabindex="-1" value="[TEMP_PATH]" />
-                <button aria-label="Browse repository" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 size-7" data-slot="button" data-testid="browse-repository-button" tabindex="0" type="button">
-                  <svg aria-hidden="true" class="lucide lucide-folder-search" />
-                </button>
-              </div>
-              <div class="relative inline-flex items-center *:focus-visible:z-10 *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <button aria-label="Configure branch prefix" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 size-7" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-                  <svg aria-hidden="true" class="lucide lucide-settings-2" />
-                </button>
-              </div>
+                </span>
+                <svg aria-hidden="true" class="lucide lucide-chevron-down pointer-events-none size-4 text-muted-foreground" />
+              </button>
+              <input aria-hidden="true" id="base-ui-[ID]-hidden-input" style="clip-path: inset(50%);  overflow: hidden;  white-space: nowrap;  border: 0px;  padding: 0px;  width: 1px;  height: 1px;  margin: 0px;  position: fixed;  top: 0px;  left: 0px" tabindex="-1" value="[TEMP_PATH]" />
+              <button aria-label="Browse repository" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 size-7" data-slot="button" data-testid="browse-repository-button" tabindex="0" type="button">
+                <svg aria-hidden="true" class="lucide lucide-folder-search" />
+              </button>
             </div>
-            <div class="flex shrink-0 items-center gap-3">
-              <div class="flex items-center gap-1 empty:hidden" />
-              <div class="flex items-center gap-1">
-                <button aria-disabled="false" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="sync-button" id="base-ui-[ID]" tabindex="0" type="button">
-                  <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
-                  Sync
-                </button>
-                <button aria-expanded="false" aria-haspopup="dialog" aria-label="Sync settings" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-7" data-base-ui-click-trigger="" data-base-ui-tooltip-trigger="" data-slot="popover-trigger" data-testid="sync-settings-button" id="base-ui-[ID]" tabindex="0" type="button">
-                  <svg aria-hidden="true" class="lucide lucide-settings-2" />
-                </button>
-              </div>
+            <div class="relative inline-flex items-center *:focus-visible:z-10 *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
+              <button aria-label="Configure branch prefix" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 size-7" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                <svg aria-hidden="true" class="lucide lucide-settings-2" />
+              </button>
             </div>
           </div>
-        </div>
-        <div class="group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card py-(--card-spacing) text-sm text-card-foreground shadow-sm ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)]" data-size="default" data-slot="card" data-testid="ready-to-sync-card">
-          <div class="group/card-header @container/card-header grid auto-rows-min items-start gap-1.5 rounded-t-[min(var(--radius-4xl),24px)] px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing)" data-slot="card-header">
-            <div class="font-heading text-base font-medium" data-slot="card-title">
-              Ready to Sync
-            </div>
-          </div>
-          <div class="px-(--card-spacing) flex flex-col gap-3 text-sm text-muted-foreground" data-slot="card-content">
-            <p>
-              Sync groups the commits of your branch by the prefix of their subject, like
-              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
-                (auth) Add login form
-              </code>
-              or
-              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
-                ABC-123 Fix login bug
-              </code>
-              , and creates a local branch
-              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
-                user-name/virtual/<name>
-              </code>
-              for each group. Commits without a prefix are listed as unassigned.
-            </p>
-            <p>
-              Your working tree and the checked-out branch stay as they are.
-            </p>
-            <div class="flex items-center gap-2">
-              <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" data-testid="ready-to-sync-button" tabindex="0" type="button">
+          <div class="flex shrink-0 items-center gap-3">
+            <div class="flex items-center gap-1 empty:hidden" />
+            <div class="flex items-center gap-1">
+              <button aria-disabled="false" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="sync-button" id="base-ui-[ID]" tabindex="0" type="button">
                 <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
                 Sync
               </button>
-              <span class="flex items-center gap-1.5 text-xs">
-                or press
-                <kbd class="pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-lg bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=input-group]:bg-input in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3" data-slot="kbd">
-                  Ctrl+R
-                </kbd>
-              </span>
+              <button aria-expanded="false" aria-haspopup="dialog" aria-label="Sync settings" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-7" data-base-ui-click-trigger="" data-base-ui-tooltip-trigger="" data-slot="popover-trigger" data-testid="sync-settings-button" id="base-ui-[ID]" tabindex="0" type="button">
+                <svg aria-hidden="true" class="lucide lucide-settings-2" />
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      </header>
+      <main class="min-h-0 flex-1 overflow-y-auto">
+        <div class="w-full px-2 pb-2">
+          <div class="flex flex-col gap-2" data-testid="branch-creator-root">
+            <div class="group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)]" data-size="default" data-slot="card" data-testid="ready-to-sync-card">
+              <div class="group/card-header @container/card-header grid auto-rows-min items-start gap-1.5 rounded-t-[min(var(--radius-4xl),24px)] px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing)" data-slot="card-header">
+                <div class="font-heading text-base font-medium" data-slot="card-title">
+                  Ready to Sync
+                </div>
+              </div>
+              <div class="px-(--card-spacing) flex flex-col gap-3 text-sm text-muted-foreground" data-slot="card-content">
+                <p>
+                  Sync groups the commits of your branch by the prefix of their subject, like
+                  <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                    (auth) Add login form
+                  </code>
+                  or
+                  <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                    ABC-123 Fix login bug
+                  </code>
+                  , and creates a local branch
+                  <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+                    user-name/virtual/<name>
+                  </code>
+                  for each group. Commits without a prefix are listed as unassigned.
+                </p>
+                <p>
+                  Your working tree and the checked-out branch stay as they are.
+                </p>
+                <div class="flex items-center gap-2">
+                  <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" data-testid="ready-to-sync-button" tabindex="0" type="button">
+                    <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
+                    Sync
+                  </button>
+                  <span class="flex items-center gap-1.5 text-xs">
+                    or press
+                    <kbd class="pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-lg bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=input-group]:bg-input in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3" data-slot="kbd">
+                      Ctrl+R
+                    </kbd>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
   <div data-base-ui-portal="" data-slot="toast-portal" id="[ID]" />

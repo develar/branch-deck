@@ -307,6 +307,25 @@ export const tauriMockScript = () => {
     }
   }
 
+  // the window of the page, for a toolbar that draws the title bar (`__BD_TITLE_BAR__`): a test sets
+  // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`
+  const windowState = ((window as any).__e2eWindowState ??= { fullscreen: false, maximized: false })
+  function handleWindowCommand(cmd: string): any {
+    const [, action] = cmd.split("|")
+    switch (action) {
+      case "is_fullscreen":
+        return windowState.fullscreen
+      case "is_maximized":
+        return windowState.maximized
+      case "toggle_maximize":
+        windowState.maximized = !windowState.maximized
+        ;(window as any).__e2eEmitTauriEvent("tauri://resize", { width: window.innerWidth, height: window.innerHeight })
+        break
+    }
+    ;((window as any).__e2eWindowCalls ??= []).push(action)
+    return null
+  }
+
   function handleEventCommand(cmd: string, payload: any): any {
     const [, action] = cmd.split("|")
     
@@ -412,6 +431,7 @@ export const tauriMockScript = () => {
     // Plugin commands
     "plugin:store": handleStoreCommand,
     "plugin:event": handleEventCommand,
+    "plugin:window": handleWindowCommand,
     "plugin:path": handlePathCommand,
     "plugin:log": () => null, // Ignore log commands
     // the notification plugin goes through the browser's `Notification`; its permission check never notifies

@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyBranchState, verifyCommitCount } from "../helpers/branch-helpers"
+import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 
@@ -105,8 +106,7 @@ testWithIssueLinks.describe("Activity", () => {
 
 test.describe("Activity of updates", () => {
   test("should record an applied update, the button on the header line at the minimum window width", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the minimum width of the window (`min_inner_size`)
-    await page.setViewportSize({ width: 960, height: 700 })
+    await page.setViewportSize(MIN_WINDOW)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     await page.getByTestId("update-project-button").click()
@@ -115,7 +115,7 @@ test.describe("Activity of updates", () => {
     const header = await page.getByTestId("configuration-header").boundingBox()
     const button = await activityButton(page).boundingBox()
     const outgoing = await page.getByTestId("outgoing-indicator").boundingBox()
-    expect(header!.height).toBeCloseTo(56, 0)
+    expect(header!.height).toBeCloseTo(HEADER_HEIGHT, 0)
     expect(button!.y).toBeGreaterThanOrEqual(header!.y)
     expect(button!.y + button!.height).toBeLessThanOrEqual(header!.y + header!.height)
     // after the outgoing indicator, apart from it
