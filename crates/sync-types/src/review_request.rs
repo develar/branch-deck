@@ -126,6 +126,8 @@ pub enum ReviewSource {
 pub struct ReviewCommit {
   pub id: String,
   pub subject: String,
+  /// The full message, the subject included, without trailing newlines
+  pub message: String,
   pub author: String,
   /// Unix seconds
   pub author_time: u32,

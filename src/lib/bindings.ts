@@ -1244,6 +1244,8 @@ export type RetargetPullRequestParams = {
 export type ReviewCommit = {
 	id: string,
 	subject: string,
+	/**  The full message, the subject included, without trailing newlines */
+	message: string,
 	author: string,
 	/**  Unix seconds */
 	authorTime: number,

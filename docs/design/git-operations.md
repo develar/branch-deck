@@ -866,7 +866,7 @@ beside a sync or an update.
 | 2. Source | `resolve_github_repository_source` (1–3 processes), `config --get-regexp ^remote\..*\.url$` | the configured URLs, so `insteadOf` doesn't hide which repository a remote is |
 | 3. Fetch | `fetch --progress --porcelain --verbose …` (below) `<source> +<src>:refs/branch-deck/review/<n>/head` and, while the base id is missing, `+refs/heads/<base>:refs/branch-deck/review/<n>/base` | the new tips from the porcelain lines, no `rev-parse` |
 | 4. Head state | `cat-file --batch-check` and `merge-base --is-ancestor <head id> <tip>`, only when the tip is not the head id | `Same`, `SourceAhead`, `Diverged`, or `Missing` (the head id still not local: the review shows the tip) |
-| 5. Range | `merge-base <head> <base id>`, then `log --format=%H%x00%s%x00%an%x00%at --reverse --max-count=1000 <merge base>..<head>` | exit 1 of `merge-base`: `NoCommonHistory`, "The pull request has no common history with <base>" |
+| 5. Range | `merge-base <head> <base id>`, then `log -z --format=%H%x00%s%x00%an%x00%at%x00%B --reverse --max-count=1000 <merge base>..<head>` (the full messages for the commit preview, NUL-framed) | exit 1 of `merge-base`: `NoCommonHistory`, "The pull request has no common history with <base>" |
 
 - **Sources.** The source follows from where `resolve_github_repository_source` found the GitHub repository and from
   origin's configured fetch URL:

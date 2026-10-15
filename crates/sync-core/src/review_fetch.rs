@@ -358,20 +358,22 @@ fn range_of(git: &GitCommandExecutor, params: &FetchReviewHeadParams, head: Stri
     code => bail!("git merge-base exited with {code}: {merge_base}"),
   };
   let range = format!("{base}..{head}");
-  let log = git.execute_command(&["log", "--format=%H%x00%s%x00%an%x00%at", "--reverse", MAX_COMMITS, "--end-of-options", &range], repo)?;
-  let commits = log
-    .lines()
-    .filter_map(|line| {
-      let mut fields = line.split('\0');
-      let (id, subject, author, author_time) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
-      Some(ReviewCommit {
-        id: id.to_string(),
-        subject: subject.to_string(),
-        author: author.to_string(),
-        author_time: author_time.parse().unwrap_or(0),
-      })
-    })
-    .collect();
+  // `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
+  let log = git.execute_command_raw(
+    &["log", "-z", "--format=%H%x00%s%x00%an%x00%at%x00%B", "--reverse", MAX_COMMITS, "--end-of-options", &range],
+    repo,
+  )?;
+  let mut fields = log.split('\0');
+  let mut commits = Vec::new();
+  while let (Some(id), Some(subject), Some(author), Some(author_time), Some(message)) = (fields.next(), fields.next(), fields.next(), fields.next(), fields.next()) {
+    commits.push(ReviewCommit {
+      id: id.trim_start_matches('\n').to_string(),
+      subject: subject.to_string(),
+      message: message.trim_end_matches('\n').to_string(),
+      author: author.to_string(),
+      author_time: author_time.parse().unwrap_or(0),
+    });
+  }
   Ok(ReviewRange {
     base,
     head,

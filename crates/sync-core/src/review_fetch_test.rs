@@ -36,7 +36,7 @@ fn fixture() -> Fixture {
   let local = TestRepo::new_empty();
   local.clone_from(github.path()).unwrap();
   github.checkout_new_branch("alice/feature").unwrap();
-  let first = github.create_commit("Add login", "login.txt", "login\n");
+  let first = github.create_commit("Add login\n\nThe form and its body\nover two lines", "login.txt", "login\n");
   let head = github.create_commit("Add logout", "logout.txt", "logout\n");
   git(&github, &["update-ref", &format!("refs/pull/{NUMBER}/head"), &head]);
   github.checkout("master").unwrap();
@@ -105,6 +105,10 @@ fn fetches_the_pull_ref_from_a_github_origin() {
   // oldest first, with what the preview shows
   assert_eq!(commit_ids(&range), [fixture.first.as_str(), fixture.head.as_str()]);
   assert_eq!(range.commits[1].subject, "Add logout");
+  assert_eq!(range.commits[1].message, "Add logout");
+  // the body too, line breaks kept
+  assert_eq!(range.commits[0].subject, "Add login");
+  assert_eq!(range.commits[0].message, "Add login\n\nThe form and its body\nover two lines");
   assert_eq!(range.commits[1].author, "Test User");
   assert!(range.commits[1].author_time > 0);
   // the base was local: only the head ref is written
