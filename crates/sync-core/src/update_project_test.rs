@@ -27,10 +27,7 @@ pub(crate) struct Setup {
 const SHARED: &str = "one\ntwo\nthree\n";
 
 pub(crate) fn setup() -> Setup {
-  let upstream = TestRepo::new();
-  upstream.create_commit_with_files("Initial", &[("shared.txt", SHARED), ("other.txt", "other\n")]);
-  let clone = TestRepo::new_empty();
-  clone.clone_from(upstream.path()).unwrap();
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
   Setup { upstream, clone }
 }
 

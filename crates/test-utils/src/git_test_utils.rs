@@ -336,6 +336,15 @@ impl TestRepo {
       .map_err(|e| e.to_string())
   }
 
+  /// An upstream repository with one commit of `files`, and a clone of it whose `master` tracks `origin/master`
+  pub fn upstream_and_clone(files: &[(&str, &str)]) -> (TestRepo, TestRepo) {
+    let upstream = Self::new();
+    upstream.create_commit_with_files("Initial", files);
+    let clone = Self::new_empty();
+    clone.clone_from(upstream.path()).unwrap();
+    (upstream, clone)
+  }
+
   /// Clone a repository into this directory
   pub fn clone_from(&self, source_path: &Path) -> Result<(), String> {
     self

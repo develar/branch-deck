@@ -33,6 +33,11 @@ pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   (exit_code, value)
 }
 
+/// The output is the error `expected.1` with the exit code `expected.0`
+pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
+  assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &serde_json::json!(expected.1)), "{output}");
+}
+
 /// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
 pub fn with_header(repo: &TestRepo, fields: Value) -> Value {
   let repository = std::fs::canonicalize(repo.path()).unwrap();

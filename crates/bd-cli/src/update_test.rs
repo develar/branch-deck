@@ -1,7 +1,7 @@
-use crate::fixture_test::{environment, git, run_in, run_json, write};
+use crate::fixture_test::{assert_error, environment, git, run_in, run_json, write};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
-use serde_json::{Value, json};
+use serde_json::json;
 use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 
@@ -9,11 +9,7 @@ const SHARED: &str = "one\ntwo\nthree\n";
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone whose `master` tracks `origin/master`
 fn clone_of_upstream() -> (TestRepo, TestRepo) {
-  let upstream = TestRepo::new();
-  upstream.create_commit_with_files("Initial", &[("shared.txt", SHARED), ("other.txt", "other\n")]);
-  let clone = TestRepo::new_empty();
-  clone.clone_from(upstream.path()).unwrap();
-  (upstream, clone)
+  TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")])
 }
 
 fn read(repo: &TestRepo, file: &str) -> String {
@@ -22,10 +18,6 @@ fn read(repo: &TestRepo, file: &str) -> String {
 
 fn status(repo: &TestRepo) -> String {
   git(repo, &["status", "--porcelain", "--untracked-files=all"])
-}
-
-fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
-  assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &json!(expected.1)), "{output}");
 }
 
 #[test_log::test]

@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{PREFIX, assert_error, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
 use crate::schema_test::assert_covered;
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
@@ -52,10 +52,6 @@ fn assert_pushed(output: &Value, exit_code: i32, status: &str, lease: &str) {
     (&auth["status"], &auth["lease"], &auth["lease_source"]),
     (&json!(status), &json!(short_id(lease)), &json!("expected"))
   );
-}
-
-fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
-  assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &json!(expected.1)), "{output}");
 }
 
 #[test_log::test]
