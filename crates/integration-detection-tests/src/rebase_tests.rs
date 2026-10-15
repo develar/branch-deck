@@ -2,6 +2,7 @@ use super::test_helpers::{setup_test_repos, test_partial_integration_detection_w
 use branch_integration::{detector::detect_integrated_branches, strategy::DetectionStrategy};
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
+use sync_utils::timestamp::{days_ago, format_utc_date, utc_today};
 use test_log::test;
 
 /// Test the core orphan scenario: virtual branch exists but original commits are gone from HEAD
@@ -330,8 +331,8 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   local_repo.create_branch_at("user/virtual/feature-orphaned", &commit3).unwrap();
 
   // Step 2: Manually archive branches to specific dates for testing
-  let old_date = (chrono::Utc::now() - chrono::Duration::days(10)).format("%Y-%m-%d").to_string();
-  let recent_date = (chrono::Utc::now() - chrono::Duration::days(2)).format("%Y-%m-%d").to_string();
+  let old_date = format_utc_date(days_ago(10));
+  let recent_date = format_utc_date(days_ago(2));
 
   // Archive branches manually to specific dates for testing
   let old_archived_name = format!("user/archived/{old_date}/feature-old");
@@ -421,7 +422,7 @@ fn test_batch_archive_avoids_ref_directory_file_conflicts() {
 
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
   let repo_path = local_repo.path().to_str().unwrap();
-  let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+  let today = utc_today();
 
   let commit = local_repo.create_commit("(auth) Add auth", "auth.js", "// auth");
   local_repo.create_branch_at("user/virtual/auth", &commit).unwrap();

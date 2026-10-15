@@ -8,6 +8,7 @@ use super::test_helpers::{
 use branch_integration::strategy::DetectionStrategy;
 use sync_types::SyncEvent;
 use sync_types::branch_integration::IntegrationConfidence;
+use sync_utils::timestamp::unix_now;
 use test_log::test;
 
 #[test]
@@ -50,7 +51,7 @@ fn test_squash_merge_detection() {
   upstream_repo.checkout("main").unwrap();
 
   // Use a specific timestamp for testing
-  let squash_timestamp = chrono::Utc::now().timestamp() - 180; // 3 minutes ago
+  let squash_timestamp = i64::from(unix_now()) - 180; // 3 minutes ago
   upstream_repo
     .merge_squash_with_timestamp("user/virtual/feature-squash", "Add function two", squash_timestamp)
     .unwrap();
@@ -155,7 +156,7 @@ fn test_squash_merge_detection() {
         );
 
         // Verify it's not just "now"
-        let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");
+        let now = unix_now();
         assert!(
           *integrated_date < now - 60,
           "Integration timestamp should be from when the squash merge happened, not 'now'"

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 memchr = "2"
 tracing.workspace = true
 

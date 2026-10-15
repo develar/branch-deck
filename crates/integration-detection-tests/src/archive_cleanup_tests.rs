@@ -1,6 +1,7 @@
 //! Tests for archive cleanup functionality
 
 use anyhow::Result;
+use sync_utils::timestamp::{days_ago, format_utc_date};
 use test_log::test;
 
 /// Cached-status-based cleanup during detection deletes only fully integrated branches older than retention
@@ -23,8 +24,8 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   let commit_c = local_repo.create_commit("C", "c.txt", "c");
 
   // Dates for branches
-  let old_date = (chrono::Utc::now() - chrono::Duration::days(10)).format("%Y-%m-%d").to_string();
-  let recent_date = (chrono::Utc::now() - chrono::Duration::days(2)).format("%Y-%m-%d").to_string();
+  let old_date = format_utc_date(days_ago(10));
+  let recent_date = format_utc_date(days_ago(2));
 
   // Archived branch names
   let old_integrated = format!("user/archived/{old_date}/old-integrated");

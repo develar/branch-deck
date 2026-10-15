@@ -588,7 +588,6 @@ name = "branch-integration"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "git-executor",
  "git-ops",
  "indexmap 2.14.2",
@@ -798,10 +797,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -2664,7 +2661,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "branch-integration",
- "chrono",
  "git-executor",
  "git-ops",
  "indexmap 2.14.2",
@@ -2672,6 +2668,7 @@ dependencies = [
  "sync-core",
  "sync-test-utils",
  "sync-types",
+ "sync-utils",
  "test-log",
  "test-utils",
  "tokio",
@@ -5294,6 +5291,7 @@ dependencies = [
 name = "sync-utils"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "memchr",
  "tempfile",
  "test-utils",

@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
+use sync_utils::timestamp::format_utc_date;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -24,7 +25,7 @@ fn path(repo: &TestRepo) -> &str {
 
 /// The full name of the archived branch `name`, archived `days_ago`
 fn archive_name(days_ago: i64, name: &str) -> String {
-  let date = (chrono::Utc::now() - chrono::Duration::days(days_ago)).format("%Y-%m-%d");
+  let date = format_utc_date(sync_utils::timestamp::days_ago(days_ago));
   format!("user/archived/{date}/{name}")
 }
 

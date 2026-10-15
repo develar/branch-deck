@@ -6,6 +6,7 @@ use git_ops::model::to_final_branch_name;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;
+use sync_utils::timestamp::unix_now;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use tracing::debug;
@@ -176,7 +177,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
 
           // Verify it's not just "now" (should be from the past, not the current time)
           // Since the test runs quickly, we allow for very small time differences
-          let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");
+          let now = unix_now();
 
           // The integration happened in the past (during the test), so it should be at least 0 seconds ago
           // and not in the future
@@ -291,7 +292,7 @@ fn test_integration_timestamp_accuracy() {
   // Merge the virtual branch back to main with a newer timestamp
   repo.checkout("main").unwrap();
 
-  let merge_timestamp = u32::try_from(chrono::Utc::now().timestamp() - 300).expect("timestamp fits in u32"); // 5 minutes ago
+  let merge_timestamp = unix_now() - 300; // 5 minutes ago
   repo
     .merge_no_ff_with_timestamp("user/virtual/feature-test", "Merge feature-test", i64::from(merge_timestamp))
     .unwrap();
@@ -317,7 +318,7 @@ fn test_integration_timestamp_accuracy() {
   let integration_info = detected_branch_info(&events, branch);
 
   // Verify the timestamp is close to merge time, not current time
-  let now = u32::try_from(chrono::Utc::now().timestamp()).expect("timestamp fits in u32");
+  let now = unix_now();
   let time_since_merge = now - merge_timestamp;
 
   if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {

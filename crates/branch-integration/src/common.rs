@@ -3,6 +3,7 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use sync_types::upstream_commit::UpstreamCommit;
+use sync_utils::timestamp::utc_today;
 use tracing::{debug, instrument, warn};
 
 /// The fields of an `UpstreamCommit` in `log`/`rev-list` output: id, author, committer and commit time, NUL-separated
@@ -58,7 +59,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
   )?;
 
   // Pre-compute today's archive prefix
-  let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+  let today = utc_today();
   let today_archive_prefix = format!("{branch_prefix}/archived/{today}/");
 
   // Pre-allocate with estimated capacity

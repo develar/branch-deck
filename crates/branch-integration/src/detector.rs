@@ -10,6 +10,7 @@ use std::sync::{Mutex, PoisonError};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use sync_types::{ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range};
+use sync_utils::timestamp::{days_ago, parse_utc_date};
 use tracing::{debug, info, instrument, trace, warn};
 
 /// Configuration for integration detection
@@ -95,20 +96,10 @@ impl<'a> BaselineAncestry<'a> {
 /// Whether a branch archived on `date` (`YYYY-MM-DD` of `<prefix>/archived/<date>/<name>`) is within the archive
 /// retention period (`ARCHIVE_RETENTION_DAYS`)
 pub fn archived_within_retention(date: &str) -> bool {
-  let Some(archived) = archive_day(date) else {
+  let Some(archived) = parse_utc_date(date) else {
     return false;
   };
-  let retention = chrono::Duration::try_days(i64::try_from(ARCHIVE_RETENTION_DAYS).unwrap_or(i64::MAX));
-  let cutoff = retention
-    .and_then(|retention| chrono::Utc::now().checked_sub_signed(retention))
-    .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC);
-  archived >= cutoff
-}
-
-/// The start of the day `YYYY-MM-DD`
-fn archive_day(date: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-  let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
-  date.and_hms_opt(0, 0, 0)?.and_local_timezone(chrono::Utc).single()
+  archived >= days_ago(i64::try_from(ARCHIVE_RETENTION_DAYS).unwrap_or(i64::MAX))
 }
 
 /// The commit `baseline` names now: detection compares with it and records it in a `NotIntegrated` note, so the scanned
@@ -131,8 +122,8 @@ fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, baseline: &
 }
 
 /// The day an archived branch was archived, from `<prefix>/archived/YYYY-MM-DD/<name>`
-fn archive_date(branch: &str, archive_prefix: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-  archive_day(branch.strip_prefix(archive_prefix)?.split('/').next()?)
+fn archive_date(branch: &str, archive_prefix: &str) -> Option<i64> {
+  parse_utc_date(branch.strip_prefix(archive_prefix)?.split('/').next()?)
 }
 
 /// The stack bases of the tips that have a stack note and whose base still exists: one `log` for the notes and one
@@ -260,9 +251,7 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
   // Step 1: Clean up old archived branches, but only those fully integrated
   // Compute cutoff date based on retention
   let retention_days = i64::try_from(config.retention_days).unwrap_or(i64::MAX);
-  let cutoff_date = chrono::Duration::try_days(retention_days)
-    .and_then(|retention| chrono::Utc::now().checked_sub_signed(retention))
-    .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC);
+  let cutoff_date = days_ago(retention_days);
   let archive_prefix = format!("{branch_prefix}/archived/");
 
   // Build list of archived branches to delete: older than cutoff AND cache status Integrated

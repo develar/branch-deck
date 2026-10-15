@@ -6,6 +6,7 @@ use git_ops::model::{BranchKind, strip_branch_namespace};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex, PoisonError};
+use sync_utils::timestamp::utc_today;
 use tracing::{debug, info, instrument, warn};
 
 /// Days an archived branch is kept after it is known to be fully integrated
@@ -85,7 +86,7 @@ pub fn batch_archive_inactive_branches(
     return Ok(HashMap::new());
   }
 
-  let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+  let date = utc_today();
   let archive_prefix = format!("{branch_prefix}/archived/{date}");
 
   // Lock to prevent race conditions
