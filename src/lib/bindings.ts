@@ -141,7 +141,7 @@ export const commands = {
 	 *  logged-out `claude` and its failures are outcomes
 	 */
 	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, CommandError>(__TAURI_INVOKE("suggest_branch_names", { params })),
-	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
+	getArchivedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchPrefix, branchName })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */

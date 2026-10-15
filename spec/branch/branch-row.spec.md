@@ -345,6 +345,10 @@ under it. The commits of an expanded branch sit on its lane.
 - The status must be one of three words, in muted text after its icon: "Merged" with the merge icon in `info` (the
   merged colour of the chips), "Partially merged · 1 of 2" with the pie icon, muted, and "Not merged" with the
   warning triangle in `warning`. A spinner shows while the integration is detected.
+- A branch the finished sync reported no integration for (its detection failed, or the whole detection did) must show
+  "Not checked" with the dashed circle, muted, and the tooltip "Integration could not be checked, see the log",
+  instead of spinning until the next sync; its commits still expand. A later result replaces it.
+  [@test] ../../src/stores/archived-branches.test.ts (`marks the placeholders a finished sync left without a result as unknown`)
 - The tooltip of the status must hold the counts and the merge commit: "3 commits, merged as abc12345 by Safe Push
   Robot", "1 of 2 commits merged; the original commits are no longer in HEAD", "1 commit, none merged; the original
   commits are no longer in HEAD". An exact match adds a `success` "Exact confidence" badge.
@@ -455,7 +459,7 @@ under it. The commits of an expanded branch sit on its lane.
   failure is a `page.route` of the command with status 500). E2E reads the status text by
   `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`,
   `data-ring`), `lane-ring`, `lane-lines` and `landing-lanes`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
-  archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
+  archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`, `unknown`).
 
 ## Open Questions / Risks
 

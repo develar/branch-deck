@@ -32,6 +32,7 @@ vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {}
 vi.mock("@/stores/archived-branches", () => ({
   updateFromArchivedNames: () => {},
   updateFromIntegrationInfo: () => {},
+  settleArchivedPlaceholders: () => {},
 }))
 
 function group(name: string): GroupedBranchInfo {

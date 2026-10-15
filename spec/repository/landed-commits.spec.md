@@ -202,6 +202,6 @@ by the next sync the same way.
 
 ## References
 
-- [Integration Detection](../../docs/design/integration-detection.md): decision 9, "Landed commits".
+- [Integration Detection](../../docs/design/integration-detection.md): decision 11, "Landed commits".
 - [Update Project](update-project.spec.md), [Patronus](../branch/patronus.spec.md).
 - [Branch Row](../branch/branch-row.spec.md): the Status cell and the anatomy of the chip details.

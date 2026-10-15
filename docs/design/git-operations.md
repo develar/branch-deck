@@ -763,6 +763,13 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   (`for-each-ref refs/heads/<prefix>/`): the virtual tips decide reuse, and the unapplied and archived names give the
   state of a stack parent without commits. The branches return their mapping notes, and the sync writes them in one
   notes commit at the end; a note lost to a failed sync only costs a copy.
+- **Archive before the rebuild.** Before any virtual branch is rebuilt, one transaction deletes the old integrated
+  archives (`branch-deck: clean up archived branches`) and one moves the virtual branches no group has into
+  `<prefix>/archived/<today>/` (`branch-deck: archive`: the create and the delete checked against the tip read), so a
+  rebuilt `foo/bar` never meets the `foo` of a renamed group. Both are best effort: a failure leaves the refs as they
+  are for the next sync. A branch checked out in a worktree (`%(worktreepath)` of the same `for-each-ref`) is left
+  alone, because `update-ref` deletes a checked-out branch without asking. See
+  [Integration Detection](integration-detection.md), decision 9.
 - **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../spec/branch/stacked-branches.spec.md)).
   Each branch is a build task, which publishes its head after its last `commit-tree`, and a finish task for the ref,
   the status and the remote status. A child is spawned only once its parent's head is known, so no task holds a slot

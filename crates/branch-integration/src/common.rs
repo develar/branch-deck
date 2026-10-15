@@ -1,6 +1,7 @@
 use super::cache::{CachedDetection, deserialize_from_cache};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::model::{BranchKind, strip_branch_namespace};
 use std::collections::{HashMap, HashSet};
 use sync_types::upstream_commit::UpstreamCommit;
 use sync_utils::timestamp::utc_today;
@@ -41,16 +42,21 @@ pub struct BranchData {
   pub branch_notes: HashMap<String, CachedDetection>, // commit -> parsed detection cache
   pub all_branch_commits: HashMap<String, String>,    // ALL branches -> commit (includes both virtual and archived)
   pub commit_subjects: HashMap<String, String>,       // branch tip commit -> subject
+  /// The branches checked out in a worktree: `update-ref` would delete them from under it, so they are neither
+  /// archived nor cleaned up
+  pub checked_out: HashSet<String>,
 }
 
 /// Get all virtual and archived branches with their notes
 #[instrument(skip(git_executor))]
 pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str) -> Result<BranchData> {
-  // Get all branches with their tip commits and subjects in a single command
+  let branch_prefix = branch_prefix.trim_end_matches('/');
+  // Get all branches with their tip commits, worktrees and subjects in a single command; `lstrip=2`, not `short`,
+  // which is `heads/<name>` when a tag has the same name
   let lines = git_executor.execute_command_lines(
     &[
       "for-each-ref",
-      "--format=%(refname:short) %(objectname) %(contents:subject)",
+      "--format=%(refname:lstrip=2)%00%(objectname)%00%(worktreepath)%00%(contents:subject)",
       // Newest first: `archived_all` keeps this order and the UI uses it until integration dates are known
       "--sort=-committerdate",
       &format!("refs/heads/{branch_prefix}/"),
@@ -58,9 +64,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
     repo_path,
   )?;
 
-  // Pre-compute today's archive prefix
   let today = utc_today();
-  let today_archive_prefix = format!("{branch_prefix}/archived/{today}/");
 
   // Pre-allocate with estimated capacity
   let line_count = lines.len();
@@ -69,25 +73,31 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
   let mut archived_today_names = HashSet::new();
   let mut all_branch_commits = HashMap::with_capacity(line_count);
   let mut commit_subjects = HashMap::with_capacity(line_count);
+  let mut checked_out = HashSet::new();
 
   // First pass: collect branches and their commits
   for line in &lines {
-    let mut fields = line.splitn(3, ' ');
-    let (Some(branch), Some(commit)) = (fields.next(), fields.next()) else {
+    let mut fields = line.splitn(4, '\0');
+    let (Some(branch), Some(commit), worktree) = (fields.next(), fields.next(), fields.next().unwrap_or_default()) else {
       continue;
     };
     debug!(branch = %branch, commit = %commit, "Found branch with commit");
     commit_subjects.insert(commit.to_string(), fields.next().unwrap_or_default().to_string());
     // Store ALL branch commits, not just virtual ones
     all_branch_commits.insert(branch.to_string(), commit.to_string());
+    if !worktree.is_empty() {
+      checked_out.insert(branch.to_string());
+    }
 
-    if branch.contains("/virtual/") {
+    // by the namespace, not by a `/virtual/` anywhere: a group name may contain `virtual/` or `archived/`, and an
+    // unapplied branch is neither
+    if strip_branch_namespace(branch, branch_prefix, BranchKind::Virtual).is_some() {
       virtual_commits.insert(branch.to_string(), commit.to_string());
-    } else if branch.contains("/archived/") {
+    } else if let Some(dated) = strip_branch_namespace(branch, branch_prefix, BranchKind::Archived) {
       archived_all.push(branch.to_string());
 
       // Extract today's archive names for conflict resolution
-      if let Some(name) = branch.strip_prefix(&today_archive_prefix) {
+      if let Some(name) = dated.strip_prefix(today.as_str()).and_then(|rest| rest.strip_prefix('/')) {
         archived_today_names.insert(name.to_string());
       }
     }
@@ -105,7 +115,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
     debug!(commits_to_fetch = commit_subjects.len(), "Fetching notes for commits");
 
     // commit SHA, field separator, notes, record separator
-    let args = ["--no-pager", "log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg];
+    let args = ["log", "--no-walk", "--stdin", "--format=%H%x1f%N%x1e", &notes_arg];
     if let Ok(output) = git_executor.execute_command_with_input(&args, repo_path, &input) {
       debug!(output_length = output.len(), "Got notes output from git");
       let commit_to_branch: HashMap<&str, &str> = all_branch_commits.iter().map(|(branch, commit)| (commit.as_str(), branch.as_str())).collect();
@@ -136,7 +146,8 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
         }
       }
     } else {
-      debug!("Failed to fetch notes from git");
+      // every archive is detected again in full then, which is slow
+      warn!("Failed to read the detection notes");
     }
   }
 
@@ -156,5 +167,6 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
     branch_notes,
     all_branch_commits,
     commit_subjects,
+    checked_out,
   })
 }

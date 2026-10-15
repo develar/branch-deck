@@ -22,7 +22,7 @@ async fn a_failed_command_answers_with_its_command_error() {
     addr,
     &id,
     "get_archived_branch_commits",
-    &json!({ "repositoryPath": path, "branchName": "user-name/archived/2025-01-01/no-such-branch" }),
+    &json!({ "repositoryPath": path, "branchPrefix": "user-name", "branchName": "user-name/archived/2025-01-01/no-such-branch" }),
   )
   .send()
   .await

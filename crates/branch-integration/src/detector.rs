@@ -1,9 +1,9 @@
-use super::archive::ARCHIVE_RETENTION_DAYS;
 use super::cache::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF};
 use super::{common, merge, rebase, squash, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::model::{BranchKind, strip_branch_namespace};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
@@ -94,12 +94,12 @@ impl<'a> BaselineAncestry<'a> {
 }
 
 /// Whether a branch archived on `date` (`YYYY-MM-DD` of `<prefix>/archived/<date>/<name>`) is within the archive
-/// retention period (`ARCHIVE_RETENTION_DAYS`)
-pub fn archived_within_retention(date: &str) -> bool {
+/// retention period of `retention_days` (`ARCHIVE_RETENTION_DAYS` by default)
+pub fn archived_within_retention(date: &str, retention_days: u64) -> bool {
   let Some(archived) = parse_utc_date(date) else {
     return false;
   };
-  archived >= days_ago(i64::try_from(ARCHIVE_RETENTION_DAYS).unwrap_or(i64::MAX))
+  archived >= days_ago(i64::try_from(retention_days).unwrap_or(i64::MAX))
 }
 
 /// The commit `baseline` names now: detection compares with it and records it in a `NotIntegrated` note, so the scanned
@@ -122,13 +122,13 @@ fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, baseline: &
 }
 
 /// The day an archived branch was archived, from `<prefix>/archived/YYYY-MM-DD/<name>`
-fn archive_date(branch: &str, archive_prefix: &str) -> Option<i64> {
-  parse_utc_date(branch.strip_prefix(archive_prefix)?.split('/').next()?)
+fn archive_date(branch: &str, branch_prefix: &str) -> Option<i64> {
+  parse_utc_date(strip_branch_namespace(branch, branch_prefix, BranchKind::Archived)?.split('/').next()?)
 }
 
 /// The stack bases of the tips that have a stack note and whose base still exists: one `log` for the notes and one
 /// `cat-file --batch-check` for the bases. Best effort: a failure only means detecting without the bases.
-fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> HashMap<String, String> {
+pub fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> HashMap<String, String> {
   let read = || -> Result<HashMap<String, String>> {
     let mut input = String::with_capacity(tips.len() * 41);
     for tip in tips {
@@ -197,73 +197,98 @@ fn write_caches(git_executor: &GitCommandExecutor, repo_path: &str, detected: Ve
   Ok(())
 }
 
-/// Archive inactive branches using pre-fetched branch data
-/// Returns map of newly archived branch names to their commits
+/// Archive inactive branches using pre-fetched branch data. Best effort: on a failure (a virtual tip moved meanwhile,
+/// e.g. by `bd` in another process) nothing is archived and a later sync archives them. A branch checked out in a
+/// worktree is left alone. Returns map of newly archived branch names to their commits
 fn archive_inactive_branches(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   branch_prefix: &str,
   branch_data: &common::BranchData,
   active_branches: &HashSet<String>,
-) -> Result<HashMap<String, String>> {
+) -> HashMap<String, String> {
   // Find inactive virtual branches
-  let virtual_prefix = format!("{branch_prefix}/virtual/");
   let inactive_branches: Vec<String> = branch_data
     .virtual_commits
     .keys()
+    .filter(|full_name| strip_branch_namespace(full_name, branch_prefix, BranchKind::Virtual).is_some_and(|simple_name| !active_branches.contains(simple_name)))
     .filter(|full_name| {
-      let simple_name = full_name.strip_prefix(&virtual_prefix).unwrap_or(full_name);
-      !active_branches.contains(simple_name)
+      let checked_out = branch_data.checked_out.contains(*full_name);
+      if checked_out {
+        debug!(branch = %full_name, "Not archiving a branch checked out in a worktree");
+      }
+      !checked_out
     })
     .cloned()
     .collect();
 
   if inactive_branches.is_empty() {
-    return Ok(HashMap::new());
+    return HashMap::new();
   }
 
   debug!(count = inactive_branches.len(), "Found inactive branches to archive");
 
   // Archive with pre-fetched data
-  let newly_archived = super::archive::batch_archive_inactive_branches(
+  match super::archive::batch_archive_inactive_branches(
     git_executor,
     repo_path,
     branch_prefix,
     &inactive_branches,
     &branch_data.virtual_commits,
     &branch_data.archived_today_names,
-  )?;
-
-  if !newly_archived.is_empty() {
-    debug!(archived_count = newly_archived.len(), "Successfully archived inactive branches");
+  ) {
+    Ok(newly_archived) => newly_archived,
+    Err(e) => {
+      warn!(error = %e, "Failed to archive inactive branches");
+      HashMap::new()
+    }
   }
-
-  Ok(newly_archived)
 }
 
-/// Detect integrated and not-integrated branches with a specific detection strategy.
-/// Blocking: runs git processes and must be called from a blocking context.
-#[instrument(skip(git_executor, config), fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, active_count = config.active_branches.len(), strategy = ?config.strategy))]
-pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, baseline_branch: &str, config: DetectConfig<'_>) -> Result<()> {
+/// The archived branches after the archive step of a sync, which `detect_archived_branches` detects
+pub struct ArchivedBranches {
+  /// The newly archived branches first, then the earlier ones, newest first
+  names: Vec<String>,
+  /// Branch -> tip, of the archived ones and more
+  tips: HashMap<String, String>,
+  /// Tip -> parsed detection note
+  notes: HashMap<String, CachedDetection>,
+  /// Tip -> subject
+  subjects: HashMap<String, String>,
+}
+
+/// The ref part of the archive step, fast: delete the archived branches older than `retention_days` that are fully
+/// integrated, move the virtual branches not in `active_branches` (simple names) into today's archive, and send
+/// `ArchivedBranchesFound`. A sync runs it before it rebuilds the virtual branches, so a rebuilt branch never meets a
+/// virtual branch about to be archived on git's directory/file rule (`(foo)` renamed to `(foo/bar)`).
+#[instrument(skip(git_executor, active_branches, progress), fields(branch_prefix = %branch_prefix, active_count = active_branches.len()))]
+pub fn archive_and_clean_up(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch_prefix: &str,
+  active_branches: &HashSet<String>,
+  retention_days: u64,
+  progress: &dyn ProgressReporter,
+) -> Result<ArchivedBranches> {
+  let branch_prefix = branch_prefix.trim_end_matches('/');
   // Step 0: Get ALL branch data including parsed cached notes
   let mut branch_data = common::get_all_branch_data(git_executor, repo_path, branch_prefix)?;
 
   // Step 1: Clean up old archived branches, but only those fully integrated
-  // Compute cutoff date based on retention
-  let retention_days = i64::try_from(config.retention_days).unwrap_or(i64::MAX);
-  let cutoff_date = days_ago(retention_days);
-  let archive_prefix = format!("{branch_prefix}/archived/");
+  let cutoff_date = days_ago(i64::try_from(retention_days).unwrap_or(i64::MAX));
 
-  // Build list of archived branches to delete: older than cutoff AND cache status Integrated
-  let mut branches_to_delete: Vec<String> = Vec::new();
+  // Build list of archived branches to delete: older than cutoff AND cache status Integrated, with their tips
+  let mut branches_to_delete: Vec<(String, String)> = Vec::new();
   for branch in &branch_data.archived_all {
-    if archive_date(branch, &archive_prefix).is_some_and(|date| date < cutoff_date)
+    if archive_date(branch, branch_prefix).is_some_and(|date| date < cutoff_date)
+      // a branch checked out in a worktree stays
+      && !branch_data.checked_out.contains(branch)
       // Check detection cache status on the branch tip commit
       && let Some(tip_commit) = branch_data.all_branch_commits.get(branch)
       && let Some(cache) = branch_data.branch_notes.get(tip_commit)
       && matches!(cache.info.status, BranchIntegrationStatus::Integrated { .. })
     {
-      branches_to_delete.push(branch.clone());
+      branches_to_delete.push((branch.clone(), tip_commit.clone()));
     }
   }
 
@@ -271,14 +296,10 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
     // Cleanup is best effort: a failure must not fail detection, and nothing is deleted then (one transaction)
     match super::archive::batch_delete_archived_branches(git_executor, repo_path, &branches_to_delete) {
       Ok(deleted) => {
-        info!(
-          deleted_count = deleted,
-          retention_days = config.retention_days,
-          "Cleaned up old fully integrated archived branches"
-        );
+        info!(deleted_count = deleted, retention_days, "Cleaned up old fully integrated archived branches");
 
         // Deleted branches must not be reported or re-detected
-        let deleted_set: HashSet<&str> = branches_to_delete.iter().map(String::as_str).collect();
+        let deleted_set: HashSet<&str> = branches_to_delete.iter().map(|(branch, _)| branch.as_str()).collect();
         branch_data.archived_all.retain(|branch| !deleted_set.contains(branch.as_str()));
         branch_data.all_branch_commits.retain(|branch, _| !deleted_set.contains(branch.as_str()));
       }
@@ -287,7 +308,7 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
   }
 
   // Step 2: Archive inactive branches using the pre-fetched data
-  let newly_archived = archive_inactive_branches(git_executor, repo_path, branch_prefix, &branch_data, config.active_branches)?;
+  let newly_archived = archive_inactive_branches(git_executor, repo_path, branch_prefix, &branch_data, active_branches);
 
   // Step 3: Combine newly archived with previously archived, and complete the branch -> tip map.
   // Don't sort by archive date - it has no correlation with integration date;
@@ -300,16 +321,65 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
     ..
   } = branch_data;
   let newly_archived_names: Vec<String> = newly_archived.keys().cloned().collect();
-  let mut all_archived_branches: Vec<String> = Vec::with_capacity(archived_all.len() + newly_archived.len());
-  all_archived_branches.extend(newly_archived_names.iter().cloned());
-  all_archived_branches.extend(archived_all);
+  let mut names: Vec<String> = Vec::with_capacity(archived_all.len() + newly_archived.len());
+  names.extend(newly_archived_names.iter().cloned());
+  names.extend(archived_all);
   all_branch_commits.extend(newly_archived);
 
   // Send event with archived branch names (even if empty) to update UI
-  config.progress.send(SyncEvent::ArchivedBranchesFound {
-    branch_names: all_archived_branches.clone(),
+  progress.send(SyncEvent::ArchivedBranchesFound {
+    branch_names: names.clone(),
     newly_archived: newly_archived_names,
   })?;
+
+  Ok(ArchivedBranches {
+    names,
+    tips: all_branch_commits,
+    notes: branch_notes,
+    subjects: commit_subjects,
+  })
+}
+
+/// Detect integrated and not-integrated branches with a specific detection strategy: the archive step
+/// (`archive_and_clean_up`), then the detection of the archived branches (`detect_archived_branches`).
+/// Blocking: runs git processes and must be called from a blocking context.
+#[instrument(skip(git_executor, config), fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, active_count = config.active_branches.len(), strategy = ?config.strategy))]
+pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, baseline_branch: &str, config: DetectConfig<'_>) -> Result<()> {
+  let archived = archive_and_clean_up(git_executor, repo_path, branch_prefix, config.active_branches, config.retention_days, config.progress)?;
+  detect_archived_branches(
+    git_executor,
+    repo_path,
+    branch_prefix,
+    baseline_branch,
+    archived,
+    config.strategy,
+    config.retention_days,
+    config.progress,
+  )
+}
+
+/// Report the archived branches whose cached result still holds and detect the rest, sending
+/// `BranchIntegrationDetected` per branch as soon as it is known. Blocking.
+#[expect(clippy::too_many_arguments, reason = "the inputs of the detection phase of a sync")]
+#[instrument(skip_all, fields(branch_prefix = %branch_prefix, baseline_branch = %baseline_branch, archived_count = archived.names.len(), strategy = ?strategy))]
+pub fn detect_archived_branches(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch_prefix: &str,
+  baseline_branch: &str,
+  archived: ArchivedBranches,
+  strategy: DetectionStrategy,
+  retention_days: u64,
+  progress: &dyn ProgressReporter,
+) -> Result<()> {
+  let branch_prefix = branch_prefix.trim_end_matches('/');
+  let ArchivedBranches {
+    names: all_archived_branches,
+    tips: mut all_branch_commits,
+    notes: branch_notes,
+    subjects: commit_subjects,
+  } = archived;
+  let cutoff_date = days_ago(i64::try_from(retention_days).unwrap_or(i64::MAX));
 
   // If no archived branches exist, nothing to detect
   if all_archived_branches.is_empty() {
@@ -318,7 +388,7 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
   let baseline = resolve_baseline(git_executor, repo_path, baseline_branch)?;
 
   // Branches merged into baseline per git's native detection; only useful for merge-based workflows
-  let merged_branches: HashSet<String> = if matches!(config.strategy, DetectionStrategy::Merge | DetectionStrategy::All) {
+  let merged_branches: HashSet<String> = if matches!(strategy, DetectionStrategy::Merge | DetectionStrategy::All) {
     // only Branch Deck's own branches, not every branch of the repository
     let merged = format!("--merged={baseline}");
     let own_branches = format!("refs/heads/{branch_prefix}/");
@@ -345,13 +415,13 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
   let mut jobs: Vec<DetectionJob> = Vec::new();
   for (tip, branches) in names_by_tip {
     // one name within the retention period is enough: the names of one tip get one result
-    let within_retention = branches.iter().any(|branch| archive_date(branch, &archive_prefix).is_some_and(|date| date >= cutoff_date));
+    let within_retention = branches.iter().any(|branch| archive_date(branch, branch_prefix).is_some_and(|date| date >= cutoff_date));
     match ancestry.plan(branch_notes.get(&tip), within_retention) {
       CachePlan::Holds(cached) => {
         for branch in branches {
           let mut info = cached.info.clone();
           info.name = branch;
-          config.progress.send(SyncEvent::BranchIntegrationDetected { info })?;
+          progress.send(SyncEvent::BranchIntegrationDetected { info })?;
         }
       }
       CachePlan::Detect(previous) => jobs.push(DetectionJob {
@@ -372,7 +442,7 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
     }
   }
 
-  let detected = detect_in_parallel(git_executor, repo_path, &baseline, config.strategy, Some(config.progress), jobs, &commit_subjects)?;
+  let detected = detect_in_parallel(git_executor, repo_path, &baseline, strategy, Some(progress), jobs, &commit_subjects)?;
 
   // Write all caches sequentially to avoid notes ref races
   write_caches(git_executor, repo_path, detected)

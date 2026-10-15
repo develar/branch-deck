@@ -1,6 +1,7 @@
 use crate::commit_grouper::CommitGrouper;
-use crate::stack::{PendingDetection, StackForest, empty_parent_states, place_branches, read_only_detection};
+use crate::stack::{PendingDetection, StackForest, empty_parent_states, name_suffix, place_branches, read_only_detection};
 use crate::test_commit::commit;
+use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::{CacheOps, CachedDetection, NOTES_REF, Recheck, deserialize_from_cache};
 use branch_integration::strategy::DetectionStrategy;
 use indexmap::IndexMap;
@@ -194,6 +195,7 @@ fn a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placeme
     baseline_branch: "baseline",
     strategy: DetectionStrategy::Rebase,
     cache,
+    retention_days: ARCHIVE_RETENTION_DAYS,
   };
   let states = empty_parent_states(git_executor, repo_path, "test", &branch_refs, &forest, detect(false)).unwrap();
   assert_eq!((states.get("auth"), states.get("cache")), (Some(&ParentState::Integrated), None));
@@ -208,4 +210,14 @@ fn a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placeme
   let note = git_executor.execute_command(&["notes", &format!("--ref={NOTES_REF}"), "show", &local], repo_path).unwrap();
   let cached = deserialize_from_cache(note.trim()).unwrap();
   assert_eq!(cached.check.map(|check| check.baseline), Some(baseline));
+}
+
+#[test]
+fn a_name_suffix_orders_the_archives_of_one_day_numerically() {
+  assert_eq!(name_suffix("auth", "auth"), Some(0));
+  assert_eq!(name_suffix("auth-9", "auth"), Some(9));
+  assert_eq!(name_suffix("auth-10", "auth"), Some(10));
+  assert_eq!(name_suffix("auth-x", "auth"), None);
+  assert_eq!(name_suffix("auth-", "auth"), None);
+  assert_eq!(name_suffix("authz", "auth"), None);
 }

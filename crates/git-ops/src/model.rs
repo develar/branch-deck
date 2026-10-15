@@ -156,6 +156,8 @@ pub enum BranchKind {
   Virtual,
   /// `{prefix}/unapplied/{name}`: branches removed from HEAD by unapply
   Unapplied,
+  /// `{prefix}/archived/{YYYY-MM-DD}/{name}`: virtual branches a sync archived (the name here includes the date)
+  Archived,
 }
 
 impl BranchKind {
@@ -163,6 +165,7 @@ impl BranchKind {
     match self {
       BranchKind::Virtual => "virtual",
       BranchKind::Unapplied => "unapplied",
+      BranchKind::Archived => "archived",
     }
   }
 }

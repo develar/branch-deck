@@ -9,7 +9,7 @@ import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
-import { resetArchivedBranches, updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
+import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
@@ -639,10 +639,13 @@ function updateCommit(branch: Branch, originalHash: string, patch: Partial<Synce
 
 // ---- sync ----
 
+let syncGeneration = 0
+
 /** Runs a full sync of the selected repository, streaming progress events into the store. */
 export async function syncBranches(options?: SyncOptions): Promise<void> {
   // archived branches are not cleared: they are reconciled by name
   branchSyncStore.setState({ isSyncing: true, syncError: null })
+  const generation = ++syncGeneration
 
   try {
     // wait for a pending branch prefix load, so the sync does not run with a stale prefix
@@ -691,6 +694,10 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     console.error("Sync error:", error)
   }
   finally {
+    // a placeholder still waiting got no result, also after a failed sync; a newer sync reports its own
+    if (generation === syncGeneration) {
+      settleArchivedPlaceholders()
+    }
     branchSyncStore.setState(state => ({ isSyncing: false, syncCount: state.syncCount + 1 }))
   }
 }

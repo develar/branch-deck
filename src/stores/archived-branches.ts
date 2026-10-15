@@ -5,10 +5,13 @@ import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamComm
 import { commands } from "@/lib/bindings"
 import { getEffectiveBranchPrefix, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
 
-/** Archived branch, filled in progressively: a placeholder first, then integration info, then (lazily) its commits. */
+/**
+ * Archived branch, filled in progressively: a placeholder first, then integration info, then (lazily) its commits.
+ * `unknown` is a placeholder the sync finished without a result for (its detection failed).
+ */
 export interface ArchivedBranch {
   readonly name: string
-  readonly type: "integrated" | "not-integrated" | "placeholder"
+  readonly type: "integrated" | "not-integrated" | "placeholder" | "unknown"
   readonly commitCount: number
   readonly confidence: IntegrationConfidence | undefined
   readonly integratedAt: number
@@ -141,6 +144,24 @@ export function updateFromArchivedNames(names: string[], newlyArchived: string[]
   archivedBranchesStore.setState({ branches, order: sortOrder(insertionOrder, branches), newlyArchived: nextMarked })
 }
 
+/**
+ * Marks the placeholders a finished sync left without integration info as `unknown`: their detection failed, and
+ * without this they would spin until the next sync, with their commits out of reach.
+ */
+export function settleArchivedPlaceholders(): void {
+  const { branches } = archivedBranchesStore.getState()
+  let next: Record<string, ArchivedBranch> | null = null
+  for (const [name, branch] of Object.entries(branches)) {
+    if (branch.type === "placeholder") {
+      next ??= { ...branches }
+      next[name] = { ...branch, type: "unknown" }
+    }
+  }
+  if (next !== null) {
+    setBranches(next)
+  }
+}
+
 /** Forgets the archived branches of the previous repository when the window opens another one */
 export function resetArchivedBranches(): void {
   insertionOrder = []
@@ -208,7 +229,7 @@ export async function loadCommitsForBranch(branchName: string): Promise<void> {
   updateArchivedBranch(branchName, it => ({ ...it, isLoadingCommits: true, loadError: undefined }))
   try {
     const vcsRequest = vcsRequestFactory.createRequest()
-    const result = await commands.getArchivedBranchCommits(vcsRequest.repositoryPath, branchName)
+    const result = await commands.getArchivedBranchCommits(vcsRequest.repositoryPath, getEffectiveBranchPrefix(), branchName)
     if (result.status === "ok") {
       updateArchivedBranch(branchName, it => ({ ...it, commits: result.data, hasLoadedCommits: true }))
     }

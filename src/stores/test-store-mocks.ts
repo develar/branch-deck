@@ -8,7 +8,12 @@ export const repositoryMock = {
 
 export const repositorySettingsMock = { updateProject: () => {} }
 
-export const archivedBranchesMock = { updateFromArchivedNames: () => {}, updateFromIntegrationInfo: () => {}, clearNewlyArchived: () => {} }
+export const archivedBranchesMock = {
+  updateFromArchivedNames: () => {},
+  updateFromIntegrationInfo: () => {},
+  clearNewlyArchived: () => {},
+  settleArchivedPlaceholders: () => {},
+}
 
 /** `@/stores/activity` for tests of the modules that record what they did: nothing is recorded */
 export const activityMock = {

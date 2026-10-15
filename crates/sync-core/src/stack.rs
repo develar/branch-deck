@@ -3,6 +3,7 @@
 //! (`git config branchdeck.stacks true`), because without it a `/` in a prefix is part of a flat branch name.
 
 use anyhow::{Result, anyhow};
+use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::{CachedDetection, NOTES_REF, deserialize_from_cache};
 use branch_integration::detector::{BaselineAncestry, CachePlan, PendingBranch, archived_within_retention, detect_pending_branches, resolve_baseline};
 use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
@@ -339,6 +340,8 @@ pub struct PendingDetection<'a> {
   pub strategy: DetectionStrategy,
   /// Write the results as detection notes (a sync); a read-only command only detects
   pub cache: bool,
+  /// The archive retention period: an archived parent without a usable note is detected in full only within it
+  pub retention_days: u64,
 }
 
 /// The detection of a read-only command (`bd status`, `bd check`): the strategy of a sync, without writing notes
@@ -347,6 +350,7 @@ pub fn read_only_detection(baseline_branch: &str) -> PendingDetection<'_> {
     baseline_branch,
     strategy: get_detection_strategy(),
     cache: false,
+    retention_days: ARCHIVE_RETENTION_DAYS,
   }
 }
 
@@ -372,26 +376,25 @@ pub fn empty_parent_states(
     return Ok(states);
   }
 
-  let archive_namespace = format!("{}/archived/", branch_prefix.trim_end_matches('/'));
-  // ancestor -> (date, full name, tip) of its newest archived branch
-  let mut newest_archived: HashMap<&str, (&str, &str, &str)> = HashMap::new();
+  // ancestor -> (date, name suffix, full name, tip) of its newest archived branch
+  let mut newest_archived: HashMap<&str, (&str, u32, &str, &str)> = HashMap::new();
   // ancestor -> (full name, tip) of its virtual branch
   let mut pending: HashMap<&str, (&str, &str)> = HashMap::new();
   for (full_name, tip) in branch_refs {
     if let Some(name) = strip_branch_namespace(full_name, branch_prefix, BranchKind::Unapplied) {
-      if let Some(parent) = empty.iter().find(|parent| names_branch(name, parent)) {
+      if let Some(parent) = empty.iter().find(|parent| name_suffix(name, parent).is_some()) {
         states.insert((*parent).to_string(), ParentState::Unapplied);
       }
     } else if let Some(name) = strip_branch_namespace(full_name, branch_prefix, BranchKind::Virtual) {
       if let Some(parent) = empty.iter().find(|parent| **parent == name) {
         pending.insert(parent, (full_name, tip));
       }
-    } else if let Some((date, name)) = full_name.strip_prefix(&archive_namespace).and_then(|rest| rest.split_once('/'))
-      && let Some(parent) = empty.iter().find(|parent| names_branch(name, parent))
-      // the full name orders the archives of one day (`auth`, `auth-1`) the same way on every run
-      && newest_archived.get(parent).is_none_or(|(newest_date, newest_name, _)| (*newest_date, *newest_name) < (date, full_name.as_str()))
+    } else if let Some((date, name)) = strip_branch_namespace(full_name, branch_prefix, BranchKind::Archived).and_then(|rest| rest.split_once('/'))
+      && let Some((parent, suffix)) = empty.iter().find_map(|parent| name_suffix(name, parent).map(|suffix| (parent, suffix)))
+      // of one day the archive with the highest suffix is the newest (`auth`, `auth-1`, …, `auth-10`)
+      && newest_archived.get(parent).is_none_or(|(newest_date, newest_suffix, _, _)| (*newest_date, *newest_suffix) < (date, suffix))
     {
-      newest_archived.insert(parent, (date, full_name, tip));
+      newest_archived.insert(parent, (date, suffix, full_name, tip));
     }
   }
   // the virtual branch is newer than any archived one of the name. `(parent, full name, tip, within the retention
@@ -399,7 +402,7 @@ pub fn empty_parent_states(
   let candidates: Vec<(&str, &str, &str, bool)> = newest_archived
     .into_iter()
     .filter(|(parent, _)| !pending.contains_key(parent))
-    .map(|(parent, (date, full_name, tip))| (parent, full_name, tip, archived_within_retention(date)))
+    .map(|(parent, (date, _, full_name, tip))| (parent, full_name, tip, archived_within_retention(date, detection.retention_days)))
     .chain(pending.iter().map(|(parent, (full_name, tip))| (*parent, *full_name, *tip, true)))
     .filter(|(parent, ..)| !states.contains_key(*parent))
     .collect();
@@ -454,11 +457,19 @@ pub fn empty_parent_states(
   Ok(states)
 }
 
-/// Whether an archived or unapplied branch name is `branch`, possibly with the `-N` suffix of a name conflict
-fn names_branch(name: &str, branch: &str) -> bool {
-  name
-    .strip_prefix(branch)
-    .is_some_and(|rest| rest.is_empty() || rest.strip_prefix('-').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+/// The `-N` suffix of a name conflict with which an archived or unapplied branch name is `branch`, 0 for the plain
+/// name; `None` for another name
+fn name_suffix(name: &str, branch: &str) -> Option<u32> {
+  let rest = name.strip_prefix(branch)?;
+  if rest.is_empty() {
+    return Some(0);
+  }
+  let digits = rest.strip_prefix('-')?;
+  if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+    return None;
+  }
+  // a suffix too long for `u32` still names the branch, after every shorter one
+  Some(digits.parse().unwrap_or(u32::MAX))
 }
 
 /// A sentence on a stack problem, naming its commits by short id

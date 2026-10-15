@@ -545,6 +545,7 @@ pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(par
 #[serde(rename_all = "camelCase")]
 pub struct GetArchivedBranchCommitsRequest {
   repository_path: String,
+  branch_prefix: String,
   branch_name: String,
 }
 
@@ -557,7 +558,7 @@ pub async fn get_archived_branch_commits(
   let git_executor = state.git_executor.clone();
   run_command("read the commits of the archived branch", move || {
     let baseline_branch = sync_core::baseline::detect_baseline_branch(&git_executor, &request.repository_path, "master")?;
-    branch_integration::archive::get_archived_branch_commits(&git_executor, &request.repository_path, &request.branch_name, &baseline_branch)
+    branch_integration::archive::get_archived_branch_commits(&git_executor, &request.repository_path, &request.branch_prefix, &request.branch_name, &baseline_branch)
   })
   .await
 }

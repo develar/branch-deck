@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { archivedBranchesStore, clearNewlyArchived, updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
+import { archivedBranchesStore, clearNewlyArchived, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
 
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
 vi.mock("@/stores/repository", async () => (await import("@/stores/test-store-mocks")).repositoryMock)
@@ -23,6 +23,22 @@ describe("archived branches", () => {
 
     clearNewlyArchived()
     expect(newlyArchived()).toEqual([])
+  })
+
+  it("marks the placeholders a finished sync left without a result as unknown", () => {
+    const detected = "user/archived/2026-10-14/a"
+    const failed = "user/archived/2026-10-14/b"
+    updateFromArchivedNames([detected, failed], [])
+    updateFromIntegrationInfo({ name: detected, summary: "", status: { kind: "notIntegrated", totalCommitCount: 2, integratedCount: 0, orphanedCount: 2, integratedAt: null } })
+
+    settleArchivedPlaceholders()
+    const { branches } = archivedBranchesStore.getState()
+    expect(branches[detected]?.type).toBe("not-integrated")
+    expect(branches[failed]?.type).toBe("unknown")
+
+    // a later result still lands
+    updateFromIntegrationInfo({ name: failed, summary: "", status: { kind: "partial", missing: 1 } })
+    expect(archivedBranchesStore.getState().branches[failed]?.type).toBe("not-integrated")
   })
 
   it("keeps the commit that merged the branch", () => {

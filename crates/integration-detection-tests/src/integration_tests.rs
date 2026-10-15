@@ -217,6 +217,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
     let retrieved_commits = get_archived_branch_commits(
       &git_executor,
       local_repo.path().to_str().unwrap(),
+      "user",
       full_archived_branch_name,
       "origin/master", // The test syncs against origin/master (git default)
     );

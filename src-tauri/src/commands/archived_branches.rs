@@ -8,12 +8,17 @@ use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archi
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_archived_branch_commits(git_executor: tauri::State<'_, GitCommandExecutor>, repository_path: String, branch_name: String) -> Result<Vec<Commit>, CommandError> {
+pub async fn get_archived_branch_commits(
+  git_executor: tauri::State<'_, GitCommandExecutor>,
+  repository_path: String,
+  branch_prefix: String,
+  branch_name: String,
+) -> Result<Vec<Commit>, CommandError> {
   let git = (*git_executor).clone();
   run_blocking(move || {
     // Detect the baseline branch (prefer "master" as default)
     let baseline_branch = detect_baseline_branch(&git, &repository_path, "master")?;
-    get_commits(&git, &repository_path, &branch_name, &baseline_branch)
+    get_commits(&git, &repository_path, &branch_prefix, &branch_name, &baseline_branch)
   })
   .await
 }

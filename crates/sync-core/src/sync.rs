@@ -10,7 +10,7 @@ use crate::update_project::{BaselineCheck, check_baseline_update_with};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::cache::STACK_NOTES_REF;
-use branch_integration::detector::{DetectConfig, detect_integrated_branches};
+use branch_integration::detector::{archive_and_clean_up, detect_archived_branches};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -217,6 +217,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   branch_prefix: &str,
   issue_config: IssueConfigSource,
   detection_strategy: DetectionStrategy,
+  archive_retention_days: u64,
   progress: &P,
 ) -> Result<PreparedSync> {
   // Use cached issue config if available (including a cached "none"), otherwise load it
@@ -286,6 +287,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
         baseline_branch: &baseline_branch,
         strategy: detection_strategy,
         cache: true,
+        retention_days: archive_retention_days,
       };
       let empty_parents = empty_parent_states(git_executor, repository_path, branch_prefix, &branch_refs, &forest, detection)?;
       Some(place_branches(&forest, &empty_parents))
@@ -605,13 +607,37 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let repository_path = repository_path.to_string();
     let branch_prefix = branch_prefix.to_string();
     let progress = progress.clone();
-    move || prepare_sync(&git_executor, &repository_path, &branch_prefix, issue_config, detection_strategy, &progress)
+    move || {
+      prepare_sync(
+        &git_executor,
+        &repository_path,
+        &branch_prefix,
+        issue_config,
+        detection_strategy,
+        archive_retention_days,
+        &progress,
+      )
+    }
   })
   .await
   .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
 
-  // Phase 2: integration detection and branch processing run concurrently, beside the update check
+  // The archive step before any virtual branch is rebuilt: a rebuilt `(foo/bar)` can't be created while the virtual
+  // branch of the former `(foo)` still exists (git's directory/file rule). Only ref writes, fast. Its failure fails
+  // the detection only, the branches are still rebuilt.
   let active_branches: HashSet<String> = branches.keys().cloned().collect();
+  let archived = tokio::task::spawn_blocking({
+    let git_executor = git_executor.clone();
+    let repository_path = repository_path.to_string();
+    let branch_prefix = branch_prefix.to_string();
+    let progress = progress.clone();
+    move || archive_and_clean_up(&git_executor, &repository_path, &branch_prefix, &active_branches, archive_retention_days, &progress)
+  })
+  .await
+  .map_err(|e| anyhow!("Archive task failed: {e}"))
+  .flatten();
+
+  // Phase 2: integration detection and branch processing run concurrently, beside the update check
   let detection = tokio::task::spawn_blocking({
     let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
@@ -619,17 +645,15 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let baseline_branch = baseline_branch.clone();
     let progress = progress.clone();
     move || {
-      detect_integrated_branches(
+      detect_archived_branches(
         &git_executor,
         &repository_path,
         &branch_prefix,
         &baseline_branch,
-        DetectConfig {
-          active_branches: &active_branches,
-          progress: &progress,
-          strategy: detection_strategy,
-          retention_days: archive_retention_days,
-        },
+        archived?,
+        detection_strategy,
+        archive_retention_days,
+        &progress,
       )
     }
   });

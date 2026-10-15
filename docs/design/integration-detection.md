@@ -23,9 +23,10 @@ Results are cached as git notes on branch tip commits, providing instant lookups
 ```mermaid
 flowchart TB
     subgraph "Sync Process"
-        A[Start Sync] --> B[Cleanup Old Archives]
-        B --> C[Load Branch Data]
-        C --> D[Archive Inactive]
+        A[Start Sync] --> C[Load Branch Data]
+        C --> B[Cleanup Old Archives]
+        B --> D[Archive Inactive]
+        D --> R[Rebuild Virtual Branches]
     end
     
     subgraph "Detection Engine"
@@ -71,7 +72,7 @@ flowchart TB
    a note reused forever kept a merged branch "not integrated" in the archived card, and a stack parent "has no
    commits" instead of "landed" (a tip noted at 12:28, merged at 12:30, archived at 12:37 from the stale note). A full
    re-detection is no option for old archives (21.7 s for a 5-month-old one against 78k upstream commits, while the
-   patch ids of one day of upstream commits cost 0.15 s). So step 4 of `detect_integrated_branches`:
+   patch ids of one day of upstream commits cost 0.15 s). So `detect_archived_branches`:
    - `Integrated` or `Partial`, or `NotIntegrated` with `b` equal to the baseline: reported from the note;
    - `NotIntegrated` with a `b` the baseline descends from (`merge-base --is-ancestor`, one process per distinct `b`):
      the incremental recheck (`rebase::recheck_rebase_status`). The scan keeps the branch side as it is and shrinks
@@ -120,11 +121,24 @@ flowchart TB
    still parses, without a commit. The archived card shows it as "Merged as abc12345 by <committer>",
    with the full hash to copy; the "Integrated" column shows the time once.
 
-9. **Decision**: `ArchivedBranchesFound` carries `newlyArchived`, the branches this sync archived
+9. **Decision**: The archive step runs before the virtual branches are rebuilt, best effort, by namespace
+   **Rationale**: `archive_and_clean_up` (cleanup and archive, ref writes only) runs right after the grouping;
+   `detect_archived_branches` then runs beside the rebuild. Run beside it, the archive raced the rebuild of a renamed
+   group: `(foo)` renamed to `(foo/bar)` can't create `virtual/foo/bar` while `virtual/foo` exists (git's
+   directory/file rule). Each step is one `RefTransaction` with the tips read as old values (`branch-deck: archive`,
+   `branch-deck: clean up archived branches`); a failure, e.g. a tip `bd` moved in another process (the app's sync takes
+   no repository lock), leaves everything in place for the next sync and still detects the archived branches. A branch
+   checked out in a worktree (`%(worktreepath)` of the one `for-each-ref`) is neither archived nor cleaned up: an
+   `update-ref` delete would leave that worktree on an unborn branch. A branch is virtual or archived by its namespace
+   (`strip_branch_namespace`, `BranchKind::Archived`), never by a `/virtual/` anywhere in it: a group name may contain
+   one, and an unapplied branch named `x/archived/y` must not be cleaned up. A detection that fails leaves no result;
+   when the sync ends, the UI shows such a row as "Not checked" (`settleArchivedPlaceholders`).
+
+10. **Decision**: `ArchivedBranchesFound` carries `newlyArchived`, the branches this sync archived
    **Rationale**: Archiving is the moment a branch landed; the archived card marks those rows "New" for the rest of
    the session, until the user dismisses what landed, instead of the branch silently moving into a collapsed card.
 
-10. **Decision**: Landed commits are found by author email, author time and subject without the `(prefix)`, with the
+11. **Decision**: Landed commits are found by author email, author time and subject without the `(prefix)`, with the
    replay onto the upstream as the ground truth where it is known
    **Rationale**: Archiving sees only whole branches, and only after the update. A Safe Push robot, `git rebase` and
    `cherry-pick` keep the author, the author time and the message, and the pushed message is the local one without the
@@ -173,7 +187,8 @@ flowchart TB
 
 - **Performance Optimizations**:
   - Batch fetch all branch data (tips and subjects in one `for-each-ref`, notes in one `log --no-walk --stdin`)
-  - `detect_integrated_branches` is synchronous and runs in one `spawn_blocking`; fresh detections run on
+  - `archive_and_clean_up` and `detect_archived_branches` are synchronous, each in one `spawn_blocking` (the first
+    before the rebuild, the second beside it; `detect_integrated_branches` runs both); fresh detections run on
     `std::thread::scope` workers bounded by `git_executor::concurrency::max_parallel_git_processes()`
   - Stream results as events for UI responsiveness; cache notes are written sequentially afterwards
 

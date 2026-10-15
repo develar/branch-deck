@@ -29,3 +29,6 @@ pub mod stack_tests;
 
 #[cfg(test)]
 pub mod recheck_tests;
+
+#[cfg(test)]
+pub mod archive_step_tests;

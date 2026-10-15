@@ -1,5 +1,5 @@
 import type { ComponentType } from "react"
-import { ChartPieIcon, GitMergeIcon, TriangleAlertIcon } from "lucide-react"
+import { ChartPieIcon, CircleDashedIcon, GitMergeIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
@@ -9,8 +9,8 @@ import type { ArchivedBranch } from "@/stores/archived-branches"
 
 /**
  * Integration status of an archived branch: "Merged" with the merge icon in `info` (the merged colour of the pull request,
- * Patronus and Landed chips), "Partially merged · 1 of 2" muted, "Not merged" `warning`. The counts and the merge
- * commit are in the tooltip.
+ * Patronus and Landed chips), "Partially merged · 1 of 2" muted, "Not merged" `warning`, "Not checked" muted when the
+ * detection failed. The counts and the merge commit are in the tooltip.
  */
 export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }) {
   if (branch.type === "placeholder") {
@@ -19,6 +19,10 @@ export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }
         <Spinner className="size-3 text-muted-foreground" />
       </div>
     )
+  }
+
+  if (branch.type === "unknown") {
+    return <ArchivedStatus status="unknown" icon={CircleDashedIcon} iconClassName="text-muted-foreground" text="Not checked" tooltip="Integration could not be checked, see the log" />
   }
 
   if (branch.type === "integrated") {
@@ -38,7 +42,7 @@ export function ArchivedBranchStatusBadge({ branch }: { branch: ArchivedBranch }
 }
 
 interface ArchivedStatusProps {
-  status: "merged" | "partial" | "not-merged"
+  status: "merged" | "partial" | "not-merged" | "unknown"
   icon: ComponentType<{ className?: string }>
   iconClassName: string
   text: string
