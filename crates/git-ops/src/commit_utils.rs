@@ -75,3 +75,8 @@ pub fn get_commit_info(git_executor: &GitCommandExecutor, repo_path: &str, id: &
     .next()
     .ok_or_else(|| anyhow!("commit {id} not found"))
 }
+
+/// Id of the empty tree in the repository's hash algorithm (SHA-1 or SHA-256); the object is not written
+pub fn empty_tree_id(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+  git_executor.execute_command_with_input(&["hash-object", "-t", "tree", "--stdin"], repo_path, "")
+}

@@ -1,5 +1,6 @@
 use crate::cat_file_batch::parse_batch_output;
 use crate::commit_list::Commit;
+use crate::commit_utils::empty_tree_id;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -281,6 +282,7 @@ pub(crate) fn batch_rev_parse(git_executor: &GitCommandExecutor, repo_path: &str
     }
   } else {
     // If some refs failed, fall back to individual resolution
+    let mut empty_tree = None;
     for &ref_str in refs {
       match git_executor.execute_command(&["rev-parse", ref_str], repo_path) {
         Ok(hash) => {
@@ -289,7 +291,12 @@ pub(crate) fn batch_rev_parse(git_executor: &GitCommandExecutor, repo_path: &str
         Err(_) => {
           // For parent refs that don't exist (first commit), use empty tree
           if ref_str.ends_with('^') {
-            result.insert(ref_str.to_string(), "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_string());
+            if empty_tree.is_none() {
+              empty_tree = Some(empty_tree_id(git_executor, repo_path)?);
+            }
+            if let Some(tree) = &empty_tree {
+              result.insert(ref_str.to_string(), tree.clone());
+            }
           }
         }
       }
@@ -348,13 +355,17 @@ pub(crate) fn batch_get_file_diffs(
   requests.extend(parent_commits.iter().map(|parent_hash| (parent_hash.as_str(), all_files.as_slice())));
   let all_contents = get_files_content_at_revisions(git_executor, repo_path, &requests)?;
 
+  // A root commit has no parent: its diff is against the empty tree
+  let empty_tree = if parent_refs.iter().all(|parent_ref| resolved_parents.contains_key(parent_ref)) {
+    String::new()
+  } else {
+    empty_tree_id(git_executor, repo_path)?
+  };
+
   // Now generate diffs for each commit
   for (commit_hash, files) in commit_files_map {
     let parent_ref = format!("{commit_hash}^");
-    let parent_hash = resolved_parents
-      .get(&parent_ref)
-      .cloned()
-      .unwrap_or_else(|| "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_string());
+    let parent_hash = resolved_parents.get(&parent_ref).cloned().unwrap_or_else(|| empty_tree.clone());
 
     // Get the unified diff for all files at once
     let mut show_args = vec!["-c", "core.quotePath=false", "--no-pager", "show", "--format="];

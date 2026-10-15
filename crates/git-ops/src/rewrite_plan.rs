@@ -3,6 +3,7 @@
 //! `git replay`, which writes only objects; the branch moves in one ref transaction, and the index follows only where
 //! HEAD's tree changed.
 
+use crate::commit_utils::empty_tree_id;
 use crate::commit_writer::{NewCommit, NewParent, RawCommit, current_committer, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::model::BranchError;
@@ -475,11 +476,7 @@ impl PlanWriter<'_> {
 
   /// Id of the empty tree in the repository's hash algorithm; the object is not written
   fn empty_tree(&self) -> Result<String, CopyCommitError> {
-    Ok(
-      self
-        .git_executor
-        .execute_command_with_input(&["hash-object", "-t", "tree", "--stdin"], self.repo_path, "")?,
-    )
+    Ok(empty_tree_id(self.git_executor, self.repo_path)?)
   }
 
   /// Number of first-parent commits from `tip` down to, not including, `base` (all of them without a base)
