@@ -31,10 +31,11 @@ pub struct TestRepository {
   /// What `get_review_requests` answers and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a
   /// test sets it
   pub review_requests: RwLock<ReviewRequestsFixture>,
-  /// How often the app asked for review requests, fetched a review and pruned the review refs
+  /// How often the app asked for review requests and fetched a review
   pub review_request_calls: AtomicU32,
   pub review_fetch_calls: AtomicU32,
-  pub review_prune_calls: AtomicU32,
+  /// The `keep` of every `prune_review_refs`, in call order
+  pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
   /// What `get_patronus_robots` answers (E2E never calls Patronus); not on Space until a test sets it
   pub patronus: RwLock<PatronusRobotsResult>,
   /// How often the app listed and polled the robots, so a test can check the request policy

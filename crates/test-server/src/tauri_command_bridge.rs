@@ -379,7 +379,8 @@ pub async fn get_review_requests(
   Ok(Json(repo.review_requests.read().expect("review request fixture lock").result.clone()))
 }
 
-/// The range of the test repository without a network: an empty head is the tip of `HEAD`, an empty base the baseline
+/// The range of the test repository without a network: an empty head is the tip of the local branch `headRefName`
+/// (else of `HEAD`), an empty base the baseline
 /// (`HEAD~2` when the baseline is `HEAD`, or less in a short template), so both commits are local and the real `fetch_review_head` only reads them.
 /// The progress channel is not mocked; the fixture's `fetchError` fails it
 pub async fn fetch_review_head(
@@ -399,7 +400,7 @@ pub async fn fetch_review_head(
     let path = params.repository_path.clone();
     let commit = |rev: &str| git_executor.execute_command(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], &path);
     if params.head_ref_oid.is_empty() {
-      params.head_ref_oid = commit("HEAD")?;
+      params.head_ref_oid = commit(&format!("refs/heads/{}", params.head_ref_name)).or_else(|_| commit("HEAD"))?;
     }
     if params.base_ref_oid.is_empty() {
       let baseline = sync_core::baseline::detect_baseline_branch(&git_executor, &path, "master").and_then(|baseline| commit(&baseline));
@@ -421,8 +422,10 @@ pub async fn cancel_review_fetch() -> Json<()> {
 
 pub async fn prune_review_refs(State(state): State<Arc<AppState>>, Json(params): Json<sync_types::review_request::PruneReviewRefsParams>) -> CommandResult<()> {
   repository_by_path(&state, &params.repository_path)?
-    .review_prune_calls
-    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    .review_prune_keeps
+    .lock()
+    .expect("review prune lock")
+    .push(params.keep.clone());
   let git_executor = state.git_executor.clone();
   run_command("prune the review refs", move || {
     sync_core::review_fetch::prune_review_refs(&git_executor, &params.repository_path, &params.keep)

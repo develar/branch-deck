@@ -88,7 +88,7 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   assert!(patch["files"][0]["patch"].as_str().unwrap().contains("+Content 2"), "{patch}");
 
   post(&client, addr, "/invoke/cancel_review_fetch", Value::Null).await;
-  post(&client, addr, "/invoke/prune_review_refs", json!({ "repositoryPath": repository_path, "keep": [] })).await;
+  post(&client, addr, "/invoke/prune_review_refs", json!({ "repositoryPath": repository_path, "keep": [7] })).await;
 
   let failing = json!({ "availability": result["availability"], "totalCount": 1, "requests": [request("")], "fetchError": "GitHub asked for credentials: run gh auth setup-git" });
   post(&client, addr, &format!("/repositories/{id}/review-requests"), failing).await;
@@ -98,5 +98,5 @@ async fn review_routes_answer_the_fixture_without_a_network() {
     json!({ "status": "error", "error": { "message": "GitHub asked for credentials: run gh auth setup-git" } })
   );
 
-  assert_eq!(fixture_calls(&client, addr, &id).await, json!({ "calls": 2, "fetchCalls": 2, "pruneCalls": 1 }));
+  assert_eq!(fixture_calls(&client, addr, &id).await, json!({ "calls": 2, "fetchCalls": 2, "prunes": [[7]] }));
 }
