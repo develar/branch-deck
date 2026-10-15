@@ -166,6 +166,15 @@
       transform: translateX(200%);
     }
   }
+
+  /* a running Patronus robot (RobotRing): slower than a spinner, a robot runs for minutes */
+  --animate-robot-ring: robot-ring 2.4s linear infinite;
+
+  @keyframes robot-ring {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 }
 
 @theme inline {
@@ -376,7 +385,7 @@ diffs-container {
 
 /*
  * Reduced motion: no enter and exit animations or transitions. The progress indicators (animate-spin, animate-carousel,
- * animate-pulse) stay, they say that something runs.
+ * animate-robot-ring, animate-pulse) stay, they say that something runs.
  */
 @media (prefers-reduced-motion: reduce) {
   .animate-in,

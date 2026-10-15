@@ -11,6 +11,8 @@ import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveLis
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { restackBranch } from "@/hooks/useStackActions"
 import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
+import type { LaneHighlight } from "@/lib/landing-lanes"
+import { highlightedLanesBelow } from "@/lib/landing-lanes"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
@@ -26,12 +28,14 @@ export interface ActiveBranchExpandedProps {
   familyBelow?: boolean
   /** The place of the branch in the stack graph: the commits sit on its lane; null in a table without stacks */
   lanes?: StackLanes | null
+  /** The segments of a landing span in the row (`landingLanes`): the lanes of the span run on beside the commits */
+  landing?: LaneHighlight | null
 }
 
-export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes = null }: ActiveBranchExpandedProps) {
+export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes = null, landing = null }: ActiveBranchExpandedProps) {
   const genericError = branch.errorDetails?.Generic
   return (
-    <CommitRail familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes}>
+    <CommitRail familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
       {branch.status !== "Blocked" && <PassedParentAlert branch={branch} />}
       {genericError !== undefined
@@ -51,6 +55,7 @@ interface CommitRailProps {
   familyIndent: 0 | 1
   familyBelow: boolean
   lanes: StackLanes | null
+  landing: LaneHighlight | null
   children: ReactNode
 }
 
@@ -60,11 +65,11 @@ interface CommitRailProps {
  * the branch runs on into its children, or ends at the last commit. Without stacks, a neutral rail under the folder
  * icon, which runs into the family guide of the rows below; a family member keeps its guide beside it.
  */
-function CommitRail({ familyIndent, familyBelow, lanes, children }: CommitRailProps) {
+function CommitRail({ familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
   if (lanes !== null) {
     return (
       <>
-        <LaneLines lanes={lanesBelow(lanes, false)} />
+        <LaneLines lanes={lanesBelow(lanes, false)} highlighted={highlightedLanesBelow(lanes, landing)} />
         {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
         <div
           className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}

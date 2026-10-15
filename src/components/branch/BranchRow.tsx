@@ -10,8 +10,9 @@ import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { LandedChip } from "@/components/branch/LandedChip"
-import { PatronusChip } from "@/components/branch/PatronusChip"
+import { LandingSpanLabel } from "@/components/branch/LandingSpanLabel"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
+import { RobotProgressRow } from "@/components/branch/SafePushSlot"
 import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
 import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
@@ -21,6 +22,9 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
+import type { LaneHighlight } from "@/lib/landing-lanes"
+import { highlightedLanesBelow } from "@/lib/landing-lanes"
+import { isRobotActive } from "@/lib/patronus"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
@@ -28,6 +32,7 @@ import { getShownBranches } from "@/stores/branch-filter"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
+import { useBranchRobot } from "@/stores/patronus"
 
 const InlineRenameBranchInput = lazy(() => import("@/components/branch/InlineRenameBranchInput").then(it => ({ default: it.InlineRenameBranchInput })))
 const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineIssueReferenceInput").then(it => ({ default: it.InlineIssueReferenceInput })))
@@ -49,6 +54,8 @@ export interface BranchRowProps {
   familyIndent?: 0 | 1
   /** Its place in the stack graph; null in a table without stacks */
   lanes?: StackLanes | null
+  /** The segments of a landing span in the row (`landingLanes`), in the colour of the robot; null outside one */
+  landing?: LaneHighlight | null
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
   /** Not a match of the filter, shown because a match stacks on it: faded, still interactive (`data-dimmed`) */
@@ -64,8 +71,11 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, showIssueKey = false, dimmed = false, familyBelow = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, landing = null, showIssueKey = false, dimmed = false, familyBelow = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
+  // the node of a branch whose robot runs has the ring of the Safe Push slot
+  const robot = useBranchRobot(name)
+  const robotRuns = robot !== undefined && isRobotActive(robot)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
   // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too
@@ -125,7 +135,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them
   const commitsOnLane = expanded && branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
   // the lines beside the inline form and the amend conflict, and where their content starts
-  const gutter = lanes === null ? null : <LaneGutter lanes={lanesBelow(lanes, commitsOnLane)} familyIndent={familyIndent} />
+  const gutter = lanes === null ? null : <LaneGutter lanes={lanesBelow(lanes, commitsOnLane)} familyIndent={familyIndent} highlighted={highlightedLanesBelow(lanes, landing)} />
   const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
 
   return (
@@ -156,7 +166,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         <BranchNameCell
           name={name}
           familyIndent={familyIndent}
-          lanes={lanes === null ? undefined : <LaneCell lanes={lanes} branch={branch} familyIndent={familyIndent} lineDown={lanes.down || commitsOnLane} />}
+          lanes={lanes === null ? undefined : <LaneCell lanes={lanes} branch={branch} familyIndent={familyIndent} lineDown={lanes.down || commitsOnLane} ring={robotRuns} highlight={landing} />}
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
           summary={branch.summary}
@@ -173,8 +183,9 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           {/*
             three columns, so each chip kind keeps its column across rows: the status text (7rem at least), the pull
-            request chip, then the Patronus and Landed chips and "on master" of a branch built elsewhere;
-            `justify-start` keeps the auto columns at their content width
+            request chip, then the Landed chip, the robot of a branch built on it that lands it, or "on master" of a
+            branch built elsewhere; `justify-start` keeps the auto columns at their content width. The robot of the
+            branch is in the Safe Push slot of the Actions cell.
           */}
           <div className="grid grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2">
             <BranchStatusBadge branch={branch} showDot={lanes === null} />
@@ -182,9 +193,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
               <PullRequestChip branchName={name} />
             </div>
             <div className="col-start-3 flex items-center gap-2">
-              <PatronusChip branchName={name} />
               <LandedChip branchName={name} />
-              <PassedParentLabel branch={branch} />
+              <LandingSpanLabel name={name} fallback={<PassedParentLabel branch={branch} />} />
             </div>
           </div>
         </td>
@@ -192,6 +202,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
           <BranchActions branch={branch} setExpanded={setExpanded} />
         </td>
       </BranchContextMenuRow>
+
+      <RobotProgressRow name={name} columnCount={columnCount} insetClass={insetClass} />
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
         <tr className={blockDropClass} {...dropTarget.dropProps}>
@@ -241,7 +253,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         <tr data-testid="branch-commits-row" className={blockDropClass} {...dropTarget.dropProps}>
           {/* with lanes, the cell positions their lines and the rail pads itself */}
           <td colSpan={columnCount} className={lanes === null ? "px-0 py-(--bd-cell-y)" : "relative p-0"}>
-            <ActiveBranchExpanded branch={branch} familyIndent={familyIndent} lanes={lanes} familyBelow={familyBelow} highlightTipCommit={activeInline?.type === "amend-changes"} />
+            <ActiveBranchExpanded branch={branch} familyIndent={familyIndent} lanes={lanes} landing={landing} familyBelow={familyBelow} highlightTipCommit={activeInline?.type === "amend-changes"} />
           </td>
         </tr>
       )}

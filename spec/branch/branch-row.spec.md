@@ -1,6 +1,6 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the Actions cell with the push button, "Safe Push…" and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request and Landed chips in fixed columns, the Actions cell with the compact push button, the Safe Push slot (the robot of the branch, or "Safe Push…") and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
@@ -23,6 +23,9 @@ targets:
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/LandingSpanLabel.tsx
+  - ../../src/lib/landing-lanes.ts
   - ../../src/components/shared/RowActions.tsx
   - ../../src/components/shared/MoreActionsMenu.tsx
   - ../../src/components/shared/MenuItems.tsx
@@ -62,11 +65,12 @@ Date: 2026-10-15
 
 The branch table lists the active virtual branches, one row per branch; the archived table below it lists the branches
 a sync archived. A row reads from left to right: the folder that expands the commits and the branch name, the commit
-count, the Status cell and the actions. The Status cell has one status text and up to three chips (the pull request,
-the Patronus robot, the landed commits), each kind in its own column, so a look down the table compares like with
-like. Stacked branches are a graph, root on top, with a lane per line that runs in parallel and a node per branch in the
-colour of its status; the branches of an issue hang one indent level under it. The commits of an expanded branch sit
-on its lane.
+count, the Status cell and the actions. The Status cell has one status text and up to two chips (the pull request, the
+landed commits), each kind in its own column, so a look down the table compares like with like. The actions are compact:
+the copy icon, the push as an arrow and its count, then the Safe Push slot, the one labelled action, which is the robot
+of the branch while one runs or finished, and "⋯". Stacked branches are a graph, root on top, with a lane per line that
+runs in parallel and a node per branch in the colour of its status; the branches of an issue hang one indent level
+under it. The commits of an expanded branch sit on its lane.
 
 ## Goals
 
@@ -93,7 +97,7 @@ on its lane.
 
 - The branch table must have the columns Branch Name, Commits, Status and Actions. The name must take the free width,
   the other columns their content width. Commits and Status hide below `sm`.
-- The Status column must be 16rem wide at least, so chips that arrive after the sync do not reflow the table.
+- The Status column must be 12rem wide at least, so chips that arrive after the sync do not reflow the table.
 - A long name or subject must truncate, not wrap: the row stays one line high.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A subject with less than 6rem of free width must drop out instead of truncating to a letter or two.
@@ -133,6 +137,13 @@ on its lane.
   only with remote commits its push drops ([Push colours](../repository/outgoing.spec.md#push-colours)).
   [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`, `is a filled node in the push colour for an amended or restacked branch: its push replaces older versions`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and name the pull request base`)
+- The node of a branch whose robot runs must have the rotating ring of its Safe Push slot around it. The lines of a
+  landing span, from the root of the stack down to the branch whose running Safe Push lands the branches it is built
+  on, must be drawn in the colour of the robot: the line down from each branch of the span, the lanes passing the side
+  branches between them, and the line up or the fork curve into the next one, also beside the expanded commits and the
+  inline forms (`landingLanes`, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
+  [@test] ../../src/lib/landing-lanes.test.ts (`draws the span from the root down to the branch whose robot lands it, past the side branches between`, `curves into a side branch whose robot lands its parent, and leaves the main line alone`, `stops where the graph doesn't connect the branches of a span`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
 - A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
   with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
   column. An issue row without a branch of its own heads its branches with the issue key and the count of its
@@ -159,11 +170,13 @@ on its lane.
 ### Status cell
 
 - The Status cell must be a grid of three columns: the status text (7rem at least), the pull request chip, then the
-  Patronus chip and the Landed chip, in this order, and the muted "on master" of a stacked branch built elsewhere
-  because its parent has no commits ([Blocked](#blocked)). A missing chip leaves its column empty, and the next chip
-  keeps its own column.
+  Landed chip and the muted "lands with oauth" of a branch a running Safe Push of a branch built on it lands
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)), else the muted "on master" of a stacked branch built
+  elsewhere because its parent has no commits ([Blocked](#blocked)). A missing chip leaves its column empty, and the
+  next chip keeps its own column. The robot of the branch is in the Safe Push slot of the Actions cell, not here.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Safe Push slot`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The status text must follow the first that applies: the sync progress ("syncing 3/10…"), an error or a conflict
   ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
@@ -205,27 +218,34 @@ on its lane.
 
 ### Actions cell
 
-- The Actions cell must show, in this order: the copy button at its start, then, at its end, the push button,
-  "Safe Push…" and "⋯". So the last two line up across the rows, whatever the push label; the column is as wide as its
-  widest row and doesn't wrap.
+- The Actions cell must show, in this order: the copy button at its start, then, at its end, the push button, the Safe
+  Push slot and "⋯". The push button and the slot have one width in every row, so the push arrows, the slot's icons and
+  "⋯" line up down the table; the column is as wide as its widest row and doesn't wrap.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should handle branch with commits state`)
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A click in the cell must not toggle the row: on a button, on a disabled one (it passes the click on) and in the
   menu "⋯" opens (its popup is in the row's React tree; a right-click in it doesn't open the row menu either).
 - The copy button must always be visible and copy the full branch name, `{prefix}/virtual/{name}`.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
-- The push button must follow [Outgoing Commits](../repository/outgoing.spec.md): its label ("Push (2)", "Create
-  Remote (3)", "Force Push (1)"), its colour (the push colour of the branch as the text of a ghost button, neutral when
-  up to date or landed) and its description on hover, also while it is disabled, with the remote commits a force push
-  drops, the question before a push that drops them, and the progress of a running push. A branch with an error or
-  without commits has no push button.
+- The push button must follow [Outgoing Commits](../repository/outgoing.spec.md), compact: an up arrow and the count of
+  the commits it sends ("↑ 3", the arrow alone without a count), "45%" after the spinner while it pushes. Its label
+  ("Push (2)", "Create Remote (3)", "Force Push (1)", "Push Stack (16)", "Pushing 45%") is its accessible name and the
+  first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
+  drops, the question before a push that drops them, and the progress of a running push. Its colour is the push colour
+  of the branch as the text of a ghost button (the arrow for `primary`), neutral when up to date or landed. The preview
+  footer and the outgoing overview keep the labelled button. A branch with an error or without commits has no push
+  button.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
-- On Space (Patronus answered), a branch with a push button must have "Safe Push…": it opens the Safe Push form below
-  the row, disabled with the reason on hover when a start is not possible
-  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The product lands through Safe Push, so it is not
-  only behind the right-click.
+- On Space (Patronus answered), the Safe Push slot must be "Safe Push…" for a branch with a push button and without a
+  robot of it as it is: it opens the Safe Push form below the row, disabled with the reason on hover when a start is not
+  possible ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The product lands through Safe Push, so it
+  is the one labelled action and not only behind the right-click. While a robot of the branch runs or finished, the
+  slot is the robot, and the row hover gives a finished one's text to "Safe Push…"
+  ([Patronus](patronus.spec.md#safe-push-slot)).
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Safe Push slot`, `should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
   knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
   The outgoing overview keeps only the push button.
@@ -353,7 +373,7 @@ on its lane.
 - Every cell has the vertical padding `--bd-cell-y` (6px), so a row is 36px around the 24px folder button, as dense as
   an IntelliJ list. The name cell has `px-6`, a family member `pl-8 pr-6`; in a table with stacks `pl-(--bd-lane-start)`
   (1.25rem, the left edge of a lane-0 node under the header text) and `pr-6`, the folder button at `--bd-tree-x` after
-  the lane column. The other cells have `px-4`, `w-px` and `whitespace-nowrap`. The Status `<th>` has `min-w-[16rem]`.
+  the lane column. The other cells have `px-4`, `w-px` and `whitespace-nowrap`. The Status `<th>` has `min-w-[12rem]`.
 - The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
 - An expanded row fades its commits in (150ms, opacity only).
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
@@ -367,14 +387,18 @@ on its lane.
   over the row (`preserveAspectRatio="none"`, `vector-effect: non-scaling-stroke`); the fork is a quadratic curve from
   the parent's lane at the top of the row into the left edge of the node, and the lines end at the edge of the node.
   The node is `size-2 rounded-full` with a 1.5px border in the status colour (`currentColor`), `bg-current` when
-  filled; its `ring` (an outline 2px off it) is kept for a running robot. The commit dots are 5px in `--bd-lane-dot`
+  filled; a running robot puts its `RobotRing` around it (`lane-ring`: `size-4`, the lane's width, a thinner and wider
+  ring than in the slot, so the node keeps its gap; `text-primary`, turning). The
+  segments of a landing span are a 1.5px stroke in `--color-primary` over the lines (`landing-lanes`), the colour of
+  the ring and of the robot's progress line. The commit dots are 5px in `--bd-lane-dot`
   (`bd-lane-rail`), the content of the rows below a branch row starts at `--bd-row-inset`.
 - The commit count is `text-sm text-muted-foreground`.
 
 ### Status
 
 - The grid is `grid-cols-[minmax(7rem,auto)_auto_auto] items-center justify-start gap-2`; the third column is a
-  `flex items-center gap-2` of the Patronus and the Landed chip, then the `text-xs text-muted-foreground` "on master".
+  `flex items-center gap-2` of the Landed chip, then the `text-xs text-muted-foreground` "lands with oauth" or "on
+  master".
 - The status text is `text-sm text-muted-foreground`, at most `max-w-40` and truncated, after a `size-1.5` dot. The
   badge is the subtle badge of its colour.
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
@@ -390,9 +414,12 @@ on its lane.
 ### Actions
 
 - The copy button is a ghost `icon-xs` button, muted.
-- The push button is a ghost `xs` button with the upload icon, its text in the push colour (`ghostButtonColorClass`).
-- "Safe Push…" is a ghost `xs` button with the `ShieldCheckIcon` in the foreground colour; disabled, it is dimmed to
-  `opacity-50` and keeps its hover (`focusableWhenDisabled`).
+- The push button is a ghost `xs` button, `min-w-16 justify-start` (so "⟳ 100%" fits and the arrows stand in a column),
+  with the `ArrowUpIcon` (the one of the outgoing indicator) and the count in tabular figures, in the push colour
+  (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.
+- The Safe Push slot is `w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push…" is a ghost `xs` button with
+  the `ShieldCheckIcon` in the foreground colour; disabled, it is dimmed to `opacity-50` and keeps its hover
+  (`focusableWhenDisabled`).
 - "⋯" is a ghost `icon-xs` button with the `EllipsisIcon`, muted, named "More actions for feature-auth", with the
   tooltip "More actions". Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
   (`w-auto min-w-36`, as the context menu); one renderer, `MenuItems` with the primitives of either menu, draws both.
@@ -426,8 +453,8 @@ on its lane.
 - `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/branch-filter` (the keys),
   `tests/e2e/archived-branches`, the chip specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a
   failure is a `page.route` of the command with status 500). E2E reads the status text by
-  `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`) and
-  `lane-lines`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
+  `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`,
+  `data-ring`), `lane-ring`, `lane-lines` and `landing-lanes`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
   archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
 
 ## Open Questions / Risks
@@ -435,7 +462,8 @@ on its lane.
 - A status text longer than 7rem ("blocked by IJPL-123", "2 (3)↑ · 1↓") moves the chips of its row to the right, and the
   third column follows the width of the pull request chip of its row: the chips line up across rows with short texts
   and the same chips only.
-- 16rem fits the status text and one or two chips; a row with all three widens the column once, when they load.
+- 12rem fits the status text and a chip; a row with both chips and a long status text widens the column once, when
+  they load.
 - In a table without stacks, the inline form row and the amend conflict row of a family member draw no guide: the guide
   pauses while a form is open.
 - The first branch stacked on another switches the table to the lane column: every name moves right by its width.
@@ -448,8 +476,10 @@ on its lane.
 - The commit subjects start at the name from `sm` up only: below it the commit rows have `px-4`, the name cell `px-6`.
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.
-- "Safe Push…" arrives with the first answer of Patronus, after the sync: the Actions column widens once then, and the
-  name column gives the room.
+- The Safe Push slot arrives with the first answer of Patronus, after the sync: the Actions column widens once then, and
+  the name column gives the room.
+- The compact push button shows the count, not the kind of push: a force push and a first push read alike in the row
+  (the status text and the colour tell them apart, the hover names them).
 
 ## References
 

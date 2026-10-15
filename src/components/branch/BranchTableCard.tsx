@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
@@ -18,10 +18,12 @@ import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
+import { landingLanes } from "@/lib/landing-lanes"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { syncBranches, useBranchSync, useFoundCommits, useVisibleBranchTableRows } from "@/stores/branch-sync"
+import { useLandingSpans } from "@/stores/patronus"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
 
@@ -40,6 +42,9 @@ export function BranchTableCard() {
   const visible = useFilteredBranches()
   const rows = useVisibleBranchTableRows(visible)
   const branchCount = useBranchSync(state => state.branchOrder.length)
+  // the lane segments a running Safe Push lands, from the root of its stack down to its branch
+  const spans = useLandingSpans()
+  const landing = useMemo(() => landingLanes(rows.flatMap(row => row.kind === "branch" ? [row] : []), spans), [rows, spans])
   const { expandedKeys, toggleExpanded: toggleRowExpanded, setExpanded } = useRowExpansion()
 
   // the fallback of Space while the table has the focus: the row last toggled or focused with the arrows
@@ -142,8 +147,8 @@ export function BranchTableCard() {
             <tr>
               <TableHeader>Branch Name</TableHeader>
               <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
-              {/* room for the status text and a chip or two, so the table doesn't reflow when the chips arrive */}
-              <TableHeader className="hidden w-px min-w-[16rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
+              {/* room for the status text, the pull request chip and the Landed chip, so the table doesn't reflow when the chips arrive */}
+              <TableHeader className="hidden w-px min-w-[12rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
               <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
             </tr>
           </thead>
@@ -162,6 +167,7 @@ export function BranchTableCard() {
                   depth={row.depth}
                   familyIndent={row.familyIndent}
                   lanes={row.lanes}
+                  landing={landing.get(name) ?? null}
                   showIssueKey={row.showIssueKey}
                   dimmed={row.dimmed}
                   familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}

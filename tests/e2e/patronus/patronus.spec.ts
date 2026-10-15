@@ -2,13 +2,15 @@
 import type { Locator, Page, Route } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
-// the `issue_links` template: 7 branches, none pushed
+// the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
+// before, and the merged one took an hour: the usual time of a Safe Push
+const NOW = 1704189600
 const RUNNING = robot("JIRA-456", "running-robot", { name: "JIRA-456 fix the database connection pool" })
 const FAILED = robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })
 const MERGED = robot("feature-db", "merged-robot", { status: "success", finishTime: 1704142800 })
@@ -23,7 +25,8 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
     await syncAndWaitForBranches()
     // the unassigned commits card can render after the branches and move the rows away from the pointer
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-    await expect(page.getByTestId("patronus-chip")).toHaveCount(5)
+    // the branch changed since the canceled robot of feature-api: its slot offers a new Safe Push
+    await expect(page.getByTestId("patronus-chip")).toHaveCount(4)
     await use(repo)
   }, { auto: true }],
 })
@@ -36,12 +39,22 @@ function hoverChip(page: Page, branchName: string): Promise<Locator> {
   return hoverStatusChip(page, getChip(page, branchName), "patronus-popover")
 }
 
+function getSlot(page: Page, branchName: string): Locator {
+  return findBranchRow(page, branchName).getByTestId("safe-push-slot")
+}
+
 test.describe("Patronus chip", () => {
-  test("should show each robot state in the status cell", async ({ page }) => {
+  test("should show each robot state in the Safe Push slot", async ({ page }) => {
+    // the live robot: its time, and the usual time of a Safe Push once it runs longer
     const running = getChip(page, "JIRA-456")
-    await expect(running).toHaveText("Running")
-    await expect(running).toHaveAccessibleName("Safe Push: Running")
-    await expect(running).toHaveAttribute("data-color", "neutral")
+    await expect(running).toHaveText("14h · usually ~1h")
+    await expect(running).toHaveAccessibleName("Safe Push: Running, 14 hours, longer than usual")
+    await expect(running).toHaveAttribute("data-kind", "running")
+    await expect(running.getByTestId("robot-ring")).toBeVisible()
+    // past the usual time the progress line under the row runs across
+    await expect(findBranchRow(page, "JIRA-456").locator("xpath=following-sibling::tr[1]").getByTestId("robot-progress")).toHaveAttribute("data-indeterminate", "true")
+    // the Status cell has no robot
+    await expect(findBranchRow(page, "JIRA-456").getByTestId("branch-status")).toHaveText("not pushed")
 
     await expect(getChip(page, "ABC-123")).toHaveAttribute("data-kind", "failed")
     await expect(getChip(page, "ABC-123")).toHaveAttribute("data-color", "error")
@@ -49,14 +62,28 @@ test.describe("Patronus chip", () => {
     await expect(getChip(page, "feature-db")).toHaveAttribute("data-color", "info")
     await expect(getChip(page, "feature-docs")).toHaveAccessibleName("Dry Run: Dry run passed")
     await expect(getChip(page, "feature-docs")).toHaveAttribute("data-color", "success")
-
-    const outdated = getChip(page, "feature-api")
-    await expect(outdated).toHaveAttribute("data-kind", "canceled")
-    await expect(outdated.getByTestId("patronus-outdated-dot")).toBeVisible()
     // tests the local tip: no warning dot
     await expect(running.getByTestId("patronus-outdated-dot")).toHaveCount(0)
 
-    await expect(getChip(page, "feature-auth")).toHaveCount(0)
+    // the branch changed since its robot: a new Safe Push, the robot is in the preview
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
+    await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push…" })).toBeEnabled()
+    await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-slot-kind", "start")
+    // the slot has one width in every row: the push buttons and "⋯" line up
+    const widths = await page.getByTestId("safe-push-slot").evaluateAll(slots => slots.map(slot => slot.getBoundingClientRect().width))
+    expect(new Set(widths).size).toBe(1)
+  })
+
+  test("should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield", async ({ page }) => {
+    const row = findBranchRow(page, "ABC-123")
+    const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Safe Push…" })
+    await expect(restart).toBeHidden()
+    await row.locator("td").nth(1).hover()
+    await expect(restart).toBeVisible()
+    await expect(getChip(page, "ABC-123")).toHaveAccessibleName("Safe Push: Failed")
+    // a merged branch has nothing to start
+    await findBranchRow(page, "feature-db").locator("td").nth(1).hover()
+    await expect(getSlot(page, "feature-db").getByRole("button", { name: "Safe Push…" })).toHaveCount(0)
   })
 
   test("should show the details on hover and open the robot on click", async ({ page }) => {
@@ -64,6 +91,7 @@ test.describe("Patronus chip", () => {
     await expect(popover.getByTestId("patronus-name")).toHaveText("JIRA-456 fix the database connection pool")
     await expect(popover.getByTestId("patronus-state")).toHaveText("Running")
     await expect(popover.getByTestId("patronus-target")).toHaveText("master")
+    await expect(popover.getByTestId("patronus-started")).toHaveText("Yesterday 9:00 PM · usually ~1 h · 14 h, longer than usual")
 
     await popover.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([RUNNING.url])
@@ -77,27 +105,37 @@ test.describe("Patronus chip", () => {
   })
 
   test("should say when the branch changed since the robot started, and how to test the branch as it is", async ({ page }) => {
+    // the row offers a new Safe Push; the preview has the robot
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
     // the remote doesn't have the change: a restart would test the commit the remote has, so the push comes first
-    let popover = await hoverChip(page, "feature-api")
-    await expect(popover.getByTestId("patronus-outdated")).toHaveText(/^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and restart to test the current branch\.$/)
-    await expect(popover.getByRole("button", { name: "Push and Restart" })).toBeVisible()
-    await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
-    await expect(popover.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
+    let preview = await openBranchPreview(page, "feature-api")
+    let details = preview.getByTestId("branch-preview-patronus")
+    await expect(preview.getByTestId("patronus-chip").getByTestId("patronus-outdated-dot")).toBeVisible()
+    await expect(details.getByTestId("patronus-outdated")).toHaveText(/^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and restart to test the current branch\.$/)
+    await expect(details.getByRole("button", { name: "Push and Restart" })).toBeVisible()
+    await expect(details.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
+    await expect(details.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expect(preview).toHaveCount(0)
 
     // pushed since the robot started: a restart takes the pushed commit
     await pushBranchFromRow(page, "feature-api")
-    await expect(getChip(page, "feature-api").getByTestId("patronus-outdated-dot")).toBeVisible()
-    popover = await hoverChip(page, "feature-api")
-    await expect(popover.getByTestId("patronus-outdated")).toHaveText(/: the result won't cover the newest commits\. Restart to test the current branch\.$/)
-    await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toBeVisible()
-    await expect(popover.getByRole("button", { name: "Push and Restart" })).toHaveCount(0)
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-slot-kind", "start")
+    // the closed push description gives the focus back to its button, which keeps Space: the row takes it
+    await expect(getPushButton(findBranchRow(page, "feature-api"))).toBeFocused()
+    await findBranchRow(page, "feature-api").focus()
+    preview = await openBranchPreview(page, "feature-api")
+    details = preview.getByTestId("branch-preview-patronus")
+    await expect(details.getByTestId("patronus-outdated")).toHaveText(/: the result won't cover the newest commits\. Restart to test the current branch\.$/)
+    await expect(details.getByRole("button", { name: "Restart Safe Push" })).toBeVisible()
+    await expect(details.getByRole("button", { name: "Push and Restart" })).toHaveCount(0)
   })
 
   test("should say only quietly that a robot started on an earlier build of the same commits", async ({ page }) => {
     // the remote branch is at the robot's commit and has the commits of the branch, which the sync rebuilt on a newer baseline
     await pushBranchFromRow(page, "feature-api", { remoteTip: EARLIER_COMMIT })
+    // the robot of the branch as it is: back in the slot, without the dot
+    await expect(getChip(page, "feature-api")).toHaveAttribute("data-kind", "canceled")
     await expect(getChip(page, "feature-api").getByTestId("patronus-outdated-dot")).toHaveCount(0)
     const popover = await hoverChip(page, "feature-api")
     await expect(popover.getByTestId("patronus-rebased")).toHaveText("Started on an earlier build of the same commits.")
@@ -111,6 +149,30 @@ test.describe("Patronus chip", () => {
 
     await switchBranchPreview(page, preview, "feature-auth")
     await expect(preview.getByTestId("branch-preview-patronus")).toHaveCount(0)
+  })
+})
+
+baseTest.describe("Patronus robot timing", () => {
+  baseTest("should count the time of a running robot and the time it usually takes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // two Safe Pushes of 40 minutes this week, of branches merged since; JIRA-456 started 18 minutes ago
+    const history = ["a", "b"].map(id => robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }))
+    await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
+    await syncAndWaitForBranches()
+    const chip = getChip(page, "JIRA-456")
+    await expect(chip).toHaveText("18m · ~22m left")
+    await expect(chip).toHaveAccessibleName("Safe Push: Running, 18 minutes, about 22 minutes left")
+    const progress = findBranchRow(page, "JIRA-456").locator("xpath=following-sibling::tr[1]").getByTestId("robot-progress")
+    await expect(progress).toHaveAttribute("aria-valuenow", "45")
+
+    // only the clock moves: the time ticks without a request to Patronus
+    await page.clock.fastForward("02:00")
+    await expect(chip).toHaveText("20m · ~20m left")
+    await expect(progress).toHaveAttribute("aria-valuenow", "50")
+
+    // past the usual time: the usual time instead of the time left, the progress line runs across
+    await page.clock.fastForward("25:00")
+    await expect(chip).toHaveText("45m · usually ~40m")
+    await expect(progress).toHaveAttribute("data-indeterminate", "true")
   })
 })
 

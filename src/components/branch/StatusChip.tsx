@@ -18,6 +18,8 @@ export interface StatusChipProps {
   /** A click: opens the item in the browser; without it a click opens the details */
   onActivate?: () => void
   onOpenChange?: (open: boolean) => void
+  /** Overrides of the trigger's look: the Safe Push slot of the row is a button among the buttons of the Actions cell */
+  className?: string
 }
 
 /**
@@ -25,7 +27,7 @@ export interface StatusChipProps {
  * underlines on hover, opens its details on hover and the item on click. A click does not toggle the row. No chip has an
  * outline: the icon and the hue tell the state; the focus ring follows the `rounded-2xl` of buttons and badges.
  */
-export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange }: StatusChipProps) {
+export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className }: StatusChipProps) {
   return (
     <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger
@@ -39,6 +41,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
             className={cn(
               "inline-flex h-5 shrink-0 items-center gap-1 rounded-2xl px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
               statusChipTextColors[color],
+              className,
             )}
             onClick={(event) => {
               // the row toggles on click

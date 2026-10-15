@@ -6,7 +6,7 @@ import { canStartRobot } from "@/lib/patronus"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getLandingAncestor, isPatronusAvailable } from "@/stores/patronus"
+import { getBranchRobot, getLandingAncestor, getLandingSpan, isPatronusAvailable } from "@/stores/patronus"
 
 export interface BranchRowKeysOptions {
   tableRef: RefObject<HTMLTableElement | null>
@@ -44,7 +44,7 @@ function openSafePush(name: string): void {
   if (branch === undefined || !isPatronusAvailable() || branch.hasError || branch.commitCount === 0 || isProcessing(name)) {
     return
   }
-  if (canStartRobot(branch, getBranchRobot(name), getLandingAncestor(name)).ok) {
+  if (canStartRobot(branch, getBranchRobot(name), getLandingAncestor(name), getLandingSpan(name)).ok) {
     openInline("safe-push", name)
   }
 }

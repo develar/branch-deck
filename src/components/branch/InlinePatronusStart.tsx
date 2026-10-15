@@ -18,7 +18,7 @@ import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { branchSyncStore, getBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { closeInline, openInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
-import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, usePatronusGitHubRepository } from "@/stores/patronus"
+import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusGitHubRepository } from "@/stores/patronus"
 import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
 
 /** The Select value of "no profile": Patronus runs the default checks of the target branch */
@@ -83,6 +83,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   // the branches the start pushes, root first: the stack while an ancestor has work for the remote
   const pushOrder = splitNames(useBranchSync(state => stackPushOrder(branchName, name => state.branches[name], { stopAtConfirm: true }).join("\n")))
   const landingAncestor = useLandingAncestor(branchName)
+  const landingSpan = useLandingSpan(branchName)
 
   const modeName = formatPushMode(mode)
   const options = state.status === "loaded" ? state.options : null
@@ -93,9 +94,10 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const pushesStack = pushOrder.length > 1
   const needsPush = remoteTip !== localTip || pushesStack
   const blocked = isStartBlocked(robot, localTip)
-  // a dry run pushes nothing into the target: it may run while an ancestor lands
+  // a dry run pushes nothing into the target: it may run while an ancestor lands, or while a descendant lands the branch
   const waitsForAncestor = mode === "rebaseAutosquash" ? landingAncestor : null
-  const canStart = options !== null && options.supported && !blocked && waitsForAncestor === null && !processing && !isPushing && localTip !== undefined && fromPullRequest?.blockedByDraft !== true
+  const landsWithDescendant = mode === "rebaseAutosquash" ? landingSpan : null
+  const canStart = options !== null && options.supported && !blocked && waitsForAncestor === null && landsWithDescendant === null && !processing && !isPushing && localTip !== undefined && fromPullRequest?.blockedByDraft !== true
   // the code owners don't check a dry run
   const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
@@ -218,6 +220,12 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
         <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-landing-ancestor">
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
           {`A ${formatPushMode(waitsForAncestor.robot.pushMode)} of ${waitsForAncestor.branch} is running: it lands ${waitsForAncestor.branch}'s commits, which ${branchName} carries. Start once it merged.`}
+        </p>
+      )}
+      {landsWithDescendant !== null && (
+        <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-landing-descendant">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+          {`A ${formatPushMode(landsWithDescendant.robot.pushMode)} of ${landsWithDescendant.branch} is running: ${landsWithDescendant.branch} is built on ${branchName}, so it pushes ${branchName}'s commits into ${target} too.`}
         </p>
       )}
       {state.status === "loading" && (

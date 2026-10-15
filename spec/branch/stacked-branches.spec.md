@@ -257,6 +257,10 @@ menu stacks, unstacks and renames branches.
 
 - A Safe Push of a stacked branch lands the branches it is built on with it, and a Safe Push of a parent moves its
   children onto the target: the Safe Push form says both and leads root first ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
+  While it runs, the branches it lands say "lands with oauth" in their Status cell and don't start a Safe Push of their
+  own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
+  robot.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
   ([Patronus](patronus.spec.md#merged)).
 

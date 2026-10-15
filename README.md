@@ -71,8 +71,10 @@ repositories: all operations run through the Git CLI.
   <owner>/<name>` names it.
 - **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
   merged, and whether the branch changed since it started (a sync that only rebuilt the branch on a newer baseline did
-  not). Start a Safe Push (a button in the row) or a Dry Run with a merge profile, restart (pushing first) or cancel it
-  from the branch; a push that would make a running Safe Push fail asks first. Before a Safe Push, the code-owner
+  not). While a robot runs, the Safe Push button of its row is the robot: how long it runs and about how long it has
+  left (learnt from your robots of the week), a progress line under the row, and "lands with …" on the parents it
+  lands. Start a Safe Push (the one labelled button in the row) or a Dry Run with a merge profile, restart (pushing
+  first) or cancel it from the branch; a push that would make a running Safe Push fail asks first. Before a Safe Push, the code-owner
   approvals it needs, with the merge request to create (also from the branch menu) or to open. A branch reviewed in a
   GitHub pull request starts from it: Branch Deck comments `/patronus merge`, so the approvals of the pull request
   count and Patronus closes it once merged. When a Safe Push merged,

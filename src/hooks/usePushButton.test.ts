@@ -42,7 +42,8 @@ describe("getPushButtonState", () => {
   })
 
   it("counts the commits the push sends in every label, the user's share in the description", () => {
-    expect(state({ commitsAhead: 3, myCommitsAhead: 2 })).toMatchObject({ text: "Push (3)", tooltip: "2 of 3 commits to push are yours." })
+    // the count of the compact button in the row
+    expect(state({ commitsAhead: 3, myCommitsAhead: 2 })).toMatchObject({ text: "Push (3)", count: 3, tooltip: "2 of 3 commits to push are yours." })
     expect(state({ exists: false, commitsAhead: 3, myCommitsAhead: 0 })).toMatchObject({
       text: "Create Remote (3)",
       tooltip: "3 commits to push, none of them yours.\nThe branch isn't on the remote yet: the push creates it.",
@@ -54,6 +55,7 @@ describe("getPushButtonState", () => {
     // a force push that sends nothing only drops the remote commits
     expect(state({ commitsBehind: 2, fastForward: false, droppedCommits: commits(2) })).toMatchObject({
       text: "Force Push",
+      count: 0,
       tooltip: "Force push replaces the remote branch.\nThe remote has 2 commits your branch doesn't (by Ann).",
     })
   })
@@ -88,7 +90,7 @@ describe("getPushButtonState", () => {
   })
 
   it("says that everything is pushed, and when, for an up to date branch", () => {
-    expect(state({})).toMatchObject({ text: "Push", tooltip: "Everything is pushed.", disabled: true })
+    expect(state({})).toMatchObject({ text: "Push", count: 0, tooltip: "Everything is pushed.", disabled: true })
     expect(state({ lastPushTime: 1704139200 }).tooltip).toMatch(/^Everything is pushed\.\n\nPushed /)
   })
 
@@ -116,6 +118,7 @@ describe("getPushButtonState", () => {
     const push = stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, oauth] } })
     expect(push).toMatchObject({
       text: "Push Stack (3)",
+      count: 3,
       color: "primary",
       disabled: false,
       confirm: false,

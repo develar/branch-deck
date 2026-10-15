@@ -14,6 +14,8 @@ import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
 
 export interface PushButtonState {
   text: string
+  /** The commits the push sends, the count of the label ("Force Push (1)", the sum of a Push Stack); 0 without one */
+  count: number
   color: UIColor
   tooltip: string
   /** The remote commits a force push drops, listed under the tooltip; null when it drops none */
@@ -136,7 +138,7 @@ export function getPushButtonState(
 ): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
-    return { text: "Push", color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, pushesStack: false, action: null, childrenAction: null }
+    return { text: "Push", count: 0, color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, pushesStack: false, action: null, childrenAction: null }
   }
   const remoteStatus = branch.remoteStatus
   const parent = branch.stack?.effectiveBase ?? null
@@ -144,6 +146,7 @@ export function getPushButtonState(
   const pushAction = getPushAction(branch)
 
   let text = "Push"
+  let count = 0
   let tooltip = "Push branch to remote"
   let dropped: DroppedCommits | null = null
   if (remoteStatus != null && texts != null) {
@@ -151,6 +154,9 @@ export function getPushButtonState(
     const { commitsAhead } = remoteStatus
     const withCount = (label: string): string => commitsAhead > 0 ? `${label} (${commitsAhead})` : label
     tooltip = texts.tooltip
+    if (pushAction !== "upToDate") {
+      count = commitsAhead
+    }
     if (pushAction === "create") {
       text = withCount("Create Remote")
     }
@@ -181,7 +187,8 @@ export function getPushButtonState(
     if (unpushedParent !== null && stack.length > 1) {
       // the pull request of the branch is right only once its parents are on the remote: the button pushes them too
       pushesStack = true
-      text = `Push Stack (${stack.reduce((sum, it) => sum + (it.remoteStatus?.commitsAhead ?? 0), 0)})`
+      count = stack.reduce((sum, it) => sum + (it.remoteStatus?.commitsAhead ?? 0), 0)
+      text = `Push Stack (${count})`
       tooltip = describeStackPush(stack)
       color = stackPushColor(branch, stack)
       action = {
@@ -208,6 +215,7 @@ export function getPushButtonState(
 
   return {
     text,
+    count,
     color,
     tooltip,
     dropped,

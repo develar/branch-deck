@@ -275,9 +275,15 @@ export type RobotStartCheck = { ok: true } | { ok: false, reason: string }
  * (Patronus would refuse it), nor for a blocked stacked branch (its build lacks its parent's state). `robot` is the robot
  * of the branch (`getBranchRobot`, `useBranchRobot`). A Safe Push also waits for a robot that lands an ancestor of the
  * branch (`landingAncestor`, `findLandingAncestor`): the branch carries the ancestor's commits, two robots would land
- * them. Every entry point asks it: the row button, the branch menu, the preview footer and the chip popover.
+ * them; and for a robot of a branch built on it that lands the branch (`landingDescendant`, `findLandingDescendants`).
+ * Every entry point asks it: the row slot, the branch menu, the preview footer and the robot details.
  */
-export function canStartRobot(branch: Branch, robot: PatronusRobot | undefined, landingAncestor: LandingAncestor | null = null): RobotStartCheck {
+export function canStartRobot(
+  branch: Branch,
+  robot: PatronusRobot | undefined,
+  landingAncestor: LandingAncestor | null = null,
+  landingDescendant: LandingDescendant | null = null,
+): RobotStartCheck {
   if (branch.status === "Blocked") {
     return { ok: false, reason: formatBlockedReason(branch) }
   }
@@ -286,6 +292,9 @@ export function canStartRobot(branch: Branch, robot: PatronusRobot | undefined, 
   }
   if (landingAncestor !== null) {
     return { ok: false, reason: `A ${formatPushMode(landingAncestor.robot.pushMode)} of ${landingAncestor.branch} is running: wait until it merges` }
+  }
+  if (landingDescendant !== null) {
+    return { ok: false, reason: formatLandingReason(branch.name, landingDescendant) }
   }
   return { ok: true }
 }
@@ -308,6 +317,84 @@ export function findLandingAncestor(ancestors: readonly string[], robotOf: (name
     }
   }
   return null
+}
+
+/** A branch built on others whose robot pushes into the target: it lands the commits of the branches it is built on */
+export interface LandingDescendant {
+  branch: string
+  robot: PatronusRobot
+}
+
+/**
+ * The branches a running robot lands, the inverse of `findLandingAncestor`: for each branch of `order` (the table order)
+ * whose robot is active and pushes into the target (not a dry run), its ancestors (`ancestorsOf`). An ancestor two such
+ * robots land is landed by the first of `order`.
+ */
+export function findLandingDescendants(
+  order: readonly string[],
+  ancestorsOf: (name: string) => readonly string[],
+  robotOf: (name: string) => PatronusRobot | undefined,
+): Map<string, LandingDescendant> {
+  const landed = new Map<string, LandingDescendant>()
+  for (const name of order) {
+    const robot = robotOf(name)
+    if (robot === undefined || !isRobotActive(robot) || robot.pushMode === "dryRun") {
+      continue
+    }
+    for (const ancestor of ancestorsOf(name)) {
+      if (!landed.has(ancestor)) {
+        landed.set(ancestor, { branch: name, robot })
+      }
+    }
+  }
+  return landed
+}
+
+/** Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands auth with it" */
+export function formatLandingReason(branchName: string, landing: LandingDescendant): string {
+  return `A ${formatPushMode(landing.robot.pushMode)} of ${landing.branch} is running: it lands ${branchName} with it`
+}
+
+/**
+ * What the Safe Push slot of a branch row shows:
+ * - `start`: "Safe Push…", without a robot and for a robot of an earlier state of the branch (the details of that robot
+ *   stay in the preview and in the outgoing overview);
+ * - `running`: the live robot, its time and how long it usually takes;
+ * - `finished`: the state of a robot of the branch as it is, in its hue; `restart`: the row hover swaps the state text
+ *   for "Safe Push…", as a start is possible and useful (not after a merge);
+ * - `none`: nothing to show or to start.
+ */
+export type SafePushSlot
+  = | { readonly kind: "start" }
+    | { readonly kind: "running", readonly chip: PatronusChipState }
+    | { readonly kind: "finished", readonly chip: PatronusChipState, readonly restart: boolean }
+    | { readonly kind: "none" }
+
+export interface SafePushSlotInput {
+  readonly robot: PatronusRobot | undefined
+  readonly localTip: string | undefined
+  readonly remote: RemoteStatus | null
+  readonly needsReview: boolean
+  /** "Safe Push…" is offered: Patronus answered and the branch can be pushed */
+  readonly canOffer: boolean
+  /** `canStartRobot` allows a start */
+  readonly canStart: boolean
+}
+
+/** The state of the Safe Push slot (`SafePushSlot`) */
+export function getSafePushSlot({ robot, localTip, remote, needsReview, canOffer, canStart }: SafePushSlotInput): SafePushSlot {
+  if (robot === undefined) {
+    return canOffer ? { kind: "start" } : { kind: "none" }
+  }
+  const chip = getPatronusChipState(robot, localTip, remote, needsReview)
+  if (isRobotActive(robot)) {
+    return { kind: "running", chip }
+  }
+  // a merged robot has no warning dot, yet a branch with other commits since (the same name, new work) starts anew
+  if (canOffer && isReviewCommitOutdated(getReviewCommitState(robot.sourceRevision, localTip, remote))) {
+    return { kind: "start" }
+  }
+  return { kind: "finished", chip, restart: canOffer && canStart && chip.kind !== "merged" }
 }
 
 /** The text of "Safe Push…" where it can start: what the form does before the robot runs */

@@ -43,10 +43,15 @@ test.describe("Landed commits", () => {
     await expect(featureAuth.getByTestId("branch-status")).toHaveText("landed")
     await expect(findBranchRow(page, "search").getByTestId("branch-status")).toHaveText("not pushed")
     const push = getPushButton(featureAuth)
-    await expect(push).toHaveText("Create Remote (1)")
+    await expect(push).toHaveAccessibleName("Create Remote (1)")
     await expect(push).toHaveClass(/\btext-muted-foreground\b/)
     await push.hover()
-    await expect(page.getByTestId("push-description")).toHaveText("Already in origin/master. Update to archive the branch.")
+    // the row's button shows the count: its description names the push
+    const description = page.getByTestId("push-description")
+    // with the key of the focused row
+    await expect(description.getByTestId("push-label")).toHaveText("Create Remote (1)P")
+    await expect(description.getByTestId("push-label").locator("kbd")).toHaveText("P")
+    await expect(description).toHaveText("Create Remote (1)PAlready in origin/master. Update to archive the branch.")
     await page.mouse.move(0, 0)
     await expect(page.getByTestId("outgoing-indicator")).toHaveAccessibleName("3 commits to push in 2 branches")
 

@@ -30,9 +30,10 @@ test.describe("Branch table column widths", () => {
       expect(content).not.toBeNull()
       expect(box!.width).toBeLessThanOrEqual(content!.width + padding)
     }
-    // the Status column keeps its 16rem minimum (the status text and a chip or two), so chips that load later don't
-    // reflow the table; "not pushed" without chips fits in it
-    expect(statusBox!.width).toBeCloseTo(16 * 16, 0)
+    // the Status column keeps its 12rem minimum (the status text, the pull request and the Landed chip; the robot is in
+    // the Safe Push slot of the Actions cell), so chips that load later don't reflow the table; "not pushed" without
+    // chips fits in it
+    expect(statusBox!.width).toBeCloseTo(12 * 16, 0)
 
     // the long subject is still truncated, not wrapped: the row stays a single line high
     expect(row!.height).toBeLessThan(80)
@@ -41,8 +42,9 @@ test.describe("Branch table column widths", () => {
   })
 
   test("drops a subject that has no room to be read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // below the 960px minimum of the window: the room that a longer name with its chips leaves at the minimum
-    await page.setViewportSize({ width: 900, height: 800 })
+    // below the 960px minimum of the window, as a zoomed page has it: the compact Actions cell leaves the names more room
+    // than the room a longer name with its chips leaves at the minimum
+    await page.setViewportSize({ width: 780, height: 800 })
     await setupRepo("issue_links")
     await syncAndWaitForBranches()
 

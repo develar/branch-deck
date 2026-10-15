@@ -169,8 +169,9 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show the update state in the footer of the outgoing overview`)
 - A click on a branch name must close the overview, expand the branch row and scroll it into view.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
-- The push button must push as the button of the row does, with the same label, description and disabled states, but
-  in the text colour: the bar of the row carries the colour, and a column of coloured buttons would only repeat it.
+- The push button must push as the button of the row does, with the same description and disabled states, but with
+  its label (the row's compact button shows only the arrow and the count, [Branch Row](../branch/branch-row.spec.md#actions-cell))
+  and in the text colour: the bar of the row carries the colour, and a column of coloured buttons would only repeat it.
 
 ### Push colours
 
@@ -266,7 +267,7 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 - A push the remote refuses while the lease holds (a hook, a protected branch) must be an error.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
-  a stage), and its description on hover the last progress line of git, then what was sent so far and how fast,
+  a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's
   line says the amount already (`Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s`). The stages
   weigh as for a fetch: counting 5 %, compressing 10 %, writing 80 %, the server resolving deltas 5 %; the percent

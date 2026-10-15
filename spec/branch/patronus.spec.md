@@ -1,6 +1,6 @@
 ---
 name: Patronus
-description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown as a chip in the branch row, the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs and its merge request, or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
+description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown live in the Safe Push slot of the branch row (its time and how long it usually takes, a progress line, the branches it lands) and as a chip in the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs and its merge request, or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/patronus.rs
@@ -20,6 +20,14 @@ targets:
   - ../../src/lib/review-commit.ts
   - ../../src/lib/refresh-gate.ts
   - ../../src/components/branch/PatronusChip.tsx
+  - ../../src/components/branch/SafePushSlot.tsx
+  - ../../src/components/branch/RobotProgress.tsx
+  - ../../src/components/branch/LandingSpanLabel.tsx
+  - ../../src/lib/landing-lanes.ts
+  - ../../src/components/branch/StackLanes.tsx
+  - ../../src/lib/robot-eta.ts
+  - ../../src/lib/patronus-icons.ts
+  - ../../src/hooks/useRobotTiming.ts
   - ../../src/components/branch/ReviewCommitNotice.tsx
   - ../../src/components/branch/InlinePatronusStart.tsx
   - ../../src/lib/patronus-stack.ts
@@ -61,6 +69,8 @@ Date: 2026-10-14
 Changes reach the master of the IntelliJ monorepo through Patronus: a robot (Safe Push, Safe Merge, Dry Run) rebases
 the branch onto the target, runs the TeamCity checks and, unless it is a dry run, pushes. Branch Deck shows, per virtual
 branch, the robot of the branch: running, failed, merged or passed, and whether the branch changed since it started.
+While a robot runs, the Safe Push slot of its row is the robot: how long it runs and how long it usually takes, learnt
+from the robots already listed, with a progress line under the row and "lands with oauth" on the branches it lands.
 From the branch, the user starts a Safe Push or a Dry Run (pushing the branch first), restarts a failed robot on the
 newest commit, cancels a running one, and is asked before a push that would make a running Safe Push fail. It reads
 Patronus with the Space token of the Safe Push CLI and keeps the load on Patronus small: one list now and then, and a
@@ -73,7 +83,8 @@ reports in it and closes it once merged.
 
 ## Goals
 
-- See which branches have a running, failed or merged Safe Push without opening the Patronus web UI.
+- See which branches have a running, failed or merged Safe Push without opening the Patronus web UI, and when a running
+  one is likely done, without a request more to Patronus.
 - Notice that the branch changed since its robot started, e.g. after a fix was committed, without a false alarm after a
   sync that only rebuilt the branch on a newer baseline.
 - Open the robot in Patronus in one click.
@@ -156,28 +167,46 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`keeps the objects of unchanged robots and the record when nothing changed`)
   [@test] ../../src/stores/patronus.test.ts (`keeps the shown robots when Patronus can't answer`)
 
-### Chip
+### Safe Push slot
 
-- The Status cell of a branch row shows the chip in its third column, after the pull request chip and before the
-  Landed chip ([Branch Row](branch-row.spec.md)): a shield and the state. A branch without a robot shows nothing.
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the status cell`)
+- The Actions cell of a branch row has the Safe Push slot after the push button
+  ([Branch Row](branch-row.spec.md#actions-cell)), one width in every row, so the push buttons and "⋯" line up down the
+  table. It is the robot of the branch, or the start of one (`getSafePushSlot`):
+  - without a robot, "Safe Push…" ([below](#starting-a-safe-push-or-a-dry-run));
+  - while a robot runs (or cancels), the robot: a rotating ring, how long it runs and how long it has left
+    ([Timing](#timing)), "Canceling" while it cancels;
+  - a finished robot of the branch as it is (the commit it took, or the same commits rebuilt on a newer baseline): its
+    state in its hue, "Failed", "Needs review", "Merged", "Dry run passed", "Canceled";
+  - a robot of an earlier state of the branch (the warning dot below, a merged robot included: the same name with new
+    work): "Safe Push…", as a new robot is the way to test the branch as it is. The robot stays in the branch preview
+    and the outgoing overview, with the notice of what changed.
+  A repository that is not on Space has no slot; a branch that can't be pushed (an error, no commits) has an empty one.
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Safe Push slot`)
+  [@test] ../../src/lib/patronus.test.ts (`offers "Safe Push…" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`)
+- The row hover (or the keyboard focus in the row) gives the state text of a finished robot to "Safe Push…" when a start
+  is possible and useful: not after a merge, not while `canStartRobot` refuses. The shield stays in the state's hue and
+  keeps the details on hover and the robot on click.
+  [@test] ../../src/lib/patronus.test.ts (`shows a finished robot of the branch as it is, and offers a restart on hover where a start is possible, never after a merge`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield`)
 - Running and canceling are muted, failed `destructive`, failed for missing approvals "Needs review" `warning`, a
   successful Safe Push "Merged" `info`, a successful dry run
-  "Dry run passed" `success`, canceled muted.
+  "Dry run passed" `success`, canceled muted. The ring of a running robot is `primary`, as the spinner of a running push.
   [@test] ../../src/lib/patronus.test.ts (`names the state in its hue; a successful dry run passed, a successful push merged`)
 - A robot gets a `warning` dot when the branch changed since it took its commit: the commit is not the one the remote
   branch is at now (`remoteTip`), or the branch is not up to date with the remote by content (work the remote lacks, or
   remote commits the branch lacks, as the [remote status](../../docs/design/remote-status.md) counts them). A merged
   robot gets none. Neither does a robot of the local tip, nor one whose remote branch is at its commit while the branch
   is up to date: every sync rebuilds the virtual branches on the newer baseline, so their hashes change while their
-  commits don't. Until the remote status of the branch is loaded, there is no dot.
+  commits don't. Until the remote status of the branch is loaded, there is no dot. In the slot only a running robot
+  keeps the dot (a finished one gives way to "Safe Push…"); the chip of the preview and the overview has it.
   [@test] ../../src/lib/patronus.test.ts (`marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one`)
   [@test] ../../src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
   [@test] ../../src/lib/review-commit.test.ts (`takes the branch as it is for its own tip, and while nothing says otherwise`)
-- Its accessible name is "Safe Push: Running" (the mode, then the state).
-- Hovering the chip opens the details: the mode and the state, the name, the target branch, the commit, the start and
-  finish times, the cancellation reason, the notice about the commit (below) and "Open in Patronus". A click on the
-  chip opens the robot page and does not toggle the row.
+- Its accessible name is the mode, then the state: "Safe Push: Failed"; for a running robot with its time, "Safe Push:
+  Running, 18 minutes, about 22 minutes left" ("…, 14 hours, longer than usual").
+- Hovering the robot opens the details: the mode and the state, the name, the target branch, the commit, the start and
+  finish times, the cancellation reason, the notice about the commit (below) and "Open in Patronus". A click opens the
+  robot page and does not toggle the row.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
 - With the dot, the details say what changed and how to test the branch as it is: "Started on 3264f30f; the branch has
   changed since (now 88de421d): the result won't cover the newest commits. Restart to test the current branch.", with
@@ -193,6 +222,34 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say only quietly that a robot started on an earlier build of the same commits`)
 
+### Timing
+
+- How long a robot usually runs is the median duration of the successful robots of its push mode started in the last
+  7 days, only those into its target branch when there are 3 or more (`expectedRobotDuration`). It comes from the robots
+  the app already listed: an estimate asks Patronus nothing, and the polling stays as [above](#load-on-patronus). A
+  failed robot stopped early and doesn't count. Without such a robot the run is indeterminate.
+  [@test] ../../src/lib/robot-eta.test.ts (`takes the median of the successful robots of the push mode started in the last 7 days`, `is indeterminate without a finished robot to learn from`, `counts only the robots into the same target once there are enough of them`)
+- The slot says how long the robot runs and how long it has left: "18m · ~22m left" (the time left rounded up); past its
+  usual time, the usual time instead, "55m · usually ~40m" (the hours only from an hour: "14h · usually ~1h"); without
+  history, "18m". The time ticks with the relative times, every 15 s, without a request.
+  [@test] ../../src/lib/robot-eta.test.ts (`says how long it runs and how long it usually takes`, `names the usual time once a robot runs longer, in hours once it runs an hour`, `counts the time left until the usual duration, indeterminate past it and without history`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should count the time of a running robot and the time it usually takes`)
+- A thin line under the row of a running robot shows the share of its usual time; without history, past it and while it
+  cancels, it runs across (indeterminate).
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should count the time of a running robot and the time it usually takes`)
+- The details of a running robot say it after the start time: "Today 14:02 · usually ~40 min · about 22 min left",
+  "… · usually ~40 min · 55 min, longer than usual", "… · running 18 min · no Safe Push finished in the last 7 days to
+  estimate from".
+  [@test] ../../src/lib/robot-eta.test.ts (`explains the estimate in the details`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
+
+### Chip
+
+- The branch preview, the outgoing overview and the Landed island show the robot as a chip, the same text-sized button
+  as the pull request chip (`StatusChip`): the shield and the state in its hue (the ring while it runs), the warning dot,
+  the details on hover, the robot on click. A branch without a robot shows nothing.
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the robot in the branch preview`)
+
 ### Details
 
 - The popover asks for the details of the robot 300 ms after it opened (a popover that only flashes asks nothing): the
@@ -206,7 +263,7 @@ reports in it and closes it once merged.
 ### Starting a Safe Push or a Dry Run
 
 - When the repository is on Space (Patronus answered), "Safe Push…" opens the form below the row from five places: the
-  button after the push button in the Actions cell of the row ([Branch Row](branch-row.spec.md#actions-cell)), the
+  Safe Push slot of the row ([above](#safe-push-slot)), the
   Patronus group of the branch menu (the right-click and "⋯"; with "Dry Run…"), the preview footer and the popover of a
   robot that needs review; and S on the focused row of the branch table ([Branch Row](branch-row.spec.md#keyboard)),
   which the hover of the row button and the menu item show. A click on the row button doesn't toggle the row. The
@@ -221,13 +278,22 @@ reports in it and closes it once merged.
   commit is running") nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's
   words). A Safe Push of a stacked branch also waits while a robot that pushes into the target (not a dry run) runs on
   an ancestor (`findLandingAncestor`): the branch carries the ancestor's commits, two robots would land them ("A Safe
-  Push of login is running: wait until it merges"); a dry run doesn't wait.
+  Push of login is running: wait until it merges"); and while a robot that pushes runs on a branch built on it
+  (`findLandingDescendants`), which lands the branch ("A Safe Push of oauth is running: it lands login with it"); a dry
+  run waits for neither.
   Then the button and the menu items are disabled, and their hover says the reason; "Safe Push…" that can start says
   "Checks the code-owner review, then starts the robot." The row button is disabled while the
   row runs an inline action too.
-  [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`, `waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it`)
+  [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`, `waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it`, `knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should wait for the Safe Push of an ancestor, which lands its commits`)
+- The branches a running robot that pushes lands, the ones its branch is built on, say it in the third column of their
+  Status cell, muted: "lands with oauth", with the tooltip "A Safe Push of oauth lands this branch with it"
+  (`useLandingSpan`, the inverse of `useLandingAncestor`). It takes the place of "on master". In the stack graph the
+  lines from the root down to oauth are in the colour of the robot, and the node of oauth has the ring of its slot
+  ([Branch Row](branch-row.spec.md#tree)). Their form says why it
+  can't start: "A Safe Push of oauth is running: oauth is built on login, so it pushes login's commits into master too."
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
 - The form below the row ("Safe Push of auth") says what happens: "Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks,
   without pushing into master.". It offers the merge profiles of the target branch that allow the mode (the emergency
@@ -453,7 +519,7 @@ reports in it and closes it once merged.
   push has none (Activity records both).
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
   [@test] ../../src/lib/git/push.test.ts (`says only the restart for Push and Restart, recorded once`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the popover`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
   Patronus" and sends nothing.
   [@test] ../../crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
@@ -520,12 +586,21 @@ reports in it and closes it once merged.
 ## User Experience
 
 - The chip is the same text-sized button as the pull request chip (`StatusChip`): `text-xs`, a `size-3.5` shield,
-  underlined on hover; the running shield pulses. The dot is `size-1.5 rounded-full`.
+  underlined on hover. The dot is `size-1.5 rounded-full`.
+- The Safe Push slot is `w-40` (10rem: "55m · usually ~40m" fits); its robot looks like the `xs` ghost buttons of the
+  cell (`h-6`, `pl-2`, a `size-3` icon, `hover:bg-muted`), so the icon of every state sits in one column; its text
+  truncates. The elapsed time is `text-foreground`, the rest muted, in tabular figures.
+- A running robot has the rotating ring (`RobotRing`: a track and an arc, `animate-robot-ring`, 2.4 s a turn, slower
+  than a spinner), `text-primary`, in the slot, in the chip and around its node in the stack graph; nothing pulses. The progress line is `h-0.5`, `bg-primary`
+  on a `bg-primary/15` track, over the border below the row (a row of no height after it: WebKit can't position a bar
+  in a `tr`); indeterminate, a third of it runs across (`animate-carousel`). "lands with oauth" is `text-xs
+  text-muted-foreground`.
 - The notice of a changed branch is `text-xs text-warning` after the warning triangle; the line of a rebuilt one is
   `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the pull request details).
 - `info` is the merged colour, as for pull requests; push states never use it.
 - The details popover is `w-80`; in the preview the same details sit in a nested `rounded-lg` panel.
-- "Safe Push…" (`SafePushButton`) is an `xs` button with the `ShieldCheckIcon`, ghost in the row and the preview footer,
+- "Safe Push…" (`SafePushButton`) is an `xs` button with the `ShieldCheckIcon` (without it after the shield of a finished
+  robot in the slot), ghost in the row and the preview footer,
   outline among the popover's buttons, in the foreground colour (the push colour is the push button's). Disabled, it
   keeps the focus and the hover (`focusableWhenDisabled`) and is dimmed to `opacity-50`; its reason is a `Tooltip`.
 - A menu item's reason or description is a `Tooltip` beside it (`side="inline-end"`); a disabled item keeps the
@@ -536,9 +611,11 @@ reports in it and closes it once merged.
 - `cargo nextest run --workspace` covers the token, the request policy (rejected token, backoff,
   retries, reuse of a full list) against an in-process axum Patronus (`crates/patronus/src/service_test.rs`), and the
   Space URL parsing.
-- `pnpm test:unit` covers the list and poll policy, the matching, the chip mapping and the merge toast and
-  notification.
-- `pnpm e2e` covers the chip, the popover, the preview section and the overview (`tests/e2e/patronus`). E2E never calls
+- `pnpm test:unit` covers the list and poll policy, the matching, the chip mapping, the slot, the landing span, the
+  estimate (`robot-eta.test.ts`) and the merge toast and notification.
+- `pnpm e2e` covers the slot, the chip, the popover, the preview section and the overview (`tests/e2e/patronus`); the
+  timing runs on the fake clock of the page (`page.clock.fastForward`), the robots' times relative to its 2024-01-02
+  10:00Z. E2E never calls
   Patronus: `POST /repositories/{id}/patronus` sets what `get_patronus_robots` answers (an empty `sourceRevision` means
   the local tip of the robot's branch), what `poll_patronus_robots` answers (the fixture robots whose status differs
   from the known one) and the robot of `get_patronus_robot_details` (without checks); `GET` returns how often the app
@@ -562,10 +639,16 @@ reports in it and closes it once merged.
   failing the list.
 - Patronus matches `repository` exactly: a repository whose Patronus alias is not its Space name lists no robots.
 - The token lives 14 days and is renewed only when the Safe Push CLI runs; the footer says so when it expired.
+- The estimate knows only the user's own robots of the last 7 days, not the merge profile (the list doesn't name it):
+  a Large Scale Change runs longer than the median says. Half of the robots run past the median, so "usually ~40m"
+  shows near the end of many runs.
+- The changed-since rule replaces a finished robot in the slot with "Safe Push…" as soon as the branch has a commit
+  the robot didn't test: its result (a failure to fix) is then only in the preview and the outgoing overview.
 
 ## References
 
-- [Branch Row](branch-row.spec.md): the Status cell and the anatomy of the chip details
+- [Branch Row](branch-row.spec.md): the Actions cell with the Safe Push slot, the Status cell and the anatomy of the chip
+  details
 - [Pull Requests](pull-requests.spec.md): the other review status, the same chip and refresh gate
 - [Outgoing Commits](../repository/outgoing.spec.md)
 - [Branch Preview](branch-preview.spec.md)

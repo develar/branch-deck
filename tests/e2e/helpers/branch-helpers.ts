@@ -52,11 +52,11 @@ export async function verifyBranchState(branchRow: Locator, state: "open" | "clo
 }
 
 /**
- * Get the expanded details row for a branch
+ * Get the expanded details row for a branch: the next row, after the progress line of a running robot
  */
 export function getBranchDetailsRow(page: Page, branchName: string): Locator {
-  // Use + selector to get the immediate next sibling tr element
-  return page.locator(`[data-branch-name="${branchName}"] + tr`)
+  const row = `[data-branch-name="${branchName}"]`
+  return page.locator(`${row} + tr:not([data-testid=robot-progress-row]), ${row} + [data-testid=robot-progress-row] + tr`)
 }
 
 /** The row of a commit, by its subject, in the expanded details of a branch */
@@ -78,11 +78,11 @@ export function getCopyButton(branchRow: Locator): Locator {
 }
 
 /**
- * Get the push button from a branch row's actions cell
+ * Get the push button from a branch row's actions cell: "↑ 3", named by its label ("Create Remote (3)")
  */
 export function getPushButton(branchRow: Locator): Locator {
   const { actions } = getBranchCells(branchRow)
-  return actions.locator("button").nth(1)
+  return actions.getByTestId("push-button")
 }
 
 /**

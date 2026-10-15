@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { UploadIcon } from "lucide-react"
+import { ArrowUpIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import type { PushButtonAction } from "@/hooks/usePushButton"
@@ -26,6 +27,13 @@ export interface BranchPushButtonProps {
   hint?: ReactNode
   /** The surface whose confirm requests this button answers (`pushOrConfirm`); none in the outgoing overview */
   confirmTarget?: PushConfirmTarget
+  /**
+   * The branch row: an up arrow and the count ("↑ 3"), the percent while the push runs ("45%"); the label ("Force Push
+   * (1)") is its accessible name and leads its description. The preview footer and the outgoing overview keep the label.
+   */
+  compact?: boolean
+  /** The key that pushes where the button is (P on the focused row of the branch table), after the label of the description */
+  shortcut?: string
 }
 
 /**
@@ -37,7 +45,7 @@ export interface BranchPushButtonProps {
  * 45%", "Pushing login 45%" for an ancestor of a stack push) and the hover the last progress line of git, with the
  * amount and the rate when that line lacks them.
  */
-export function BranchPushButton({ branch, colored = true, hint, confirmTarget }: BranchPushButtonProps) {
+export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut }: BranchPushButtonProps) {
   const isSyncing = useBranchSync(state => state.isSyncing)
   // a stack push from this row shows the branch it pushes now
   const stackCurrent = useStackPushCurrent(branch.name)
@@ -61,6 +69,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
     }
   }
   const confirming = push.confirm && !isPushing && (clicked || request !== null)
+  const label = isPushing ? transferLabel(pushingName === branch.name ? "Pushing" : `Pushing ${pushingName}`, progress) : push.text
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -108,11 +117,14 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
             size="xs"
             variant="ghost"
             // a running push keeps its colour beside the spinner, as Update and Sync do
-            className={cn("tabular-nums", colored && ghostButtonColorClass(push.color), !isPushing && "aria-disabled:opacity-50")}
+            // compact: one width in every row ("⟳ 100%" fits), the arrows in a column
+            className={cn("tabular-nums", compact && "min-w-16 justify-start", colored && ghostButtonColorClass(push.color), !isPushing && "aria-disabled:opacity-50")}
             disabled={disabled}
             // the description stays reachable on hover while the button is disabled
             focusableWhenDisabled
             aria-busy={isPushing || undefined}
+            aria-label={compact ? label : undefined}
+            data-testid="push-button"
             onClick={(event) => {
               event.stopPropagation()
               if (confirming) {
@@ -132,8 +144,14 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
           />
         )}
       >
-        {isPushing ? <Spinner data-icon="inline-start" /> : hint ?? <UploadIcon data-icon="inline-start" />}
-        {isPushing ? transferLabel(pushingName === branch.name ? "Pushing" : `Pushing ${pushingName}`, progress) : push.text}
+        {compact
+          ? <CompactPushLabel isPushing={isPushing} percent={progress?.percent ?? null} count={push.count} />
+          : (
+              <>
+                {isPushing ? <Spinner data-icon="inline-start" /> : hint ?? <UploadIcon data-icon="inline-start" />}
+                {label}
+              </>
+            )}
       </PopoverTrigger>
       <PopoverContent
         data-testid="push-description"
@@ -145,6 +163,13 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
           ? <PushProgressDescription branchName={pushingName} progress={progress} />
           : (
               <>
+                {/* the compact button shows only the count: the description names the push */}
+                {compact && (
+                  <div className="flex items-center gap-1.5 font-medium" data-testid="push-label">
+                    {push.text}
+                    {shortcut !== undefined && !push.disabled && <Kbd>{shortcut}</Kbd>}
+                  </div>
+                )}
                 <div className="break-words whitespace-pre-line">{push.tooltip}</div>
                 {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
                 {confirming && (
@@ -159,6 +184,24 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
             )}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The content of the compact button: "↑ 3" (the arrow alone without a count), the spinner and "45%" while pushing */
+function CompactPushLabel({ isPushing, percent, count }: { isPushing: boolean, percent: number | null, count: number }) {
+  if (isPushing) {
+    return (
+      <>
+        <Spinner data-icon="inline-start" />
+        {percent !== null && `${percent}%`}
+      </>
+    )
+  }
+  return (
+    <>
+      <ArrowUpIcon data-icon="inline-start" />
+      {count > 0 && count}
+    </>
   )
 }
 

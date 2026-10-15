@@ -22,8 +22,13 @@ export async function pushBranchFromRow(page: Page, branchName: string, result: 
   await page.mouse.move(0, 0)
 }
 
-/** Hovers a status chip (pull request, Patronus robot) and returns its details popover */
+/**
+ * Hovers a status chip (pull request, Patronus robot) and returns its details popover. The row hover gives the text of
+ * a finished robot in the Safe Push slot to "Safe Push…": its shield, the chip now, moves from under the pointer, so it
+ * is hovered once more.
+ */
 export async function hoverStatusChip(page: Page, chip: Locator, popoverTestId: string): Promise<Locator> {
+  await chip.hover()
   await chip.hover()
   const popover = page.getByTestId(popoverTestId)
   await expect(popover).toBeVisible()

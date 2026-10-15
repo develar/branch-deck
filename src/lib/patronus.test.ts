@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import type { SafePushSlotInput } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -199,6 +200,21 @@ describe("actions", () => {
     expect(canStartRobot(testBranch("oauth", "login"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of login is running: wait until it merges" })
   })
 
+  it("knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push", () => {
+    const ancestors: Record<string, string[]> = { auth: [], login: ["auth"], oauth: ["auth", "login"], sso: ["auth"] }
+    const robots: Record<string, PatronusRobot> = {
+      oauth: robot({ id: "oauth", branchName: "oauth", status: "running" }),
+      // a dry run lands nothing, a finished robot neither
+      sso: robot({ id: "sso", branchName: "sso", status: "running", pushMode: "dryRun" }),
+      login: robot({ id: "login", branchName: "login", status: "failure" }),
+    }
+    const landed = findLandingDescendants(["auth", "login", "oauth", "sso"], name => ancestors[name] ?? [], name => robots[name])
+    expect([...landed.keys()]).toEqual(["auth", "login"])
+    const span = landed.get("login")!
+    expect(span).toEqual({ branch: "oauth", robot: robots.oauth })
+    expect(canStartRobot(testBranch("login", "auth"), robots.login, null, span)).toEqual({ ok: false, reason: "A Safe Push of oauth is running: it lands login with it" })
+  })
+
   it("cancels a running robot only", () => {
     expect(canCancelRobot(robot({ status: "running" }))).toBe(true)
     expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
@@ -275,5 +291,37 @@ describe("findMergedRobots", () => {
     expect(describeRobot(robot({}))).toBe("IJPL-1 → master")
     expect(describeRobot(robot({}), "Large Scale Change")).toBe("IJPL-1 → master · profile Large Scale Change")
     expect(describeRobot(robot({ branchName: null }))).toBe("IJPL-1 fix the cache → master")
+  })
+})
+
+describe("getSafePushSlot", () => {
+  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, canOffer: true, canStart: true }
+
+  it("offers \"Safe Push…\" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed", () => {
+    expect(getSafePushSlot(input)).toEqual({ kind: "start" })
+    expect(getSafePushSlot({ ...input, canOffer: false })).toEqual({ kind: "none" })
+  })
+
+  it("is the live robot while it runs, also while it cancels", () => {
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }) })).toMatchObject({ kind: "running", chip: { label: "Running" } })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "canceling" }) })).toMatchObject({ kind: "running", chip: { label: "Canceling" } })
+    // a fix committed since keeps the robot in the slot, with the warning dot
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), localTip: "fixed", remote: unpushedOnRobot })).toMatchObject({ kind: "running", chip: { outdated: true } })
+  })
+
+  it("shows a finished robot of the branch as it is, and offers a restart on hover where a start is possible, never after a merge", () => {
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }) })).toMatchObject({ kind: "finished", chip: { label: "Failed" }, restart: true })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "success", pushMode: "dryRun" }) })).toMatchObject({ kind: "finished", restart: true })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }) })).toMatchObject({ kind: "finished", chip: { label: "Merged" }, restart: false })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), canStart: false })).toMatchObject({ kind: "finished", restart: false })
+    // only rebuilt on a newer baseline: the same commits
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "rebuilt", remote: rebuiltOnRobot })).toMatchObject({ kind: "finished" })
+  })
+
+  it("offers \"Safe Push…\" for a branch changed since its robot, a merged one too", () => {
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot })).toEqual({ kind: "start" })
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }), localTip: "next", remote: unpushedOnRobot })).toEqual({ kind: "start" })
+    // nothing to start from where Patronus doesn't answer: the robot stays, with its dot
+    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot, canOffer: false })).toMatchObject({ kind: "finished", chip: { outdated: true }, restart: false })
   })
 })

@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react"
 import { cn } from "cn"
+import { RobotRing } from "@/components/branch/RobotProgress"
 import { useLaneNode } from "@/hooks/useStatusBadge"
+import type { LaneHighlight } from "@/lib/landing-lanes"
 import type { StackLanes } from "@/lib/stack-lanes"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -40,8 +42,10 @@ export interface LaneCellProps {
   familyIndent: 0 | 1
   /** The line from the node runs to the bottom of the row: the branch has children, or its commits are shown below */
   lineDown: boolean
-  /** A ring around the node: a robot runs on the branch */
+  /** The rotating ring around the node: a robot runs on the branch */
   ring?: boolean
+  /** The segments of a landing span (`landingLanes`), drawn over the lines in the colour of the robot */
+  highlight?: LaneHighlight | null
 }
 
 /**
@@ -49,22 +53,32 @@ export interface LaneCellProps {
  * (so every name starts at the same x), and over the whole row height (the cell is `relative`) the lines of the lanes
  * and the node of the branch.
  */
-export function LaneCell({ lanes, branch, familyIndent, lineDown, ring = false }: LaneCellProps) {
+export function LaneCell({ lanes, branch, familyIndent, lineDown, ring = false, highlight = null }: LaneCellProps) {
   const { lane, forkFrom, up, through } = lanes
   const x = laneX(lane)
   const middle = ROW / 2
+  const upPath = `M${x} 0V${middle - NODE_RADIUS}`
+  const downPath = `M${x} ${middle + NODE_RADIUS}V${ROW}`
+  // down from the parent's lane, then into the node from the left
+  const forkPath = forkFrom === null ? "" : `M${laneX(forkFrom)} 0Q${laneX(forkFrom)} ${middle} ${x - NODE_RADIUS} ${middle}`
   const paths = through.map(it => `M${laneX(it)} 0V${ROW}`)
   if (up) {
-    paths.push(`M${x} 0V${middle - NODE_RADIUS}`)
+    paths.push(upPath)
   }
   if (lineDown) {
-    paths.push(`M${x} ${middle + NODE_RADIUS}V${ROW}`)
+    paths.push(downPath)
   }
   if (forkFrom !== null) {
-    // down from the parent's lane, then into the node from the left
-    const from = laneX(forkFrom)
-    paths.push(`M${from} 0Q${from} ${middle} ${x - NODE_RADIUS} ${middle}`)
+    paths.push(forkPath)
   }
+  const highlighted = highlight === null
+    ? []
+    : [
+        ...highlight.through.map(it => `M${laneX(it)} 0V${ROW}`),
+        ...(highlight.up ? [upPath] : []),
+        ...(highlight.down ? [downPath] : []),
+        ...(highlight.fork ? [forkPath] : []),
+      ]
   const drawn = Math.max(lane, ...through) + 1
   return (
     <>
@@ -74,6 +88,7 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, ring = false }
         {paths.length > 0 && (
           <svg className="h-full w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] text-(--bd-lane-line)" viewBox={`0 0 ${drawn * LANE} ${ROW}`} preserveAspectRatio="none" data-testid="lane-lines">
             <path d={paths.join("")} fill="none" stroke="currentColor" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            {highlighted.length > 0 && <LandingPath d={highlighted.join("")} />}
           </svg>
         )}
         <LaneNodeMark branch={branch} ring={ring} />
@@ -90,23 +105,38 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, ring = false }
 function LaneNodeMark({ branch, ring }: { branch: Branch, ring: boolean }) {
   const { color, filled } = useLaneNode(branch)
   return (
-    <span
-      data-testid="lane-node"
-      data-color={color}
-      data-filled={filled}
-      data-ring={ring || undefined}
-      className={cn(
-        "absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] size-2 -translate-1/2 rounded-full border-[1.5px] border-current",
-        nodeColorClass[color],
-        filled && "bg-current",
-        ring && "outline-1 outline-offset-2 outline-current",
+    <>
+      <span
+        data-testid="lane-node"
+        data-color={color}
+        data-filled={filled}
+        data-ring={ring || undefined}
+        className={cn(
+          "absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] size-2 -translate-1/2 rounded-full border-[1.5px] border-current",
+          nodeColorClass[color],
+          filled && "bg-current",
+        )}
+      />
+      {/* the ring of the Safe Push slot, around the node; its own box, as the ring turns and the box is translated */}
+      {ring && (
+        <span className="absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] flex size-4 -translate-1/2" data-testid="lane-ring">
+          <RobotRing around className="size-4 text-primary" />
+        </span>
       )}
-    />
+    </>
   )
 }
 
-/** The lanes that run on through a row below a branch row (its inline form, its expanded commits), over its whole height */
-export function LaneLines({ lanes }: { lanes: readonly number[] }) {
+/** The segments of a landing span: the lines of the stack, in the colour of the running robot that lands them */
+function LandingPath({ d }: { d: string }) {
+  return <path d={d} fill="none" stroke="var(--color-primary)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" data-testid="landing-lanes" />
+}
+
+/**
+ * The lanes that run on through a row below a branch row (its inline form, its expanded commits), over its whole
+ * height; `highlighted` (of `lanes`) in the colour of the running robot that lands them
+ */
+export function LaneLines({ lanes, highlighted = [] }: { lanes: readonly number[], highlighted?: readonly number[] }) {
   if (lanes.length === 0) {
     return null
   }
@@ -121,6 +151,7 @@ export function LaneLines({ lanes }: { lanes: readonly number[] }) {
       data-testid="lane-lines"
     >
       <path d={lanes.map(it => `M${laneX(it)} 0V1`).join("")} fill="none" stroke="currentColor" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      {highlighted.length > 0 && <LandingPath d={highlighted.map(it => `M${laneX(it)} 0V1`).join("")} />}
     </svg>
   )
 }
@@ -134,10 +165,10 @@ export function FamilyGuide() {
 }
 
 /** The lanes and the family guide beside a row below a branch row: its inline form, its amend conflict */
-export function LaneGutter({ lanes, familyIndent }: { lanes: readonly number[], familyIndent: 0 | 1 }) {
+export function LaneGutter({ lanes, familyIndent, highlighted }: { lanes: readonly number[], familyIndent: 0 | 1, highlighted?: readonly number[] }) {
   return (
     <>
-      <LaneLines lanes={lanes} />
+      <LaneLines lanes={lanes} highlighted={highlighted} />
       {familyIndent === 1 && <FamilyGuide />}
     </>
   )

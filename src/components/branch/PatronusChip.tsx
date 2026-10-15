@@ -1,56 +1,78 @@
 import { useState } from "react"
-import type { ComponentType } from "react"
-import { CircleXIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, UploadIcon } from "lucide-react"
+import type { ReactNode } from "react"
+import { CircleXIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
+import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import type { PatronusChipKind } from "@/lib/patronus"
+import type { PatronusChipState } from "@/lib/patronus"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
+import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { pushBranch } from "@/lib/git/push"
 import { canCancelRobot, formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
+import { patronusChipIcons } from "@/lib/patronus-icons"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import { formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { cancelPatronusRobot, restartPatronusRobot, useBranchRobot, usePatronusAvailable, useRobotNeedsReview } from "@/stores/patronus"
 
-const icons: Readonly<Record<PatronusChipKind, ComponentType<{ className?: string }>>> = {
-  running: ShieldEllipsisIcon,
-  failed: ShieldXIcon,
-  needsReview: ShieldAlertIcon,
-  merged: ShieldCheckIcon,
-  passed: ShieldCheckIcon,
-  canceled: ShieldOffIcon,
-  unknown: ShieldIcon,
-}
-
 /**
- * The Patronus robot of the branch: the shield and the state ("Running", "Failed", "Merged", "Dry run passed"), in its
- * hue; a `warning` dot when the branch changed since the robot took its commit (a branch only rebuilt on a newer
- * baseline did not). Hover shows the details, a click opens the robot in Patronus. Nothing without a robot. `compact`
- * (the outgoing overview, where the branch names need the room) shows the shield without the state text.
+ * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
+ * rotating ring while it runs; a `warning` dot when the branch changed since the robot took its commit (a branch only
+ * rebuilt on a newer baseline did not). Hover shows the details, a click opens the robot in Patronus. Nothing without a
+ * robot. `compact` (the outgoing overview, where the branch names need the room) shows the icon without the state text.
+ * The branch row has the robot in its Safe Push slot instead (`SafePushSlot`); the preview, the overview and the Landed
+ * island show this chip.
  */
 export function PatronusChip({ branchName, compact = false }: { branchName: string, compact?: boolean }) {
   const robot = useBranchRobot(branchName)
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
-  const [open, setOpen] = useState(false)
   const needsReview = useRobotNeedsReview(robot?.id)
   if (robot === undefined) {
     return null
   }
 
   const chip = getPatronusChipState(robot, localTip, remote, needsReview)
-  const Icon = icons[chip.kind]
+  const Icon = patronusChipIcons[chip.kind]
+  return (
+    <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={`${formatPushMode(robot.pushMode)}: ${chip.label}`}>
+      {chip.kind === "running" ? <RobotRing className="size-3.5 text-primary" /> : <Icon className="size-3.5" />}
+      {!compact && chip.label}
+      {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
+    </RobotStatusChip>
+  )
+}
+
+export interface RobotStatusChipProps {
+  branchName: string
+  robot: PatronusRobot
+  chip: PatronusChipState
+  /** The accessible name: "Safe Push: Failed" */
+  label: string
+  /** The look of the Safe Push slot of the row (`StatusChip`) */
+  className?: string
+  /** The icon, the text and the dots */
+  children: ReactNode
+}
+
+/**
+ * The `StatusChip` of a robot: hover opens its details (Restart, Cancel, Open in Patronus), asked for while open; a
+ * click opens the robot in Patronus. `patronus-chip` with its kind, colour and the outdated mark for the E2E tests.
+ */
+export function RobotStatusChip({ branchName, robot, chip, label, className, children }: RobotStatusChipProps) {
+  const [open, setOpen] = useState(false)
   return (
     <StatusChip
-      label={`${formatPushMode(robot.pushMode)}: ${chip.label}`}
+      label={label}
       color={chip.color}
       data={{
         "data-testid": "patronus-chip",
@@ -62,10 +84,9 @@ export function PatronusChip({ branchName, compact = false }: { branchName: stri
       detailsTestId="patronus-popover"
       onActivate={() => openRobot(robot)}
       onOpenChange={setOpen}
+      className={className}
     >
-      <Icon className={cn("size-3.5", chip.kind === "running" && "animate-pulse")} />
-      {!compact && chip.label}
-      {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
+      {children}
     </StatusChip>
   )
 }
@@ -88,7 +109,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
   const chip = getPatronusChipState(robot, localTip, remote, needsReview)
-  const Icon = icons[chip.kind]
+  const Icon = patronusChipIcons[chip.kind]
   const details = usePatronusRobotDetails(robot.id, robot.status, loadDetails)
   const restart = getRobotRestartAction(robot, branchName, localTip, remote, needsReview)
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
@@ -126,7 +147,10 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {robot.startTime > 0 && (
           <>
             <dt className="text-muted-foreground">Started</dt>
-            <dd className="text-muted-foreground">{formatTimestamp(robot.startTime)}</dd>
+            <dd className="text-muted-foreground" data-testid="patronus-started">
+              {formatTimestamp(robot.startTime)}
+              {robot.status === "running" && <RobotTimingDetails robot={robot} />}
+            </dd>
           </>
         )}
         {robot.finishTime !== null && (
@@ -206,6 +230,12 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
       </div>
     </div>
   )
+}
+
+/** " · usually ~40 min · about 22 min left" after the start time of a running robot; it ticks, so it is its own component */
+function RobotTimingDetails({ robot }: { robot: PatronusRobot }) {
+  const timing = useRobotTiming(robot)
+  return ` · ${formatRobotTimingDetails(robot, timing)}`
 }
 
 /** The robot of the branch in the branch preview, above the commits; nothing without one */

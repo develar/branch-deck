@@ -127,7 +127,7 @@ by the next sync the same way.
   [@test] ../../src/lib/landed.test.ts (`says it in a few words for the footer`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The branch row shows an `info` chip "Landed" (all its commits) or "1 landed · 1 local" in the third column of its
-  Status cell, after the Patronus chip ([Branch Row](../branch/branch-row.spec.md)). Its popover has the anatomy of the
+  Status cell ([Branch Row](../branch/branch-row.spec.md)). Its popover has the anatomy of the
   pull request and Patronus details: the state line (the chip text), "Already in origin/master · the update removes the
   local copies", then the rows "Commits" (each subject with its baseline commit) and "Stays local" ("1 commit"). A
   landed commit shows "in origin/master" after its subject; its popover says "Already in origin/master · the update

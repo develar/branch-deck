@@ -105,10 +105,13 @@ test.describe("Push progress", () => {
     })
     const row = findBranchRow(page, "JIRA-456")
     const button = getPushButton(row)
-    await expect(button).toHaveText("Create Remote (3)")
+    // the row shows the count, the label is its name and leads its description
+    await expect(button).toHaveText("3")
+    await expect(button).toHaveAccessibleName("Create Remote (3)")
 
     await button.click()
-    await expect(button).toHaveText("Pushing 55%")
+    await expect(button).toHaveText("55%")
+    await expect(button).toHaveAccessibleName("Pushing 55%")
     await expect(button).toHaveAttribute("aria-busy", "true")
     // the pointer stays on the button after the click: its popover is open
     const progress = page.getByTestId("push-progress")
@@ -119,7 +122,7 @@ test.describe("Push progress", () => {
     release()
     await expectPushedToast(page, "JIRA-456")
     await expect(button).not.toHaveAttribute("aria-busy")
-    await expect(button).toHaveText("Push")
+    await expect(button).toHaveAccessibleName("Push")
   })
 })
 
@@ -213,7 +216,7 @@ test.describe("Force push", () => {
 test.describe("Push button", () => {
   test("should keep the colour of the push while its description is open", async ({ page }) => {
     const button = getPushButton(findBranchRow(page, "JIRA-456"))
-    await expect(button).toHaveText("Create Remote (3)")
+    await expect(button).toHaveAccessibleName("Create Remote (3)")
     await button.hover()
     await expect(page.getByTestId("push-description")).toBeVisible()
     await expect(button).toHaveAttribute("aria-expanded", "true")

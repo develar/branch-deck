@@ -1,7 +1,8 @@
+import { useMemo } from "react"
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
-import type { LandingAncestor } from "@/lib/patronus"
+import type { LandingAncestor, LandingDescendant } from "@/lib/patronus"
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
@@ -9,6 +10,7 @@ import {
   REVIEW_APPROVAL_SUBSYSTEM,
   findBranchRobot,
   findLandingAncestor,
+  findLandingDescendants,
   findMergedRobots,
   formatMergedRobotTitle,
   formatPushMode,
@@ -19,8 +21,10 @@ import {
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { closeLandedPullRequests } from "@/lib/landed-stack"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import { expectedRobotDuration } from "@/lib/robot-eta"
 import { stackAncestors } from "@/lib/stack"
 import { recordRobot } from "@/stores/activity"
+import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
@@ -151,6 +155,106 @@ function landingAncestorIn(robots: Readonly<Record<string, PatronusRobot>> | und
 
 /** Keeps `landingAncestorIn` stable for `useStore`: one result per robot object */
 const landingCache = new WeakMap<PatronusRobot, LandingAncestor>()
+
+/**
+ * The branch built on this one whose running robot lands it (`findLandingDescendants`): its row says so, and a Safe Push
+ * of the branch waits for it; null while none runs
+ */
+export function useLandingSpan(branchName: string): LandingDescendant | null {
+  const robots = useRepositoryRobots()
+  return useBranchSync(state => robots === undefined ? null : landingSpansIn(robots, state).get(branchName) ?? null)
+}
+
+/**
+ * Every landing span of the selected repository, ancestor → the branch whose running robot lands it, for the stack
+ * graph (`landingLanes`); renders again only when a span changes, not on every sync event
+ */
+export function useLandingSpans(): ReadonlyMap<string, string> {
+  const robots = useRepositoryRobots()
+  const key = useBranchSync(state => robots === undefined ? "" : [...landingSpansIn(robots, state)].map(([name, span]) => `${name}\t${span.branch}`).join("\n"))
+  return useMemo(() => new Map(key === "" ? [] : key.split("\n").map(line => line.split("\t") as [string, string])), [key])
+}
+
+/** Non-hook variant of `useLandingSpan`, for menus built on open */
+export function getLandingSpan(branchName: string): LandingDescendant | null {
+  const key = currentKey()
+  const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
+  return robots === undefined ? null : landingSpansIn(robots, branchSyncStore.getState()).get(branchName) ?? null
+}
+
+interface LandingSpans {
+  readonly robots: Readonly<Record<string, PatronusRobot>>
+  readonly branches: BranchSyncState["branches"]
+  readonly order: BranchSyncState["branchOrder"]
+  readonly spans: ReadonlyMap<string, LandingDescendant>
+}
+
+/** The last landing spans: every row asks for its own, they are computed once per change of the robots or the branches */
+let lastLandingSpans: LandingSpans | null = null
+
+function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, LandingDescendant> {
+  const { branches, branchOrder: order } = state
+  const last = lastLandingSpans
+  if (last !== null && last.robots === robots && last.branches === branches && last.order === order) {
+    return last.spans
+  }
+  const spans = findLandingDescendants(
+    order,
+    name => stackAncestors(name, it => branches[it]).map(it => it.name),
+    (name) => {
+      const branch = branches[name]
+      return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
+    },
+  )
+  // the same object while the same robot lands the branch, so its row doesn't render again on every sync event
+  for (const [name, span] of spans) {
+    const previous = last?.spans.get(name)
+    if (previous !== undefined && previous.branch === span.branch && previous.robot === span.robot) {
+      spans.set(name, previous)
+    }
+  }
+  lastLandingSpans = { robots, branches, order, spans }
+  return spans
+}
+
+/**
+ * How long a robot like this one usually runs, in seconds (`expectedRobotDuration`), from the robots listed for the
+ * repository; null without history. Renders again only when the estimate changes.
+ */
+export function useExpectedRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch"> | undefined): number | null {
+  const key = useRepositoryKey()
+  const pushMode = robot?.pushMode
+  const targetBranch = robot?.targetBranch
+  return useStore(patronusStore, (state) => {
+    const robots = state.repositories[key]?.robots
+    return robots === undefined || pushMode === undefined || targetBranch === undefined ? null : expectedDurationIn(robots, pushMode, targetBranch)
+  })
+}
+
+/** Non-hook variant of `useExpectedRobotDuration`, for the Dock */
+export function getExpectedRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch">): number | null {
+  const key = currentKey()
+  const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
+  return robots === undefined ? null : expectedDurationIn(robots, robot.pushMode, robot.targetBranch)
+}
+
+/** The estimates of a robots record by push mode and target, computed once per record */
+const expectedDurations = new WeakMap<Readonly<Record<string, PatronusRobot>>, Map<string, number | null>>()
+
+function expectedDurationIn(robots: Readonly<Record<string, PatronusRobot>>, pushMode: PatronusPushMode, targetBranch: string): number | null {
+  let known = expectedDurations.get(robots)
+  if (known === undefined) {
+    known = new Map()
+    expectedDurations.set(robots, known)
+  }
+  const cacheKey = `${pushMode}\n${targetBranch}`
+  let expected = known.get(cacheKey)
+  if (expected === undefined) {
+    expected = expectedRobotDuration({ pushMode, targetBranch }, Object.values(robots), Date.now())
+    known.set(cacheKey, expected)
+  }
+  return expected
+}
 
 /** The robot failed for missing code-owner approvals (its problems are read once, see `loadReviewProblems`) */
 export function useRobotNeedsReview(robotId: string | undefined): boolean {

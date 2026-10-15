@@ -136,7 +136,7 @@ test.describe("Stacked branches", () => {
     await expect(loginRow.getByTestId("branch-status")).toHaveText("blocked by auth")
     await expect(findBranchRow(page, "auth").getByTestId("branch-status")).toHaveText("merge conflict")
     await expect(getPushButton(loginRow)).toBeDisabled()
-    await expect(getPushButton(loginRow)).toHaveText("Push")
+    await expect(getPushButton(loginRow)).toHaveAccessibleName("Push")
 
     await expandBranch(page, loginRow)
     const alert = getBranchDetailsRow(page, "login").getByTestId("branch-blocked")
@@ -251,7 +251,7 @@ test.describe("Stacked branches", () => {
     const oauth = findBranchRow(page, "oauth")
     await expect(oauth.getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
     const button = getPushButton(oauth)
-    await expect(button).toHaveText("Push Stack (3)")
+    await expect(button).toHaveAccessibleName("Push Stack (3)")
     await expect(button).toBeEnabled()
     await button.hover()
     const description = page.getByTestId("push-description")
@@ -301,7 +301,7 @@ test.describe("Stacked branches", () => {
 
     // auth alone may go; its description offers its children too
     const button = getPushButton(findBranchRow(page, "auth"))
-    await expect(button).toHaveText("Create Remote (1)")
+    await expect(button).toHaveAccessibleName("Create Remote (1)")
     await button.hover()
     const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
     await expect(alternative).toHaveCount(1)
@@ -402,6 +402,41 @@ test.describe("Stacked branches", () => {
       await item.hover()
       await expect(page.locator("[data-slot=tooltip-content]", { hasText: "A Safe Push of login is running: wait until it merges" })).toBeVisible()
       // a dry run pushes nothing into master
+      await expect(page.getByRole("menuitem", { name: /^Dry Run…/ })).not.toHaveAttribute("aria-disabled", "true")
+    })
+
+    test("should say which branches a running Safe Push lands, and not start them on their own", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRepo("stacked_branches", { patronus: availableRobots(robot("oauth", "oauth-robot")) })
+      await syncAndWaitForBranches()
+      await expect(findBranchRow(page, "oauth").getByTestId("patronus-chip")).toHaveAttribute("data-kind", "running")
+
+      // oauth is built on login, built on auth: its Safe Push pushes their commits too
+      await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with oauth")
+      const label = findBranchRow(page, "login").getByTestId("landing-span")
+      await expect(label).toHaveText("lands with oauth")
+      await label.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "lands this branch" })).toHaveText("A Safe Push of oauth lands this branch with it")
+      await page.mouse.move(0, 0)
+      await expect(findBranchRow(page, "session").getByTestId("landing-span")).toHaveCount(0)
+      await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
+      // in the graph: the ring of the robot around the node of oauth, the lines from auth down to it in its colour,
+      // past session, which forks off auth before login
+      await expect(findBranchRow(page, "oauth").getByTestId("lane-node")).toHaveAttribute("data-ring", "true")
+      await expect(findBranchRow(page, "oauth").getByTestId("lane-ring")).toBeVisible()
+      await expect(findBranchRow(page, "login").getByTestId("lane-ring")).toHaveCount(0)
+      for (const name of ["auth", "session", "login", "oauth"]) {
+        await expect(findBranchRow(page, name).getByTestId("landing-lanes")).toHaveCount(1)
+      }
+      await expect(findBranchRow(page, "docs").getByTestId("landing-lanes")).toHaveCount(0)
+
+      const login = findBranchRow(page, "login").getByRole("button", { name: "Safe Push…" })
+      await expect(login).toBeDisabled()
+      await login.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText("A Safe Push of oauth is running: it lands login with it")
+      await page.mouse.move(0, 0)
+      // a dry run pushes nothing into master
+      await openContextMenu(page, findBranchRow(page, "auth"))
+      await expect(page.getByRole("menuitem", { name: /^Safe Push…/ })).toHaveAttribute("aria-disabled", "true")
       await expect(page.getByRole("menuitem", { name: /^Dry Run…/ })).not.toHaveAttribute("aria-disabled", "true")
     })
   })
