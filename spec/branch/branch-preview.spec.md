@@ -11,6 +11,7 @@ targets:
   - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/hooks/useSpacePreviewHotkey.ts
   - ../../src/lib/preview-keys.ts
+  - ../../src/hooks/usePushButton.ts
   - ../../src/lib/git/push.ts
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/stores/push-confirm.ts
@@ -46,10 +47,13 @@ The arrows step through the branches of the table, and P pushes the shown branch
 
 ### Opening and closing
 
-- Space must open the preview of the branch row under the pointer.
+- Space must open the preview of the branch row under the pointer, or of the branch row the arrows focused while the
+  pointer hasn't moved since ([Branch Row](branch-row.spec.md#keyboard)).
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
 - Space must not expand or collapse the row.
 - ↑ and ↓ must show the previous and the next branch in the order of the table, and the preview must show the
-  position as `2 / 7`. Issue rows are not branches and are skipped.
+  position as `2 / 7`. Issue rows are not branches and are skipped; under a filter, the rows shown
+  ([Branch Filter](branch-filter.spec.md)).
 - Space and Escape must close the preview.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
 - Without a row under the pointer, Space must open the preview of the last toggled branch while the focus is in the
@@ -87,7 +91,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 
 - P or the push button in the footer must push the shown branch, as the push button of the row does, with the same
   label ("Push (2)", "Create Remote (3)", "Force Push (1)").
-- P must work in any keyboard layout (the physical key).
+- P must work in any keyboard layout (the physical key). P on the focused row of the table pushes by the same rule
+  (`canPushNow`, [Branch Row](branch-row.spec.md#keyboard)).
 - The push must be disabled while a sync or a push of the branch runs, while an inline action runs on the row, and when
   everything is pushed.
 - The preview must stay open, and its status and last push time must follow the push result.

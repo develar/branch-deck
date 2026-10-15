@@ -205,14 +205,17 @@ reports in it and closes it once merged.
 
 ### Starting a Safe Push or a Dry Run
 
-- When the repository is on Space (Patronus answered), "Safe Push…" opens the form below the row from four places: the
+- When the repository is on Space (Patronus answered), "Safe Push…" opens the form below the row from five places: the
   button after the push button in the Actions cell of the row ([Branch Row](branch-row.spec.md#actions-cell)), the
   Patronus group of the branch menu (the right-click and "⋯"; with "Dry Run…"), the preview footer and the popover of a
-  robot that needs review. A click on the row button doesn't toggle the row. The preview footer's "Safe Push…" closes
-  the preview and opens the form of the row; so does "Safe Push…" of the robot details inside the preview (its Patronus
-  section, the chip popover of its meta line), one helper (`openRowForm`) for both.
+  robot that needs review; and S on the focused row of the branch table ([Branch Row](branch-row.spec.md#keyboard)),
+  which the hover of the row button and the menu item show. A click on the row button doesn't toggle the row. The
+  preview footer's "Safe Push…" closes the preview and opens the form of the row; so does "Safe Push…" of the robot
+  details inside the preview (its Patronus section, the chip popover of its meta line), one helper (`openRowForm`) for
+  both.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push form of its Patronus section`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
 - Every entry point asks one predicate, `canStartRobot(branch, robot, landingAncestor)` (`src/lib/patronus.ts`): a start
   is not possible while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last
   commit is running") nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's

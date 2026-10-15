@@ -398,9 +398,9 @@ export function getBranchTableRows(visible: ReadonlySet<string> | null = null): 
   return branchTableRowsIn(branchSyncStore.getState(), visible)
 }
 
-/** The branch rows of the table in table order, without the issue rows */
-export function getBranchTableOrder(): string[] {
-  return getBranchTableRows().flatMap(row => row.kind === "branch" ? [row.name] : [])
+/** The branch rows of the table in table order, without the issue rows; of the `visible` branches only (a filter) */
+export function getBranchTableOrder(visible: ReadonlySet<string> | null = null): string[] {
+  return getBranchTableRows(visible).flatMap(row => row.kind === "branch" ? [row.name] : [])
 }
 
 function branchCommitsIn(state: BranchSyncState, names: readonly string[]): Commit[] {

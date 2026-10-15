@@ -118,7 +118,10 @@ test.describe("Patronus actions", () => {
     const row = findBranchRow(page, "ABC-123")
     const button = row.getByRole("button", { name: "Safe Push…" })
     await button.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "code-owner review" })).toHaveText("Checks the code-owner review, then starts the robot.")
+    // S opens the form from the focused row
+    const description = page.getByRole("tooltip").filter({ hasText: "code-owner review" })
+    await expect(description).toContainText("Checks the code-owner review, then starts the robot.")
+    await expect(description.locator("kbd")).toHaveText("S")
     await button.click()
     await expect(form).toBeVisible()
     await expect(form.getByTestId("patronus-start-explanation")).toContainText("Patronus rebases ABC-123 onto master")

@@ -115,9 +115,12 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 - The commits of a branch table row and of the unassigned commits card must be selectable.
 - The branch rows must be selectable: Cmd/Ctrl-click toggles a row, Shift-click selects the rows from the last clicked
-  one, Cmd+A selects all, Escape clears; a plain click expands the row and clears the selection.
+  one, Cmd+A selects all, Escape clears; a plain click expands the row and clears the selection. Under the filter of the
+  table, Shift-click takes the shown rows, Cmd+A the rows the filter matched (not the dimmed ones), and a selected
+  branch the filter hides stays selected: the bar adds "· 1 hidden" ([Branch Filter](branch-filter.spec.md)).
   [@test] ../../src/lib/branch-selection.test.ts (`selects a range of rows from the anchor, in table order`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should move the selected branches to a new branch with Move to…`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should select only the matches with Cmd+A and keep a hidden selected branch`)
 - Only one list must hold a selection, the branch table included: selecting in another list must clear it.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
   [@test] ../../src/stores/commit-move.test.ts (`clears the selected branches and their form when a commit list takes the selection`)

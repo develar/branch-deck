@@ -17,6 +17,8 @@ interface BranchContextMenuRowProps {
   "depth"?: number
   /** The lane of its node in the stack graph, rendered as `data-lane`; null without stacks */
   "lane"?: number | null
+  /** Shown as context of the filter, not a match: faded until hovered or focused (`data-dimmed`) */
+  "dimmed"?: boolean
   /** Commits from another list are dragged ("ready") or over the row ("over") */
   "dropTarget"?: "ready" | "over"
   "dropProps"?: {
@@ -42,7 +44,7 @@ interface BranchContextMenuRowProps {
  * Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click.
  * Focusable (not a tab stop): an inline form of the row gives the focus back to it when it closes.
  */
-export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, lane = null, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, lane = null, dimmed = false, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -53,6 +55,7 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             data-row-id={rowId}
             data-depth={depth > 0 ? depth : undefined}
             data-lane={lane ?? undefined}
+            data-dimmed={dimmed || undefined}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
             data-selected={selected === undefined ? undefined : String(selected)}
@@ -62,6 +65,7 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
               group && "group",
               "cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset",
               selected === true && "bg-primary/15 hover:bg-primary/20",
+              dimmed && "opacity-55 hover:opacity-100 focus-visible:opacity-100",
               className,
             )}
             onClick={onToggle}

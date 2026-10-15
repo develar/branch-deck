@@ -203,6 +203,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     ("commit_tree", templates::commit_tree()),
     ("stacked_branches", templates::stacked_branches()),
     ("stacked_conflict", templates::stacked_conflict()),
+    ("branch_filter", templates::branch_filter()),
   ];
 
   // Build all templates in parallel
@@ -319,6 +320,8 @@ pub enum RepositoryTemplate {
   StackedBranches,
   #[serde(rename = "stacked_conflict")]
   StackedConflict,
+  #[serde(rename = "branch_filter")]
+  BranchFilter,
   #[serde(rename = "archived_branches")]
   ArchivedBranches,
   #[serde(rename = "amend_changes")]
@@ -359,6 +362,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::CommitTree => "commit_tree",
       RepositoryTemplate::StackedBranches => "stacked_branches",
       RepositoryTemplate::StackedConflict => "stacked_conflict",
+      RepositoryTemplate::BranchFilter => "branch_filter",
       RepositoryTemplate::ArchivedBranches => "archived_branches",
       RepositoryTemplate::AmendChanges => "amend_changes",
       RepositoryTemplate::BehindUpstream => "behind_upstream",

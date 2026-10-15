@@ -219,6 +219,14 @@ export function getPushButtonState(
   }
 }
 
+/**
+ * Whether the push button of the branch is enabled, for P in the branch preview and on the focused row of the branch
+ * table: synced without an error, with commits, something to push, no sync or push running, no inline action on the row
+ */
+export function canPushNow(branch: Branch, { isSyncing, isPushing, processing }: { isSyncing: boolean, isPushing: boolean, processing: boolean }): boolean {
+  return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isSyncing, isPushing }).disabled
+}
+
 /** The push button of a branch row, of the outgoing overview and of the branch preview */
 export function usePushButton(branch: Branch, isSyncing: boolean, isPushing: boolean): PushButtonState {
   const unpushedParent = useUnpushedParent(branch)

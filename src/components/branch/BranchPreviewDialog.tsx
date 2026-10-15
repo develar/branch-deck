@@ -29,7 +29,7 @@ import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
-import { getPushButtonState } from "@/hooks/usePushButton"
+import { canPushNow } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getBranchSummary } from "@/lib/branch"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
@@ -79,8 +79,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const isPushing = useIsBranchPushing(currentName ?? "")
   const processing = useIsRowProcessing(currentName ?? "")
   // as the push button of the row: only a branch that synced without an error has something to push
-  const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, { isSyncing, isPushing })
-  const canPush = push !== null && !push.disabled && !processing
+  const hasPush = branch !== undefined && !branch.hasError && branch.commitCount > 0
+  const canPush = branch !== undefined && canPushNow(branch, { isSyncing, isPushing, processing })
   const pullRequest = usePullRequest(currentName ?? "")
   // as the branch menu offers it: a pushed branch without a live pull request, on GitHub
   const newPullRequestUrl = branch === undefined ? null : getNewPullRequestUrl(branch)
@@ -160,8 +160,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                 </Button>
               )}
             {/* the start form is a form of the row: the preview closes for it (`ClosePreviewContext`) */}
-            {patronusAvailable && push !== null && <SafePushButton branch={branch} />}
-            {push !== null && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
+            {patronusAvailable && hasPush && <SafePushButton branch={branch} />}
+            {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
           </PreviewDialogFooter>
         </ClosePreviewContext>
       )}

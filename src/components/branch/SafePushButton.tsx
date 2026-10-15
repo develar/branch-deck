@@ -1,6 +1,7 @@
 import { ShieldCheckIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useOpenRowForm } from "@/hooks/useOpenRowForm"
 import { canStartRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
@@ -12,6 +13,8 @@ export interface SafePushButtonProps {
   branch: Branch
   /** `ghost` in the row and the preview footer, `outline` among the buttons of the chip popover */
   variant?: "ghost" | "outline"
+  /** The key that opens the form where the button is (S on the focused row of the branch table), shown on hover */
+  shortcut?: string
 }
 
 /**
@@ -20,7 +23,7 @@ export interface SafePushButtonProps {
  * an ancestor of a stacked branch or the branch is blocked (`canStartRobot`), with the reason on hover, and while the row runs an inline action. Inside the branch
  * preview the preview closes first (`useOpenRowForm`): the form is a form of the row.
  */
-export function SafePushButton({ branch, variant = "ghost" }: SafePushButtonProps) {
+export function SafePushButton({ branch, variant = "ghost", shortcut }: SafePushButtonProps) {
   const openForm = useOpenRowForm()
   const robot = useBranchRobot(branch.name)
   const processing = useIsRowProcessing(branch.name)
@@ -49,7 +52,10 @@ export function SafePushButton({ branch, variant = "ghost" }: SafePushButtonProp
         <ShieldCheckIcon data-icon="inline-start" />
         Safe Push…
       </TooltipTrigger>
-      <TooltipContent>{start.ok ? SAFE_PUSH_DESCRIPTION : start.reason}</TooltipContent>
+      <TooltipContent>
+        {start.ok ? SAFE_PUSH_DESCRIPTION : start.reason}
+        {start.ok && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
+      </TooltipContent>
     </Tooltip>
   )
 }

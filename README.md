@@ -28,6 +28,11 @@ repositories: all operations run through the Git CLI.
   not a staircase of fifteen indents, and a lane opens only where a branch has a second child. The node of each branch
   is its status (the push colour, filled while it has commits to push, hollow when up to date), and the commits of an
   expanded branch sit on its line.
+- **Filter and keys**: from eight branches on, the table has a filter bar: `/` searches the names, issue keys,
+  summaries and commit subjects, and the chips To Push, Running and Attention (each with its count) show the branches in
+  that state. A match deep in a stack keeps its parents as dimmed context, so the graph stays connected, and a branch
+  you just pushed stays until you change the filter. ↑/↓ walk the rows, ←/→ collapse and expand, Space previews, P
+  pushes and S opens the Safe Push form of the focused branch.
 - **Issue groups**: one branch for the commits of several issues, without a rewrite. `ABC-1 Parse lists` and
   `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
   name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and

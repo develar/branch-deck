@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
+import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
 import { BranchRow } from "@/components/branch/BranchRow"
 import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
@@ -10,6 +11,8 @@ import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
+import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
+import { useBranchRowKeys } from "@/hooks/useBranchRowKeys"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
@@ -18,7 +21,7 @@ import { pruneSelection } from "@/lib/branch-selection"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
-import { syncBranches, useBranchTableRows, useFoundCommits } from "@/stores/branch-sync"
+import { syncBranches, useBranchSync, useFoundCommits, useVisibleBranchTableRows } from "@/stores/branch-sync"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
 
@@ -27,15 +30,19 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
- * on top. Subscribes to the row list only; each row subscribes to its own branch.
- * Space (over a branch row, or on the last toggled row of the focused table) opens the branch preview. Cmd/Ctrl-click
- * and Shift-click select branch rows: M or Enter opens "Move to…" for them, Cmd+A selects all, Escape clears.
+ * on top, under the filter bar (`BranchFilterBar`): the matches of the filter and, dimmed, the branches they stack on.
+ * Subscribes to the row list and the matches only; each row subscribes to its own branch.
+ * Space (over a branch row, on the row the arrows focused, or on the last toggled row of the focused table) opens the
+ * branch preview; the focused row has its keys (`useBranchRowKeys`). Cmd/Ctrl-click and Shift-click select branch rows:
+ * M or Enter opens "Move to…" for them, Cmd+A selects the rows the filter matched, Escape clears.
  */
 export function BranchTableCard() {
-  const rows = useBranchTableRows()
+  const visible = useFilteredBranches()
+  const rows = useVisibleBranchTableRows(visible)
+  const branchCount = useBranchSync(state => state.branchOrder.length)
   const { expandedKeys, toggleExpanded: toggleRowExpanded, setExpanded } = useRowExpansion()
 
-  // the fallback of Space while the table has the focus
+  // the fallback of Space while the table has the focus: the row last toggled or focused with the arrows
   const lastToggledRef = useRef<string | null>(null)
   const toggleExpanded = useCallback((name: string) => {
     lastToggledRef.current = name
@@ -59,15 +66,17 @@ export function BranchTableCard() {
   }, [])
   const tableRef = useRef<HTMLTableElement>(null)
   useSpacePreviewHotkey(tableRef, () => lastToggledRef.current, openPreview)
+  const { handleRowKey, focusFirstRow } = useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef: lastToggledRef })
+  useRevealClearsFilter(branchNames)
 
   // "Sync" menu item
   useTauriListen("sync-branches", () => {
     void syncBranches()
   })
 
-  // a branch gone after a sync (renamed, merged) leaves the selection
+  // a branch gone after a sync (renamed, merged) leaves the selection; one the filter hides stays in it
   const selectedBranches = useCommitMove(state => state.selectedBranches)
-  const branchKey = branchNames.join("\n")
+  const branchKey = useBranchSync(state => state.branchOrder.join("\n"))
   useEffect(() => {
     const pruned = pruneSelection(selectedBranches, new Set(branchKey.split("\n")))
     if (pruned !== selectedBranches) {
@@ -78,7 +87,7 @@ export function BranchTableCard() {
   // the lane column of the stack graph, as wide in every row (`bd-lanes` in index.css)
   const laneCount = laneCountOf(rows.map(row => row.kind === "branch" ? row.lanes : null))
 
-  if (rows.length === 0) {
+  if (branchCount === 0) {
     // with no branch yet, the zone is where dragged commits go
     return hasDrop
       ? (
@@ -106,12 +115,17 @@ export function BranchTableCard() {
     }
     else if (event.code === "KeyA" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
       event.preventDefault()
-      setSelectedBranches(branchNames)
+      // what the filter matched, not the branches shown dimmed because a match stacks on them
+      setSelectedBranches(rows.flatMap(row => row.kind === "branch" && !row.dimmed ? [row.name] : []))
+    }
+    else if (!hasKeyModifier(event)) {
+      handleRowKey(event)
     }
   }
 
   return (
     <Card className="gap-0 py-0">
+      <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
       <BranchSelectionBar />
       <NewBranchDropZone />
       <div className="overflow-x-auto">
@@ -119,7 +133,8 @@ export function BranchTableCard() {
         <table
           ref={tableRef}
           tabIndex={-1}
-          className={cn("w-full outline-none", laneCount > 0 && "bd-lanes")}
+          // a table the filter left empty is one quiet line, without the column heads
+          className={cn("w-full outline-none", laneCount > 0 && "bd-lanes", rows.length === 0 && "[&>thead]:hidden")}
           style={laneCount > 0 ? { "--bd-lane-count": laneCount } as CSSProperties : undefined}
           onKeyDown={onTableKeyDown}
         >
@@ -133,6 +148,7 @@ export function BranchTableCard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
+            {rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
             {rows.map((row, rowIndex) => {
               if (row.kind === "issue") {
                 return <IssueFamilyRow key={row.key} issueKey={row.issueKey} branchCount={row.branchCount} />
@@ -147,6 +163,7 @@ export function BranchTableCard() {
                   familyIndent={row.familyIndent}
                   lanes={row.lanes}
                   showIssueKey={row.showIssueKey}
+                  dimmed={row.dimmed}
                   familyBelow={next?.kind === "branch" && next.familyIndent > row.familyIndent}
                   expanded={expandedKeys.has(name)}
                   onToggleExpanded={toggleExpanded}

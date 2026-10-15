@@ -293,10 +293,12 @@ menu stacks, unstacks and renames branches.
   after it. Without stacked branches the table is as before.
   [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`, `indents a family member and the stack on it one level, with the lanes of the stack inside`, `shows no chip for a stacked branch named after its issue`)
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
-- The rows of some branches only (`useVisibleBranchTableRows`, for a filter) must include the branches they stack
-  on, dimmed unless they are among them, and lay the graph out over the rows that remain. The header counters and the
-  selection read all rows.
+- Under the filter of the table ([Branch Filter](branch-filter.spec.md)), the rows of the matches only
+  (`useVisibleBranchTableRows`) must include the branches they stack on, dimmed unless they are matches themselves, and
+  lay the graph out over the rows that remain, so a match deep in a stack stays connected to its root. The header
+  counters and the selection read all rows.
   [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`, `prunes an issue family to its visible members`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
   parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`)

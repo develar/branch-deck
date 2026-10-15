@@ -502,6 +502,28 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704124800))
   }
 
+  /// Stacked branches on, eleven branches, enough for the filter of the branch table: the stack `core` → `api` → `web`
+  /// with `cli` forked off `core`, two issue branches, a prefix branch of an issue (`search`, IJPL-200) and standalone
+  /// branches; "the API" is in the subject of `docs` too
+  pub fn branch_filter() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("branch_filter")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Filter\n")], Some(1704117600))
+      .commit_with_timestamp("(core) Add the core module", &[("core.js", "export function core() {}\n")], Some(1704119400))
+      .commit_with_timestamp("(core/api) Add the REST API", &[("api.js", "export function api() {}\n")], Some(1704121200))
+      .commit_with_timestamp("(api/web) Add the web client", &[("web.js", "export function web() {}\n")], Some(1704123000))
+      .commit_with_timestamp("(core/cli) Add the command line", &[("cli.js", "export function cli() {}\n")], Some(1704124800))
+      .commit_with_timestamp("(docs) Document the API", &[("docs.md", "# API\n")], Some(1704126600))
+      .commit_with_timestamp("(ci) Run the tests on every push", &[("ci.yml", "on: push\n")], Some(1704128400))
+      .commit_with_timestamp("IJPL-101: Speed up the indexing", &[("index.js", "export function index() {}\n")], Some(1704130200))
+      .commit_with_timestamp("IJPL-102: Cache the parsed files", &[("cache.js", "export const cache = {}\n")], Some(1704132000))
+      .commit_with_timestamp("(search) IJPL-200: Add fuzzy search", &[("search.js", "export function search() {}\n")], Some(1704133800))
+      .commit_with_timestamp("(lint) Enable the strict rules", &[("lint.json", "{}\n")], Some(1704135600))
+      .commit_with_timestamp("(deps) Update the dependencies", &[("package.json", "{}\n")], Some(1704137400))
+  }
+
   /// Repository with issue navigation configuration for testing issue links
   pub fn issue_links() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes

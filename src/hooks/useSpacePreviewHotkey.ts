@@ -32,12 +32,19 @@ function ownsSpace(target: EventTarget | null): boolean {
   return target.closest(SPACE_OWNERS) !== null || (!pointerMovedSinceFocus && target.matches("button, a, [role=button]"))
 }
 
+/** A focused row (the branch rows are focusable: ↑/↓ move the focus between them); null when the focus is elsewhere */
+function focusedPreviewRow(): HTMLElement | null {
+  const active = document.activeElement
+  return active instanceof HTMLElement && active.matches("tr[data-row-id]") ? active : null
+}
+
 /** Marks the tables that open a preview on Space, so the innermost one owns the focus inside it */
 const PREVIEW_TABLE_ATTRIBUTE = "data-space-preview"
 
 /**
- * Space opens a preview, as Quick Look does: for the row (`tr[data-row-id]`) under the pointer, otherwise for
- * `getFallbackId()` (the last clicked row) while the focus is in the table.
+ * Space opens a preview, as Quick Look does: for a focused row while the pointer has not moved since the focus moved
+ * there (↑/↓ in the branch table), for the row (`tr[data-row-id]`) under the pointer, otherwise for `getFallbackId()`
+ * (the last clicked row) while the focus is in the table.
  *
  * Every table registers its own listener; a table acts only for its own rows, for the innermost hovered row and for
  * the focus that no nested preview table holds, so the branch table and a commit list nested in it (or a commit list
@@ -69,7 +76,11 @@ export function useSpacePreviewHotkey(
       let id: string | null = null
       const hoveredRows = document.querySelectorAll<HTMLElement>("tr[data-row-id]:hover")
       const hoveredRow = hoveredRows[hoveredRows.length - 1]
-      if (hoveredRow !== undefined) {
+      const focusedRow = pointerMovedSinceFocus ? null : focusedPreviewRow()
+      if (focusedRow !== null) {
+        id = focusedRow.closest("table") === table ? focusedRow.dataset.rowId ?? null : null
+      }
+      else if (hoveredRow !== undefined) {
         id = hoveredRow.closest("table") === table ? hoveredRow.dataset.rowId ?? null : null
       }
       else if (document.activeElement?.closest(`table[${PREVIEW_TABLE_ATTRIBUTE}]`) === table) {

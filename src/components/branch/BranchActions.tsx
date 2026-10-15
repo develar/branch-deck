@@ -31,7 +31,7 @@ export function BranchActions({ branch, setExpanded }: BranchActionsProps) {
     <RowActions>
       <CopyButton text={() => getFullBranchName(branch.name)} tooltip="Copy full branch name" label={`Copy full name of ${branch.name}`} alwaysVisible className="mr-auto" />
       {canPush && <BranchPushButton branch={branch} confirmTarget="row" />}
-      {canPush && patronusAvailable && <SafePushButton branch={branch} />}
+      {canPush && patronusAvailable && <SafePushButton branch={branch} shortcut="S" />}
       <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
     </RowActions>
   )

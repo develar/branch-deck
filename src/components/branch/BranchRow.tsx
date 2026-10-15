@@ -24,6 +24,7 @@ import { formatCommitCount } from "@/lib/commit"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
+import { getShownBranches } from "@/stores/branch-filter"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
@@ -50,6 +51,8 @@ export interface BranchRowProps {
   lanes?: StackLanes | null
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
+  /** Not a match of the filter, shown because a match stacks on it: faded, still interactive (`data-dimmed`) */
+  dimmed?: boolean
   /** The next rows are the members of its issue family: the family guide runs beside its expanded commits into theirs */
   familyBelow?: boolean
   expanded: boolean
@@ -61,7 +64,7 @@ export interface BranchRowProps {
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
  * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
  */
-export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, showIssueKey = false, familyBelow = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
+export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent = 0, lanes = null, showIssueKey = false, dimmed = false, familyBelow = false, expanded, onToggleExpanded, setExpanded }: BranchRowProps) {
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
@@ -96,7 +99,8 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
       selectBranches(name, "toggle", getBranchTableOrder())
     }
     else if (event.shiftKey) {
-      selectBranches(name, "range", getBranchTableOrder())
+      // the rows shown: a filter hides the others
+      selectBranches(name, "range", getBranchTableOrder(getShownBranches()))
     }
     else {
       clearBranchSelection()
@@ -132,6 +136,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
         rowId={name}
         depth={depth}
         lane={lanes?.lane}
+        dimmed={dimmed}
         expanded={expanded}
         processing={processing}
         group

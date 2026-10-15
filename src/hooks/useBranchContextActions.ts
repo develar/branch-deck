@@ -155,7 +155,7 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
   // a dry run pushes nothing into the target: it may run while an ancestor lands
   const dryRun = canStartRobot(branch, robot)
   const items: MenuItem[] = [
-    { label: "Safe Push…", icon: ShieldCheckIcon, disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
+    { label: "Safe Push…", icon: ShieldCheckIcon, kbds: ["s"], disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
     { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
   ]
   if (getPatronusGitHubRepository() === null) {

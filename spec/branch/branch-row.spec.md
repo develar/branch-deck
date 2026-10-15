@@ -1,6 +1,6 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the Actions cell with the push button, "Safe Push…" and the "⋯" menu, hover and click, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request, Patronus and Landed chips in fixed columns, the Actions cell with the push button, "Safe Push…" and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
@@ -33,6 +33,9 @@ targets:
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useRowExpansion.ts
+  - ../../src/hooks/useBranchRowKeys.ts
+  - ../../src/lib/branch-row-keys.ts
+  - ../../src/hooks/useSpacePreviewHotkey.ts
   - ../../src/lib/remote-status.ts
   - ../../src/lib/push-summary.ts
   - ../../src/lib/status-chip.ts
@@ -248,8 +251,43 @@ on its lane.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back`)
 - A reveal (a branch clicked in the outgoing overview, "Show auth", moved commits) must expand the row and scroll it
-  into view.
+  into view; a row the filter hides shows again first ([Branch Filter](branch-filter.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)
+- A row the filter shows only because a match is stacked on it must be dimmed and stay a row: it expands, opens its
+  menu and takes the keys ([Branch Filter](branch-filter.spec.md#rows)).
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
+
+### Keyboard
+
+- The keys of a row must act while the focus is on the branch row (one of its buttons too) or on the table, never in
+  an input, a menu, a popover, an inline form or the commit list of an expanded row; and only without a modifier.
+  A click on a row focuses it; the row is focusable, not a tab stop.
+- ↑ and ↓ must move the focus to the previous and the next branch row, past the issue rows and the rows below a branch
+  (its commits, an inline form), scrolling it into view; from the table itself to the first or the last row. The row
+  they focus is the one Space falls back on.
+  [@test] ../../src/lib/branch-row-keys.test.ts (`moves to the next or the previous branch row, from the table to the first or the last, and stops at the ends`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
+- Space must open the preview of the focused row while the pointer hasn't moved since the focus moved there, else of
+  the row under the pointer ([Branch Preview](branch-preview.spec.md)).
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
+- → must expand the focused row. ← must collapse it, or on a collapsed row move the focus to the branch row it is nested
+  under (the branch it is stacked on, or the branch of its issue), as in a tree; nothing under an issue row or at the
+  top level.
+  [@test] ../../src/lib/branch-row-keys.test.ts (`moves from a row to the branch it is nested under, as in a tree`, `has no parent row under an issue row`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
+- Enter on the focused row must toggle it; with selected rows, Enter opens "Move to…" instead
+  ([Move Commits](move-commits.spec.md)). A focused button of the row keeps its Enter.
+- P must push the focused branch as its push button does (`pushOrConfirm`, the stack where the button pushes it, the
+  question before a push that drops remote commits), when that button is enabled (`canPushNow`, the rule of P in the
+  preview); otherwise nothing happens.
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a pushed branch under To Push until the filter changes`)
+- S must open the Safe Push form of the focused row when its "Safe Push…" is enabled (Patronus answered, the row has a
+  push, `canStartRobot`, no inline action running); otherwise nothing happens and the button's hover says why. The form
+  focuses its start button, so Enter starts the robot.
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
+- P and S work in any keyboard layout (the physical key). The hover of "Safe Push…" in the row and the "Safe Push…" item
+  of the branch menu show `S`.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 
 ### Branch menu
 
@@ -258,7 +296,7 @@ on its lane.
   ("Add Issue Reference…", "Amend Changes…", "Unapply…"), the history ("Squash Fixups (N)…", "Open Pull Request") and
   Patronus ("Safe Push…", "Dry Run…", "Restart Safe Push", "Cancel Safe Push", "Open in Patronus").
 - An item that opens a form must end with "…"; an item that acts at once must not.
-- "Open Pull Request" must show `O`, its key in the branch preview.
+- "Open Pull Request" must show `O`, its key in the branch preview; "Safe Push…" `S`, its key on the focused row.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)
 
@@ -367,7 +405,8 @@ on its lane.
 - The title is `text-sm font-medium`, the description below it `text-sm text-muted-foreground`; the progress row keeps
   the title for the screen reader only.
 - An input is `max-w-md`, followed by Cancel and the submit button (`xs`); the submit of a delete is `destructive`.
-- A focused row is `bg-muted` with an inset `ring-3 ring-ring/30` (`focus-visible`).
+- A focused row is `bg-muted` with an inset `ring-3 ring-ring/30` (`focus-visible`, also when the arrows moved the
+  focus there). A dimmed row is `opacity-55`, full on hover or focus.
 
 ### Archived table
 
@@ -382,13 +421,14 @@ on its lane.
 ## Testing / Local Run
 
 - `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-lanes.test.ts`,
-  `src/stores/branch-sync.test.ts`, `src/hooks/useStatusBadge.test.ts`, `src/lib/push-summary.test.ts`,
-  `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
-- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/archived-branches`, the chip
-  specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a failure is a `page.route` of the command with
-  status 500). E2E reads the status text by `data-testid="branch-status"`, the graph by `data-lane` on the row,
-  `lane-node` (`data-color`, `data-filled`) and `lane-lines`, the family guide by `family-guide`, the rail by
-  `commit-rail` and the archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
+  `src/lib/branch-row-keys.test.ts`, `src/stores/branch-sync.test.ts`, `src/hooks/useStatusBadge.test.ts`,
+  `src/lib/push-summary.test.ts`, `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
+- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/branch-filter` (the keys),
+  `tests/e2e/archived-branches`, the chip specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a
+  failure is a `page.route` of the command with status 500). E2E reads the status text by
+  `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`) and
+  `lane-lines`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
+  archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`).
 
 ## Open Questions / Risks
 
