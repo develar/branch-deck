@@ -351,3 +351,73 @@ fn a_version_1_note_has_no_check_data() {
   let parsed = deserialize_from_cache(r#"{"v":2,"s":{"k":"n","tc":2,"oc":2,"b":"abc"}}"#).unwrap();
   assert_eq!(parsed.check, None);
 }
+
+/// The notes keep their bytes: the keys in the order the app always wrote them, zero counts left out
+#[test]
+fn notes_are_written_byte_for_byte_as_before() {
+  let integrated = BranchIntegrationInfo {
+    name: "b".to_string(),
+    summary: "sum".to_string(),
+    status: BranchIntegrationStatus::Integrated {
+      integrated_at: Some(1_760_000_000),
+      confidence: IntegrationConfidence::Exact,
+      commit_count: 2,
+      commit: Some(UpstreamCommit {
+        id: "abc".to_string(),
+        author: "A".to_string(),
+        committer: "C".to_string(),
+        time: 1_760_000_000,
+      }),
+    },
+  };
+  let json = r#"{"v":2,"s":{"k":"i","c":"e","cc":2,"ia":1760000000,"x":["abc","A","C"]},"sum":"sum"}"#;
+  assert_eq!(serialize_for_cache(&integrated, None).unwrap(), json);
+
+  let not_integrated = BranchIntegrationInfo {
+    name: "b".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::NotIntegrated {
+      total_commit_count: 3,
+      integrated_count: 1,
+      orphaned_count: 2,
+      integrated_at: None,
+    },
+  };
+  let check = Recheck {
+    baseline: "base".to_string(),
+    orphaned: vec!["o1".to_string(), "o2".to_string()],
+  };
+  let json = r#"{"v":2,"s":{"k":"n","tc":3,"ic":1,"oc":2,"b":"base","u":["o1","o2"]}}"#;
+  assert_eq!(serialize_for_cache(&not_integrated, Some(&check)).unwrap(), json);
+  assert_eq!(deserialize_from_cache(json).unwrap().check, Some(check));
+
+  let partial = BranchIntegrationInfo {
+    name: "b".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::Partial { missing: 0 },
+  };
+  assert_eq!(serialize_for_cache(&partial, None).unwrap(), r#"{"v":2,"s":{"k":"p"}}"#);
+}
+
+/// What the reader forgives: an unknown confidence is High, a count above u32 saturates, a recheck without its
+/// orphaned commits and an integration commit without an id are left out; an unknown kind is an error
+#[test]
+fn old_and_odd_notes_still_read() {
+  let parsed = deserialize_from_cache(r#"{"v":2,"s":{"k":"i","c":"?","cc":99999999999,"ia":5,"x":["","A","C"]}}"#).unwrap();
+  assert!(
+    matches!(
+      parsed.info.status,
+      BranchIntegrationStatus::Integrated {
+        confidence: IntegrationConfidence::High,
+        commit_count: u32::MAX,
+        integrated_at: Some(5),
+        commit: None,
+      }
+    ),
+    "{:?}",
+    parsed.info.status
+  );
+  assert_eq!(deserialize_from_cache(r#"{"v":1,"s":{"k":"n","b":"base"}}"#).unwrap().check, None);
+  assert!(deserialize_from_cache(r#"{"v":2,"s":{"k":"z"}}"#).is_err());
+  assert!(deserialize_from_cache(r#"{"v":2}"#).is_err());
+}

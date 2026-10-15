@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::write_notes;
-use serde_json::{Value, json};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use sync_types::upstream_commit::UpstreamCommit;
 use tracing::{debug, instrument};
@@ -37,175 +39,161 @@ pub struct Recheck {
   pub orphaned: Vec<String>,
 }
 
+/// A note as git stores it: short keys, zero counts, a missing time and an empty summary left out
+#[derive(Serialize, Deserialize)]
+struct NoteDto {
+  #[serde(default)]
+  v: u8,
+  s: StatusDto,
+  #[serde(default, skip_serializing_if = "String::is_empty", deserialize_with = "lenient")]
+  sum: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "k")]
+enum StatusDto {
+  #[serde(rename = "i")]
+  Integrated {
+    #[serde(default, deserialize_with = "lenient")]
+    c: ConfidenceDto,
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "count")]
+    cc: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "time")]
+    ia: Option<u32>,
+    /// `[id, author, committer]` of the integration commit; its time is `ia`. Absent in notes written before the commit
+    /// was recorded
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    x: Option<(String, String, String)>,
+  },
+  #[serde(rename = "n")]
+  NotIntegrated {
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "count")]
+    tc: u32,
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "count")]
+    ic: u32,
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "count")]
+    oc: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "time")]
+    ia: Option<u32>,
+    /// The baseline of the check (`Recheck::baseline`)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    b: Option<String>,
+    /// The commits without an equivalent (`Recheck::orphaned`)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    u: Option<Vec<String>>,
+  },
+  #[serde(rename = "p")]
+  Partial {
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "count")]
+    m: u32,
+  },
+}
+
+/// "h", missing or unknown is High, as in the notes written before the confidence was recorded
+#[derive(Default, Serialize, Deserialize)]
+enum ConfidenceDto {
+  #[serde(rename = "e")]
+  Exact,
+  #[default]
+  #[serde(rename = "h")]
+  High,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of skip_serializing_if")]
+fn is_zero(value: &u32) -> bool {
+  *value == 0
+}
+
+// The reader forgives a field of another type, as the notes of older versions may have one: the field is left out
+// (a count is 0), the rest of the note still reads
+
+fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(deserializer: D) -> Result<T, D::Error> {
+  Ok(serde_json::from_value(Value::deserialize(deserializer)?).unwrap_or_default())
+}
+
+/// A count as `u32`, saturating values that do not fit
+fn count<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+  Ok(time(deserializer)?.unwrap_or(0))
+}
+
+/// Unix seconds as `u32`, saturating values that do not fit
+fn time<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<u32>, D::Error> {
+  Ok(Value::deserialize(deserializer)?.as_u64().map(|value| u32::try_from(value).unwrap_or(u32::MAX)))
+}
+
 /// Serialize a detection result to compact JSON for git notes storage; `check` is written only with a `NotIntegrated`
 /// result
 pub fn serialize_for_cache(info: &BranchIntegrationInfo, check: Option<&Recheck>) -> Result<String> {
-  let status_json = match &info.status {
+  let status = match &info.status {
     BranchIntegrationStatus::Integrated {
       integrated_at,
       confidence,
       commit_count,
       commit,
-    } => {
-      let mut status = json!({
-        "k": "i",
-        "c": match confidence {
-          IntegrationConfidence::Exact => "e",
-          IntegrationConfidence::High => "h"
-        }
-      });
-      if *commit_count != 0 {
-        status.as_object_mut().unwrap().insert("cc".to_string(), json!(commit_count));
-      }
-      if let Some(ia) = integrated_at {
-        status.as_object_mut().unwrap().insert("ia".to_string(), json!(ia));
-      }
-      // `[id, author, committer]`; the time is `ia`
-      if let Some(commit) = commit {
-        status.as_object_mut().unwrap().insert("x".to_string(), json!([commit.id, commit.author, commit.committer]));
-      }
-      status
-    }
+    } => StatusDto::Integrated {
+      c: match confidence {
+        IntegrationConfidence::Exact => ConfidenceDto::Exact,
+        IntegrationConfidence::High => ConfidenceDto::High,
+      },
+      cc: *commit_count,
+      ia: *integrated_at,
+      x: commit.as_ref().map(|commit| (commit.id.clone(), commit.author.clone(), commit.committer.clone())),
+    },
     BranchIntegrationStatus::NotIntegrated {
       total_commit_count,
       integrated_count,
       orphaned_count,
       integrated_at,
-    } => {
-      let mut status = json!({"k": "n"});
-      if *total_commit_count != 0 {
-        status.as_object_mut().unwrap().insert("tc".to_string(), json!(total_commit_count));
-      }
-      if *integrated_count != 0 {
-        status.as_object_mut().unwrap().insert("ic".to_string(), json!(integrated_count));
-      }
-      if *orphaned_count != 0 {
-        status.as_object_mut().unwrap().insert("oc".to_string(), json!(orphaned_count));
-      }
-      if let Some(ia) = integrated_at {
-        status.as_object_mut().unwrap().insert("ia".to_string(), json!(ia));
-      }
-      if let Some(check) = check {
-        status.as_object_mut().unwrap().insert("b".to_string(), json!(check.baseline));
-        status.as_object_mut().unwrap().insert("u".to_string(), json!(check.orphaned));
-      }
-      status
-    }
-    BranchIntegrationStatus::Partial { missing } => {
-      let mut status = json!({"k": "p"});
-      if *missing != 0 {
-        status.as_object_mut().unwrap().insert("m".to_string(), json!(missing));
-      }
-      status
-    }
+    } => StatusDto::NotIntegrated {
+      tc: *total_commit_count,
+      ic: *integrated_count,
+      oc: *orphaned_count,
+      ia: *integrated_at,
+      b: check.map(|check| check.baseline.clone()),
+      u: check.map(|check| check.orphaned.clone()),
+    },
+    BranchIntegrationStatus::Partial { missing } => StatusDto::Partial { m: *missing },
   };
-
-  let cache_entry = if info.summary.is_empty() {
-    json!({
-      "v": DETECTION_CACHE_VERSION,
-      "s": status_json
-    })
-  } else {
-    json!({
-      "v": DETECTION_CACHE_VERSION,
-      "s": status_json,
-      "sum": info.summary
-    })
+  let note = NoteDto {
+    v: DETECTION_CACHE_VERSION,
+    s: status,
+    sum: info.summary.clone(),
   };
-
-  Ok(serde_json::to_string(&cache_entry)?)
-}
-
-/// Reads a numeric field as `u32`, saturating values that do not fit.
-fn read_u32(value: &serde_json::Value, key: &str) -> Option<u32> {
-  value.get(key).and_then(serde_json::Value::as_u64).map(|v| u32::try_from(v).unwrap_or(u32::MAX))
-}
-
-/// Reads the integration commit `x: [id, author, committer]`, committed at `time`
-fn read_upstream_commit(value: &serde_json::Value, time: u32) -> Option<UpstreamCommit> {
-  let fields = value.get("x")?.as_array()?;
-  let field = |i: usize| fields.get(i).and_then(Value::as_str).map(str::to_string);
-  Some(UpstreamCommit {
-    id: field(0).filter(|id| !id.is_empty())?,
-    author: field(1)?,
-    committer: field(2)?,
-    time,
-  })
-}
-
-/// The recheck data of a `NotIntegrated` status: `None` without a baseline or without a readable `u`
-fn read_recheck(value: &serde_json::Value) -> Option<Recheck> {
-  let baseline = value.get("b")?.as_str().filter(|baseline| !baseline.is_empty())?.to_string();
-  let orphaned = value
-    .get("u")?
-    .as_array()?
-    .iter()
-    .map(|id| id.as_str().map(str::to_string))
-    .collect::<Option<Vec<String>>>()?;
-  Some(Recheck { baseline, orphaned })
+  Ok(serde_json::to_string(&note)?)
 }
 
 /// Deserialize compact JSON from git notes (the info with an empty name)
 pub fn deserialize_from_cache(json: &str) -> Result<CachedDetection> {
-  let value: Value = serde_json::from_str(json)?;
-
-  let summary = value.get("sum").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-  let status_value = value.get("s").ok_or_else(|| anyhow::anyhow!("Missing status field"))?;
-
+  let note: NoteDto = serde_json::from_str(json)?;
   let mut check = None;
-  let status = match status_value.get("k").and_then(|v| v.as_str()) {
-    Some("i") => {
-      let commit_count = read_u32(status_value, "cc").unwrap_or(0);
-
-      let integrated_at = read_u32(status_value, "ia");
-
-      let confidence = match status_value.get("c").and_then(|v| v.as_str()) {
-        Some("e") => IntegrationConfidence::Exact,
-        // "h", missing, or unknown: default to High for backward compatibility
-        _ => IntegrationConfidence::High,
-      };
-
-      // absent in notes written before the commit was recorded
-      let commit = integrated_at.and_then(|time| read_upstream_commit(status_value, time));
-
-      BranchIntegrationStatus::Integrated {
-        integrated_at,
-        confidence,
-        commit_count,
-        commit,
-      }
-    }
-    Some("n") => {
-      let total_commit_count = read_u32(status_value, "tc").unwrap_or(0);
-
-      let integrated_count = read_u32(status_value, "ic").unwrap_or(0);
-
-      let orphaned_count = read_u32(status_value, "oc").unwrap_or(0);
-
-      let integrated_at = read_u32(status_value, "ia");
-
-      check = read_recheck(status_value);
-
+  let status = match note.s {
+    StatusDto::Integrated { c, cc, ia, x } => BranchIntegrationStatus::Integrated {
+      integrated_at: ia,
+      confidence: match c {
+        ConfidenceDto::Exact => IntegrationConfidence::Exact,
+        ConfidenceDto::High => IntegrationConfidence::High,
+      },
+      commit_count: cc,
+      commit: ia
+        .zip(x)
+        .and_then(|(time, (id, author, committer))| (!id.is_empty()).then_some(UpstreamCommit { id, author, committer, time })),
+    },
+    StatusDto::NotIntegrated { tc, ic, oc, ia, b, u } => {
+      // without a baseline or its orphaned commits (version 1) the note is detected again in full
+      check = b.filter(|baseline| !baseline.is_empty()).zip(u).map(|(baseline, orphaned)| Recheck { baseline, orphaned });
       BranchIntegrationStatus::NotIntegrated {
-        total_commit_count,
-        integrated_count,
-        orphaned_count,
-        integrated_at,
+        total_commit_count: tc,
+        integrated_count: ic,
+        orphaned_count: oc,
+        integrated_at: ia,
       }
     }
-    Some("p") => {
-      let missing = read_u32(status_value, "m").unwrap_or(0);
-
-      BranchIntegrationStatus::Partial { missing }
-    }
-    _ => return Err(anyhow::anyhow!("Unknown status kind")),
+    StatusDto::Partial { m } => BranchIntegrationStatus::Partial { missing: m },
   };
-
   Ok(CachedDetection {
     info: BranchIntegrationInfo {
       name: String::new(), // Empty name - to be filled by caller
-      summary,
+      summary: note.sum,
       status,
     },
     check,

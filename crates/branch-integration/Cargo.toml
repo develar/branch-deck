@@ -10,6 +10,7 @@ git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 anyhow.workspace = true
 tracing.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 indexmap.workspace = true
 
