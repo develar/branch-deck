@@ -16,8 +16,6 @@ const RUNNING_DETAILS_TTL: Duration = Duration::from_secs(60);
 /// The profiles of a branch change rarely
 const START_SUPPORTED_TTL: Duration = Duration::from_secs(600);
 const START_SUPPORTED_ERROR_TTL: Duration = Duration::from_secs(60);
-/// Details kept at most; the oldest go first
-const MAX_CACHED_DETAILS: usize = 200;
 /// Failed check names kept for the popover
 const MAX_FAILED_NAMES: usize = 3;
 
@@ -48,10 +46,10 @@ impl PatronusService {
   }
 
   async fn cached_details(&self, robot_id: &str) -> Result<CachedDetails, ActionError> {
-    if let Some((fetched_at, details)) = self.lock().details.get(robot_id)
+    if let Some((fetched_at, details)) = self.caches.details.get(robot_id)
       && (parse_status(&details.robot.status).is_finished() || fetched_at.elapsed() < RUNNING_DETAILS_TTL)
     {
-      return Ok(details.clone());
+      return Ok(details);
     }
     let token = self.action_token()?;
     let client = self.client();
@@ -67,16 +65,10 @@ impl PatronusService {
       checks: checks.ok().and_then(|checks| summarize_checks(&checks)),
       problems: problems.unwrap_or_default().into_iter().map(to_problem).collect(),
     };
-    let mut state = self.lock();
     if parse_status(&details.robot.status).is_finished() {
-      state.problems.insert(robot_id.to_string(), details.problems.clone());
+      self.caches.problems.insert(robot_id.to_string(), details.problems.clone());
     }
-    if state.details.len() >= MAX_CACHED_DETAILS
-      && let Some(oldest) = state.details.iter().min_by_key(|(_, (fetched_at, _))| *fetched_at).map(|(id, _)| id.clone())
-    {
-      state.details.remove(&oldest);
-    }
-    state.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
+    self.caches.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
     Ok(details)
   }
 
@@ -84,13 +76,13 @@ impl PatronusService {
   /// popover fills the same cache
   #[instrument(skip(self))]
   pub async fn robot_problems(&self, robot_id: &str) -> Result<Vec<PatronusProblem>, ActionError> {
-    if let Some(problems) = self.lock().problems.get(robot_id) {
-      return Ok(problems.clone());
+    if let Some(problems) = self.caches.problems.get(robot_id) {
+      return Ok(problems);
     }
     let token = self.token(true).map_err(|result| availability_message(result.availability))?;
     let response = self.client().get_problems(&token.value, robot_id).await;
     let problems: Vec<PatronusProblem> = self.settle(response, &token.stamp).map_err(availability_message)?.into_iter().map(to_problem).collect();
-    self.lock().problems.insert(robot_id.to_string(), problems.clone());
+    self.caches.problems.insert(robot_id.to_string(), problems.clone());
     Ok(problems)
   }
 
@@ -129,16 +121,16 @@ impl PatronusService {
 
   async fn cached_start_supported(&self, project_key: &str, repository: &str, target_branch: &str) -> Result<StartSupportedDto, ActionError> {
     let key = format!("{project_key}/{repository}/{target_branch}");
-    if let Some((fetched_at, answer)) = self.lock().start_supported.get(&key) {
+    if let Some((fetched_at, answer)) = self.caches.start_supported.get(&key) {
       let ttl = if answer.is_ok() { START_SUPPORTED_TTL } else { START_SUPPORTED_ERROR_TTL };
       if fetched_at.elapsed() < ttl {
-        return answer.clone();
+        return answer;
       }
     }
     let token = self.action_token()?;
     let response = self.client().get_start_supported(&token.value, project_key, repository, target_branch).await;
     let answer = self.settle(response, &token.stamp).map_err(availability_message);
-    self.lock().start_supported.insert(key, (Instant::now(), answer.clone()));
+    self.caches.start_supported.insert(key, (Instant::now(), answer.clone()));
     answer
   }
 
@@ -195,7 +187,7 @@ impl PatronusService {
     let token = self.action_token()?;
     let response = self.client().cancel_robot(&token.value, robot_id).await;
     self.settle(response, &token.stamp).map_err(availability_message)?;
-    self.lock().details.remove(robot_id);
+    self.caches.details.invalidate(robot_id);
     self.fetch_robot(branch_prefix, robot_id).await
   }
 

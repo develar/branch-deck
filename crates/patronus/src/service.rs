@@ -5,7 +5,7 @@
 use crate::client::{PatronusClient, PatronusError, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
 use git_ops::model::{BranchKind, strip_branch_namespace};
-use std::collections::HashMap;
+use moka::sync::Cache;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
@@ -25,6 +25,7 @@ pub struct PatronusService {
   client: PatronusClient,
   token_source: TokenSource,
   state: Mutex<ServiceState>,
+  pub(crate) caches: Caches,
 }
 
 #[derive(Default)]
@@ -32,18 +33,36 @@ pub(crate) struct ServiceState {
   /// Patronus rejected this token: background requests wait for a new one
   rejected: Option<TokenStamp>,
   backoff: Option<Backoff>,
-  /// By repository: the last full list and when it was fetched
-  full_lists: HashMap<String, (Instant, Vec<RobotDto>)>,
+}
+
+/// The answers of Patronus, each with when it was fetched: the readers decide how long an answer holds. Bounded, so a
+/// long session does not grow them with every push (the least used entries go first)
+pub(crate) struct Caches {
+  /// By repository: the last full list
+  full_lists: Cache<String, (Instant, Vec<RobotDto>)>,
   /// By robot id; a finished robot does not change any more
-  pub(crate) details: HashMap<String, (Instant, crate::actions::CachedDetails)>,
+  pub(crate) details: Cache<String, (Instant, crate::actions::CachedDetails)>,
   /// By `project/repository/target`: the answer of `robot-start-supported`
-  pub(crate) start_supported: HashMap<String, (Instant, Result<crate::client::StartSupportedDto, String>)>,
+  pub(crate) start_supported: Cache<String, (Instant, Result<crate::client::StartSupportedDto, String>)>,
   /// By `repository/target/tip/base`: the review requirement and how long it holds
-  pub(crate) reviews: HashMap<String, (Instant, Duration, sync_types::patronus::PatronusReviewRequirement)>,
+  pub(crate) reviews: Cache<String, (Instant, Duration, sync_types::patronus::PatronusReviewRequirement)>,
   /// By `repository/source/target`: the open merge request, None = none (asked again after a while)
-  pub(crate) merge_requests: HashMap<String, (Instant, Option<crate::client::MergeRequestDto>)>,
+  pub(crate) merge_requests: Cache<String, (Instant, Option<crate::client::MergeRequestDto>)>,
   /// By robot id, of finished robots: the error problems
-  pub(crate) problems: HashMap<String, Vec<sync_types::patronus::PatronusProblem>>,
+  pub(crate) problems: Cache<String, Vec<sync_types::patronus::PatronusProblem>>,
+}
+
+impl Caches {
+  fn new() -> Self {
+    Self {
+      full_lists: Cache::new(16),
+      details: Cache::new(200),
+      start_supported: Cache::new(64),
+      reviews: Cache::builder().max_capacity(500).support_invalidation_closures().build(),
+      merge_requests: Cache::new(500),
+      problems: Cache::new(1_000),
+    }
+  }
 }
 
 struct Backoff {
@@ -59,6 +78,7 @@ impl PatronusService {
       client,
       token_source: Box::new(token_source),
       state: Mutex::new(ServiceState::default()),
+      caches: Caches::new(),
     }
   }
 
@@ -80,7 +100,7 @@ impl PatronusService {
     match self.settle(response, &token.stamp) {
       Ok(robots) => {
         if since.is_none() {
-          self.lock().full_lists.insert(repository.to_string(), (Instant::now(), robots.clone()));
+          self.caches.full_lists.insert(repository.to_string(), (Instant::now(), robots.clone()));
         }
         self.to_result(&robots, branch_prefix)
       }
@@ -168,9 +188,8 @@ impl PatronusService {
   }
 
   fn fresh_full_list(&self, repository: &str) -> Option<Vec<RobotDto>> {
-    let state = self.lock();
-    let (fetched_at, robots) = state.full_lists.get(repository)?;
-    (fetched_at.elapsed() < FULL_LIST_REUSE).then(|| robots.clone())
+    let (fetched_at, robots) = self.caches.full_lists.get(repository)?;
+    (fetched_at.elapsed() < FULL_LIST_REUSE).then_some(robots)
   }
 
   pub(crate) fn client(&self) -> &PatronusClient {

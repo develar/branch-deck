@@ -384,7 +384,8 @@ reports in it and closes it once merged.
 - The pre-check is the heaviest call of the API: its answer is cached by the commits it checked (the tip and the oldest
   commit): "no approval needed" for 10 minutes, "approvals missing" for 2 minutes, and Recheck asks at once. A found
   merge request is kept for the session, "no merge request" for 5 minutes (a recheck asks again). An unavailable check
-  (503) is said and not asked again by itself.
+  (503) is said and not asked again by itself. The answers the backend keeps are bounded per kind (the least used go
+  first), so a long session does not grow them with every push.
   [@test] ../../crates/patronus/src/review_test.rs (`a_required_review_is_asked_again_on_a_recheck`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the

@@ -40,10 +40,10 @@ impl PatronusService {
     let tip = subject.commits.first().map_or("", |commit| commit.hash.as_str());
     let key = format!("{}/{}/{tip}/{}", subject.repository, subject.target_branch, subject.base);
     if !recheck
-      && let Some((fetched_at, ttl, requirement)) = self.lock().reviews.get(&key)
-      && fetched_at.elapsed() < *ttl
+      && let Some((fetched_at, ttl, requirement)) = self.caches.reviews.get(&key)
+      && fetched_at.elapsed() < ttl
     {
-      return Ok(requirement.clone());
+      return Ok(requirement);
     }
 
     let token = self.action_token()?;
@@ -60,7 +60,7 @@ impl PatronusService {
       to_requirement(&without_review, None)
     };
     let ttl = if requirement.required { REQUIRED_TTL } else { NOT_REQUIRED_TTL };
-    self.lock().reviews.insert(key, (Instant::now(), ttl, requirement.clone()));
+    self.caches.reviews.insert(key, (Instant::now(), ttl, requirement.clone()));
     Ok(requirement)
   }
 
@@ -83,10 +83,10 @@ impl PatronusService {
   /// (or on a recheck)
   async fn merge_request(&self, subject: &ReviewSubject<'_>, recheck: bool) -> Result<Option<MergeRequestDto>, ActionError> {
     let key = merge_request_key(subject.repository, subject.source_branch, subject.target_branch);
-    if let Some((fetched_at, found)) = self.lock().merge_requests.get(&key)
+    if let Some((fetched_at, found)) = self.caches.merge_requests.get(&key)
       && (found.is_some() || (!recheck && fetched_at.elapsed() < NO_MERGE_REQUEST_TTL))
     {
-      return Ok(found.clone());
+      return Ok(found);
     }
     let token = self.action_token()?;
     let response = self
@@ -94,7 +94,7 @@ impl PatronusService {
       .find_merge_requests(&token.value, subject.repository, subject.source_branch, subject.target_branch)
       .await;
     let found = self.settle(response, &token.stamp).map_err(availability_message)?.into_iter().next();
-    self.lock().merge_requests.insert(key, (Instant::now(), found.clone()));
+    self.caches.merge_requests.insert(key, (Instant::now(), found.clone()));
     Ok(found)
   }
 
@@ -107,12 +107,14 @@ impl PatronusService {
       .create_merge_request(&token.value, project_key, repository, source_branch, target_branch)
       .await;
     let created = self.settle(response, &token.stamp).map_err(availability_message)?;
-    let mut state = self.lock();
-    state
+    self
+      .caches
       .merge_requests
       .insert(merge_request_key(repository, source_branch, target_branch), (Instant::now(), Some(created.clone())));
     // the requirements of the branch now depend on the merge request
-    state.reviews.retain(|key, _| !key.starts_with(&format!("{repository}/{target_branch}/")));
+    let prefix = format!("{repository}/{target_branch}/");
+    // the closure only fails without `support_invalidation_closures`, which the cache is built with
+    let _ = self.caches.reviews.invalidate_entries_if(move |key, _| key.starts_with(&prefix));
     Ok(to_merge_request(created))
   }
 }

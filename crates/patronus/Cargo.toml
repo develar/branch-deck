@@ -7,6 +7,7 @@ edition.workspace = true
 git-ops = { path = "../git-ops" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
+moka.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
