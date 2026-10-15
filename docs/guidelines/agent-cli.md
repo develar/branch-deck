@@ -655,7 +655,7 @@ detection of archived branches and the update check of the checked out branch. I
   that stay local.
 - The exit code is 1 when any branch has a conflict; the summary is printed either way.
 
-### `bd push <branch>… | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run]`
+### `bd push <branch>… [--with-children] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run]`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
 repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)).
@@ -671,6 +671,8 @@ repository lock (see "Agent push" in [Git Operations](../design/git-operations.m
 - Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has
   commits it lacks (`behind`) without `--force`, and a stacked branch whose parent isn't on the remote or pushed with
   it. `--all` needs `--yes`. A branch refused as behind is in `error.branches` with its remote status, as below.
+- `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
+  push; a blocked or conflicting child refuses it, as a named branch would. Not with `--expect-remote`.
 - `status` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
   compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,

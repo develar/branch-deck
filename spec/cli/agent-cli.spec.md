@@ -392,6 +392,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
   without `--force`, and a stacked branch whose parent is neither on the remote nor pushed with it.
   [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
+- `--with-children` must add the branches stacked on the named ones, directly or further down, parents first, to the
+  same atomic push, as the app's Push with Children does ([Stacked Branches](../branch/stacked-branches.spec.md)); a
+  blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must
+  not go with `--expect-remote`.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_branches_stacked_on_the_named_ones`, `with_children_refuses_a_blocked_child`)
 - The lease must be the remote head the sync of the same run compared with (`remote.head`), as the app leases on the
   remote head its row showed ([Outgoing Commits](../repository/outgoing.spec.md)): a remote commit the branch has by
   content must go through on the first try, `--force` must drop what the sync counted as `behind` and nothing pushed

@@ -59,12 +59,13 @@ Workflow:
    same options; `bd describe <branch> --title ... --body ...` for one branch. `bd undo <undo_token>` moves HEAD and
    the issue groups back (pass the token as printed, with full ids: `<head>..<head>`, `groups:<id>..<id>`, or both
    joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.
-4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes): it syncs,
-   pushes parents first with a lease per ref, and prints a ready `gh pr create` per branch (pipe its `body` into
-   it). `push_refused` (exit 4): a branch didn't sync, is behind its remote branch, or its parent isn't on the
-   remote. `lease_rejected` (exit 3): the remote changed, nothing was pushed, and bd fetched it. For a branch behind
-   or rejected, `error.branches[].remote.dropped_commits` lists what a push drops: show it, and only after the user
-   approves, `bd push <branch> --force --expect-remote <remote.head>`.
+4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes; add
+   --with-children for the branches stacked on them): it syncs, pushes parents first with a lease per ref, and prints
+   a ready `gh pr create` per branch (pipe its `body` into it). `push_refused` (exit 4): a branch didn't sync, is
+   behind its remote branch, or its parent isn't on the remote. `lease_rejected` (exit 3): the remote changed,
+   nothing was pushed, and bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits`
+   lists what a push drops: show it, and only after the user approves,
+   `bd push <branch> --force --expect-remote <remote.head>`.
 
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project;
 `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the user). A conflict starts a

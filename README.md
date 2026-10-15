@@ -80,9 +80,10 @@ repositories: all operations run through the Git CLI.
   already checked by a trial sync, with whole issue branches as issue groups that rewrite no subject. One
   `bd group --sync` call applies the plan (one validated rewrite of the commit messages that can be undone), writes
   the pull request texts of its `descriptions` and rebuilds the branches; `bd check` tries an edited plan first,
-  without writing refs. `bd push` pushes the branches with a lease, parents first; `bd update` updates the branch
-  onto its baseline as Update Project does, with an undo, and resolves a conflict in a resolve session
-  (`bd help update`), and `bd fold` folds the fixup commits; `bd help agent` prints the workflow.
+  without writing refs. `bd push` pushes the branches with a lease, parents first (`--with-children` adds the
+  branches stacked on them); `bd update` updates the branch onto its baseline as Update Project does, with an undo,
+  and resolves a conflict in a resolve session (`bd help update`), and `bd fold` folds the fixup commits;
+  `bd help agent` prints the workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
   `~/.agents/skills`, so coding agents know when to use it.
 - Auto-sync when the window gets focus (off by default, in the sync settings next to Sync), auto-update, light and

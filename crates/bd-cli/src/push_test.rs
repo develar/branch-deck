@@ -112,6 +112,50 @@ fn parents_go_first_and_a_child_needs_its_parent_on_the_remote() {
 }
 
 #[test_log::test]
+fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth", "(docs) Add docs"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+
+  let (exit_code, output) = run_in(&repo, &["push", "--with-children"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children", "--expect-remote", "HEAD"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+
+  // the grandchild too, parents first; docs is not stacked on auth
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("auth"), &json!("login"), &json!("oauth")]);
+  assert_eq!(remote_tip(&remote, "test-user/virtual/docs"), "");
+  assert_eq!(branch(&output, "oauth")["pull_request"]["base"], json!("test-user/virtual/login"));
+
+  // a new commit of login rebuilds oauth on it: the push replaces oauth's remote copy
+  write(&repo, "form.txt", "form\n");
+  commit_all(&repo, "(auth/login) Add the login form", 1_700_000_900);
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["status"])).collect();
+  assert_eq!(statuses, [(&json!("login"), &json!("updated")), (&json!("oauth"), &json!("forced"))]);
+}
+
+#[test_log::test]
+fn with_children_refuses_a_blocked_child() {
+  let (repo, remote) = repo_with_remote(&["(docs) Add docs", "(auth) Add auth"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  // login changes a file only docs has: it conflicts on auth, and oauth on it is blocked
+  write(&repo, "f0.txt", "changed\n");
+  commit_all(&repo, "(auth/login) Change docs", 1_700_000_900);
+  write(&repo, "oauth.txt", "oauth\n");
+  commit_all(&repo, "(login/oauth) Add oauth", 1_700_001_000);
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_error(&output, exit_code, (4, "push_refused"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("login is not synced") && message.contains("oauth is not synced"), "{output}");
+  assert_eq!(remote_tip(&remote, AUTH), "");
+}
+
+#[test_log::test]
 fn all_needs_yes_and_unsynced_branches_are_refused() {
   let (repo, _remote) = repo_with_remote(&["(a) Add shared", "(b) Unrelated"]);
   let (exit_code, output) = run_in(&repo, &["push", "--all"]);

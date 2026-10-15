@@ -34,6 +34,9 @@ pub struct PushArgs {
   /// Confirm --all
   #[arg(long, requires = "all")]
   pub yes: bool,
+  /// Push the branches stacked on the named ones too, directly or further down
+  #[arg(long, requires = "branches", conflicts_with = "expect_remote")]
+  pub with_children: bool,
   /// Push branches the remote has commits for that they don't (behind > 0): the push drops the commits the sync
   /// counted, nothing pushed since
   #[arg(long)]
@@ -129,13 +132,8 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   let base_branch = synced.baseline.strip_prefix(&format!("{remote}/")).unwrap_or(&synced.baseline).to_string();
 
   let grouping = read_grouping(context, None)?;
-  let parent_of = |name: &str| {
-    grouping
-      .placements
-      .as_ref()
-      .and_then(|placements| placements.get(name))
-      .and_then(|stack| stack.effective_base.clone())
-  };
+  let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
+  let parent_of = |name: &str| placement(name).and_then(|stack| stack.effective_base.clone());
   // parents first: the stack order with stacked branches, else the sync order
   let order: Vec<&str> = grouping.forest.as_ref().map_or_else(
     || synced.branches.iter().map(|branch| branch.name.as_str()).collect(),
@@ -150,7 +148,16 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
         return Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")));
       }
     }
-    order.iter().copied().filter(|name| args.branches.iter().any(|selected| selected == name)).collect()
+    let mut selected: Vec<&str> = Vec::new();
+    for name in &order {
+      // a blocked child has no effective base: its declared parent places it, and the push refuses it as not synced
+      let parent = placement(name).and_then(|stack| stack.effective_base.as_deref().or(stack.declared_parent.as_deref()));
+      // the order is parents first: a child comes after its parent was selected
+      if args.branches.iter().any(|named| named == name) || (args.with_children && parent.is_some_and(|parent| selected.contains(&parent))) {
+        selected.push(name);
+      }
+    }
+    selected
   };
 
   let tips = branch_tips(&context.git, &context.repository, &context.prefix)?;
