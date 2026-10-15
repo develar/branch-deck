@@ -1,6 +1,6 @@
 use crate::commit_files::{
-  BlobContents, CommitFiles, MAX_BLOB_IDS, PATCH_LIMITS, PatchLimits, PatchSplitter, parse_commit_files, read_blob_contents, read_commit_files, read_commit_files_cached,
-  read_commit_patch,
+  BlobContents, CommitFiles, DiffSubject, MAX_BLOB_IDS, PATCH_LIMITS, PatchLimits, PatchSplitter, parse_commit_files, read_blob_contents, read_commit_files,
+  read_commit_files_cached, read_commit_patch, read_diff_files, read_patch,
 };
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
@@ -126,6 +126,92 @@ fn refuses_what_is_not_an_object_id() {
     assert!(read_commit_files(repo.git_executor(), repo_path(&repo), &[id.to_string()]).is_err(), "{id}");
     assert!(read_commit_patch(repo.git_executor(), repo_path(&repo), id, &PATCH_LIMITS).is_err(), "{id}");
     assert!(read_blob_contents(repo.git_executor(), repo_path(&repo), &[id.to_string()]).is_err(), "{id}");
+  }
+}
+
+fn range(base: &str, head: &str) -> DiffSubject {
+  DiffSubject::Range {
+    base: base.to_string(),
+    head: head.to_string(),
+  }
+}
+
+/// `repo_with_all_statuses`, then a commit that adds a line to the renamed `c.txt`
+fn repo_with_a_range() -> (TestRepo, String, String) {
+  let (repo, root, _) = repo_with_all_statuses();
+  std::fs::write(repo.path().join("c.txt"), "one\ntwo\nthree\nfour\nfive\n").unwrap();
+  run(&repo, &["commit", "-q", "-a", "-m", "Add five"]);
+  let head = repo.head();
+  (repo, root, head)
+}
+
+#[test]
+fn range_files_are_the_changes_of_all_its_commits() {
+  let (repo, root, head) = repo_with_a_range();
+  let files = read_diff_files(repo.git_executor(), repo_path(&repo), &range(&root, &head)).unwrap();
+  assert_eq!(files.commit_id, format!("{root}..{head}"));
+  assert_eq!(
+    files.files,
+    [
+      file("b.txt", FileStatus::Deleted, 0, 1),
+      CommitFile {
+        binary: true,
+        ..file("bin.dat", FileStatus::Added, 0, 0)
+      },
+      // renamed over both commits, with the lines of both
+      CommitFile {
+        old_path: Some("a.txt".to_string()),
+        ..file("c.txt", FileStatus::Renamed, 2, 0)
+      },
+      file("dir name/ü\tx.txt", FileStatus::Added, 1, 0),
+    ]
+  );
+  assert_eq!((files.additions, files.deletions), (3, 1));
+}
+
+#[test]
+fn the_files_of_a_commit_subject_are_those_of_the_commit() {
+  let (repo, root, second) = repo_with_all_statuses();
+  let listed = read_commit_files(repo.git_executor(), repo_path(&repo), std::slice::from_ref(&second)).unwrap();
+  let read = read_diff_files(repo.git_executor(), repo_path(&repo), &DiffSubject::Commit(second.clone())).unwrap();
+  assert_eq!(read, CommitFiles::new(second.clone(), listed[&second].clone()));
+  // a range of one commit is the commit
+  let one = read_diff_files(repo.git_executor(), repo_path(&repo), &range(&root, &second)).unwrap();
+  assert_eq!(one.files, read.files);
+}
+
+#[test]
+fn range_patch_has_a_section_per_file_of_the_range() {
+  let (repo, root, head) = repo_with_a_range();
+  let patch = read_patch(repo.git_executor(), repo_path(&repo), &range(&root, &head), &PATCH_LIMITS).unwrap();
+  assert_eq!(patch.commit_id, format!("{root}..{head}"));
+  let starts: Vec<&str> = patch.files.iter().map(|file| file.patch.lines().next().unwrap()).collect();
+  assert_eq!(
+    starts,
+    [
+      "diff --git a/b.txt b/b.txt",
+      "diff --git a/bin.dat b/bin.dat",
+      "diff --git a/a.txt b/c.txt",
+      "diff --git \"a/dir name/ü\\tx.txt\" \"b/dir name/ü\\tx.txt\"",
+    ]
+  );
+  let renamed = &patch.files[2].patch;
+  assert!(renamed.contains("rename from a.txt\nrename to c.txt\n"), "{renamed}");
+  assert!(renamed.ends_with(" three\n+four\n+five\n"), "{renamed}");
+  let (old, new) = index_ids(renamed);
+  assert_eq!((old.len(), new.len()), (40, 40));
+}
+
+#[test]
+fn a_range_refuses_what_is_not_an_object_id() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("Initial", "README.md", "# Test\n");
+  for (base, tip) in [("HEAD", head.as_str()), (head.as_str(), "--output=x"), (&head[..7], head.as_str())] {
+    assert!(read_diff_files(repo.git_executor(), repo_path(&repo), &range(base, tip)).is_err(), "{base}..{tip}");
+    assert!(
+      read_patch(repo.git_executor(), repo_path(&repo), &range(base, tip), &PATCH_LIMITS).is_err(),
+      "{base}..{tip}"
+    );
   }
 }
 

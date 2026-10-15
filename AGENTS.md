@@ -212,6 +212,11 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.
+- **Review fetch** (`review_fetch.rs`): the only writer of `refs/branch-deck/review/<n>/{head,base}`, through its own
+  fetch refspecs (the named exception to the ref transaction rule); always `--refmap=` and `--no-prune`, so no
+  remote-tracking ref moves; never under the repository lock; no fetch at all when both commits are local; killed on
+  cancel or 120 s of silence (`execute_remote_command_with_progress_until`). Pruning is one `for-each-ref` plus one
+  CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) are never cached.
 
 ### Rust Import Rules
 - **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.

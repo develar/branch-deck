@@ -1,6 +1,8 @@
 //! The changed files of commits, read-only: the files with their statuses and line counts of many commits from one
 //! `diff-tree --stdin --raw --numstat -z` process, through the object cache; the patch of a whole commit from one
-//! `diff-tree -p`, and the contents of the blobs a diff expands from one `cat-file --batch`.
+//! `diff-tree -p`, and the contents of the blobs a diff expands from one `cat-file --batch`. A range of two commits
+//! (`base..head`, the review of a pull request) has its files and its patch from one `diff-tree` of both, never
+//! through the cache: a cache entry is keyed by one commit.
 
 use crate::cat_file_batch::parse_batch_output;
 use anyhow::{Result, anyhow, bail};
@@ -44,11 +46,12 @@ pub struct GetBlobContentsParams {
   pub object_ids: Vec<String>,
 }
 
-/// The changed files of a commit against its first parent, with the sums of their line counts
+/// The changed files of a commit against its first parent (or of a range), with the sums of their line counts
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitFiles {
+  /// The commit id, or `<base>..<head>` for a range (`DiffSubject::id`)
   pub commit_id: String,
   /// In git's order: by path
   pub files: Vec<CommitFile>,
@@ -74,8 +77,57 @@ impl CommitFiles {
 /// merge against its first parent, and no external diff or textconv
 const DIFF_OPTIONS: [&str; 7] = ["-r", "-M", "--root", "--diff-merges=first-parent", "--no-ext-diff", "--no-textconv", "--no-relative"];
 
+/// Diff options of a range only: a rename limit, since a range may change thousands of files, and files over
+/// `MAX_BLOB_BYTES` diffed as binary (`core.bigFileThreshold`), since the diff view would not show them
+const RANGE_CONFIG: [&str; 2] = ["-c", "core.bigFileThreshold=8m"];
+const RANGE_DIFF_OPTIONS: [&str; 1] = ["-l1000"];
+
+/// What a diff compares
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiffSubject {
+  /// A commit with its first parent
+  Commit(String),
+  /// Two commits, as `git diff base head`
+  Range { base: String, head: String },
+}
+
+impl DiffSubject {
+  /// The id of the result: the commit id, or `<base>..<head>`
+  pub fn id(&self) -> String {
+    match self {
+      Self::Commit(id) => id.clone(),
+      Self::Range { base, head } => format!("{base}..{head}"),
+    }
+  }
+
+  /// The `diff-tree` arguments: `config` (before the subcommand), the subcommand with `options`, then the diff options
+  /// and the ids; fails unless every id is a full object id
+  fn diff_tree_args<'a>(&'a self, options: &[&'a str]) -> Result<Vec<&'a str>> {
+    let ids: Vec<&str> = match self {
+      Self::Commit(id) => vec![id],
+      Self::Range { base, head } => vec![base, head],
+    };
+    if let Some(id) = ids.iter().find(|id| !is_object_id(id)) {
+      bail!("Not a commit id: {id}");
+    }
+    let mut args = Vec::new();
+    if matches!(self, Self::Range { .. }) {
+      args.extend(RANGE_CONFIG);
+    }
+    args.push("diff-tree");
+    args.extend_from_slice(options);
+    args.extend(DIFF_OPTIONS);
+    if matches!(self, Self::Range { .. }) {
+      args.extend(RANGE_DIFF_OPTIONS);
+    }
+    args.push("--end-of-options");
+    args.extend(ids);
+    Ok(args)
+  }
+}
+
 /// A full object id (SHA-1 or SHA-256), so an id never reads as an option or a revision expression
-fn is_object_id(id: &str) -> bool {
+pub fn is_object_id(id: &str) -> bool {
   matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
@@ -120,14 +172,31 @@ pub fn read_commit_files_cached(git: &GitCommandExecutor, repository_path: &str,
   Ok(ids.iter().map(|id| CommitFiles::new(id.clone(), known.get(id).cloned().unwrap_or_default())).collect())
 }
 
+/// The files of one subject, not cached, from one `diff-tree --raw --numstat -z` without `--stdin`: a range never lands in
+/// the cache entry of its head
+#[instrument(skip(git))]
+pub fn read_diff_files(git: &GitCommandExecutor, repository_path: &str, subject: &DiffSubject) -> Result<CommitFiles> {
+  let args = subject.diff_tree_args(&["--raw", "--numstat", "-z", "--no-commit-id"])?;
+  let output = git.execute_command_raw_accepting(&args, repository_path, &[])?.0;
+  let id = subject.id();
+  let mut files = parse_files(&output, Some(id.clone()))?;
+  Ok(CommitFiles::new(id.clone(), files.remove(&id).unwrap_or_default()))
+}
+
 /// Parse NUL-separated fields: a commit id, then its `--raw` entries (`:<modes> <oids> <status>` NUL `<path>`, and a
 /// second path for a rename or copy), then its `--numstat` entries (`<added>\t<deleted>\t<path>`, or
 /// `<added>\t<deleted>\t` NUL `<old>` NUL `<new>`; `-` counts for a binary file) in the same order. A field that is
 /// neither is the id of the next commit
 pub fn parse_commit_files(output: &[u8]) -> Result<HashMap<String, Vec<CommitFile>>> {
+  parse_files(output, None)
+}
+
+/// `parse_commit_files` of output whose entries before the first commit id are of `first`: the output of one subject
+/// with `--no-commit-id` has no id at all
+fn parse_files(output: &[u8], first: Option<String>) -> Result<HashMap<String, Vec<CommitFile>>> {
   let mut result: HashMap<String, Vec<CommitFile>> = HashMap::new();
   let mut fields = output.split(|&b| b == 0).map(|field| field.strip_prefix(b"\n").unwrap_or(field));
-  let mut current: Option<(String, Vec<CommitFile>)> = None;
+  let mut current: Option<(String, Vec<CommitFile>)> = first.map(|id| (id, Vec::new()));
   // the next raw entry a numstat entry applies to
   let mut counted = 0;
   while let Some(field) = fields.next() {
@@ -213,11 +282,12 @@ fn split_numstat(field: &[u8]) -> Option<(Option<u32>, Option<u32>, &[u8])> {
   Some((count(added)?, count(deleted)?, path))
 }
 
-/// The patch of a commit against its first parent, one section per file
+/// The patch of a commit against its first parent (or of a range), one section per file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitPatch {
+  /// The commit id, or `<base>..<head>` for a range (`DiffSubject::id`)
   pub commit_id: String,
   /// In git's order (by path), a section per `diff --git` line
   pub files: Vec<FilePatch>,
@@ -253,30 +323,21 @@ pub const PATCH_LIMITS: PatchLimits = PatchLimits {
 /// The patch of `commit_id` against its first parent from one `diff-tree -p` process, read as it streams, so a huge
 /// commit costs the limits, not its size. `--full-index` gives the blob ids that `read_blob_contents` reads to expand
 /// the unchanged lines. The paths are left to the diff view, which reads the `---`/`+++` lines
-#[instrument(skip(git, limits))]
 pub fn read_commit_patch(git: &GitCommandExecutor, repository_path: &str, commit_id: &str, limits: &PatchLimits) -> Result<CommitPatch> {
-  if !is_object_id(commit_id) {
-    bail!("Not a commit id: {commit_id}");
-  }
-  let mut args = vec![
-    "diff-tree",
-    "-p",
-    "--no-commit-id",
-    "--full-index",
-    "--unified=3",
-    "--no-color",
-    "--src-prefix=a/",
-    "--dst-prefix=b/",
-  ];
-  args.extend(DIFF_OPTIONS);
-  args.extend(["--end-of-options", commit_id]);
+  read_patch(git, repository_path, &DiffSubject::Commit(commit_id.to_string()), limits)
+}
+
+/// `read_commit_patch` of any subject: a range diffs its two commits
+#[instrument(skip(git, limits))]
+pub fn read_patch(git: &GitCommandExecutor, repository_path: &str, subject: &DiffSubject, limits: &PatchLimits) -> Result<CommitPatch> {
+  let args = subject.diff_tree_args(&["-p", "--no-commit-id", "--full-index", "--unified=3", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"])?;
   let mut splitter = PatchSplitter::new(*limits);
   git.execute_command_streaming(&args, repository_path, |chunk| {
     splitter.push(chunk);
     Ok(())
   })?;
   Ok(CommitPatch {
-    commit_id: commit_id.to_string(),
+    commit_id: subject.id(),
     files: splitter.finish(),
   })
 }

@@ -32,6 +32,8 @@ pub mod repository_lock;
 pub mod repository_validation;
 pub mod resolve_copies;
 pub mod resolve_session;
+pub mod review_fetch;
+pub mod review_requests;
 pub mod reword_commit;
 pub mod squash;
 pub mod stack;

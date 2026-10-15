@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
-use sync_utils::child_process::{ChildProcessError, find_executable, run_child};
+use sync_utils::child_process::{ChildOutput, ChildProcessError, find_executable, run_child};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
 
@@ -106,26 +106,42 @@ pub struct GitHubRepository {
 /// The file of a Space repository's settings, committed in the repository; its `mirror.url` names the GitHub mirror
 pub const SPACE_SETTINGS_FILE: &str = ".space/repository-settings.json";
 
+/// Where `resolve_github_repository` found the GitHub repository
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitHubRepositorySource {
+  /// `branchdeck.githubRepository`
+  Configured,
+  /// The push URL of `origin`
+  Origin,
+  /// `mirror.url` of the committed Space settings: `origin` is the Space repository
+  SpaceMirror,
+}
+
 /// The GitHub repository the virtual branches end up in: `branchdeck.githubRepository` (`owner/name`), else the
 /// repository `origin` pushes to (`push_branch` pushes to origin) when it is on github.com, else the GitHub mirror the
 /// committed Space settings name (`.space/repository-settings.json`, read from `HEAD`). None: the pull requests of the
 /// branches are not on GitHub.
 pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<GitHubRepository>> {
+  Ok(resolve_github_repository_source(git_executor, repository_path)?.map(|(repository, _)| repository))
+}
+
+/// `resolve_github_repository` that also says where the repository came from
+pub fn resolve_github_repository_source(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
   if let Some(configured) = read_configured_repository(git_executor, repository_path)? {
-    return Ok(Some(configured));
+    return Ok(Some((configured, GitHubRepositorySource::Configured)));
   }
   let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
   if exit_code != 0 {
     return Ok(None);
   }
   if let Some(repository) = parse_github_repository(&url) {
-    return Ok(Some(repository));
+    return Ok(Some((repository, GitHubRepositorySource::Origin)));
   }
   let (settings, exit_code) = git_executor.execute_command_with_status(&["cat-file", "blob", &format!("HEAD:{SPACE_SETTINGS_FILE}")], repository_path)?;
   if exit_code != 0 {
     return Ok(None);
   }
-  Ok(parse_space_mirror(&settings))
+  Ok(parse_space_mirror(&settings).map(|repository| (repository, GitHubRepositorySource::SpaceMirror)))
 }
 
 /// The GitHub repository of `mirror.url` in Space repository settings; None without a mirror on github.com
@@ -187,6 +203,16 @@ pub fn find_gh() -> Option<PathBuf> {
 /// Runs `gh` without a terminal, prompts or update notices, killed after `timeout`; stdout on success.
 /// Exit code 4 means not logged in (`gh help exit-codes`).
 pub fn run_gh(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration) -> Result<Vec<u8>, PullRequestAvailability> {
+  let output = run_gh_output(gh, repository_path, args, timeout)?;
+  if output.status.success() {
+    Ok(output.stdout)
+  } else {
+    Err(classify_gh_failure(&output, args))
+  }
+}
+
+/// `run_gh` that leaves a non-zero exit to the caller: `gh api graphql` prints the answer also when it holds errors
+pub fn run_gh_output(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration) -> Result<ChildOutput, PullRequestAvailability> {
   let mut command = Command::new(gh);
   command
     .args(args)
@@ -199,22 +225,25 @@ pub fn run_gh(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration
     .env_remove("GH_FORCE_TTY")
     .env_remove("CLICOLOR_FORCE");
 
-  let output = match run_child(&mut command, None, timeout, &|| false) {
-    Ok(output) => output,
-    Err(ChildProcessError::NotFound) => return Err(PullRequestAvailability::GhMissing),
-    Err(ChildProcessError::TimedOut) => return Err(gh_error(format!("gh did not answer within {timeout:?}"))),
-    Err(ChildProcessError::Spawn(e)) => return Err(gh_error(format!("Cannot run gh: {e}"))),
-    Err(ChildProcessError::Wait(e)) => return Err(gh_error(format!("Cannot wait for gh: {e}"))),
+  match run_child(&mut command, None, timeout, &|| false) {
+    Ok(output) => Ok(output),
+    Err(ChildProcessError::NotFound) => Err(PullRequestAvailability::GhMissing),
+    Err(ChildProcessError::TimedOut) => Err(gh_error(format!("gh did not answer within {timeout:?}"))),
+    Err(ChildProcessError::Spawn(e)) => Err(gh_error(format!("Cannot run gh: {e}"))),
+    Err(ChildProcessError::Wait(e)) => Err(gh_error(format!("Cannot wait for gh: {e}"))),
     Err(ChildProcessError::Superseded) => unreachable!("gh is never superseded"),
-  };
+  }
+}
+
+/// The availability a failed `gh` run means
+pub fn classify_gh_failure(output: &ChildOutput, args: &[&str]) -> PullRequestAvailability {
   match output.status.code() {
-    Some(0) => Ok(output.stdout),
     // an expired or revoked token fails the request instead of the local auth check
-    Some(4) => Err(PullRequestAvailability::NotAuthenticated),
-    _ if output.stderr.contains("HTTP 401") => Err(PullRequestAvailability::NotAuthenticated),
+    Some(4) => PullRequestAvailability::NotAuthenticated,
+    _ if output.stderr.contains("HTTP 401") => PullRequestAvailability::NotAuthenticated,
     code => {
       warn!(?code, stderr = %output.stderr, command = args.first().copied().unwrap_or_default(), "gh failed");
-      Err(gh_error(output.failure_message("gh")))
+      gh_error(output.failure_message("gh"))
     }
   }
 }
@@ -338,12 +367,7 @@ fn to_pull_request(gh: GhPullRequest) -> PullRequest {
     "CLOSED" => PullRequestState::Closed,
     _ => PullRequestState::Open,
   };
-  let review_decision = match gh.review_decision.as_deref() {
-    Some("APPROVED") => Some(ReviewDecision::Approved),
-    Some("CHANGES_REQUESTED") => Some(ReviewDecision::ChangesRequested),
-    Some("REVIEW_REQUIRED") => Some(ReviewDecision::ReviewRequired),
-    _ => None,
-  };
+  let review_decision = parse_review_decision(gh.review_decision.as_deref());
   PullRequest {
     number: gh.number,
     title: gh.title,
@@ -357,6 +381,16 @@ fn to_pull_request(gh: GhPullRequest) -> PullRequest {
     checks: summarize_checks(&gh.status_check_rollup.unwrap_or_default()),
     updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
     reviewers: collect_reviewers(gh.latest_reviews.unwrap_or_default(), gh.review_requests.unwrap_or_default()),
+  }
+}
+
+/// GitHub's `reviewDecision`; None for none or an empty one
+pub fn parse_review_decision(value: Option<&str>) -> Option<ReviewDecision> {
+  match value {
+    Some("APPROVED") => Some(ReviewDecision::Approved),
+    Some("CHANGES_REQUESTED") => Some(ReviewDecision::ChangesRequested),
+    Some("REVIEW_REQUIRED") => Some(ReviewDecision::ReviewRequired),
+    _ => None,
   }
 }
 

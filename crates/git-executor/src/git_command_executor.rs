@@ -2,8 +2,10 @@ use crate::git_info::GitInfo;
 use crate::interactive_command::InteractiveCommand;
 use anyhow::{Result, anyhow};
 use std::io::{Read, Write};
-use std::process::{Child, ChildStderr, ChildStdout, Command, Output, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Output, Stdio};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 use tracing::instrument;
 
 /// Environment set for every git invocation: never prompt (there is no terminal to answer), never take optional locks
@@ -380,14 +382,6 @@ impl GitCommandExecutor {
   /// stdout; the given non-zero exit codes are not failures. `on_line` gets every stderr line as it arrives, see
   /// `read_progress_lines`. The error of a failed command keeps only the messages: the `\r` progress updates are not
   /// the reason it failed.
-  #[instrument(
-    skip(self, env_vars, on_line),
-    fields(
-      git_command = args.join(" "),
-      repository_path = repository_path,
-      exit_code = tracing::field::Empty,
-    )
-  )]
   pub fn execute_command_with_progress(
     &self,
     args: &[&str],
@@ -396,22 +390,88 @@ impl GitCommandExecutor {
     ok_exit_codes: &[i32],
     on_line: &mut dyn FnMut(&str),
   ) -> Result<String> {
+    self.execute_command_with_progress_until(args, repository_path, env_vars, ok_exit_codes, on_line, &ProgressStop::NEVER)
+  }
+
+  /// `execute_command_with_progress` that kills git when `stop` says so: git printed nothing on stderr for
+  /// `idle_timeout` (SSH has no `http.lowSpeedLimit`), or `is_cancelled` turned true; the error is then a
+  /// `StoppedCommand`. `on_line` runs on the calling thread.
+  #[instrument(
+    skip(self, env_vars, on_line, stop),
+    fields(
+      git_command = args.join(" "),
+      repository_path = repository_path,
+      exit_code = tracing::field::Empty,
+    )
+  )]
+  pub fn execute_command_with_progress_until(
+    &self,
+    args: &[&str],
+    repository_path: &str,
+    env_vars: &[(&str, &str)],
+    ok_exit_codes: &[i32],
+    on_line: &mut dyn FnMut(&str),
+    stop: &ProgressStop<'_>,
+  ) -> Result<String> {
     let mut command = self.command(args, repository_path, env_vars)?;
     command.stdin(Stdio::null());
     let (mut child, stdout, stderr) = spawn_piped(command)?;
 
-    let (stdout_bytes, messages) = std::thread::scope(|scope| {
-      let stdout_reader = scope.spawn(move || read_all(stdout));
-      let messages = read_progress_lines(stderr, on_line);
-      (stdout_reader.join().unwrap_or_default(), messages)
+    // threads that outlive a kill: a grandchild (ssh, a remote helper) may still hold stderr open
+    let stdout_reader = std::thread::spawn(move || read_all(stdout));
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+      let messages = read_progress_lines(stderr, &mut |line| {
+        let _ = sender.send(StderrEvent::Line(line.to_string()));
+      });
+      let _ = sender.send(StderrEvent::Done(messages));
     });
 
-    let status = child.wait().map_err(|e| anyhow!("Failed to wait for git command: {e}"))?;
+    let mut last_output = Instant::now();
+    let mut messages = None;
+    let mut exited: Option<(ExitStatus, Instant)> = None;
+    let status = loop {
+      match receiver.recv_timeout(POLL_INTERVAL) {
+        Ok(StderrEvent::Line(line)) => {
+          on_line(&line);
+          last_output = Instant::now();
+        }
+        Ok(StderrEvent::Done(done)) => messages = Some(done),
+        Err(RecvTimeoutError::Timeout) => {}
+        Err(RecvTimeoutError::Disconnected) => std::thread::sleep(POLL_INTERVAL),
+      }
+      if exited.is_none() {
+        exited = child
+          .try_wait()
+          .map_err(|e| anyhow!("Failed to wait for git command: {e}"))?
+          .map(|status| (status, Instant::now()));
+      }
+      match exited {
+        // the rest of stderr, unless a grandchild keeps it open
+        Some((status, at)) if messages.is_some() || at.elapsed() >= EXIT_GRACE => break status,
+        Some(_) => {}
+        None => {
+          let stopped = if (stop.is_cancelled)() {
+            Some(StoppedCommand::Cancelled)
+          } else {
+            stop.idle_timeout.filter(|timeout| last_output.elapsed() >= *timeout).map(StoppedCommand::Stalled)
+          };
+          if let Some(stopped) = stopped {
+            let _ = child.kill();
+            let _ = child.wait();
+            tracing::warn!(git_command = %args.join(" "), reason = %stopped, "git command stopped");
+            return Err(anyhow::Error::new(stopped));
+          }
+        }
+      }
+    };
+
     tracing::Span::current().record("exit_code", status.code().unwrap_or(-1));
+    let stdout_bytes = stdout_reader.join().unwrap_or_default();
     if status.success() || status.code().is_some_and(|code| ok_exit_codes.contains(&code)) {
       Ok(String::from_utf8_lossy(&stdout_bytes).trim().to_string())
     } else {
-      Err(self.command_error(messages.as_bytes(), args))
+      Err(self.command_error(messages.unwrap_or_default().as_bytes(), args))
     }
   }
 
@@ -429,6 +489,52 @@ impl GitCommandExecutor {
     let out = self.execute_command(&["rev-parse", &tree_ref], repository_path)?;
     Ok(out.trim().to_string())
   }
+}
+
+/// When `execute_command_with_progress_until` kills git
+pub struct ProgressStop<'a> {
+  /// Kill git after this long without a stderr line; None: never
+  pub idle_timeout: Option<Duration>,
+  /// Polled while git runs; true kills it
+  pub is_cancelled: &'a dyn Fn() -> bool,
+}
+
+impl ProgressStop<'_> {
+  pub const NEVER: ProgressStop<'static> = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| false,
+  };
+}
+
+/// Why `execute_command_with_progress_until` killed git
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoppedCommand {
+  /// Nothing on stderr for this long
+  Stalled(Duration),
+  Cancelled,
+}
+
+impl std::fmt::Display for StoppedCommand {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Stalled(timeout) => write!(f, "git reported nothing for {} s", timeout.as_secs()),
+      Self::Cancelled => f.write_str("canceled"),
+    }
+  }
+}
+
+impl std::error::Error for StoppedCommand {}
+
+/// How often `execute_command_with_progress_until` checks whether git exited or must be stopped
+const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// How long the rest of stderr may take after git exited
+const EXIT_GRACE: Duration = Duration::from_millis(500);
+
+enum StderrEvent {
+  Line(String),
+  /// stderr ended: the messages of `read_progress_lines`
+  Done(String),
 }
 
 /// Spawns `command` with stdout and stderr piped, and takes both pipes

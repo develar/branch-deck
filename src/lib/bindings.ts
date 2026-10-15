@@ -409,8 +409,9 @@ export type CommitFile = {
 	binary: boolean,
 };
 
-/**  The changed files of a commit against its first parent, with the sums of their line counts */
+/**  The changed files of a commit against its first parent (or of a range), with the sums of their line counts */
 export type CommitFiles = {
+	/**  The commit id, or `<base>..<head>` for a range (`DiffSubject::id`) */
 	commitId: string,
 	/**  In git's order: by path */
 	files: CommitFile[],
@@ -427,8 +428,9 @@ export type CommitInfo = {
 	message: string,
 };
 
-/**  The patch of a commit against its first parent, one section per file */
+/**  The patch of a commit against its first parent (or of a range), one section per file */
 export type CommitPatch = {
+	/**  The commit id, or `<base>..<head>` for a range (`DiffSubject::id`) */
 	commitId: string,
 	/**  In git's order (by path), a section per `diff --git` line */
 	files: FilePatch[],

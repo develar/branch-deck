@@ -76,7 +76,10 @@ written, except by Update Project and the finish of its resolve session (their o
    error is returned, never ignored.
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
-   the unapply rename together with the branch move, and the deletion of temporary refs.
+   the unapply rename together with the branch move, and the deletion of temporary refs. **One named exception:** the
+   review fetch writes `refs/branch-deck/review/<n>/{head,base}` through `git fetch` itself (its refspecs, forced, no
+   CAS, no reflog message): those refs only keep the fetched commits of a pull request reachable, nothing reads their
+   old value, and no other operation writes them. Their pruning is a CAS transaction (see "Review fetch").
 
    **Ref moves that the files follow** (an update and its undo, `move_branch_and_files`) update `HEAD` (deref), not
    `refs/heads/<b>`, so git moves the branch HEAD points at, the one whose files the guarded update writes. That must
@@ -837,9 +840,77 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   diff view parses.
 - The frontend keeps the files by commit id in memory (`src/stores/commit-files.ts`) and asks only for the ids it
   doesn't have; a second request for an id waits for the one in flight.
+- **A range** (`DiffSubject::Range`, the review of a pull request, see "Review fetch"): `get_range_files` runs one
+  `diff-tree --raw --numstat -z --no-commit-id` with the options above, `-l1000` and `--end-of-options <base> <head>`,
+  never `--stdin`, and `get_range_patch` one `diff-tree -p` of the two commits as for a commit. Both pass
+  `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change thousands of files, and a file the diff view
+  can't show is diffed as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
+  ids, as for a commit. The returned `commitId` is `"<base>..<head>"` (`DiffSubject::id`), which the frontend keys
+  by. No disk cache: a cache entry is keyed by one commit, and a range on the head's key would answer the commit's
+  files with the range's.
 
 Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
 `crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `src-tauri/src/repository_state.rs`.
+
+#### Review fetch
+
+The review of a pull request someone asked the user for ([Review Requests](../../spec/repository/review-requests.spec.md))
+needs its commits. `fetch_review_head` gets them without the working tree, the index or the repository lock: it
+writes only `refs/branch-deck/review/<n>/head` and `…/base`, which no other operation reads or writes, so it runs
+beside a sync or an update.
+
+| Step | Command | Note |
+|------|---------|------|
+| 0. Validate | none | both ids full object ids, both branch names safe for a refspec (no `:`, `*`, `..`, leading `-`): they come from the frontend |
+| 1. Local check | `cat-file --batch-check=%(objecttype)` of the head id, the base id, `refs/remotes/origin/<base>` and `HEAD` | both commits local: no network, no ref (a reopened review, a pruned ref whose objects gc kept) |
+| 2. Source | `resolve_github_repository_source` (1–3 processes), `config --get-regexp ^remote\..*\.url$` | the configured URLs, so `insteadOf` doesn't hide which repository a remote is |
+| 3. Fetch | `fetch --progress --porcelain --verbose …` (below) `<source> +<src>:refs/branch-deck/review/<n>/head` and, while the base id is missing, `+refs/heads/<base>:refs/branch-deck/review/<n>/base` | the new tips from the porcelain lines, no `rev-parse` |
+| 4. Head state | `cat-file --batch-check` and `merge-base --is-ancestor <head id> <tip>`, only when the tip is not the head id | `Same`, `SourceAhead`, `Diverged`, or `Missing` (the head id still not local: the review shows the tip) |
+| 5. Range | `merge-base <head> <base id>`, then `log --format=%H%x00%s%x00%an%x00%at --reverse --max-count=1000 <merge base>..<head>` | exit 1 of `merge-base`: `NoCommonHistory`, "The pull request has no common history with <base>" |
+
+- **Sources.** The source follows from where `resolve_github_repository_source` found the GitHub repository and from
+  origin's configured fetch URL:
+  - origin is that GitHub repository: origin `refs/pull/<n>/head`;
+  - otherwise (`branchdeck.githubRepository` or the Space mirror: origin is Space) a pull request of the same
+    repository: origin `refs/heads/<head branch>`, which Space has first. If the head id is still missing (the mirror
+    is behind, or the branch was force-pushed), a second fetch asks GitHub; when that fails, the review shows origin's
+    tip (`Missing`);
+  - a fork, or a push URL on GitHub with another fetch URL: GitHub `refs/pull/<n>/head`, through a configured remote
+    whose URL is that repository (its credentials and `insteadOf` apply), else `https://github.com/<o>/<n>.git`.
+- **The flags**, on top of the remote policy (Key Decision 8):
+  - `--porcelain --verbose`: machine-readable ref lines, also `=` for a ref that is up to date (the tip of an earlier
+    review fetch);
+  - `--no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`, as for Update Project;
+  - `--refmap=`: no opportunistic update of `refs/remotes/origin/<branch>` for a fetched `refs/heads/<branch>`; the
+    push lease and the outgoing status read those refs, and a review must not move them;
+  - `--no-prune`: the user's `fetch.prune` would otherwise prune `refs/remotes/origin/*`;
+  - `--no-show-forced-updates`: no ancestry walk per updated ref;
+  - `--no-write-commit-graph`: a large repository may set `fetch.writeCommitGraph`, and writing the graph of tens of
+    millions of objects after every review fetch costs more than the fetch;
+  - `--negotiation-tip=refs/remotes/origin/<base>` (else `HEAD`): the haves are the base branch's history, not every
+    ref of a repository with thousands, which keeps the negotiation short and the pack the size of the pull request.
+- **The base.** When the base id GitHub reports is not local, the same fetch brings `refs/heads/<base>`: diffing
+  against a stale `origin/master` would bring master's newer changes into the range. The range's base is the merge
+  base of the head and the base id (milliseconds with the commit-graph), as GitHub's "Files changed".
+- **Timeout and cancel.** The fetch runs through `execute_remote_command_with_progress_until`
+  (`GitCommandExecutor::execute_command_with_progress_until`): git is killed when stderr is silent for 120 s (SSH has
+  no `http.lowSpeedLimit`), or when the app's latest-request counter moved on (`cancel_review_fetch`, or a newer
+  `fetch_review_head`, `src-tauri/src/commands/review_requests.rs`), within 20 ms. The error is then a
+  `StoppedCommand`. A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
+- **Credentials.** A refused authentication when fetching from GitHub (git's C-locale words: `could not read
+  Username`, `terminal prompts disabled`, `Permission denied (publickey)`) is `GitHubCredentials`, "GitHub asked for
+  credentials: run gh auth setup-git"; `gh` is logged in when the card shows the request, so this sets up git's
+  credential helper for github.com.
+- **Pruning.** `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
+  refs/branch-deck/review/` and one `update-ref --stdin` deleting every review ref of a number not in `keep` with
+  its old value (the `sweep_stale_temp_refs` pattern). A ref that moved meanwhile (a review fetch of another window)
+  fails the transaction, which is only logged: the next prune deletes it. It is best effort across app instances;
+  the diffs are read by object id, and gc keeps unreachable objects for about two weeks.
+- **Never** the repository lock: the fetch moves no branch, and a fetch never runs under the lock (Update Project
+  fetches before it takes it).
+
+Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_command.rs`,
+`crates/git-executor/src/git_command_executor.rs`, `src-tauri/src/commands/review_requests.rs`.
 
 #### Trial sync (check)
 
@@ -1004,7 +1075,7 @@ recovery hint (`git reset -q`).
    fetched, every push was rejected, even a Force Push the user confirmed and even after the commit was brought into
    the branch.
 
-8. **Decision**: commands that talk to a remote (push, and fetch for Update Project) go through
+8. **Decision**: commands that talk to a remote (push, the fetch for Update Project, and the review fetch) go through
    `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds
    `-c credential.interactive=false -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30`, `GCM_INTERACTIVE=never` and
    `LC_ALL=C LANGUAGE=` on top of the executor's `GIT_TERMINAL_PROMPT=0`.
@@ -1020,6 +1091,11 @@ recovery hint (`git reset -q`).
    SSH is left as configured. The app started from Finder has no controlling terminal, so ssh fails instead of
    prompting. Forcing `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` would override `core.sshCommand` and break
    `SSH_ASKPASS` prompts.
+
+   SSH has no low-speed abort, so a fetch the user waits for and may abandon (the review fetch) runs through
+   `execute_remote_command_with_progress_until`: killed after 120 s without a stderr line, or on cancel. The review
+   fetch also passes `--refmap=` and `--no-prune`, so fetching a pull request never moves or prunes a
+   remote-tracking ref of origin.
 
 9. **Decision**: a conflicting update is resolved in a session of objects and refs, one round per commit, not in a
    rebase of the working tree.
@@ -1045,6 +1121,7 @@ recovery hint (`git reset -q`).
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
+| Review of a pull request | the browser | both commits local: 3 processes (`cat-file --batch-check`, `merge-base`, `log`); else 2–4 more to find the source, 1 `fetch` (2 for a mirror behind GitHub), at most 2 for the head state; then 1 `diff-tree` for the files and 1 for the patch |
 
 ## Follow-ups
 
