@@ -39,6 +39,7 @@ targets:
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/branch.ts
   - ../../crates/sync-core/src/sync.rs
+  - ../../src/lib/stack-lanes.ts
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
   - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
@@ -346,8 +347,9 @@ parent's commits runs into the rule of its children.
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/stores/branch-sync.test.ts`, `src/lib/push-summary.test.ts`,
-  `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
+- `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-lanes.test.ts`,
+  `src/stores/branch-sync.test.ts`, `src/lib/push-summary.test.ts`, `src/lib/integration-commit.test.ts`,
+  `src/stores/archived-branches.test.ts`.
 - `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/archived-branches`, the chip
   specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a failure is a `page.route` of the command with
   status 500). E2E reads the status text by `data-testid="branch-status"`, the tree rules by `nesting-rule`, the rail by

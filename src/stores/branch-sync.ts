@@ -7,6 +7,8 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
+import type { StackLanes } from "@/lib/stack-lanes"
+import { layoutStack } from "@/lib/stack-lanes"
 import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
@@ -156,13 +158,25 @@ export function useBranchOrder(): string[] {
  * A row of the branch table:
  * - a branch, `depth` levels in: under its issue (the issue branch, or an issue row) and under the branches it stacks on;
  *   `showIssueKey` shows its issue as a chip, for a branch with no issue row above it or a stacked branch of another issue
+ *   (unless its name is that issue); `familyIndent` 1 under its issue, the one indent level of the table; `lanes` its
+ *   place in the stack graph, null on every row while no branch is stacked on another; `dimmed` a branch the filter
+ *   didn't match, shown because a match stacks on it
  * - an issue row heading `branchCount` nested branches, for an issue without a branch of its own
  *
- * Rows are interned by `key`, so an unchanged row list compares shallowly.
+ * Rows are interned by `key`, which encodes every field, so an unchanged row list compares shallowly.
  */
 export type BranchTableRow
-  = | { readonly kind: "branch", readonly key: string, readonly name: string, readonly depth: number, readonly showIssueKey: boolean }
-    | { readonly kind: "issue", readonly key: string, readonly issueKey: string, readonly branchCount: number }
+  = | {
+    readonly kind: "branch"
+    readonly key: string
+    readonly name: string
+    readonly depth: number
+    readonly showIssueKey: boolean
+    readonly familyIndent: 0 | 1
+    readonly lanes: StackLanes | null
+    readonly dimmed: boolean
+  }
+  | { readonly kind: "issue", readonly key: string, readonly issueKey: string, readonly branchCount: number }
 
 const internedRows = new Map<string, BranchTableRow>()
 
@@ -179,8 +193,13 @@ function internRow(row: BranchTableRow): BranchTableRow {
   return row
 }
 
-function branchRow(name: string, depth: number, showIssueKey: boolean): BranchTableRow {
-  return internRow({ kind: "branch", key: `b:${depth}:${showIssueKey ? 1 : 0}:${name}`, name, depth, showIssueKey })
+function lanesKey(lanes: StackLanes | null): string {
+  return lanes === null ? "-" : `${lanes.lane},${lanes.forkFrom ?? ""},${lanes.up ? 1 : 0}${lanes.down ? 1 : 0},${lanes.through.join(".")}`
+}
+
+function branchRow(name: string, depth: number, showIssueKey: boolean, familyIndent: 0 | 1, lanes: StackLanes | null, dimmed: boolean): BranchTableRow {
+  const key = `b:${depth}:${showIssueKey ? 1 : 0}:${familyIndent}:${dimmed ? 1 : 0}:${lanesKey(lanes)}:${name}`
+  return internRow({ kind: "branch", key, name, depth, showIssueKey, familyIndent, lanes, dimmed })
 }
 
 /** The branch of the table that `name` stacks on; null for a root or a parent without a branch here */
@@ -189,8 +208,26 @@ function stackParentIn(branches: Record<string, Branch>, name: string): string |
   return parent !== null && parent !== name && branches[parent] !== undefined ? parent : null
 }
 
-function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
-  const { branchOrder, branches } = state
+/** The branches of `visible` and the branches they stack on, in branch order */
+function withStackAncestors(state: BranchSyncState, visible: ReadonlySet<string>): string[] {
+  const kept = new Set<string>()
+  for (const name of visible) {
+    let current: string | null = state.branches[name] === undefined ? null : name
+    while (current !== null && !kept.has(current)) {
+      kept.add(current)
+      current = stackParentIn(state.branches, current)
+    }
+  }
+  return state.branchOrder.filter(name => kept.has(name))
+}
+
+/**
+ * The rows of the branches in `visible` (all for null) and of the branches they stack on, which are `dimmed` unless
+ * visible themselves; the stack graph is laid out over the rows that remain.
+ */
+function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> | null): BranchTableRow[] {
+  const { branches } = state
+  const branchOrder = visible === null ? state.branchOrder : withStackAncestors(state, visible)
   // the branches stacked on each branch, newest first; a branch in a cycle of parents is a root
   const children = new Map<string, string[]>()
   const isRoot = (name: string) => {
@@ -218,6 +255,8 @@ function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
     }
   }
   const roots = branchOrder.filter(name => stackParentIn(branches, name) === null || isRoot(name))
+  // without a branch stacked on another, the table has no graph to draw
+  const hasStacks = children.size > 0
 
   // the prefix branches of each issue among the stack roots (an issue branch is named after its key)
   const families = new Map<string, string[]>()
@@ -236,22 +275,27 @@ function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
 
   const rows: BranchTableRow[] = []
   const placed = new Set<string>()
-  // a branch, then the branches stacked on it, depth-first
-  const placeBranch = (name: string, depth: number, showIssueKey: boolean) => {
-    if (placed.has(name)) {
+  // a stack root, then the branches stacked on it, depth-first, on the lanes of the stack graph
+  const placeStack = (root: string, familyIndent: 0 | 1, showRootIssueKey: boolean) => {
+    if (placed.has(root)) {
       return
     }
-    rows.push(branchRow(name, depth, showIssueKey))
-    placed.add(name)
-    const issueKey = branches[name]?.issueKey ?? null
-    for (const child of children.get(name) ?? []) {
-      const childIssueKey = branches[child]?.issueKey ?? null
-      placeBranch(child, depth + 1, childIssueKey !== null && childIssueKey !== issueKey)
+    for (const { name, parent, depth, lanes } of layoutStack(root, name => children.get(name) ?? [])) {
+      placed.add(name)
+      let showIssueKey = showRootIssueKey
+      if (parent !== null) {
+        // a stacked branch of another issue than its parent's, unless the branch is named after it
+        const issueKey = branches[parent]?.issueKey ?? null
+        const childIssueKey = branches[name]?.issueKey ?? null
+        showIssueKey = childIssueKey !== null && childIssueKey !== issueKey && childIssueKey !== name
+      }
+      const dimmed = visible !== null && !visible.has(name)
+      rows.push(branchRow(name, familyIndent + depth, showIssueKey, familyIndent, hasStacks ? lanes : null, dimmed))
     }
   }
   const placeFamily = (issueKey: string) => {
     for (const member of families.get(issueKey) ?? []) {
-      placeBranch(member, 1, false)
+      placeStack(member, 1, false)
     }
   }
   for (const name of roots) {
@@ -260,7 +304,7 @@ function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
     }
     const issueKey = branches[name]?.issueKey ?? null
     if (issueKey === null || issueKey === name) {
-      placeBranch(name, 0, false)
+      placeStack(name, 0, false)
       if (issueKey === name) {
         placeFamily(issueKey)
       }
@@ -272,7 +316,7 @@ function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
     }
     const family = families.get(issueKey)!
     if (family.length === 1) {
-      placeBranch(name, 0, true)
+      placeStack(name, 0, true)
     }
     else {
       rows.push(internRow({ kind: "issue", key: `i:${family.length}:${issueKey}`, issueKey, branchCount: family.length }))
@@ -332,13 +376,21 @@ export function hasIssueGroup(name: string): boolean {
   return Object.values(getIssueGroups()).includes(name)
 }
 
-/** The branch table rows: newest first, the branches of an issue nested under it. */
+/** The branch table rows, all of them: newest first, the branches of an issue nested under it, stacks as a graph. */
 export function useBranchTableRows(): BranchTableRow[] {
-  return useStore(branchSyncStore, useShallow(branchTableRowsIn))
+  return useStore(branchSyncStore, useShallow(state => branchTableRowsIn(state, null)))
 }
 
-export function getBranchTableRows(): BranchTableRow[] {
-  return branchTableRowsIn(branchSyncStore.getState())
+/**
+ * The rows of the `visible` branches (a filter; null shows all) and of the branches they stack on, those dimmed unless
+ * visible themselves. The counters of the header and the selection keep `useBranchTableRows`.
+ */
+export function useVisibleBranchTableRows(visible: ReadonlySet<string> | null): BranchTableRow[] {
+  return useStore(branchSyncStore, useShallow(state => branchTableRowsIn(state, visible)))
+}
+
+export function getBranchTableRows(visible: ReadonlySet<string> | null = null): BranchTableRow[] {
+  return branchTableRowsIn(branchSyncStore.getState(), visible)
 }
 
 /** The branch rows of the table in table order, without the issue rows */

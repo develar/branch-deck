@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
 
 function row(name: string): BranchTableRow {
-  return { kind: "branch", key: name, name, depth: 0, showIssueKey: false }
+  return { kind: "branch", key: name, name, depth: 0, showIssueKey: false, familyIndent: 0, lanes: null, dimmed: false }
 }
 
 /** A branch at the commit `${name}-tip` */

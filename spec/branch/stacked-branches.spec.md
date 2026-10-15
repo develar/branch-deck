@@ -17,6 +17,7 @@ targets:
   - ../../crates/sync-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/stores/branch-sync.ts
+  - ../../src/lib/stack-lanes.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
@@ -254,16 +255,30 @@ renames branches.
 
 ### UI
 
-- The branch table must show each branch under the branch it stacks on, depth-first and newest first among siblings,
-  with one rule per level under the icon of the row above; its expanded commits follow the depth, and the rail of a
+- The branch table must show each branch under the branch it stacks on, depth-first; among siblings the shortest
+  chain comes first (ties newest first), so the longest chain comes last and continues its parent's line. The rows
+  have one rule per level under the icon of the row above; its expanded commits follow the depth, and the rail of a
   parent's commits runs into the rule of its children ([Branch Row](branch-row.spec.md)). A branch whose parent has no
   row, or whose parents form a cycle, stays at the top level.
   [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a branch whose parent has no row, or whose parents form a cycle, at the top level`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should continue the commit rail of a parent into the rule of its children`)
-- Issue families must be formed from the stack roots only. A stacked branch of another issue than its parent shows its
-  issue as a chip. Without stacked branches the table is as before.
-  [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`)
+- Each row must carry its place in the stack graph (`lanes`, `src/lib/stack-lanes.ts`): its lane, the lane a side
+  child forks from, the line up into its node and down from it, and the lanes passing it. A straight chain stays on
+  lane 0; at a fork the last child continues the parent's lane and each other child takes the lowest free lane for
+  its subtree, which follows the parent at once, so lines never cross; a lane is free again after its subtree. Each
+  stack starts at lane 0, so separate stacks share no line. Without a branch stacked on another, no row has lanes.
+  [@test] ../../src/lib/stack-lanes.test.ts (`keeps a straight chain on lane 0`, `continues the longest chain on the parent's lane and forks the others off it, shortest first`, `opens a lane per fork inside a side subtree, and frees it after the subtree`, `keeps the given order of children with chains of the same length: the oldest is the main line`)
+  [@test] ../../src/stores/branch-table-rows.test.ts (`keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `starts each stack on lane 0, so separate stacks share no line`, `has no lanes while no branch is stacked on another`)
+- Issue families must be formed from the stack roots only; a family member and the stack on it are indented one
+  level (`familyIndent`), and the stack keeps its lanes inside it: lanes mean "built on", the indent "belongs to the
+  issue". A stacked branch of another issue than its parent shows its issue as a chip, unless the branch is named
+  after it. Without stacked branches the table is as before.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`, `indents a family member and the stack on it one level, with the lanes of the stack inside`, `shows no chip for a stacked branch named after its issue`)
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
+- The rows of some branches only (`useVisibleBranchTableRows`, for a filter) must include the branches they stack
+  on, dimmed unless they are among them, and lay the graph out over the rows that remain. The header counters and the
+  selection read all rows.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`, `prunes an issue family to its visible members`)
 - The branch menu must offer "Stack On…", a submenu of the other branches without the branch's descendants and its
   parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`)
