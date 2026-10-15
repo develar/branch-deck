@@ -872,7 +872,7 @@ pub(crate) fn files_follow(
   rollback_with: &RefTransaction,
 ) -> Result<()> {
   ensure_head_on(git_executor, repo_path, branch)?;
-  let blocked = blocking_paths(git_executor, repo_path, head, new_head, changed)?;
+  let blocked = blocking_paths_against(git_executor, repo_path, head, new_head, changed, Some(head))?;
   if !blocked.is_empty() {
     roll_back(git_executor, repo_path, branch, head, new_head, UPDATE_OPERATION, rollback_with)?;
     return Err(anyhow::Error::new(FilesBlocked { paths: blocked }));
@@ -1024,6 +1024,18 @@ pub(crate) struct ChangedPath {
   pub(crate) path: String,
 }
 
+impl ChangedPath {
+  /// The path is new in the new tree
+  pub(crate) fn was_added(&self) -> bool {
+    self.status == 'A'
+  }
+
+  /// The blob in the old tree
+  pub(crate) fn old_id(&self) -> &str {
+    &self.old_id
+  }
+}
+
 /// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format)
 pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
   let output = git_executor.execute_command_raw(&["diff-tree", "-r", "-z", "--no-renames", from, to], repo_path)?;
@@ -1051,8 +1063,21 @@ pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, 
 /// adds a file (`read-tree -u` would silently overwrite them, as `git checkout` does). Exact, but the dry run refreshes
 /// the whole index: the check before an update.
 pub(crate) fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
+  blocking_paths_against(git_executor, repo_path, old, new, changed, None)
+}
+
+/// `blocking_paths`; with `local_base`, the local changes are those against that commit, not against HEAD: after HEAD
+/// moved without the files, the index and the files of the old HEAD are not local changes
+fn blocking_paths_against(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath], local_base: Option<&str>) -> Result<Vec<String>> {
   if let Some(refusal) = dry_run_worktree_update(git_executor, repo_path, old, new)? {
-    let paths = overlapping_local_changes(git_executor, repo_path, changed)?;
+    let mut paths = overlapping_local_changes(git_executor, repo_path, changed)?;
+    if let Some(local_base) = local_base {
+      // tracked paths that differ from `local_base` in the index or the working tree; untracked ones stay
+      let output = git_executor.execute_command_raw(&["diff-index", "--name-only", "-z", local_base, "--"], repo_path)?;
+      let differ: HashSet<&str> = output.split('\0').filter(|path| !path.is_empty()).collect();
+      let tracked: HashSet<&str> = changed.iter().filter(|c| c.status != 'A').map(|c| c.path.as_str()).collect();
+      paths.retain(|path| differ.contains(path.as_str()) || !tracked.contains(path.as_str()));
+    }
     if paths.is_empty() {
       bail!("The files can't be updated: {refusal}");
     }
@@ -1152,6 +1177,21 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
     blocked[i] = !symlink_matches(git_executor, repo_path, &root.join(&changed[i].path), &changed[i].old_id)?;
   }
   Ok(collect_blocked(changed, &blocked))
+}
+
+/// The local changes that likely block an update from `head` onto `upstream_head` (merge base `base`), known before the
+/// replay is done: `preview_blocking_paths` of the paths that the upstream changes since `base` and that differ between
+/// `head` and `upstream_head`. A resolve session warns with them early; its finish runs the exact check
+pub(crate) fn likely_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, base: &str, upstream_head: &str) -> Result<Vec<String>> {
+  let upstream: HashSet<String> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
+  let changed: Vec<ChangedPath> = changed_paths(git_executor, repo_path, head, upstream_head)?
+    .into_iter()
+    .filter(|c| upstream.contains(&c.path))
+    .collect();
+  if changed.is_empty() {
+    return Ok(Vec::new());
+  }
+  preview_blocking_paths(git_executor, repo_path, &changed, &mut LocalProbe::default())
 }
 
 fn collect_blocked(changed: &[ChangedPath], blocked: &[bool]) -> Vec<String> {

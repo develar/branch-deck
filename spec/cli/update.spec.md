@@ -99,7 +99,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`)
 - `bd update` with a session open must fetch nothing and change nothing: it prints the open round again and writes
   its missing copies. With no round open (the finish is next), it prints `state: "pending"` (exit 1) and
-  `session.next` `bd update --continue`.
+  `session.next` `<bd> update --continue`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `local_changes_on_the_finish_keep_the_session_ready`)
 - Commits that peers make on top of the session's HEAD must join the session as more local commits, and a conflict
   among them opens a round. A HEAD that no longer contains the session's HEAD, or that left the branch, must be
@@ -110,9 +110,16 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - A round must print `session` with the `worktree`, the `status` (`resolving`, `ready`, `applying`, `applied`), the
   `round`, `replayed` and `total`, the `dir` of the copies, the `commit` (`commit`, `subject`, `body`, `author`, the
-  absolute path of its `patch`), the conflicting `files`, the `resolutions` so far, and `next`, the command that
-  continues (`bd update --continue --round <n>`).
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `session_outputs_match_the_schema`)
+  absolute path of its `patch`), the conflicting `files`, the `resolutions` so far, `marker_labels` (the full ids after
+  the markers: `onto`, `before` as `<commit>^`, and `commit`), and `next`, the command that continues. `next` names
+  this binary in this repository, as the app's prompt does (`<bd> -C <repo> update --continue --round <n>`; `bd` when
+  the binary is unknown).
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `session_outputs_match_the_schema`, `markers_are_found_by_their_labels`)
+- A round must print `session.blocked_paths`: the uncommitted, staged or untracked files on paths the update likely
+  writes (the paths the upstream changed since the merge base that differ between HEAD and the upstream, with the
+  check of every sync). They block the finish, so the agent asks the user about them first. The finish runs the exact
+  check.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`local_changes_that_will_block_the_finish_are_named_from_the_start`)
 - Each file must have its `path`, its `kind` (`content`, `modify_delete`), the absolute paths of `edit` (the merge
   result with zdiff3 markers), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits
   replayed so far) and `commit` (the commit's version), a side left out when it has no such file, `markers` (the
@@ -122,29 +129,38 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   never be skipped.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`likely_landed_commits_get_the_hint`)
 - Only text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`) and
-  modify/delete must be supported. Any other type (binary, file/directory, rename, distinct modes, a symlink or a
-  submodule, an invalid path) must refuse the whole round with `unsupported_conflict` (exit 4) and its `paths`; at the
-  start no session is created.
+  modify/delete must be supported. A mode that one side changed must be merged as git does; two modes that differ on
+  both sides are `distinct modes`. Any other type (binary, file/directory, rename, distinct modes, a symlink or a
+  submodule, an invalid path), and a `content` file whose merge result has no block of bd's labels, must refuse the
+  whole round with `unsupported_conflict` (exit 4) and its `paths`; at the start no session is created.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`)
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`only_text_and_modify_delete_conflicts_are_supported`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_tree_the_stages_and_the_messages`, `a_clean_merge_has_only_the_tree`)
 - A second conflicting commit must open a new round with its own directory; the copies of the closed round are
-  removed. `--round <n>` of another round must be `round_moved` (exit 3, retryable).
+  removed. `--round <n>` of another round must be `round_moved` (exit 2, not retryable): its message says that
+  `bd update` prints the open round.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`)
 
 ### Copies
 
 - The copies must be in `branch-deck/resolve/r<n>/` of the worktree's git dir: `edit/`, `before/`, `onto/` and
   `commit/`, each file under the flat name `<key>-<basename>`, and `commit.patch`. The tree paths must be validated: no
-  empty, `.` or `..` component, no `.git` in any case, no NUL. Two paths that differ only in case get distinct names.
-  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`tree_paths_that_could_leave_a_directory_are_invalid`, `copies_have_flat_names_that_never_collide`)
+  empty, `.` or `..` component, no `.git` in any case, no NUL. Two paths that differ only in case get distinct names. A
+  basename longer than 100 bytes is cut on a character boundary, and keeps its extension.
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`tree_paths_that_could_leave_a_directory_are_invalid`, `copies_have_flat_names_that_never_collide`, `a_long_basename_is_cut_and_keeps_its_extension`)
 - bd must write and read the bytes as git stores them, without filters, through a new temporary file and a rename,
-  and never through a symlink: a symlink at `edit` is no resolution, and a rewrite replaces it.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_symlink_at_edit_is_never_followed`)
+  and never through a symlink: a symlink at `edit` is no resolution, and a rewrite replaces it. Every directory from
+  the git dir (or `--dir`) down to the copy must be a real directory: bd neither reads nor deletes through a symlinked
+  directory.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_symlink_at_edit_is_never_followed`, `the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
+- The marker file `.branch-deck-resolve` must name the git dir of the worktree that owns the directory. bd deletes
+  only in a directory whose marker names its own git dir.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
 - `--dir <path>` must put the copies of a new session into an absolute directory that is not a symlink, not inside a
-  worktree and empty or marked as bd's (`.branch-deck-resolve`); a refusal is `invalid_arguments`, and a refused
-  directory that bd created is removed. bd must delete only what it wrote, and remove only a directory it created.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`the_copies_go_to_dir_only_outside_every_worktree`)
+  worktree, empty or marked as bd's for this git dir, and used by no other session; a refusal is
+  `invalid_arguments`, and a refused directory that bd created is removed. bd must delete only what it wrote, and
+  remove only a directory it created.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`the_copies_go_to_dir_only_outside_every_worktree`, `the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
 - `bd update --status --materialize` must write the missing copies of the open round, and with `--force` all of them.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
 
@@ -158,15 +174,31 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   resolution either. A take of a side without the file deletes it. A `--take` or `--delete` of a path the round does
   not have, or a side other than `onto` and `commit`, is `invalid_arguments`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`)
+- A block must be recognised only by the labels bd passed to the merge (`<<<<<<< <onto>`, `||||||| <commit>^`,
+  `>>>>>>> <commit>`), at any marker length (`conflict-marker-size`), with the separator of the same length only
+  between the base section and the end. Any other marker-like line, e.g. the `=======` of a Markdown setext heading, is
+  text.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_are_found_by_their_labels`)
+  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_setext_heading_is_text`, `longer_markers_are_found_by_their_labels`)
 - An edited content file must equal bd's `edit` copy outside the conflict blocks (`resolution_outside_conflict`), and
-  have no marker line where a block was (`unresolved_markers`). All three refusals are exit 2 with `paths`.
+  have no marker line of bd's labels where a block was (`unresolved_markers`). When only the line ends differ (CRLF and
+  LF, or the newline at the end), the message says so. All three refusals are exit 2 with `paths`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
-  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`an_edit_outside_the_block_is_refused`, `markers_left_are_refused`, `the_plain_runs_between_two_blocks_must_stay_in_order`, `marker_lines_are_counted_only_with_seven_characters`)
-- The lines that a side added in a block and the resolution dropped must be reported per file as
-  `dropped_upstream_lines` and `dropped_commit_lines`, never refused.
-  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_resolution_inside_the_block_passes_and_reports_the_dropped_lines`)
-- A resolution that leaves the commit empty must drop the commit, as `git replay` does: no `resolved` id, no note.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_resolution_that_empties_the_commit_drops_it`)
+  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_resolution_inside_the_block_passes`, `an_edit_outside_the_block_is_refused`, `markers_left_are_refused`, `the_plain_runs_between_two_blocks_must_stay_in_order`, `changed_line_ends_are_named`)
+- The message of a refusal must name the absolute `edit` copy of each path. For leftover markers and a missing
+  resolution, it must also name the paths that changed in the working tree, where bd never reads. The refusal of a
+  change outside the blocks must say that such a change goes into a `fixup! <subject>` commit after the update, then
+  `bd fold`.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`an_edit_in_the_working_tree_is_pointed_to_the_copy`)
+- The lines of a side's change (`before` to `onto`, `before` to `commit`) that the result has neither as they are nor
+  rewritten (a result line that shares at least half of their words) must be reported per file as
+  `dropped_upstream_lines` and `dropped_commit_lines`, also for `--take` and `--delete`, never refused.
+  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`dropped_lines_are_the_lines_of_a_side_that_the_result_lost`)
+- A resolution that leaves the commit without changes must be `empty_resolution` (exit 2), nothing written.
+  `--allow-empty` keeps it as an empty commit (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at
+  least 4 characters of its id) drops it (`empty: "dropped"`, no `resolved` id, no note). The finish counts a dropped
+  commit as `dropped_by_resolution`, never in `dropped_already_upstream` or `landed`.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
 - `--continue --dry-run` must run the checks, report the resolution with its `resolved` id, exit 0, and move no ref.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`)
 
@@ -186,16 +218,26 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - A finish interrupted before the branch moved (`applying`), or refused by a `git switch` (`head_moved`), must be
   completed by the next `--continue`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`an_interrupted_finish_is_completed_by_the_next_continue`)
-- A finish whose branch moved but whose files did not follow (`applied`) must refuse `--abort`, and the next
-  `--continue` must let the files follow.
+- A finish whose branch moved but whose files did not follow (`applied`, HEAD at the tip) must refuse `--abort` with
+  `finish_pending` (exit 4), and the next `--continue` must let the files follow.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_finish_killed_before_the_files_followed_is_recovered`)
+- When the files did follow and the branch still contains the tip (the finish died before it deleted the session
+  ref, also with peers' commits on top), both `--continue` and `--abort` must delete the session ref and exit 0.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_session_whose_finish_died_after_the_files_followed_ends_after_a_peer_commit`)
+- When the files did not follow and HEAD left the tip, `--continue` and `--abort` must be `finish_pending` (exit 4),
+  and the message must name `git update-ref -d <session ref> <commit>` as the way out.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_moved_branch_without_its_files_is_finish_pending`)
 
 ### `--abort` and `--status`
 
 - `bd update --abort` must delete the session ref with compare-and-swap and the copies bd wrote, under the lock, and
   print the `worktree`, the `branch` and the `round`; it writes no note. Without a session it is `no_session` (exit 2).
-  `--worktree <id>` must abort the session of another worktree, e.g. an orphaned one.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_rewritten_head_makes_the_session_stale_and_abort_removes_it`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`)
+  `--worktree <id>` must abort the session of another worktree, e.g. an orphaned one. While that worktree exists, only
+  `--force` aborts it. An id must be letters, digits, `.`, `_` and `-`, else `invalid_arguments`.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_rewritten_head_makes_the_session_stale_and_abort_removes_it`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`, `aborting_the_live_session_of_another_worktree_needs_force`)
+- Temporary refs older than an hour (by the time in their name) belong to a process that is gone; the start of a
+  session, `--abort` and a `--continue` of an `applying` or `applied` session must delete them.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`stale_temporary_refs_are_swept_when_a_session_starts`)
 - `bd update --status` must take no lock and change nothing: it prints the session of this worktree as a round prints
   it, and `sessions`, every session of the repository with its `worktree`, `branch`, `git_dir`, `status`, `round`,
   `orphaned` (its worktree is gone) and `own`.
@@ -211,18 +253,20 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 | Exit | Codes |
 |---|---|
 | 1 | a round is open (`conflict`) or the finish is next (`pending`): an output, not an error |
-| 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `invalid_arguments` |
-| 3 | `round_moved`, `head_moved`, `locked` (retryable) |
-| 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap` |
+| 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved`, `invalid_arguments` |
+| 3 | `head_moved`, `locked` (retryable) |
+| 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending` |
 
 - The refusals of a resolution and `unsupported_conflict` must list the files in `paths`.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 
 ### `bd help update`
 
-- It must print the session workflow: the round object, edit only the files at `edit`, `--continue`, the exit codes,
-  the report of the resolutions, the build after exit 0 and a `fixup!` with `bd fold` or `bd undo` on a failure,
-  `--abort`, `--status` and `--dir`. `bd help agent` must only name it; together the two texts must name every
+- It must print the session workflow: the round object with `blocked_paths`, `marker_labels` and `next`, `pending`,
+  edit only the files at `edit` (a change outside the blocks waits for a `fixup!`), `--continue` with `--take`,
+  `--delete`, `--allow-empty` and `--drop-empty`, the exit codes, the report of the resolutions, the build after exit 0
+  and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--force` for a live
+  session of another worktree), `--status` and `--dir`. `bd help agent` must only name it; together the two texts must name every
   option of `bd update`.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
@@ -236,6 +280,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 ## Open Questions / Risks
 
 - An unsupported conflict in a later round stops the session: `--abort` drops the earlier rounds too.
+- `session.blocked_paths` is the cheaper check of every sync; the exact check runs only at the finish.
 - A note does not follow a later amend or reword of its commit: it is an audit record of one session.
 - `--continue --dry-run` writes the resolved commit on a temporary ref and deletes it: no ref differs afterwards.
 

@@ -235,11 +235,39 @@ impl WrittenCommits {
   }
 }
 
+/// The prefix of the temporary refs: `<prefix><pid>-<nanos since the epoch>-<counter>`, a `-notes` suffix for notes
+const TEMP_REF_PREFIX: &str = "refs/branch-deck/tmp/";
+
+/// Delete the temporary refs written more than `older_than` ago, with one `for-each-ref` and at most one `update-ref`:
+/// the leftovers of a process killed before its transaction deleted them, which keep their objects alive. Runs under
+/// the repository lock; a failure is only logged
+pub fn sweep_stale_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, older_than: std::time::Duration) {
+  let result = (|| {
+    let refs = git_executor.execute_command_lines(&["for-each-ref", "--format=%(refname) %(objectname)", TEMP_REF_PREFIX], repo_path)?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let mut transaction = RefTransaction::new();
+    for line in &refs {
+      let Some((name, id)) = line.split_once(' ') else { continue };
+      let written_at = name
+        .strip_prefix(TEMP_REF_PREFIX)
+        .and_then(|rest| rest.split('-').nth(1))
+        .and_then(|nanos| nanos.parse::<u128>().ok());
+      if written_at.is_some_and(|written_at| now.saturating_sub(written_at) > older_than.as_nanos()) {
+        transaction.delete(name, Some(id));
+      }
+    }
+    transaction.commit(git_executor, repo_path, "sweep temporary refs")
+  })();
+  if let Err(e) = result {
+    tracing::warn!(error = %format!("{e:#}"), "failed to sweep stale temporary refs");
+  }
+}
+
 /// A ref name no other operation of this or another Branch Deck process uses
 fn unique_temp_ref() -> String {
   static COUNTER: AtomicU32 = AtomicU32::new(0);
   let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-  format!("refs/branch-deck/tmp/{}-{nanos}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))
+  format!("{TEMP_REF_PREFIX}{}-{nanos}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Append the start of a commit on `temp_ref` with mark `mark`: `(author, committer)`, the encoding and the message
@@ -402,11 +430,21 @@ impl WrittenStore {
 }
 
 /// Write commits of a store with one `git fast-import` run, on a temporary ref (a `NewParent::Written` parent is an
-/// index into `commits`), and `notes`, one notes commit on its own temporary ref. No real ref moves: the caller moves
-/// them in one transaction, which deletes the temporary refs too
+/// index into `commits`), and `notes`, one notes commit on its own temporary ref, by `committer` (`Name <email> <seconds>
+/// <tz>`; `None` for the current user). No real ref moves: the caller moves them in one transaction, which deletes the
+/// temporary refs too
 #[instrument(skip(git_executor, commits, notes), fields(count = commits.len()))]
-pub fn write_store_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[StoreCommit<'_>], notes: Option<&StoreNotes<'_>>) -> Result<WrittenStore> {
-  let committer = current_committer(git_executor, repo_path)?;
+pub fn write_store_commits(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  commits: &[StoreCommit<'_>],
+  notes: Option<&StoreNotes<'_>>,
+  committer: Option<&str>,
+) -> Result<WrittenStore> {
+  let committer = match committer {
+    Some(committer) => committer.to_string(),
+    None => current_committer(git_executor, repo_path)?,
+  };
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(commits.len() * 512);
   for (index, commit) in commits.iter().enumerate() {

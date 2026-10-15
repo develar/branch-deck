@@ -92,7 +92,8 @@ changes; local changes on them refuse it, `uncommitted_overlap` with `paths`).
 written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase, with an `undo_token`. Exit 1: a
 commit conflicts, and a resolve session opens, one round per conflicting commit. The session belongs to this worktree
 and branch, and keeps the baseline it started with; peers' commits on top of HEAD join it as more rounds. Running
-`bd update` again prints the open round (and writes its missing copies).
+`bd update` again prints the open round (and writes its missing copies); `state: pending` means every commit is
+resolved and `session.next` finishes.
 
 A round (`state: conflict`, `session`):
 - `session.commit`: the local commit being replayed, its `subject`, `body` and `patch` (the commit as a patch: the
@@ -100,27 +101,35 @@ A round (`state: conflict`, `session`):
 - `session.files[]`: `path`, `kind`, and absolute paths: `edit` (the merge result with zdiff3 markers, the file to
   edit), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits replayed so far),
   `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
+  `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
+  finish; ask the user about them first. `session.next` is the command that continues.
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
-  intent of the commit; change only the lines between the markers, and remove every marker.
+  intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
+  change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the
+  update, folded with bd fold.
 - `kind` content: edit `edit`. `kind` modify_delete (one side deleted the file): `--take onto:<path>`,
-  `--take commit:<path>` or `--delete <path>`, or edit `edit`. Every file needs a resolution: a missing file is never a
-  delete.
+  `--take commit:<path>` or `--delete <path>` on the --continue command, or edit `edit`. Every file needs a
+  resolution: a missing file is never a delete.
 
 `bd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
 or applies the update (exit 0). --take and --delete resolve a file without an edit (repeatable).
 `bd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
 `unresolved_markers`, `resolution_outside_conflict` (a line outside the blocks changed) or `missing_resolution`, with
-`paths`: fix those files and run it again; nothing changed. `round_moved` (exit 3): read `bd update --status`.
-At exit 0, `resolutions[]` lists per round the `commit`, the `resolved` commit and per file `how` (edited, onto,
-commit, deleted) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side the resolution no
-longer has. Report each resolution to the user, these lines first. Then build and test: on a failure commit the fix
-as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
+`paths` and the copies in the message: fix those copies and run it again; nothing changed. `round_moved` (exit 2):
+another round is open; `bd update` prints it. `empty_resolution` (exit 2): the resolution leaves the commit without
+changes; ask the user, then add --allow-empty (keep an empty commit) or --drop-empty <commit> (drop it).
+At exit 0, `resolutions[]` lists per round the `commit`, the `resolved` commit (`empty`: kept or dropped) and per file
+`how` (edited, onto, commit, deleted) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's
+change that the result lost. Report each resolution to the user, these lines first. Then build and test: on a failure
+commit the fix as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
 
 `uncommitted_overlap` at the finish (exit 4) keeps the session: once the user moved those files, run
-`bd update --continue` again.
+`bd update --continue` again. `finish_pending` (exit 4): the branch moved, but its files did not follow; the message
+says what is left.
 `session_stale` (exit 4): the branch was rewritten or HEAD left it; `unsupported_conflict` (exit 4): a binary,
 file/directory, rename, mode or symlink conflict. Both: stop and show the user. `bd update --abort` removes the session
-and its copies (nothing else changed); --worktree <id> removes the session of another worktree.
+and its copies (nothing else changed); --worktree <id> removes an orphaned session of another worktree, a live one
+only with --force.
 `bd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
 changes nothing; --materialize writes the missing copies, with --force all of them. --dir <path> puts the copies of a
 new session into an empty directory outside every worktree, for a sandbox that keeps .git read only.

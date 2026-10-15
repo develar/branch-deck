@@ -194,7 +194,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Restack(args) => return print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
     Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
-    Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
+    Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args, environment)), UpdateCommandOutput::exit_code),
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),

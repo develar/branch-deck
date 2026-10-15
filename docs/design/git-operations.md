@@ -529,8 +529,10 @@ copies), `crates/bd-cli/src/update_command.rs`.
 - `state.json` records the worktree's git dir, the branch, the upstream, the merge base, the upstream tip, the
   excluded upstream tips, the local commits, how many are replayed, the tip, the round, the status, the open round
   (the commit, the tip it replays onto, the merge tree, the conflicting files with their stages), the resolutions so
-  far, and the fixed committer.
-- Every step moves the ref with compare-and-swap. `--continue --round <n>` refuses another round (`round_moved`).
+  far, and the fixed committer. State commits have that committer too, so `var GIT_COMMITTER_IDENT` runs only at the
+  start.
+- Every step moves the ref with compare-and-swap. `--continue --round <n>` refuses another round (`round_moved`, exit
+  2, not retryable: `bd update` prints the open round).
 - The states are `resolving` (a round is open), `ready` (every commit is replayed, the finish is next), `applying`
   (the finish started, the branch has not moved) and `applied` (the branch moved, the files may not have followed).
 
@@ -547,46 +549,69 @@ round again (no fetch, nothing changed) and writes its missing copies. Before ev
   retryable); the session stays for `--abort`.
 
 `--status` lists every session of the repository with one `for-each-ref` and one `cat-file --batch`; a session whose
-git dir is gone is `orphaned`, and `--abort --worktree <id>` removes it.
+git dir is gone is `orphaned`, and `--abort --worktree <id>` removes it. The session of a worktree that still exists
+needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 
 **The engine.**
 
 | Step | Command |
 |---|---|
-| Start | the check of "Update project" conflicted under the lock; `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits) |
+| Start | the check of "Update project" conflicted under the lock, and the session reuses its landed candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits) |
 | Find the conflict | a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
-| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages |
-| The copies | one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs; one `log -1 --patch-with-stat` for `commit.patch` |
+| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
+| The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
 | The state | one `fast-import` of the state commit on a temporary ref, one `update-ref --stdin` (create or CAS, the temporary ref deleted) |
-| `--continue` | one `cat-file --batch` of the session, one `cat-file --batch -Z` of the merge results for the checks, one `cat-file --batch` of the commit; one `fast-import` writes the resolved commit (`M 040000 <merge tree> ""`, then `M`/`D` per path, author and message of `c`, the fixed committer) and `ls`s its tree and its parent's; one `replay` of the rest, a binary search only when it exits with 1; one `fast-import` of the next state, one `update-ref --stdin` |
+| `--continue` | one `cat-file --batch` of HEAD and the session, the guards (2); one `cat-file --batch -Z` of the round's objects for the checks; one `fast-import` writes the resolved commit (`M 040000 <merge tree> ""`, then `M`/`D` per path, author and message of `c`, the fixed committer) and `ls`s its tree and its parent's; one `replay` of the rest, a binary search only when it exits with 1; then the next round as above, or the finish |
+
+Measured on a middle round of a fixture with three local commits, `--continue` runs 20 git processes after the 3 of
+bd's own start: 2 replays, 5 for `blocked_paths`, 1 `merge-tree`, 2 `cat-file -Z`, 2 `fast-import`, 1 `update-ref`, 2
+`log`, 2 guards, the lock and the session read. The plan's estimate of about 9 plus the replays is not reached; the
+check for `blocked_paths` is the largest share.
 
 - **Fixed committer.** Every commit the session writes, by `replay` (`GIT_COMMITTER_NAME`, `_EMAIL`, `_DATE`) and by
   `fast-import`, has the committer and the date of the session start. So the same input gives the same ids: a rerun
   after a failed step writes the same objects, and `--continue --dry-run` reports the id that `--continue` writes.
   This is a stated deviation from invariant 5, where a content rewrite gets the current time.
-- **An empty result.** When the resolved tree equals its parent's (the `ls` of the same `fast-import`), the commit is
-  dropped, as `git replay` drops a commit that becomes empty: no `resolved` id and no note.
+- **An empty result.** When the resolved tree equals its parent's (the `ls` of the same `fast-import`), the round is
+  `empty_resolution` (exit 2), and nothing moves. `--allow-empty` keeps the empty commit; `--drop-empty <commit>`, with
+  the round's commit, drops it: no `resolved` id and no note. The finish counts a dropped commit as
+  `dropped_by_resolution` and keeps it out of `dropped_already_upstream` and of the landed report, because the
+  upstream does not have it.
 - **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
-  without `before`) and `CONFLICT (modify/delete)`, on regular files (`100644`, `100755`) with the same mode on both
-  sides. Any other conflict type of the `-z` messages (binary, file/directory, rename/*, distinct modes), a symlink
-  (`120000`) or a gitlink (`160000`) stage, and an invalid path refuse the whole round with `unsupported_conflict`,
-  with the paths. A file/directory conflict names its moved side file (`df~<id>`) too. At the start no session is
-  created.
+  without `before`) and `CONFLICT (modify/delete)`, on regular files (`100644`, `100755`). The mode is merged as git
+  does: the side that changed it wins, and only two different modes on both sides are `distinct modes`. Any other
+  conflict type of the `-z` messages (binary, file/directory, rename/*, distinct modes), a symlink (`120000`) or a
+  gitlink (`160000`) stage, an invalid path, and a content file whose merge result has no block of bd's labels refuse
+  the whole round with `unsupported_conflict`, with the paths. A file/directory conflict names its moved side file
+  (`df~<id>`) too. At the start no session is created.
 - **Landed commits.** A local commit that the landed detection likely finds upstream gets the hint "likely landed:
   take onto". It is never skipped: in a session no whole replay proves that leaving it out keeps every local change.
+- **Blocked paths early.** Each round prints `blocked_paths`: the local changes on the paths that the upstream changed
+  since the merge base and that differ between HEAD and the upstream, found with the cheaper check of every sync. The
+  agent asks the user about them before it resolves; the finish runs the exact check.
 
 **The checks of a round.** Every conflicting path needs an explicit resolution: an edited `edit` copy, `--take
 onto:<path>`, `--take commit:<path>` or `--delete <path>`. A take of a side that has no file deletes it. A missing
 copy is `missing_resolution`, never a delete, and so is an unchanged modify/delete copy (the version left in the tree
 decides nothing).
 
+- Blocks: bd knows the labels it passed to `merge-tree`, so a block starts with a run of 7 or more `<` and the new
+  parent's id, has the base section (`|` and `<commit>^`), the separator of `=` of the same length, and ends with `>`
+  and the commit's id. So the longer markers of `conflict-marker-size` count, and any other marker-like line, e.g. the
+  `=======` under a Markdown setext heading, is text.
 - Hard: outside the conflict blocks, an edited content file must be byte for byte the `edit` copy that bd wrote (read
   again from the merge tree, not from disk). The plain runs between the blocks are matched in order, leftmost, and the
-  regions between them replace the blocks. A changed plain line is `resolution_outside_conflict`; a marker line
-  (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>` of 7 characters) in a replaced region is `unresolved_markers`. Both
-  are exit 2, nothing written. Outside the blocks the merge already holds every change of both sides.
-- Report only: per file the lines that `onto` (`dropped_upstream_lines`) or the commit (`dropped_commit_lines`) added
-  in a block, not in the base, that the resolution no longer has, at most 20 per side. The agent shows them to the
+  regions between them replace the blocks. A changed plain line is `resolution_outside_conflict`; when only the line
+  ends differ (CRLF and LF, or the newline at the end), the message says so. A marker line of bd's labels in a
+  replaced region is `unresolved_markers`. Both are exit 2, nothing written. Outside the blocks the merge already holds
+  every change of both sides; a change that the commit needs there, or in another file, goes into a `fixup! <subject>`
+  commit after the update, and the refusal says so.
+- The message of a refusal names the absolute `edit` copy of each path. For leftover markers and a missing resolution,
+  one `diff --name-only -z HEAD -- <paths>` also names the paths that changed in the working tree, where bd never
+  reads: the commonest mistake of an agent.
+- Report only: per file the lines of a side's change (`before` to `onto` for `dropped_upstream_lines`, `before` to
+  `commit` for `dropped_commit_lines`) that the result has neither as they are nor rewritten (a result line that shares
+  at least half of their words), at most 20 per side; also for `--take` and `--delete`. The agent shows them to the
   user. An earlier gate that merged the result with the upstream again fired on nearly every correct resolution, and
   is cut.
 
@@ -595,26 +620,30 @@ be rebuilt from the session ref.
 
 - They live in `branch-deck/resolve/` of the worktree's git dir (`state.git_dir`), or in the directory of `--dir`.
   Per round `r<n>/edit/`, `before/`, `onto/` and `commit/`, each file under the flat name `<key>-<basename>`, and
-  `r<n>/commit.patch`; `.branch-deck-resolve` marks the directory. A flat name can't reach outside the round
-  directory, can't collide with another file (two paths that differ only in case get distinct keys), and needs no
-  directories of the tree.
+  `r<n>/commit.patch`; `.branch-deck-resolve` marks the directory and names the git dir of its owner. A flat name
+  can't reach outside the round directory, can't collide with another file (two paths that differ only in case get
+  distinct keys), and needs no directories of the tree. A basename longer than 100 bytes is cut on a character
+  boundary and keeps its extension, so the name stays below `NAME_MAX` with the key and the temporary file.
 - Tree paths are validated: no empty, `.` or `..` component, no `.git` in any case, no NUL, and on Windows no `\` and no
   `:` (a drive prefix). Characters a file system may refuse are replaced in the flat name only.
 - Bytes are written and read in Rust, as git stores them, without filters. A write goes to a new temporary file that a
   rename puts in place, which replaces a symlink at the target instead of writing through it. A read takes only a
-  regular file, and the file it opens must be the one `lstat` saw.
+  regular file, and the file it opens must be the one `lstat` saw. Every directory from the git dir (or `--dir`) down
+  to the copy must be a real directory: bd neither reads nor deletes through a symlinked directory.
 - A new round gets a new directory, so a stale edit never applies to the next round, and the copies of the closed
-  round are removed. bd deletes only the file names it wrote, then the directories left empty, and removes the
-  session directory only when it created it.
+  round are removed. bd deletes only the file names it wrote, then the directories left empty, only in a directory
+  whose marker names its own git dir, and removes the session directory only when it created it.
 - `--dir <path>` (for a sandbox that keeps `.git` read only) must be absolute, not a symlink, not inside a worktree
-  (the git dir aside), and empty or marked; a refused directory that bd created is removed.
+  (the git dir aside), empty or marked for this git dir, and used by no other session (`list_sessions`); a refused
+  directory that bd created is removed.
 
 **The finish**, when every commit is replayed (`finish` in `update_resolve.rs`), in four compare-and-swap steps:
 
 1. The exact check of steps 7 and 8 of "Update project" from HEAD to the tip (`blocking_paths`). Local changes there
-   are `uncommitted_overlap` with the paths; the state is committed as `ready` first, so no resolution is lost, and a
-   later `--continue` only finishes. Then one `fast-import` writes the `applying` and the `applied` state commits and
-   the notes commit, each on a temporary ref, and one transaction moves the session ref to `applying`.
+   are `uncommitted_overlap` with the paths; the state is committed as `ready` then, so no resolution is lost, and a
+   later `--continue` only finishes. Without a block, no `ready` state is written: one `fast-import` writes the
+   `applying` and the `applied` state commits and the notes commit, each on a temporary ref, and one transaction
+   moves the session ref to `applying` and deletes the temporary ref of the last resolved commit.
 2. `move_branch_and_files_with` moves the branch as step 9 does: `update HEAD <tip> <head>` (deref), committed only
    while git holds `HEAD.lock` and `symbolic-ref HEAD` is still the branch (`RefTransaction::commit_while`). The same
    transaction moves the session ref to `applied`, moves the notes ref with CAS (or creates it) and deletes the
@@ -625,16 +654,25 @@ be rebuilt from the session ref.
 4. The session ref is deleted with CAS on `applied`, the landed report is written as after an update, and the copies
    are removed.
 
-**Crash recovery.** A process killed at any step leaves a state that the next `--continue` completes:
+**Crash recovery.** A process killed at a step leaves `applying` or `applied`. The next `--continue` completes it,
+except in the last case below:
 
 - `applying` (killed before step 2, or the move refused, e.g. by a `git switch`): nothing moved. The next
   `--continue` runs the finish again, with the peers' commits replayed first.
-- `applied` (killed between steps 2 and 3, or the rollback failed): HEAD is at the tip, the index and the files may
-  still be at the old HEAD. The next `--continue` reads the index entries of the changed paths (`cat-file
-  --batch-check -Z` of `:<path>`). When every one is the tip's, the files did follow and only the session ref is
-  deleted. Otherwise `files_follow` in `update_branch.rs` runs the exact check and the guarded update, and on a block
-  or a failure moves the branch, the session ref and the notes ref back to `applying` together. `--abort` refuses an
-  `applied` session: the branch moved already.
+- `applied`: the index is "left behind" when a path that the update changes still has the old side in the index
+  (`cat-file --batch-check -Z` of `:<path>`; no entry for an added path).
+  - Not left behind, and the branch still contains the tip (also with peers' commits on top): the files did follow,
+    and `--continue` or `--abort` only deletes the session ref.
+  - Left behind, and HEAD at the tip: `--continue` runs `files_follow` in `update_branch.rs`, the exact check and the
+    guarded update. The local changes it reports are those against the old HEAD (`diff-index`), so bd's own files of
+    the old HEAD are not named. On a block or a failure the branch, the session ref and the notes ref move back to
+    `applying` together. `--abort` is `finish_pending` here: the branch moved already.
+  - Left behind, and HEAD left the tip (a peer committed the old files on top): bd can't finish. `--continue` and
+    `--abort` are `finish_pending` (exit 4); the message names `git update-ref -d <session ref> <commit>` and tells
+    the agent to look at `git status` with the user.
+- Temporary refs that a killed process left (`refs/branch-deck/tmp/<pid>-<nanos>-<n>`) are deleted when they are older
+  than an hour, by the time in their name: at the start of a session and in a `--continue` of an `applying` or
+  `applied` session.
 
 **The notes.** Each resolved commit gets a note in `refs/notes/branch-deck/resolve`: the session (the worktree and the
 start time), the round, the original commit and an outcome per path (`edited`, `onto`, `commit`, `deleted`). The
@@ -651,7 +689,8 @@ agent".
   refusal, and `--abort` drops the earlier rounds too.
 - `--continue --dry-run` writes git objects and a temporary ref, which it deletes.
 - A peer that commits after the finish moved the branch but before the files followed commits on the index of the old
-  HEAD; the recovery then refuses with `session_stale`.
+  HEAD; bd then refuses with `finish_pending`, and the user decides with `git status`.
+- `blocked_paths` is the cheaper check of every sync; it can miss a block that the exact check of the finish finds.
 
 #### Virtual branch sync
 
@@ -945,7 +984,7 @@ recovery hint (`git reset -q`).
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 9 processes (guards, upstream, `rev-parse`, 2 `merge-base`) and an `lstat` per path; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | Conflict view | `ls-tree` + `cat-file` per revision | 1 `cat-file --batch` for all revisions |
-| A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 9 processes (guards, reads, 2 `fast-import`, 1 `update-ref`) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
+| A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
 
 ## Follow-ups

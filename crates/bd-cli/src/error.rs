@@ -46,7 +46,7 @@ pub enum ErrorCode {
   UncommittedOverlap,
   /// `bd update --continue` or `--abort` without a resolve session of this worktree
   NoSession,
-  /// `--continue --round <n>` names another round than the open one; read `bd update --status` again
+  /// `--continue --round <n>` names another round than the open one: `bd update` prints the open round
   RoundMoved,
   /// The resolve session can't continue: the branch was rewritten, HEAD left the branch, or the session belongs to
   /// another worktree; `bd update --abort` removes it
@@ -60,6 +60,10 @@ pub enum ErrorCode {
   ResolutionOutsideConflict,
   /// The files of `paths` have no resolution: no edited `edit` copy, no `--take`, no `--delete`
   MissingResolution,
+  /// The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty`
+  EmptyResolution,
+  /// The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user
+  FinishPending,
   /// A branch can't be pushed: not synced, behind its remote branch without --force, or its parent is not on the remote
   PushRefused,
   /// No remote to push to
@@ -88,8 +92,10 @@ impl ErrorCode {
       | Self::NoSession
       | Self::UnresolvedMarkers
       | Self::ResolutionOutsideConflict
-      | Self::MissingResolution => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::RoundMoved => 3,
+      | Self::MissingResolution
+      | Self::EmptyResolution
+      | Self::RoundMoved => 2,
+      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -98,6 +104,7 @@ impl ErrorCode {
       | Self::UncommittedOverlap
       | Self::SessionStale
       | Self::UnsupportedConflict
+      | Self::FinishPending
       | Self::PushRefused
       | Self::NoRemote
       | Self::InstallRefused => 4,
@@ -107,10 +114,7 @@ impl ErrorCode {
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
   pub fn retryable(self) -> bool {
-    matches!(
-      self,
-      Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::RoundMoved | Self::NetworkError
-    )
+    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError)
   }
 }
 

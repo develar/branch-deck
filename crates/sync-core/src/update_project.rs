@@ -18,7 +18,9 @@ use git_ops::rewrite_guard::get_current_branch;
 use git_ops::update_branch::{
   AppliedUpdate, CheckPurpose, UndoCheck, UpdateCheck, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_guards, check_update_undo,
 };
+use git_ops::update_resolve::{Worktree, current_worktree};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 use sync_types::landed::LandedBranch;
@@ -304,7 +306,10 @@ pub enum BdUpdate {
 enum Resolve<'a> {
   No,
   /// With the copies in this directory (`--dir`), else in the worktree's git dir
-  Yes(Option<&'a Path>),
+  Yes {
+    dir: Option<&'a Path>,
+    worktree: &'a Worktree,
+  },
 }
 
 /// `bd update`: `update_project_with`, but a conflict starts a resolve session under the same lock, with its copies in
@@ -312,14 +317,15 @@ enum Resolve<'a> {
 /// round is shown again, and its missing copies written
 #[instrument(skip(git_executor))]
 pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, dir: Option<&Path>) -> Result<BdUpdate> {
-  if let Some(session) = own_session(git_executor, repo_path)? {
+  let worktree = current_worktree(git_executor, repo_path)?;
+  if let Some(session) = own_session(git_executor, repo_path, &worktree)? {
     if dir.is_some() {
       bail!("A resolve session is open already; --dir applies when a session starts");
     }
     let view = view_session(git_executor, repo_path, &session, Some(Materialize::Missing))?;
     return Ok(BdUpdate::Session(Box::new(SessionOutcome::Round(view))));
   }
-  update_project_impl(git_executor, repo_path, options, &|_| {}, Resolve::Yes(dir))
+  update_project_impl(git_executor, repo_path, options, &|_| {}, Resolve::Yes { dir, worktree: &worktree })
 }
 
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
@@ -355,6 +361,8 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   on_progress(UpdatePhase::Checking.into());
   let _lock = lock_repository(git_executor, repo_path, options.lock_timeout)?;
   let grouping = read_grouping_inputs(git_executor, repo_path)?;
+  // a resolve session marks the same candidates as likely landed
+  let candidates: RefCell<Option<Vec<Vec<String>>>> = RefCell::new(None);
   let mut plan = check_update(
     git_executor,
     repo_path,
@@ -364,13 +372,17 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       previous: previous.as_deref(),
     },
     CheckPurpose::Apply,
-    &|scope| landed_candidates(git_executor, repo_path, scope, &grouping),
+    &|scope| {
+      let found = landed_candidates(git_executor, repo_path, scope, &grouping)?;
+      candidates.replace(Some(found.clone()));
+      Ok(found)
+    },
   )?;
   plan.check.fetched_at = fetched_at;
 
-  if let (UpdateState::Conflict { .. }, Resolve::Yes(dir)) = (&plan.check.state, resolve) {
-    let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir)).transpose()?;
-    let outcome = start_resolve(git_executor, repo_path, &plan, &grouping, dir)?;
+  if let (UpdateState::Conflict { .. }, Resolve::Yes { dir, worktree }) = (&plan.check.state, resolve) {
+    let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose()?;
+    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates.take(), dir)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
   let mut landed = Vec::new();
@@ -378,7 +390,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     UpdateState::Clean { .. } => {
       on_progress(UpdatePhase::Updating.into());
       let applied = apply_update(git_executor, repo_path, &plan)?;
-      landed = record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping);
+      landed = record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping, &[]);
       Some(applied)
     }
     UpdateState::UpToDate => None,
@@ -394,7 +406,8 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   })))
 }
 
-/// What an applied update landed, added to the report. The update is done: a failure here is logged, not returned.
+/// What an applied update landed, added to the report; `not_landed` are local commits that are gone for another reason
+/// (a resolution dropped them). The update is done: a failure here is logged, not returned.
 pub(crate) fn record_landed_update(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -402,6 +415,7 @@ pub(crate) fn record_landed_update(
   excluded: &[String],
   new_head: &str,
   grouping: &GroupingInputs,
+  not_landed: &[String],
 ) -> Vec<LandedBranch> {
   let result = (|| {
     let local = local_revs(check, excluded);
@@ -418,6 +432,13 @@ pub(crate) fn record_landed_update(
         grouping,
       },
     )?;
+    let mut landed = landed;
+    if !not_landed.is_empty() {
+      for branch in &mut landed {
+        branch.commits.retain(|commit| !not_landed.contains(&commit.id));
+      }
+      landed.retain(|branch| !branch.commits.is_empty());
+    }
     record_update(git_executor, repo_path, check, new_head, landed.clone())?;
     anyhow::Ok(landed)
   })();

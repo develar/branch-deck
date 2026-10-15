@@ -80,16 +80,16 @@ An error looks like this:
 |---|---|---|
 | 0 | ok | |
 | 1 | conflict | `conflict` |
-| 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution` |
-| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked`, `round_moved` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `push_refused`, `no_remote`, `install_refused` |
+| 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
 "The repository has no commits yet: commit to the main branch, then sync".
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
-`retryable` is true for `head_moved`, `groups_moved`, `lease_rejected`, `locked`, `round_moved` and `network_error`.
+`retryable` is true for `head_moved`, `groups_moved`, `lease_rejected`, `locked` and `network_error`.
 
 One output carries an `error` next to its other fields: a rewrite (`bd group` and the others) whose step after the
 rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd group`).
@@ -436,30 +436,43 @@ session open prints the open round again, fetches nothing and writes the missing
  "files":[{"path":"shared.txt","kind":"content","edit":"/repo/.git/branch-deck/resolve/r1/edit/1-shared.txt",
    "before":"…/r1/before/1-shared.txt","onto":"…/r1/onto/1-shared.txt","commit":"…/r1/commit/1-shared.txt",
    "markers":1,"hint":"…","upstream_commits":[{"commit":"c9631487","subject":"Change line 2 upstream","author":"Dana Lee"}]}],
- "next":"bd update --continue --round 1"}}
+ "blocked_paths":[],"marker_labels":{"onto":"c9631487…","before":"d88f5726…^","commit":"d88f5726…"},
+ "next":"/Users/me/.local/bin/bd -C /repo update --continue --round 1"}}
 ```
 
 - The sides are named by content: `edit` is the merge result with zdiff3 markers, the file to edit; `before` the
   commit's parent; `onto` the new parent (the baseline and the commits replayed so far); `commit` the commit's version;
-  `patch` the whole commit. Edit only the files at `edit`, never the same path in the working tree.
+  `patch` the whole commit. Edit only the files at `edit`, never the same path in the working tree. A change that the
+  commit needs outside the blocks, or in another file, goes into a `fixup! <subject>` commit after the update, folded
+  with `bd fold`.
+- bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids), at any marker length
+  (`conflict-marker-size`); a `=======` outside the blocks, e.g. under a Markdown heading, is text.
+- `blocked_paths` lists local changes on paths the update likely writes: they block the finish, so ask the user about
+  them before you resolve. `next` is the command that continues, with this binary and `-C <repository>`.
 - `kind` is `content` or `modify_delete`; a `hint` says how to resolve it. `commit.hint` "likely landed" says the
   baseline likely has the commit already: take `onto`.
-- `bd update --continue [--round N] [--take onto:<path>|commit:<path>]… [--delete <path>]… [--dry-run]` commits the
-  round: every file needs an edited `edit`, a `--take` or a `--delete`. Exit 1 is the next round; exit 0 is the finish
-  (`state` `rebase`, the `undo_token`, and `resolutions`: per round the `commit`, the `resolved` commit and per file
-  `how` with `dropped_upstream_lines` and `dropped_commit_lines`, to report to the user). `--dry-run` checks and
-  reports the resolution, `resolved` id included, and moves no ref.
-- Exit 2 changes nothing: `missing_resolution`, `resolution_outside_conflict` (a line outside the blocks changed),
-  `unresolved_markers`, with `paths`; `no_session` without a session. `round_moved` (exit 3): another round is open.
+- `bd update --continue [--round N] [--take onto:<path>|commit:<path>]… [--delete <path>]… [--allow-empty |
+  --drop-empty <commit>] [--dry-run]` commits the round: every file needs an edited `edit`, a `--take` or a
+  `--delete`. Exit 1 is the next round; exit 0 is the finish (`state` `rebase`, the `undo_token`,
+  `dropped_by_resolution`, and `resolutions`: per round the `commit`, the `resolved` commit, `empty` (`kept` or
+  `dropped`) and per file `how` with `dropped_upstream_lines` and `dropped_commit_lines`, the lines of a side's change
+  that the result lost, to report to the user). `--dry-run` checks and reports the resolution, `resolved` id included,
+  and moves no ref.
+- Exit 2 changes nothing: `missing_resolution`, `resolution_outside_conflict` (a line outside the blocks changed, or
+  only the line ends), `unresolved_markers`, with `paths` and the copies in the message (and the paths changed in the
+  working tree, where bd never reads); `no_session` without a session. `round_moved` (exit 2): another round is open,
+  `bd update` prints it. `empty_resolution` (exit 2): the resolution changes nothing; ask the user, then
+  `--allow-empty` keeps an empty commit and `--drop-empty <commit>` drops it (never counted as landed).
   `session_stale` (exit 4): the branch was rewritten or HEAD left it. `unsupported_conflict` (exit 4): binary,
   file/directory, rename, mode, symlink or submodule. `uncommitted_overlap` at the finish keeps the session `ready`
-  (`state` `pending`), and a later `--continue` only finishes.
-- `bd update --abort [--worktree <id>]` removes the session and its copies; `--worktree` names another worktree's
-  session, e.g. an orphaned one. `bd update --status [--materialize [--force]]` prints this worktree's session and
+  (`state` `pending`), and a later `--continue` only finishes. `finish_pending` (exit 4): the branch moved but its
+  files did not follow, and bd can't finish; the message says what is left.
+- `bd update --abort [--worktree <id> [--force]]` removes the session and its copies; `--worktree` names another
+  worktree's session, e.g. an orphaned one, and a live one needs `--force`. `bd update --status [--materialize [--force]]` prints this worktree's session and
   every session of the repository (`orphaned`, `own`), and changes nothing but the copies it is asked to write.
 - The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,
-  or under `--dir <path>` (absolute, outside every worktree, empty or bd's), for a sandbox that keeps `.git` read
-  only.
+  or under `--dir <path>` (absolute, outside every worktree, empty or bd's for this worktree, used by no other
+  session), for a sandbox that keeps `.git` read only.
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 

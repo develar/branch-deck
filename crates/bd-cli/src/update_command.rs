@@ -4,16 +4,18 @@
 //! `--status`): the rounds are resolved outside the working tree, which only the finish writes. A block changes
 //! nothing; bd never stashes
 
-use crate::context::RepoContext;
+use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
+use crate::install::bd_command;
 use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, landed_ids, landed_summary};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::short_id;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, NotAnUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateState};
-use git_ops::update_resolve::{ConflictKind, Outcome, Resolution, ResolveError, SessionState, SessionStatus, Side};
+use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use sync_core::baseline::detect_baseline_branch;
 use sync_core::repository_lock::RepositoryLocked;
@@ -48,10 +50,16 @@ pub struct UpdateArgs {
   /// With --continue: resolve a file by deleting it; repeatable
   #[arg(long, value_name = "PATH", requires = "resume")]
   pub delete: Vec<String>,
+  /// With --continue: keep the round's commit as an empty commit when its resolution changes nothing
+  #[arg(long, requires = "resume", conflicts_with = "drop_empty")]
+  pub allow_empty: bool,
+  /// With --continue: drop the round's commit (this id, at least 4 characters) when its resolution changes nothing
+  #[arg(long, value_name = "COMMIT", requires = "resume")]
+  pub drop_empty: Option<String>,
   /// Remove the resolve session and its copies; nothing else changes
   #[arg(long, conflicts_with_all = ["status", "no_fetch", "dry_run", "dir"])]
   pub abort: bool,
-  /// With --abort: the session of another worktree, e.g. an orphaned one that --status lists
+  /// With --abort: the session of another worktree, e.g. an orphaned one that --status lists; a live one needs --force
   #[arg(long, value_name = "ID", requires = "abort")]
   pub worktree: Option<String>,
   /// Print the resolve session of this worktree and every session of the repository; changes nothing
@@ -60,8 +68,9 @@ pub struct UpdateArgs {
   /// With --status: write the copies of the open round that are missing
   #[arg(long, requires = "status")]
   pub materialize: bool,
-  /// With --materialize: rewrite every copy, also the edited ones
-  #[arg(long, requires = "materialize")]
+  /// With --materialize: rewrite every copy, also the edited ones. With --abort --worktree: remove the session of a
+  /// worktree that still exists
+  #[arg(long)]
   pub force: bool,
   /// Write the copies of a new session into this directory (absolute, outside every worktree, empty or bd's) instead of
   /// the worktree's git dir, e.g. for a sandbox that keeps `.git` read only
@@ -98,6 +107,9 @@ pub struct UpdateOutput {
   /// The local commits the baseline already had: the replay dropped them; omitted when nothing was applied
   #[serde(skip_serializing_if = "Option::is_none")]
   pub dropped_already_upstream: Option<u32>,
+  /// The finish of a resolve session: the local commits a resolution dropped (`--drop-empty`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub dropped_by_resolution: Option<u32>,
   /// `update:<previous_head>..<head>` with full ids: `bd undo` moves the branch and the files back; omitted when
   /// nothing changed
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,8 +162,26 @@ pub struct UpdateSession {
   /// The rounds resolved so far
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolutions: Vec<UpdateResolution>,
-  /// The command that continues, e.g. `bd update --continue --round 2`
+  /// Uncommitted, staged or untracked files on paths the update likely writes: they block the finish. Ask the user about
+  /// them before you resolve
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub blocked_paths: Vec<String>,
+  /// The labels after the markers in the `edit` copies of the open round
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub marker_labels: Option<MarkerLabelsOutput>,
+  /// The command that continues, e.g. `bd -C /repo update --continue --round 2`
   pub next: String,
+}
+
+/// The text after `<<<<<<<`, `|||||||` and `>>>>>>>` in the `edit` copies (the full ids bd passed to the merge)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MarkerLabelsOutput {
+  /// The new parent (`onto`)
+  pub onto: String,
+  /// The commit's parent (`before`): `<commit>^`
+  pub before: String,
+  /// The commit being replayed
+  pub commit: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -203,9 +233,12 @@ pub struct UpdateResolution {
   pub round: u32,
   /// The local commit as it was
   pub commit: String,
-  /// The commit written for it; absent when the result was empty and the commit was dropped
+  /// The commit written for it; absent when `--drop-empty` dropped the commit
   #[serde(skip_serializing_if = "Option::is_none")]
   pub resolved: Option<String>,
+  /// The resolution changes nothing: `kept` (an empty commit, `--allow-empty`) or `dropped` (`--drop-empty`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub empty: Option<String>,
   pub files: Vec<ResolvedFile>,
 }
 
@@ -300,12 +333,17 @@ pub struct UpdateConflictCommit {
   pub files: Vec<String>,
 }
 
-pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
+pub fn update(context: &RepoContext, args: &UpdateArgs, environment: &Environment) -> Result<UpdateCommandOutput, CliError> {
+  if args.force && !args.materialize && !args.abort {
+    return Err(CliError::new(ErrorCode::InvalidArguments, "--force goes with --status --materialize or with --abort"));
+  }
+  // the command an agent runs next: this binary in this repository, as the app's prompt names it
+  let bd = bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&context.repository));
   if args.status {
-    return status(context, args).map(|output| UpdateCommandOutput::Status(Box::new(output)));
+    return status(context, args, &bd).map(|output| UpdateCommandOutput::Status(Box::new(output)));
   }
   if args.abort {
-    let aborted = abort_resolve(&context.git, &context.repository, args.worktree.as_deref(), context.lock_timeout).map_err(|e| core_error(e, ErrorCode::HeadMoved))?;
+    let aborted = abort_resolve(&context.git, &context.repository, args.worktree.as_deref(), args.force, context.lock_timeout).map_err(|e| core_error(e, ErrorCode::HeadMoved))?;
     return Ok(UpdateCommandOutput::Abort(UpdateAbortOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
@@ -321,9 +359,11 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
       takes: args.take.iter().map(|take| parse_take(take)).collect::<Result<_, _>>()?,
       deletes: args.delete.clone(),
       dry_run: args.dry_run,
+      allow_empty: args.allow_empty,
+      drop_empty: args.drop_empty.clone(),
     };
     let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(|e| core_error(e, ErrorCode::HeadMoved))?;
-    return session_output(context, outcome, args.dry_run).map(|output| UpdateCommandOutput::Update(Box::new(output)));
+    return session_output(context, outcome, args.dry_run, &bd).map(|output| UpdateCommandOutput::Update(Box::new(output)));
   }
   if args.dry_run {
     let baseline = detect_baseline_branch(&context.git, &context.repository, "master")?;
@@ -350,7 +390,7 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
         .map(|applied| (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream));
       output(context, &result.check, applied, result.landed, false)?
     }
-    BdUpdate::Session(outcome) => session_output(context, *outcome, false)?,
+    BdUpdate::Session(outcome) => session_output(context, *outcome, false, &bd)?,
   };
   Ok(UpdateCommandOutput::Update(Box::new(output)))
 }
@@ -364,7 +404,7 @@ fn parse_take(text: &str) -> Result<(Side, String), CliError> {
   }
 }
 
-fn status(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateStatusOutput, CliError> {
+fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateStatusOutput, CliError> {
   let materialize = args.materialize.then_some(if args.force { Materialize::All } else { Materialize::Missing });
   let (own, sessions) = session_status(&context.git, &context.repository, materialize)?;
   let short = context.short_ids(own.iter().flat_map(view_ids));
@@ -372,7 +412,7 @@ fn status(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateStatusOutput
     schema: SchemaVersion,
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
-    session: own.as_ref().map(|view| session_of(view, &short)),
+    session: own.as_ref().map(|view| session_of(view, &short, bd)),
     sessions: sessions
       .into_iter()
       .map(|summary| SessionEntry {
@@ -419,7 +459,7 @@ fn path_string(path: &Path) -> String {
   path.to_string_lossy().into_owned()
 }
 
-fn session_of(view: &SessionView, short: &ShortIds) -> UpdateSession {
+fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
   let state = &view.state;
   let commit = view.round.as_ref().map(|round| SessionCommit {
     commit: short.get(&round.commit.id).to_string(),
@@ -453,8 +493,8 @@ fn session_of(view: &SessionView, short: &ShortIds) -> UpdateSession {
     })
     .collect();
   let next = match state.status {
-    SessionStatus::Resolving => format!("bd update --continue --round {}", state.round),
-    _ => "bd update --continue".to_string(),
+    SessionStatus::Resolving => format!("{bd} update --continue --round {}", state.round),
+    _ => format!("{bd} update --continue"),
   };
   UpdateSession {
     worktree: state.worktree.clone(),
@@ -466,6 +506,12 @@ fn session_of(view: &SessionView, short: &ShortIds) -> UpdateSession {
     commit,
     files,
     resolutions: resolutions_of(&state.resolutions, short),
+    blocked_paths: view.blocked_paths.clone(),
+    marker_labels: view.round.as_ref().map(|round| MarkerLabelsOutput {
+      onto: round.labels.onto.clone(),
+      before: round.labels.before.clone(),
+      commit: round.labels.commit.clone(),
+    }),
     next,
   }
 }
@@ -489,6 +535,7 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
       round: resolution.round,
       commit: short.get(&resolution.commit).to_string(),
       resolved: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
+      empty: resolution.empty.then(|| if resolution.dropped() { "dropped" } else { "kept" }.to_string()),
       files: resolution
         .paths
         .iter()
@@ -510,13 +557,13 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
 }
 
 /// The output of a session step; local changes that block the finish are `uncommitted_overlap`, the session kept
-fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool) -> Result<UpdateOutput, CliError> {
+fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool, bd: &str) -> Result<UpdateOutput, CliError> {
   let (view, applied, resolution) = match outcome {
     SessionOutcome::Round(view) => (view, None, None),
     SessionOutcome::Checked { view, resolution } => (view, None, resolution),
     SessionOutcome::Blocked { paths, .. } => {
       let mut error = uncommitted_overlap(paths, "finish of the resolve session");
-      error.message.push_str("; the resolve session is kept: run `bd update --continue` once the files are ready");
+      let _ = write!(error.message, "; the resolve session is kept: run `{bd} update --continue` once the files are ready");
       return Err(error);
     }
     SessionOutcome::Applied {
@@ -525,8 +572,13 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool)
       new_head,
       replayed,
       dropped_already_upstream,
+      dropped_by_resolution,
       landed,
-    } => (view, Some((previous_head, new_head, replayed, dropped_already_upstream, landed)), None),
+    } => (
+      view,
+      Some((previous_head, new_head, (replayed, dropped_already_upstream, dropped_by_resolution), landed)),
+      None,
+    ),
   };
   let state: &SessionState = &view.state;
   let mut ids = view_ids(&view);
@@ -536,7 +588,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool)
       .flat_map(|resolution| [Some(resolution.commit.as_str()), resolution.resolved.as_deref()])
       .flatten(),
   );
-  if let Some((previous_head, new_head, _, _, landed)) = &applied {
+  if let Some((previous_head, new_head, _, landed)) = &applied {
     ids.extend([previous_head.as_str(), new_head.as_str()]);
     ids.extend(landed_ids(landed));
   }
@@ -555,6 +607,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool)
     upstream_head: short.get(&state.upstream_head).to_string(),
     replayed: None,
     dropped_already_upstream: None,
+    dropped_by_resolution: None,
     undo_token: None,
     landed: Vec::new(),
     conflict: None,
@@ -562,17 +615,18 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool)
     resolutions: resolution.map_or_else(Vec::new, |resolution| resolutions_of(&[resolution], &short)),
   };
   match applied {
-    Some((previous_head, new_head, replayed, dropped, landed)) => {
+    Some((previous_head, new_head, (replayed, dropped, dropped_by_resolution), landed)) => {
       output.state = "rebase".to_string();
       output.previous_head = short.get(&previous_head).to_string();
       output.head = short.get(&new_head).to_string();
       output.replayed = Some(replayed);
       output.dropped_already_upstream = Some(dropped);
+      output.dropped_by_resolution = Some(dropped_by_resolution);
       output.undo_token = Some(UpdateUndoToken { previous_head, new_head }.to_string());
       output.landed = landed_summary(landed, &short);
       output.resolutions = resolutions_of(&state.resolutions, &short);
     }
-    None => output.session = Some(session_of(&view, &short)),
+    None => output.session = Some(session_of(&view, &short, bd)),
   }
   Ok(output)
 }
@@ -603,13 +657,17 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
     ErrorCode::NoSession
   } else if let Some(refusal) = error.downcast_ref::<ResolveError>() {
     let code = match refusal {
-      ResolveError::UnresolvedMarkers { .. } => ErrorCode::UnresolvedMarkers,
-      ResolveError::OutsideConflict { .. } => ErrorCode::ResolutionOutsideConflict,
-      ResolveError::MissingResolution { .. } => ErrorCode::MissingResolution,
+      ResolveError::Refused(refusal) => match refusal.kind {
+        RefusalKind::UnresolvedMarkers => ErrorCode::UnresolvedMarkers,
+        RefusalKind::OutsideConflict | RefusalKind::LineEnds => ErrorCode::ResolutionOutsideConflict,
+        RefusalKind::MissingResolution => ErrorCode::MissingResolution,
+      },
+      ResolveError::EmptyResolution { .. } => ErrorCode::EmptyResolution,
       ResolveError::Unsupported { .. } => ErrorCode::UnsupportedConflict,
       ResolveError::Stale { .. } => ErrorCode::SessionStale,
       ResolveError::RoundMoved { .. } => ErrorCode::RoundMoved,
       ResolveError::InvalidInput { .. } => ErrorCode::InvalidArguments,
+      ResolveError::FinishPending { .. } => ErrorCode::FinishPending,
     };
     let mut cli_error = CliError::new(code, refusal.to_string());
     cli_error.paths = refusal.paths().to_vec();
@@ -679,6 +737,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     conflict,
     session: None,
     resolutions: Vec::new(),
+    dropped_by_resolution: None,
   })
 }
 

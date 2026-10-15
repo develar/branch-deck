@@ -4,19 +4,23 @@
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
 use crate::commit_grouper::GroupingInputs;
+use crate::issue_groups::read_grouping_inputs;
 use crate::landed::landed_candidates;
 use crate::repository_lock::lock_repository;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_writer::sweep_stale_temp_refs;
+use git_ops::resolve_check::count_markers;
 use git_ops::update_branch::{LandedScope, UpdateCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState};
 use git_ops::update_resolve::{
-  ConflictKind, EditCopy, Resolution, RoundInput, Session, SessionStart, SessionState, Side, Step, abort_session, commit_patch, continue_session, current_worktree, list_sessions,
-  read_round_objects, read_session, round_upstream_commits, start_session,
+  ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, STALE_TEMP_REF_AGE, Session, SessionStart, SessionState, SessionStatus, Side, Stage,
+  Step, Worktree, abort_session, commit_patch, continue_session, current_worktree, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths,
+  start_session,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_types::landed::LandedBranch;
 use tracing::{instrument, warn};
@@ -69,6 +73,16 @@ pub struct RoundView {
   pub commit: RoundCommit,
   pub patch: PathBuf,
   pub files: Vec<FileView>,
+  /// The labels after the markers in the `edit` copies: the new parent, `<commit>^` and the commit
+  pub labels: MarkerLabels,
+}
+
+/// The labels after the markers in the `edit` copies
+#[derive(Debug, Clone)]
+pub struct MarkerLabels {
+  pub onto: String,
+  pub before: String,
+  pub commit: String,
 }
 
 /// A session as the output shows it
@@ -79,6 +93,8 @@ pub struct SessionView {
   pub root: PathBuf,
   /// The open round; `None` once every commit is replayed
   pub round: Option<RoundView>,
+  /// Local changes on paths the update likely writes: they will block the finish
+  pub blocked_paths: Vec<String>,
 }
 
 /// What a session step did
@@ -92,9 +108,10 @@ pub enum SessionOutcome {
     view: SessionView,
     previous_head: String,
     new_head: String,
-    /// The local commits now on the upstream, and those the replays dropped as empty
+    /// The local commits now on the upstream, those the replays dropped as empty, and those a resolution dropped
     replayed: u32,
     dropped_already_upstream: u32,
+    dropped_by_resolution: u32,
     landed: Vec<LandedBranch>,
   },
   /// Every commit is replayed, but local changes sit on paths the finish writes; the session is kept
@@ -103,46 +120,63 @@ pub enum SessionOutcome {
   Checked { view: SessionView, resolution: Option<Resolution> },
 }
 
-/// The session of the current worktree, if any
-pub fn own_session(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<Session>> {
-  let worktree = current_worktree(git_executor, repo_path)?;
+/// The session of `worktree`, if any
+pub fn own_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree: &Worktree) -> Result<Option<Session>> {
   read_session(git_executor, repo_path, &worktree.id)
 }
 
 /// The view of `session`, writing the copies of its open round that `materialize` asks for
 pub fn view_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session, materialize: Option<Materialize>) -> Result<SessionView> {
-  view_state(git_executor, repo_path, session.state(), materialize)
+  view_state(git_executor, repo_path, session.state(), session.round_objects(), materialize)
 }
 
-fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, materialize: Option<Materialize>) -> Result<SessionView> {
+/// The view of `state`; `objects` of its round when the step read them already
+fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, objects: Option<&RoundObjects>, materialize: Option<Materialize>) -> Result<SessionView> {
   let root = session_root(state);
+  let blocked_paths = if state.status == SessionStatus::Applied {
+    Vec::new()
+  } else {
+    session_blocked_paths(git_executor, repo_path, state).unwrap_or_else(|e| {
+      warn!(error = %format!("{e:#}"), "can't find the local changes that block the finish");
+      Vec::new()
+    })
+  };
   let Some(conflict) = &state.conflict else {
     return Ok(SessionView {
       state: state.clone(),
       root,
       round: None,
+      blocked_paths,
     });
   };
-  let objects = read_round_objects(git_executor, repo_path, conflict)?;
+  let read;
+  let objects = if let Some(objects) = objects {
+    objects
+  } else {
+    read = read_round_objects(git_executor, repo_path, conflict)?;
+    &read
+  };
   let patch = round_dir(&root, state.round).join(PATCH_FILE);
   if let Some(materialize) = materialize {
     let content = commit_patch(git_executor, repo_path, &conflict.commit)?;
-    write_round(&root, state, &objects, &content, materialize)?;
+    write_round(&root, state, objects, &content, materialize)?;
   }
   let mut upstream = round_upstream_commits(git_executor, repo_path, state).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't list the upstream commits of the conflicting files");
     HashMap::new()
   });
+  let base_label = conflict.base_label();
+  let labels = conflict.labels(&base_label);
   let files = conflict
     .files
     .iter()
     .map(|file| {
       let edit = copy_path(&root, state.round, "edit", file);
-      let markers = match read_edit_copy(&edit) {
-        Ok(EditCopy::Content(content)) => Some(git_ops::resolve_check::count_markers(&content)),
+      let markers = match read_edit_copy(state, file) {
+        Ok(EditCopy::Content(content)) => Some(count_markers(&content, labels)),
         _ => None,
       };
-      let side = |side: &str, stage: &Option<git_ops::update_resolve::Stage>| stage.as_ref().map(|_| copy_path(&root, state.round, side, file));
+      let side = |side: &str, stage: &Option<Stage>| stage.as_ref().map(|_| copy_path(&root, state.round, side, file));
       FileView {
         path: file.path.clone(),
         kind: file.kind,
@@ -169,37 +203,45 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     },
     patch,
     files,
+    labels: MarkerLabels {
+      onto: conflict.onto.clone(),
+      before: base_label.clone(),
+      commit: conflict.commit.clone(),
+    },
   };
   Ok(SessionView {
     state: state.clone(),
     root,
     round: Some(round),
+    blocked_paths,
   })
 }
 
-/// Start the session of an update whose check conflicted, under the lock the update holds
+/// Start the session of an update whose check conflicted, under the lock the update holds. `candidates` are the landed
+/// candidates the check found, when it asked for them
 pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
+  worktree: &Worktree,
   plan: &UpdatePlan,
   grouping: &GroupingInputs,
+  candidates: Option<Vec<Vec<String>>>,
   dir: Option<(String, bool)>,
 ) -> Result<SessionOutcome> {
   let (check, excluded) = (&plan.check, plan.excluded());
-  let scope = LandedScope {
-    head: &check.head,
-    upstream_head: &check.upstream_head,
-    base: &check.base,
-    excluded,
-  };
-  let mut likely_landed: Vec<String> = landed_candidates(git_executor, repo_path, scope, grouping)
-    .unwrap_or_else(|e| {
+  let candidates = candidates.unwrap_or_else(|| {
+    let scope = LandedScope {
+      head: &check.head,
+      upstream_head: &check.upstream_head,
+      base: &check.base,
+      excluded,
+    };
+    landed_candidates(git_executor, repo_path, scope, grouping).unwrap_or_else(|e| {
       warn!(error = %format!("{e:#}"), "can't find the likely landed commits");
       Vec::new()
     })
-    .into_iter()
-    .flatten()
-    .collect();
+  });
+  let mut likely_landed: Vec<String> = candidates.into_iter().flatten().collect();
   likely_landed.sort_unstable();
   likely_landed.dedup();
   let (dir, dir_created) = dir.map_or((None, false), |(dir, created)| (Some(dir), created));
@@ -208,12 +250,13 @@ pub(crate) fn start_resolve(
     repo_path,
     SessionStart {
       plan,
+      worktree,
       likely_landed,
       dir,
       dir_created,
     },
   )?;
-  outcome(git_executor, repo_path, step, None, grouping)
+  outcome(git_executor, repo_path, step, None, Some(grouping))
 }
 
 /// What `bd update --continue` passes
@@ -223,6 +266,10 @@ pub struct ContinueOptions {
   pub takes: Vec<(Side, String)>,
   pub deletes: Vec<String>,
   pub dry_run: bool,
+  /// `--allow-empty`: keep a resolution without changes as an empty commit
+  pub allow_empty: bool,
+  /// `--drop-empty <commit>`: drop the round's commit when its resolution has no changes
+  pub drop_empty: Option<String>,
 }
 
 /// `bd update --continue`, under the repository lock: read the `edit` copies of the open round, commit the round,
@@ -233,13 +280,12 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
   let worktree = current_worktree(git_executor, repo_path)?;
   let session = read_session(git_executor, repo_path, &worktree.id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: worktree.id.clone() }))?;
   let previous = session.state().clone();
-  let root = session_root(&previous);
   let mut edits = HashMap::new();
   if let Some(conflict) = &previous.conflict {
     for file in &conflict.files {
       let decided = options.deletes.contains(&file.path) || options.takes.iter().any(|(_, path)| *path == file.path);
       if !decided {
-        edits.insert(file.path.clone(), read_edit_copy(&copy_path(&root, previous.round, "edit", file))?);
+        edits.insert(file.path.clone(), read_edit_copy(&previous, file)?);
       }
     }
   }
@@ -247,20 +293,46 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     takes: options.takes.clone(),
     deletes: options.deletes.clone(),
     edits,
+    allow_empty: options.allow_empty,
+    drop_empty: options.drop_empty.clone(),
   };
-  let step = continue_session(git_executor, repo_path, session, options.round, &input, options.dry_run)?;
-  let grouping = crate::issue_groups::read_grouping_inputs(git_executor, repo_path)?;
-  outcome(git_executor, repo_path, step, Some(&previous), &grouping)
+  let step =
+    continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run).map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
+  outcome(git_executor, repo_path, step, Some(&previous), None)
+}
+
+/// A refused resolution with the absolute `edit` copy of each path, and, for leftover markers or a missing resolution,
+/// the paths that changed in the working tree instead: the commonest mistake, an edit of the file in the working tree
+fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, error: anyhow::Error) -> anyhow::Error {
+  let (Some(ResolveError::Refused(refusal)), Some(conflict)) = (error.downcast_ref::<ResolveError>(), &state.conflict) else {
+    return error;
+  };
+  let mut refusal = refusal.clone();
+  let root = session_root(state);
+  refusal.edits = refusal
+    .paths
+    .iter()
+    .filter_map(|path| conflict.files.iter().find(|file| file.path == *path))
+    .map(|file| copy_path(&root, state.round, "edit", file).to_string_lossy().into_owned())
+    .collect();
+  if matches!(refusal.kind, RefusalKind::UnresolvedMarkers | RefusalKind::MissingResolution) {
+    let mut args = vec!["diff", "--no-ext-diff", "--name-only", "-z", "HEAD", "--"];
+    args.extend(refusal.paths.iter().map(String::as_str));
+    if let Ok(output) = git_executor.execute_command_with_env(&args, repo_path, &[("GIT_LITERAL_PATHSPECS", "1")]) {
+      refusal.changed_in_working_tree = output.split('\0').filter(|path| !path.is_empty()).map(str::to_string).collect();
+    }
+  }
+  anyhow::Error::new(ResolveError::Refused(refusal))
 }
 
 /// The outcome of a step: the copies of a new round are written and those of the closed one removed
-fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previous: Option<&SessionState>, grouping: &GroupingInputs) -> Result<SessionOutcome> {
+fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previous: Option<&SessionState>, grouping: Option<&GroupingInputs>) -> Result<SessionOutcome> {
   let closed = |state: &SessionState| {
     if let Some(previous) = previous
       && let Some(conflict) = &previous.conflict
       && (state.round != previous.round || state.conflict.is_none())
     {
-      remove_round(&session_root(previous), previous.round, conflict);
+      remove_round(previous, previous.round, conflict);
     }
   };
   match step {
@@ -283,7 +355,7 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
     Step::Applied { session, previous_head } => {
       let state = session.state();
       closed(state);
-      remove_root(&session_root(state), state);
+      remove_root(state);
       let new_head = state.tip.clone();
       let check = UpdateCheck {
         branch: state.branch.clone(),
@@ -294,15 +366,34 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
         state: UpdateState::Clean { kind: UpdateKind::Rebase },
         fetched_at: None,
       };
-      let landed = record_landed_update(git_executor, repo_path, &check, &state.excluded, &new_head, grouping);
+      // a commit that a resolution dropped is not on the upstream
+      let dropped: Vec<String> = state
+        .resolutions
+        .iter()
+        .filter(|resolution| resolution.dropped())
+        .map(|resolution| resolution.commit.clone())
+        .collect();
+      let read;
+      let grouping = if let Some(grouping) = grouping {
+        grouping
+      } else {
+        read = read_grouping_inputs(git_executor, repo_path)?;
+        &read
+      };
+      let landed = record_landed_update(git_executor, repo_path, &check, &state.excluded, &new_head, grouping, &dropped);
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
-      let dropped_already_upstream = u32::try_from(state.total()).unwrap_or(u32::MAX).saturating_sub(replayed);
+      let dropped_by_resolution = u32::try_from(dropped.len()).unwrap_or(u32::MAX);
+      let dropped_already_upstream = u32::try_from(state.total())
+        .unwrap_or(u32::MAX)
+        .saturating_sub(replayed)
+        .saturating_sub(dropped_by_resolution);
       Ok(SessionOutcome::Applied {
-        view: view_state(git_executor, repo_path, state, None)?,
+        view: view_state(git_executor, repo_path, state, None, None)?,
         previous_head,
         new_head,
         replayed,
         dropped_already_upstream,
+        dropped_by_resolution,
         landed,
       })
     }
@@ -320,23 +411,34 @@ pub struct AbortedSession {
   pub state: SessionState,
 }
 
-/// `bd update --abort [--worktree <id>]`, under the repository lock: delete the session ref (compare-and-swap) and the
-/// copies bd wrote. Another worktree's session (an orphan, once its worktree is gone) is named by its id
+/// `bd update --abort [--worktree <id>] [--force]`, under the repository lock: delete the session ref (compare-and-swap)
+/// and the copies bd wrote. Another worktree's session is named by its id; while that worktree exists (the session is
+/// not orphaned), only `force` removes it
 #[instrument(skip(git_executor))]
-pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktree: Option<&str>, lock_timeout: Duration) -> Result<AbortedSession> {
-  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
-  let id = match worktree {
-    Some(id) => id.to_string(),
-    None => current_worktree(git_executor, repo_path)?.id,
-  };
-  let session = read_session(git_executor, repo_path, &id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: id.clone() }))?;
-  abort_session(git_executor, repo_path, &session)?;
-  let state = session.state().clone();
-  let root = session_root(&state);
-  if let Some(conflict) = &state.conflict {
-    remove_round(&root, state.round, conflict);
+pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktree: Option<&str>, force: bool, lock_timeout: Duration) -> Result<AbortedSession> {
+  let invalid = |message: String| anyhow::Error::new(ResolveError::InvalidInput { message });
+  if let Some(id) = worktree
+    && (id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+  {
+    return Err(invalid(format!("--worktree {id:?} is no worktree id: `bd update --status` lists them")));
   }
-  remove_root(&root, &state);
+  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  let own = current_worktree(git_executor, repo_path)?;
+  let id = worktree.map_or_else(|| own.id.clone(), str::to_string);
+  let session = read_session(git_executor, repo_path, &id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: id.clone() }))?;
+  let state = session.state().clone();
+  if state.git_dir != own.git_dir && Path::new(&state.git_dir).is_dir() && !force {
+    return Err(invalid(format!(
+      "The resolve session of the worktree {id} is live: its git dir {} exists. Abort it there, or pass --force",
+      state.git_dir
+    )));
+  }
+  abort_session(git_executor, repo_path, &session)?;
+  sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
+  if let Some(conflict) = &state.conflict {
+    remove_round(&state, state.round, conflict);
+  }
+  remove_root(&state);
   Ok(AbortedSession { state })
 }
 

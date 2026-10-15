@@ -31,7 +31,17 @@ fn file(key: usize, path: &str) -> ConflictFile {
     before: None,
     onto: None,
     commit: None,
+    mode: String::new(),
   }
+}
+
+#[test]
+fn a_long_basename_is_cut_and_keeps_its_extension() {
+  let long = format!("dir/{}.txt", "é".repeat(200));
+  let name = file(3, &long).copy_name();
+  assert!(name.len() <= 3 + 1 + 100, "{}", name.len());
+  assert!(name.starts_with("3-é"), "{name}");
+  assert_eq!(std::path::Path::new(&name).extension().and_then(|e| e.to_str()), Some("txt"));
 }
 
 #[test]
@@ -78,7 +88,10 @@ fn only_text_and_modify_delete_conflicts_are_supported() {
     ["bin"]
   );
   assert_eq!(refused(b"tree\x00120000 l1 1\tlink\x00120000 l2 2\tlink\x00120000 l3 3\tlink\0\0"), ["link"]);
-  assert_eq!(refused(b"tree\x00100644 x1 1\tx\x00100644 x2 2\tx\x00100755 x3 3\tx\0\0"), ["x"]);
+  // a mode that one side changed is merged as git does; added on both sides with two modes, it can't be
+  let merged = conflict_files(&parse_merge_tree_output(b"tree\x00100644 x1 1\tx\x00100644 x2 2\tx\x00100755 x3 3\tx\0\0").unwrap()).unwrap();
+  assert_eq!(merged[0].mode, "100755");
+  assert_eq!(refused(b"tree\x00100644 x2 2\tx\x00100755 x3 3\tx\0\0"), ["x"]);
   assert_eq!(
     refused(b"tree\x00100644 t1 1\t../escape\x00100644 t2 2\t../escape\x00100644 t3 3\t../escape\0\0"),
     ["../escape"]

@@ -6,16 +6,17 @@
 //! files through `update_branch` (the guarded working-tree update) and only then deletes the ref.
 
 use crate::commit_writer::{
-  EditedCommit, NewParent, RawCommit, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenStore, current_committer, parse_raw_commit, read_raw_commits, write_edited_commit,
+  EditedCommit, NewParent, RawCommit, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenStore, current_committer, parse_raw_commit, sweep_stale_temp_refs, write_edited_commit,
   write_store_commits,
 };
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::ref_transaction::RefTransaction;
-use crate::resolve_check::{CheckFailure, DroppedLines, check_resolution, has_markers};
+use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_markers};
 use crate::rewrite_guard::ensure_no_merges;
 use crate::rewrite_plan::{replay_range_with_env, short_id};
 use crate::update_branch::{
-  ChangedPath, FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, changed_paths, check_update_guards, commits_touching, files_follow, move_branch_and_files_with,
+  ChangedPath, FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, changed_paths, check_update_guards, commits_touching, files_follow, likely_blocking_paths,
+  move_branch_and_files_with,
 };
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -38,6 +39,11 @@ const MAIN_WORKTREE: &str = "main";
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
 const MAX_UPSTREAM_COMMITS_PER_FILE: usize = 10;
+/// The longest basename a copy keeps (in bytes, the extension included), below `NAME_MAX` (255) with the key and the
+/// name of the temporary file
+const MAX_COPY_BASENAME: usize = 100;
+/// Temporary refs older than this belong to a process that is gone
+pub const STALE_TEMP_REF_AGE: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Where a session is
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +89,9 @@ pub struct ConflictFile {
   pub onto: Option<Stage>,
   /// The file in the commit being replayed
   pub commit: Option<Stage>,
+  /// The mode of the resolved file, merged as git does: a change of one side wins
+  #[serde(default)]
+  pub mode: String,
 }
 
 impl ConflictFile {
@@ -100,13 +109,29 @@ impl ConflictFile {
         }
       })
       .collect();
-    format!("{}-{safe}", self.key)
+    format!("{}-{}", self.key, shortened(&safe))
   }
 
-  /// The mode of the resolved file: the new parent's, else the commit's
+  /// The mode of the resolved file: the merged mode, else the new parent's, else the commit's
   fn mode(&self) -> &str {
+    if !self.mode.is_empty() {
+      return &self.mode;
+    }
     self.onto.as_ref().or(self.commit.as_ref()).map_or("100644", |stage| stage.mode.as_str())
   }
+}
+
+/// `name` cut to `MAX_COPY_BASENAME` bytes on a character boundary, the extension kept
+fn shortened(name: &str) -> String {
+  if name.len() <= MAX_COPY_BASENAME {
+    return name.to_string();
+  }
+  let extension = name.rfind('.').map(|dot| &name[dot..]).filter(|extension| extension.len() <= 16).unwrap_or("");
+  let mut end = MAX_COPY_BASENAME - extension.len();
+  while !name.is_char_boundary(end) {
+    end -= 1;
+  }
+  format!("{}{extension}", &name[..end])
 }
 
 /// The open round: the local commit that conflicts, replayed onto `onto`
@@ -118,6 +143,22 @@ pub struct RoundConflict {
   /// `merge-tree --merge-base <commit>^ <onto> <commit>`: the merge result, with markers in the conflicting files
   pub merge_tree: String,
   pub files: Vec<ConflictFile>,
+}
+
+impl RoundConflict {
+  /// The label after the base markers: the commit's parent, as bd passed it to `merge-tree`
+  pub fn base_label(&self) -> String {
+    format!("{}^", self.commit)
+  }
+
+  /// The labels of the markers in the `edit` copies, with `base_label`
+  pub fn labels<'a>(&'a self, base_label: &'a str) -> Labels<'a> {
+    Labels {
+      onto: &self.onto,
+      base: base_label,
+      commit: &self.commit,
+    }
+  }
 }
 
 /// How a path of a round was resolved; also the outcome in the notes
@@ -149,12 +190,19 @@ impl Outcome {
 pub struct ResolvedPath {
   pub path: String,
   pub outcome: Outcome,
-  /// Lines the new parent added in a conflict block that the resolution dropped (report only)
+  /// Lines of the new parent's change (`before` to `onto`) that the result has neither as they are nor rewritten
+  /// (report only)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped_upstream_lines: Vec<String>,
-  /// Lines the commit added in a conflict block that the resolution dropped (report only)
+  /// Lines of the commit's change (`before` to `commit`) that the result has neither as they are nor rewritten
+  /// (report only)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped_commit_lines: Vec<String>,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+fn is_false(value: &bool) -> bool {
+  !*value
 }
 
 /// The resolution of one round
@@ -163,9 +211,19 @@ pub struct Resolution {
   pub round: u32,
   /// The local commit as it was
   pub commit: String,
-  /// The commit written for it; `None` when the result was empty and the commit was dropped, as `git replay` drops one
+  /// The commit written for it; `None` when the result was empty and `--drop-empty` dropped the commit
   pub resolved: Option<String>,
+  /// The result changes nothing: kept as an empty commit (`--allow-empty`) or dropped (`--drop-empty`)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub empty: bool,
   pub paths: Vec<ResolvedPath>,
+}
+
+impl Resolution {
+  /// The resolution dropped the commit (`--drop-empty`)
+  pub fn dropped(&self) -> bool {
+    self.empty && self.resolved.is_none()
+  }
 }
 
 /// `state.json`, the only file of a state commit that readers parse
@@ -234,6 +292,10 @@ pub struct Session {
   /// The state commit the ref points at, for the compare-and-swap of the next step
   commit: String,
   state: SessionState,
+  /// The objects of the round, when this step opened it
+  objects: Option<RoundObjects>,
+  /// HEAD when `read_session` read the session, in the same process
+  head_seen: Option<String>,
 }
 
 impl Session {
@@ -243,6 +305,21 @@ impl Session {
 
   pub fn session_ref(&self) -> &str {
     &self.ref_name
+  }
+
+  /// The objects of the open round when the step that returned the session read them, so the copies need no other read
+  pub fn round_objects(&self) -> Option<&RoundObjects> {
+    self.objects.as_ref()
+  }
+
+  fn new(ref_name: String, commit: String, state: SessionState) -> Self {
+    Self {
+      ref_name,
+      commit,
+      state,
+      objects: None,
+      head_seen: None,
+    }
   }
 }
 
@@ -271,15 +348,87 @@ pub fn session_ref(worktree_id: &str) -> String {
   format!("{SESSION_REF_PREFIX}{worktree_id}")
 }
 
+/// What is wrong with the resolution of a round's files
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusalKind {
+  /// A conflict marker is left in an `edit` copy
+  UnresolvedMarkers,
+  /// An `edit` copy changed outside its conflict blocks
+  OutsideConflict,
+  /// Only the line ends of an `edit` copy changed outside its conflict blocks
+  LineEnds,
+  /// No edited regular file at `edit`, no `--take`, no `--delete`
+  MissingResolution,
+}
+
+/// A refused resolution of some files of a round
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+  pub kind: RefusalKind,
+  /// The tree paths
+  pub paths: Vec<String>,
+  /// The absolute `edit` copy of each path, when the caller knows them
+  pub edits: Vec<String>,
+  /// The paths that also changed in the working tree, where bd never reads
+  pub changed_in_working_tree: Vec<String>,
+  /// The subject of the round's commit
+  pub subject: String,
+}
+
+impl Refusal {
+  fn names(&self) -> String {
+    self
+      .paths
+      .iter()
+      .enumerate()
+      .map(|(index, path)| match self.edits.get(index) {
+        Some(edit) => format!("{edit} ({path})"),
+        None => path.clone(),
+      })
+      .collect::<Vec<_>>()
+      .join(", ")
+  }
+}
+
+impl fmt::Display for Refusal {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let names = self.names();
+    match self.kind {
+      RefusalKind::UnresolvedMarkers => write!(f, "Conflict markers are left in {names}; remove the markers of every block")?,
+      RefusalKind::OutsideConflict => write!(
+        f,
+        "The resolution of {names} changes lines outside the conflict blocks; change only the lines between the markers. A change \
+         that the commit needs outside the blocks or in another file goes into a `fixup! {}` commit after the update, then `bd fold`",
+        self.subject
+      )?,
+      RefusalKind::LineEnds => write!(
+        f,
+        "The line ends of {names} changed outside the conflict blocks (CRLF and LF, or the newline at the end of the file); keep \
+         the line ends of the edit copy"
+      )?,
+      RefusalKind::MissingResolution => write!(
+        f,
+        "No resolution for {names}: edit the copy, or pass --take onto:<path>, --take commit:<path> or --delete <path>"
+      )?,
+    }
+    if !self.changed_in_working_tree.is_empty() {
+      write!(
+        f,
+        ". {} changed in the working tree: bd reads only the edit copies, so make that edit in the copy",
+        self.changed_in_working_tree.join(", ")
+      )?;
+    }
+    Ok(())
+  }
+}
+
 /// A refusal of a session step; nothing was written
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveError {
-  /// A conflict marker is left in an `edit` copy
-  UnresolvedMarkers { paths: Vec<String> },
-  /// An `edit` copy changed outside its conflict blocks
-  OutsideConflict { paths: Vec<String> },
-  /// A conflicting path has no resolution: no edited regular file at `edit`, no `--take`, no `--delete`
-  MissingResolution { paths: Vec<String> },
+  /// The resolution of some files is refused
+  Refused(Refusal),
+  /// The resolution leaves the commit without changes, and neither `--allow-empty` nor `--drop-empty` decided it
+  EmptyResolution { commit: String, subject: String },
   /// The conflict is of a type a round can't resolve (binary, file/directory, rename, mode, submodule, symlink)
   Unsupported { paths: Vec<String>, message: String },
   /// The branch was rewritten, HEAD left the branch, or the session belongs to another worktree; `--abort` removes it
@@ -288,24 +437,26 @@ pub enum ResolveError {
   RoundMoved { expected: u32, actual: u32 },
   /// A `--take` or `--delete` names no conflicting path of the round, or a round has no conflict
   InvalidInput { message: String },
+  /// The branch moved, but the files did not follow and the session can't finish them here
+  FinishPending { message: String },
 }
 
 impl fmt::Display for ResolveError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::UnresolvedMarkers { paths } => write!(f, "Conflict markers are left in {}", paths.join(", ")),
-      Self::OutsideConflict { paths } => write!(
+      Self::Refused(refusal) => refusal.fmt(f),
+      Self::EmptyResolution { commit, subject } => write!(
         f,
-        "The resolution of {} changes lines outside the conflict blocks; change only the lines between the markers",
-        paths.join(", ")
+        "The resolution leaves {} ({subject}) without any change. Ask the user: --allow-empty keeps it as an empty commit, \
+         --drop-empty {} drops it; or resolve it another way",
+        short_id(commit),
+        short_id(commit)
       ),
-      Self::MissingResolution { paths } => write!(
+      Self::Unsupported { message, .. } | Self::Stale { message } | Self::InvalidInput { message } | Self::FinishPending { message } => f.write_str(message),
+      Self::RoundMoved { expected, actual } => write!(
         f,
-        "No resolution for {}: edit the file at `edit`, or pass --take onto:<path>, --take commit:<path> or --delete <path>",
-        paths.join(", ")
+        "Round {expected} is not open, round {actual} is: run `bd update` to print the open round, then resolve that one"
       ),
-      Self::Unsupported { message, .. } | Self::Stale { message } | Self::InvalidInput { message } => f.write_str(message),
-      Self::RoundMoved { expected, actual } => write!(f, "The open round is {actual}, not {expected}; read the session again with `bd update --status`"),
     }
   }
 }
@@ -316,7 +467,8 @@ impl ResolveError {
   /// The paths the refusal is about
   pub fn paths(&self) -> &[String] {
     match self {
-      Self::UnresolvedMarkers { paths } | Self::OutsideConflict { paths } | Self::MissingResolution { paths } | Self::Unsupported { paths, .. } => paths,
+      Self::Refused(refusal) => &refusal.paths,
+      Self::Unsupported { paths, .. } => paths,
       _ => &[],
     }
   }
@@ -335,13 +487,14 @@ pub enum Step {
   Checked { session: Session, resolution: Option<Resolution> },
 }
 
-/// Read the session of `worktree_id` with one `cat-file --batch`; `None` without one
+/// Read the session of `worktree_id`, and HEAD, with one `cat-file --batch`; `None` without one
 #[instrument(skip(git_executor))]
 pub fn read_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree_id: &str) -> Result<Option<Session>> {
   let session_ref = session_ref(worktree_id);
-  let input = format!("{session_ref}\n{session_ref}:{STATE_FILE}\n");
+  let input = format!("HEAD\n{session_ref}\n{session_ref}:{STATE_FILE}\n");
   let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch"], repo_path, &input)?;
   let mut objects = parse_batch(&output, b'\n')?.into_iter();
+  let head_seen = objects.next().flatten().filter(|head| head.kind == "commit").map(|head| head.id);
   let (Some(Some(commit)), Some(Some(state))) = (objects.next(), objects.next()) else {
     return Ok(None);
   };
@@ -353,11 +506,9 @@ pub fn read_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree
   if state.version != STATE_VERSION {
     bail!("{session_ref} has state version {}; this bd reads {STATE_VERSION}", state.version);
   }
-  Ok(Some(Session {
-    ref_name: session_ref,
-    commit,
-    state,
-  }))
+  let mut session = Session::new(session_ref, commit, state);
+  session.head_seen = head_seen;
+  Ok(Some(session))
 }
 
 /// Every session of the repository, of any worktree, with one `for-each-ref` and one `cat-file --batch`
@@ -378,11 +529,7 @@ pub fn list_sessions(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
       continue;
     };
     match serde_json::from_slice::<SessionState>(&state.content) {
-      Ok(state) => sessions.push(Session {
-        ref_name: session_ref,
-        commit: commit.id,
-        state,
-      }),
+      Ok(state) => sessions.push(Session::new(session_ref, commit.id, state)),
       Err(e) => tracing::warn!(%session_ref, error = %e, "unreadable session state"),
     }
   }
@@ -404,12 +551,15 @@ fn parse_batch(output: &[u8], delimiter: u8) -> Result<Vec<Option<BatchObject>>>
   while !rest.is_empty() {
     let header_end = rest.iter().position(|&b| b == delimiter).ok_or_else(|| anyhow!("truncated cat-file output"))?;
     let header = std::str::from_utf8(&rest[..header_end])?;
-    let mut fields = header.split(' ');
-    let (Some(id), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next()) else {
-      // `<input> missing`
+    // `<input> missing`, where the input may hold spaces
+    if header.ends_with(" missing") || header.ends_with(" ambiguous") {
       objects.push(None);
       rest = &rest[header_end + 1..];
       continue;
+    }
+    let mut fields = header.split(' ');
+    let (Some(id), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next()) else {
+      bail!("Unexpected cat-file header: {header}");
     };
     let size: usize = size.parse()?;
     let content = rest.get(header_end + 1..header_end + 1 + size).ok_or_else(|| anyhow!("truncated cat-file output"))?;
@@ -429,6 +579,8 @@ pub struct SessionStart<'a> {
   /// The check before an apply (`CheckPurpose::Apply`) that conflicted: the session replays what it read, so no caller
   /// can choose the commits the finish moves the branch to
   pub plan: &'a UpdatePlan,
+  /// The worktree the session belongs to: the current one
+  pub worktree: &'a Worktree,
   pub likely_landed: Vec<String>,
   pub dir: Option<String>,
   pub dir_created: bool,
@@ -445,7 +597,7 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   }
   let checked = &start.plan.checked;
   let excluded = start.plan.excluded();
-  let worktree = current_worktree(git_executor, repo_path)?;
+  sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
   let committer = current_committer(git_executor, repo_path)?;
   let mut revs = vec![checked.head.clone(), format!("^{}", checked.upstream_head)];
   revs.extend(excluded.iter().map(|rev| format!("^{rev}")));
@@ -453,10 +605,11 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   args.extend(revs.iter().map(String::as_str));
   args.push("--");
   let local = git_executor.execute_command_lines(&args, repo_path)?;
+  let worktree = start.worktree;
   let mut state = SessionState {
     version: STATE_VERSION,
     worktree: worktree.id.clone(),
-    git_dir: worktree.git_dir,
+    git_dir: worktree.git_dir.clone(),
     branch: checked.branch.clone(),
     upstream: checked.upstream.clone(),
     base: checked.base.clone(),
@@ -478,9 +631,9 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     notes_before: None,
   };
   // the check replayed all of them and conflicted
-  advance(git_executor, repo_path, &mut state, true)?;
+  let objects = advance(git_executor, repo_path, &mut state, true)?;
   let session_ref = session_ref(&worktree.id);
-  let written = write_state(git_executor, repo_path, &state, None, None)?;
+  let written = write_state(git_executor, repo_path, &state, None)?;
   let mut transaction = RefTransaction::new();
   transaction.create(&session_ref, &written.ids[0]);
   written.delete_temp_refs(&mut transaction);
@@ -489,15 +642,13 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     return Err(e);
   }
   info!(round = state.round, replayed = state.replayed, total = state.total(), "started a resolve session");
-  let session = Session {
-    ref_name: session_ref,
-    commit: written.ids[0].clone(),
-    state,
-  };
-  match session.state.status {
-    SessionStatus::Resolving => Ok(Step::Round(session)),
-    _ => finish(git_executor, repo_path, session),
+  let mut session = Session::new(session_ref, written.ids[0].clone(), state);
+  if session.state.status == SessionStatus::Resolving {
+    session.objects = objects;
+    return Ok(Step::Round(session));
   }
+  let Session { ref_name, commit, state, .. } = session;
+  finish(git_executor, repo_path, &ref_name, &commit, state, false, &[])
 }
 
 /// The resolution of one conflicting path, as the caller read it
@@ -524,15 +675,28 @@ pub struct RoundInput {
   pub deletes: Vec<String>,
   /// The `edit` copy per path, read by the caller (without filters, never through a symlink)
   pub edits: HashMap<String, EditCopy>,
+  /// A result without changes is kept as an empty commit
+  pub allow_empty: bool,
+  /// A result without changes drops the commit this names (a prefix of its id, at least 4 characters)
+  pub drop_empty: Option<String>,
 }
 
-/// Continue the session: check and commit the resolution of the open round, replay the rest (one `replay`, a binary
-/// search only when it conflicts), and finish when every commit is replayed. A finish blocked by local changes keeps
-/// the session ready; a later `--continue` only finishes. Peers' commits on top of the session's HEAD become more
-/// local commits; a rewritten HEAD is `ResolveError::Stale`. With `dry_run`, only the checks run and nothing but git
+/// Continue the session in `worktree`: check and commit the resolution of the open round, replay the rest (one
+/// `replay`, a binary search only when it conflicts), and finish when every commit is replayed. A finish blocked by local
+/// changes keeps the session ready; a later `--continue` only finishes. Peers' commits on top of the session's HEAD
+/// become more local commits; a rewritten HEAD is `ResolveError::Stale`. A result without changes is
+/// `ResolveError::EmptyResolution` unless the input decides it. With `dry_run`, only the checks run and nothing but git
 /// objects is written
-#[instrument(skip(git_executor, session, input))]
-pub fn continue_session(git_executor: &GitCommandExecutor, repo_path: &str, session: Session, round: Option<u32>, input: &RoundInput, dry_run: bool) -> Result<Step> {
+#[instrument(skip(git_executor, worktree, session, input))]
+pub fn continue_session(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  worktree: &Worktree,
+  session: Session,
+  round: Option<u32>,
+  input: &RoundInput,
+  dry_run: bool,
+) -> Result<Step> {
   let mut state = session.state.clone();
   if let Some(round) = round
     && round != state.round
@@ -542,7 +706,7 @@ pub fn continue_session(git_executor: &GitCommandExecutor, repo_path: &str, sess
       actual: state.round,
     }));
   }
-  ensure_own_worktree(git_executor, repo_path, &state)?;
+  ensure_own_worktree(worktree, &state)?;
   if state.status == SessionStatus::Applied {
     if !input.takes.is_empty() || !input.deletes.is_empty() {
       return Err(invalid_input(
@@ -552,18 +716,20 @@ pub fn continue_session(git_executor: &GitCommandExecutor, repo_path: &str, sess
     return if dry_run {
       Ok(Step::Checked { session, resolution: None })
     } else {
+      sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
       finish_files_after_move(git_executor, repo_path, session)
     };
   }
-  follow_head(git_executor, repo_path, &mut state)?;
+  if state.status == SessionStatus::Applying && !dry_run {
+    sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
+  }
+  follow_head(git_executor, repo_path, &mut state, session.head_seen.as_deref())?;
 
   let mut resolved_temp_ref = None;
   let resolution = match state.conflict.clone() {
     Some(conflict) => {
-      let (resolution, edits) = check_round(git_executor, repo_path, &state, &conflict, input)?;
-      let raw = read_raw_commits(git_executor, repo_path, &[&conflict.commit])?
-        .remove(&conflict.commit)
-        .ok_or_else(|| anyhow!("commit {} not found", conflict.commit))?;
+      let (resolution, edits, objects) = check_round(git_executor, repo_path, &state, &conflict, input)?;
+      let raw = &objects.commit;
       let tree_edits: Vec<TreeEdit<'_>> = edits.iter().map(PathEdit::as_tree_edit).collect();
       let written = write_edited_commit(
         git_executor,
@@ -579,10 +745,18 @@ pub fn continue_session(git_executor: &GitCommandExecutor, repo_path: &str, sess
         },
       )?;
       let empty = written.tree == written.parent_tree;
-      let resolution = Resolution {
-        resolved: (!empty).then(|| written.commit.clone()),
-        ..resolution
+      let resolved = if empty {
+        match empty_choice(&conflict, raw, input) {
+          Ok(keep) => keep.then(|| written.commit.clone()),
+          Err(e) => {
+            written_discard(git_executor, repo_path, &written.temp_ref);
+            return Err(e);
+          }
+        }
+      } else {
+        Some(written.commit.clone())
       };
+      let resolution = Resolution { resolved, empty, ..resolution };
       if dry_run {
         written_discard(git_executor, repo_path, &written.temp_ref);
         return Ok(Step::Checked {
@@ -591,8 +765,8 @@ pub fn continue_session(git_executor: &GitCommandExecutor, repo_path: &str, sess
         });
       }
       debug!(commit = %short_id(&conflict.commit), empty, "resolved a round");
-      if !empty {
-        state.tip.clone_from(&written.commit);
+      if let Some(resolved) = &resolution.resolved {
+        state.tip.clone_from(resolved);
       }
       state.replayed += 1;
       state.conflict = None;
@@ -609,30 +783,53 @@ pub fn continue_session(git_executor: &GitCommandExecutor, repo_path: &str, sess
     return Ok(Step::Checked { session, resolution });
   }
 
-  advance(git_executor, repo_path, &mut state, false)?;
-  let written = write_state(git_executor, repo_path, &state, Some(&session.commit), None)?;
+  let objects = advance(git_executor, repo_path, &mut state, false)?;
+  let temp_refs: Vec<String> = resolved_temp_ref.into_iter().collect();
+  if state.status != SessionStatus::Resolving {
+    let unsaved = state != session.state;
+    return finish(git_executor, repo_path, &session.ref_name, &session.commit, state, unsaved, &temp_refs);
+  }
+  let written = write_state(git_executor, repo_path, &state, Some(&session.commit))?;
   let mut transaction = RefTransaction::new();
   transaction.update(&session.ref_name, &written.ids[0], Some(&session.commit));
   written.delete_temp_refs(&mut transaction);
-  if let Some(temp_ref) = &resolved_temp_ref {
+  for temp_ref in &temp_refs {
     transaction.delete(temp_ref, None);
   }
   if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
     written.discard(git_executor, repo_path);
-    if let Some(temp_ref) = &resolved_temp_ref {
+    for temp_ref in &temp_refs {
       written_discard(git_executor, repo_path, temp_ref);
     }
     return Err(e);
   }
-  let session = Session {
-    ref_name: session.ref_name,
-    commit: written.ids[0].clone(),
-    state,
-  };
-  if session.state.status == SessionStatus::Resolving {
-    return Ok(Step::Round(session));
+  let mut session = Session::new(session.ref_name, written.ids[0].clone(), state);
+  session.objects = objects;
+  Ok(Step::Round(session))
+}
+
+/// What a resolution without changes does: `Ok(true)` keeps the empty commit (`--allow-empty`), `Ok(false)` drops it
+/// (`--drop-empty` with the round's commit); without either, `EmptyResolution`
+fn empty_choice(conflict: &RoundConflict, raw: &RawCommit, input: &RoundInput) -> Result<bool> {
+  if input.allow_empty {
+    return Ok(true);
   }
-  finish(git_executor, repo_path, session)
+  match &input.drop_empty {
+    Some(commit) if commit.len() >= 4 && conflict.commit.starts_with(commit.as_str()) => Ok(false),
+    Some(commit) => Err(invalid_input(&format!(
+      "--drop-empty {commit} does not name the commit of the round, {}",
+      short_id(&conflict.commit)
+    ))),
+    None => Err(anyhow::Error::new(ResolveError::EmptyResolution {
+      commit: conflict.commit.clone(),
+      subject: subject_of(raw),
+    })),
+  }
+}
+
+/// The first line of a commit's message
+fn subject_of(raw: &RawCommit) -> String {
+  String::from_utf8_lossy(raw.message.split(|&b| b == b'\n').next().unwrap_or_default()).into_owned()
 }
 
 fn invalid_input(message: &str) -> anyhow::Error {
@@ -645,23 +842,32 @@ fn written_discard(git_executor: &GitCommandExecutor, repo_path: &str, temp_ref:
   }
 }
 
-/// Delete the session ref with compare-and-swap; refused once the branch moved and the files did not follow yet
+/// Delete the session ref with compare-and-swap. A session whose branch moved (`applied`) is deleted only when the files
+/// followed and the branch still contains its tip: then nothing is left to roll back, and `bd undo update:` takes the
+/// update back. Otherwise `FinishPending`
 #[instrument(skip(git_executor, session))]
 pub fn abort_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session) -> Result<()> {
   if session.state.status == SessionStatus::Applied {
-    bail!(
-      "{} moved already and the files did not follow yet: run `bd update --continue`, then `bd undo update:…` to take the update back",
-      session.state.branch
-    );
+    match moved_session(git_executor, repo_path, session)? {
+      Moved::FilesFollowed => {}
+      Moved::AtTip { .. } => {
+        return Err(anyhow::Error::new(ResolveError::FinishPending {
+          message: format!(
+            "{} moved already and the files did not follow yet: run `bd update --continue` to let them follow, then `bd undo update:{}..{}` takes the update back",
+            session.state.branch, session.state.head, session.state.tip
+          ),
+        }));
+      }
+      Moved::Elsewhere(message) => return Err(anyhow::Error::new(ResolveError::FinishPending { message })),
+    }
   }
   let mut transaction = RefTransaction::new();
   transaction.delete(&session.ref_name, Some(&session.commit));
   transaction.commit(git_executor, repo_path, "resolve session aborted")
 }
 
-/// `Stale` unless the session belongs to this worktree
-fn ensure_own_worktree(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<()> {
-  let worktree = current_worktree(git_executor, repo_path)?;
+/// `Stale` unless the session belongs to `worktree`
+fn ensure_own_worktree(worktree: &Worktree, state: &SessionState) -> Result<()> {
   if worktree.git_dir == state.git_dir {
     return Ok(());
   }
@@ -675,14 +881,18 @@ fn ensure_own_worktree(git_executor: &GitCommandExecutor, repo_path: &str, state
   }))
 }
 
-/// Follow the peers: HEAD must still be on the session's branch and contain the session's HEAD. Commits made on top of
-/// it are appended to the local commits (more rounds, usually clean); a rewrite is `Stale`
-fn follow_head(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState) -> Result<()> {
+/// Follow the peers: HEAD (`head_seen` when the caller read it already) must still be on the session's branch and
+/// contain the session's HEAD. Commits made on top of it are appended to the local commits (more rounds, usually
+/// clean); a rewrite is `Stale`
+fn follow_head(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, head_seen: Option<&str>) -> Result<()> {
   let branch = check_update_guards(git_executor, repo_path)?;
   if branch != state.branch {
     return Err(stale(&format!("HEAD is on {branch} now, not on {}", state.branch)));
   }
-  let head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
+  let head = match head_seen {
+    Some(head) => head.to_string(),
+    None => git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?,
+  };
   if head == state.head {
     return Ok(());
   }
@@ -727,16 +937,24 @@ impl PathEdit {
 }
 
 /// Check the input of a round: every conflicting path needs exactly one resolution, an edit passes the marker checks.
-/// Returns the resolution (without the resolved commit) and the tree edits
-fn check_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, conflict: &RoundConflict, input: &RoundInput) -> Result<(Resolution, Vec<PathEdit>)> {
+/// Returns the resolution (without the resolved commit), the tree edits, and the objects of the round, read with one
+/// `cat-file --batch -Z`
+fn check_round(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &SessionState,
+  conflict: &RoundConflict,
+  input: &RoundInput,
+) -> Result<(Resolution, Vec<PathEdit>, RoundObjects)> {
   let known = |path: &str| conflict.files.iter().any(|file| file.path == path);
   if let Some(path) = input.takes.iter().map(|(_, path)| path).chain(&input.deletes).find(|path| !known(path)) {
     return Err(invalid_input(&format!("{path} is not a conflicting file of round {}", state.round)));
   }
-  let merged = read_merged(git_executor, repo_path, conflict)?;
-  let mut missing = Vec::new();
-  let mut outside = Vec::new();
-  let mut markers = Vec::new();
+  let objects = read_round_objects(git_executor, repo_path, conflict)?;
+  let base_label = conflict.base_label();
+  let labels = conflict.labels(&base_label);
+  let blob = |stage: &Option<Stage>| stage.as_ref().and_then(|stage| objects.blobs.get(&stage.id)).map(Vec::as_slice);
+  let mut refused: Vec<(RefusalKind, String)> = Vec::new();
   let mut paths = Vec::new();
   let mut edits = Vec::new();
   for file in &conflict.files {
@@ -752,8 +970,8 @@ fn check_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessi
       (None, true) => Some((Outcome::Deleted, &None)),
       (None, false) => None,
     };
-    if let Some((outcome, stage)) = taken {
-      let (outcome, edit) = match stage {
+    let (outcome, edit, result): (Outcome, PathEdit, &[u8]) = if let Some((outcome, stage)) = taken {
+      match stage {
         Some(stage) => (
           outcome,
           PathEdit::Blob {
@@ -761,99 +979,81 @@ fn check_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessi
             mode: stage.mode.clone(),
             id: stage.id.clone(),
           },
+          objects.blobs.get(&stage.id).map_or(&[][..], Vec::as_slice),
         ),
-        None => (Outcome::Deleted, PathEdit::Delete { path: path.clone() }),
+        None => (Outcome::Deleted, PathEdit::Delete { path: path.clone() }, &[]),
+      }
+    } else {
+      let Some(EditCopy::Content(content)) = input.edits.get(&file.path) else {
+        refused.push((RefusalKind::MissingResolution, path));
+        continue;
       };
-      edits.push(edit);
-      paths.push(ResolvedPath {
-        path,
-        outcome,
-        dropped_upstream_lines: Vec::new(),
-        dropped_commit_lines: Vec::new(),
-      });
-      continue;
-    }
-    let Some(EditCopy::Content(content)) = input.edits.get(&file.path) else {
-      missing.push(path);
-      continue;
-    };
-    let merged = merged.get(&file.path).map_or(&[][..], Vec::as_slice);
-    let dropped = match file.kind {
-      ConflictKind::Content => match check_resolution(merged, content) {
-        Ok(dropped) => dropped,
-        Err(CheckFailure::OutsideConflict) => {
-          outside.push(path);
+      let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
+      let failure = match file.kind {
+        ConflictKind::Content => check_resolution(merged, content, labels).err(),
+        // the version left in the tree: unchanged, it decides nothing
+        ConflictKind::ModifyDelete if content.as_slice() == merged => {
+          refused.push((RefusalKind::MissingResolution, path));
           continue;
         }
-        Err(CheckFailure::UnresolvedMarkers) => {
-          markers.push(path);
-          continue;
-        }
-      },
-      // the version left in the tree: unchanged, it decides nothing
-      ConflictKind::ModifyDelete if content.as_slice() == merged => {
-        missing.push(path);
+        ConflictKind::ModifyDelete => has_markers(content, labels).then_some(CheckFailure::UnresolvedMarkers),
+      };
+      if let Some(failure) = failure {
+        let kind = match failure {
+          CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
+          CheckFailure::LineEnds => RefusalKind::LineEnds,
+          CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
+        };
+        refused.push((kind, path));
         continue;
       }
-      ConflictKind::ModifyDelete if has_markers(content) => {
-        markers.push(path);
-        continue;
-      }
-      ConflictKind::ModifyDelete => DroppedLines::default(),
+      let edit = PathEdit::Content {
+        path: path.clone(),
+        mode: file.mode().to_string(),
+        content: content.clone(),
+      };
+      (Outcome::Edited, edit, content.as_slice())
     };
-    edits.push(PathEdit::Content {
-      path: path.clone(),
-      mode: file.mode().to_string(),
-      content: content.clone(),
-    });
+    let before = blob(&file.before).unwrap_or_default();
+    let dropped = |side: &Option<Stage>| blob(side).map_or_else(Vec::new, |side| dropped_lines(before, side, result));
     paths.push(ResolvedPath {
       path,
-      outcome: Outcome::Edited,
-      dropped_upstream_lines: dropped.upstream,
-      dropped_commit_lines: dropped.commit,
+      outcome,
+      dropped_upstream_lines: dropped(&file.onto),
+      dropped_commit_lines: dropped(&file.commit),
     });
+    edits.push(edit);
   }
-  let refusal = if !missing.is_empty() {
-    Some(ResolveError::MissingResolution { paths: missing })
-  } else if !outside.is_empty() {
-    Some(ResolveError::OutsideConflict { paths: outside })
-  } else if !markers.is_empty() {
-    Some(ResolveError::UnresolvedMarkers { paths: markers })
-  } else {
-    None
-  };
-  if let Some(refusal) = refusal {
-    return Err(anyhow::Error::new(refusal));
+  // one kind at a time, the one the agent fixes first
+  for kind in [
+    RefusalKind::MissingResolution,
+    RefusalKind::OutsideConflict,
+    RefusalKind::LineEnds,
+    RefusalKind::UnresolvedMarkers,
+  ] {
+    let paths: Vec<String> = refused.iter().filter(|(refused, _)| *refused == kind).map(|(_, path)| path.clone()).collect();
+    if !paths.is_empty() {
+      return Err(anyhow::Error::new(ResolveError::Refused(Refusal {
+        kind,
+        paths,
+        edits: Vec::new(),
+        changed_in_working_tree: Vec::new(),
+        subject: subject_of(&objects.commit),
+      })));
+    }
   }
   let resolution = Resolution {
     round: state.round,
     commit: conflict.commit.clone(),
     resolved: None,
+    empty: false,
     paths,
   };
-  Ok((resolution, edits))
-}
-
-/// The merge result of each conflicting path (`<merge tree>:<path>`), with one `cat-file --batch -Z`
-fn read_merged(git_executor: &GitCommandExecutor, repo_path: &str, conflict: &RoundConflict) -> Result<HashMap<String, Vec<u8>>> {
-  let input = conflict.files.iter().fold(String::new(), |mut input, file| {
-    let _ = write!(input, "{}:{}\0", conflict.merge_tree, file.path);
-    input
-  });
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch", "-Z"], repo_path, &input)?;
-  let objects = parse_batch(&output, 0)?;
-  Ok(
-    conflict
-      .files
-      .iter()
-      .zip(objects)
-      .filter_map(|(file, object)| object.map(|object| (file.path.clone(), object.content)))
-      .collect(),
-  )
+  Ok((resolution, edits, objects))
 }
 
 /// The objects of a round for its copies and its output: the commit and every blob of every conflicting path
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RoundObjects {
   pub commit: RawCommit,
   /// The merge result per path: the `edit` copy
@@ -945,8 +1145,8 @@ pub fn round_upstream_commits(git_executor: &GitCommandExecutor, repo_path: &str
 /// Replay the local commits after `replayed` onto `tip`. With `known_conflict` (the replay of all of them conflicted
 /// already) or after one replay that conflicts, a binary search over the prefixes finds the first conflicting commit,
 /// whose round opens. Every replay runs with the session's committer, so the same input gives the same ids. Without a
-/// conflict the session is ready to finish
-fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, known_conflict: bool) -> Result<()> {
+/// conflict the session is ready to finish. Returns the objects of the round it opened
+fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, known_conflict: bool) -> Result<Option<RoundObjects>> {
   let env = state.committer_env()?;
   let env: Vec<(&str, &str)> = env.iter().map(|(name, value)| (*name, value.as_str())).collect();
   let total = state.local.len();
@@ -958,13 +1158,13 @@ fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut Sessi
   };
   if state.replayed == total {
     state.status = SessionStatus::Ready;
-    return Ok(());
+    return Ok(None);
   }
   if !known_conflict && let Some(tip) = replay(state, total - 1)? {
     state.tip = tip;
     state.replayed = total;
     state.status = SessionStatus::Ready;
-    return Ok(());
+    return Ok(None);
   }
   // the first commit whose prefix conflicts: `high` always conflicts, every prefix before `low` replays cleanly
   let (mut low, mut high) = (state.replayed, total - 1);
@@ -983,14 +1183,16 @@ fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut Sessi
   state.replayed = low;
   state.round += 1;
   state.status = SessionStatus::Resolving;
-  state.conflict = Some(open_round(git_executor, repo_path, state)?);
+  let (conflict, objects) = open_round(git_executor, repo_path, state)?;
+  state.conflict = Some(conflict);
   debug!(round = state.round, commit = %short_id(&state.local[low]), "a round opens");
-  Ok(())
+  Ok(Some(objects))
 }
 
 /// The round of the local commit at `state.replayed` onto `state.tip`: one `merge-tree --write-tree -z` with zdiff3
-/// markers, then the supported conflict types only
-fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<RoundConflict> {
+/// markers, then the supported conflict types only, and the objects of the round. A text conflict whose merge result
+/// has no block of bd's labels is refused too: its markers can't be checked
+fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<(RoundConflict, RoundObjects)> {
   let commit = &state.local[state.replayed];
   let parent = format!("{commit}^");
   let (output, exit_code) = git_executor.execute_command_raw_accepting(
@@ -1012,12 +1214,29 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
   if exit_code == 0 || merge.entries.is_empty() {
     bail!("{} replays with a conflict, but merge-tree merges it cleanly", short_id(commit));
   }
-  Ok(RoundConflict {
+  let conflict = RoundConflict {
     commit: commit.clone(),
     onto: state.tip.clone(),
     files: conflict_files(&merge)?,
     merge_tree: merge.tree,
-  })
+  };
+  let objects = read_round_objects(git_executor, repo_path, &conflict)?;
+  let base_label = conflict.base_label();
+  let labels = conflict.labels(&base_label);
+  let unreadable: Vec<String> = conflict
+    .files
+    .iter()
+    .filter(|file| file.kind == ConflictKind::Content && objects.merged.get(&file.path).is_none_or(|merged| block_count(merged, labels) == 0))
+    .map(|file| file.path.clone())
+    .collect();
+  if !unreadable.is_empty() {
+    let message = format!(
+      "The conflict can't be resolved in a round of bd update: bd finds no conflict block it wrote in {}. `bd update --abort`, then update in a terminal",
+      unreadable.join(", ")
+    );
+    return Err(anyhow::Error::new(ResolveError::Unsupported { paths: unreadable, message }));
+  }
+  Ok((conflict, objects))
 }
 
 /// The conflicting paths of a merge, each a supported type; any other type refuses the whole round
@@ -1059,11 +1278,19 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       unsupported.push((path.to_string(), format!("mode {mode} (a symlink or a submodule)")));
       continue;
     }
-    let kind = match (&before, &onto, &commit) {
-      (_, Some(onto), Some(commit)) if onto.mode != commit.mode => {
+    // as git merges a mode: the side that changed it wins
+    let mode = match (&before, &onto, &commit) {
+      (_, Some(onto), Some(commit)) if onto.mode == commit.mode => onto.mode.clone(),
+      (Some(before), Some(onto), Some(commit)) if before.mode == onto.mode => commit.mode.clone(),
+      (Some(before), Some(onto), Some(commit)) if before.mode == commit.mode => onto.mode.clone(),
+      (_, Some(_), Some(_)) => {
         unsupported.push((path.to_string(), "distinct modes".to_string()));
         continue;
       }
+      (_, Some(side), None) | (_, None, Some(side)) => side.mode.clone(),
+      _ => String::new(),
+    };
+    let kind = match (&before, &onto, &commit) {
       (_, Some(_), Some(_)) => ConflictKind::Content,
       (Some(_), Some(_), None) | (Some(_), None, Some(_)) => ConflictKind::ModifyDelete,
       _ => {
@@ -1078,6 +1305,7 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       before,
       onto,
       commit,
+      mode,
     });
   }
   if !unsupported.is_empty() {
@@ -1105,13 +1333,13 @@ pub fn is_valid_tree_path(path: &str) -> bool {
     .all(|component| !component.is_empty() && component != "." && component != ".." && !component.eq_ignore_ascii_case(".git"))
 }
 
-/// Write the state commit of `state` (and, for the finish, the notes) on temporary refs: `state.json`, the round's
-/// merge tree and stage blobs as entries, the previous state as the parent, the tip and HEAD as merge parents
-fn write_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, previous: Option<&str>, notes: Option<&StoreNotes<'_>>) -> Result<WrittenStore> {
+/// Write the state commit of `state` on a temporary ref, by the session's committer: `state.json`, the round's merge
+/// tree and stage blobs as entries, the previous state as the parent, the tip and HEAD as merge parents
+fn write_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, previous: Option<&str>) -> Result<WrittenStore> {
   let json = serde_json::to_vec_pretty(state)?;
   let entries = state_entries(state);
   let commit = state_commit(state, &json, &entries, previous.map(NewParent::Existing));
-  write_store_commits(git_executor, repo_path, &[commit], notes)
+  write_store_commits(git_executor, repo_path, &[commit], None, Some(&state.committer))
 }
 
 /// The tree entries of a state besides `state.json`: `(mode, id, path)` of `round/merge`, the merge tree, which keeps
@@ -1158,26 +1386,48 @@ fn note_of(state: &SessionState, resolution: &Resolution) -> String {
   note
 }
 
-/// The finish of a ready session, in four compare-and-swap steps: the session ref moves to `applying`; one transaction
-/// moves the branch (deref `HEAD`, checked under its lock as every update) with the session ref to `applied` and the
-/// notes; the files follow through the guarded update, and on a failure the branch, the session ref and the notes move
-/// back together; then the session ref is deleted. A crash leaves `applying` (nothing moved: the next `--continue`
-/// finishes) or `applied` (the branch moved: the next `--continue` lets the files follow)
-fn finish(git_executor: &GitCommandExecutor, repo_path: &str, session: Session) -> Result<Step> {
-  let state = &session.state;
+/// The finish of a ready session, in four compare-and-swap steps: the session ref moves from `base_commit` to
+/// `applying`; one transaction moves the branch (deref `HEAD`, checked under its lock as every update) with the session
+/// ref to `applied` and the notes; the files follow through the guarded update, and on a failure the branch, the
+/// session ref and the notes move back together; then the session ref is deleted. A crash leaves `applying` (nothing
+/// moved: the next `--continue` finishes) or `applied` (the branch moved: the next `--continue` lets the files follow).
+/// Local changes on the paths it writes refuse it first (`Step::Blocked`); `state` is saved as `ready` then when it is
+/// `unsaved`. `temp_refs` (the resolved commit of the last round) are deleted with the first transaction
+fn finish(git_executor: &GitCommandExecutor, repo_path: &str, ref_name: &str, base_commit: &str, mut state: SessionState, unsaved: bool, temp_refs: &[String]) -> Result<Step> {
   let (head, tip) = (state.head.clone(), state.tip.clone());
+  state.status = SessionStatus::Ready;
   let changed = changed_paths(git_executor, repo_path, &head, &tip)?;
-  if !changed.is_empty() {
-    let blocked = blocking_paths(git_executor, repo_path, &head, &tip, &changed)?;
-    if !blocked.is_empty() {
-      return Ok(Step::Blocked { session, paths: blocked });
+  let blocked = if changed.is_empty() {
+    Vec::new()
+  } else {
+    blocking_paths(git_executor, repo_path, &head, &tip, &changed)?
+  };
+  if !blocked.is_empty() {
+    let mut commit = base_commit.to_string();
+    if unsaved {
+      let written = write_state(git_executor, repo_path, &state, Some(base_commit))?;
+      let mut transaction = RefTransaction::new();
+      transaction.update(ref_name, &written.ids[0], Some(base_commit));
+      written.delete_temp_refs(&mut transaction);
+      for temp_ref in temp_refs {
+        transaction.delete(temp_ref, None);
+      }
+      if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
+        written.discard(git_executor, repo_path);
+        return Err(e);
+      }
+      commit.clone_from(&written.ids[0]);
     }
+    return Ok(Step::Blocked {
+      session: Session::new(ref_name.to_string(), commit, state),
+      paths: blocked,
+    });
   }
 
   let notes: Vec<(String, String)> = state
     .resolutions
     .iter()
-    .filter_map(|resolution| resolution.resolved.as_ref().map(|id| (id.clone(), note_of(state, resolution))))
+    .filter_map(|resolution| resolution.resolved.as_ref().map(|id| (id.clone(), note_of(&state, resolution))))
     .collect();
   let (notes_before, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{RESOLVE_NOTES_REF}^{{commit}}")], repo_path)?;
   let notes_before = (exit_code == 0).then_some(notes_before);
@@ -1194,24 +1444,27 @@ fn finish(git_executor: &GitCommandExecutor, repo_path: &str, session: Session) 
   let (applying_json, applied_json) = (serde_json::to_vec_pretty(&applying)?, serde_json::to_vec_pretty(&applied)?);
   let entries = state_entries(&applying);
   let commits = [
-    state_commit(&applying, &applying_json, &entries, Some(NewParent::Existing(&session.commit))),
+    state_commit(&applying, &applying_json, &entries, Some(NewParent::Existing(base_commit))),
     state_commit(&applied, &applied_json, &entries, Some(NewParent::Written(0))),
   ];
-  let written = write_store_commits(git_executor, repo_path, &commits, (!notes.is_empty()).then_some(&store_notes))?;
+  let written = write_store_commits(git_executor, repo_path, &commits, (!notes.is_empty()).then_some(&store_notes), Some(&state.committer))?;
   let (applying_commit, applied_commit) = (written.ids[0].clone(), written.ids[1].clone());
 
   // 1. applying: nothing moved yet
   let mut transaction = RefTransaction::new();
-  transaction.update(&session.ref_name, &applying_commit, Some(&session.commit));
+  transaction.update(ref_name, &applying_commit, Some(base_commit));
+  for temp_ref in temp_refs {
+    transaction.delete(temp_ref, None);
+  }
   if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session applying") {
     written.discard(git_executor, repo_path);
     return Err(e);
   }
   // 2. and 3. the branch with the session ref and the notes, then the files; both roll back together
   let mut with = RefTransaction::new();
-  with.update(&session.ref_name, &applied_commit, Some(&applying_commit));
+  with.update(ref_name, &applied_commit, Some(&applying_commit));
   let mut rollback_with = RefTransaction::new();
-  rollback_with.update(&session.ref_name, &applying_commit, Some(&applied_commit));
+  rollback_with.update(ref_name, &applying_commit, Some(&applied_commit));
   if let Some((notes_commit, _)) = &written.notes {
     store_notes.add_to(&mut with, notes_commit);
     match &notes_before {
@@ -1240,47 +1493,78 @@ fn finish(git_executor: &GitCommandExecutor, repo_path: &str, session: Session) 
   }
   // 4. done
   let mut transaction = RefTransaction::new();
-  transaction.delete(&session.ref_name, Some(&applied_commit));
+  transaction.delete(ref_name, Some(&applied_commit));
   transaction.commit(git_executor, repo_path, "resolve session finished")?;
   info!(rounds = state.round, %tip, "finished the resolve session");
   Ok(Step::Applied {
-    session: Session {
-      ref_name: session.ref_name,
-      commit: applied_commit,
-      state: applied,
-    },
+    session: Session::new(ref_name.to_string(), applied_commit, applied),
     previous_head: head,
   })
 }
 
-/// Recover a session whose branch moved (`applied`) but whose files may not have followed: when every path the update
-/// changes is already the new tip's in the index, the files did follow and only the session ref is left; otherwise the
-/// files follow now through the guarded update, and when local changes block it or it fails, the branch, the session
-/// ref and the notes move back together (`applying`)
-fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, session: Session) -> Result<Step> {
+/// Where the branch of an `applied` session is
+enum Moved {
+  /// The files followed the move, and the branch still contains the tip: only the session ref is left
+  FilesFollowed,
+  /// HEAD is at the tip, the files did not follow
+  AtTip { changed: Vec<ChangedPath> },
+  /// HEAD left the tip before the files followed: what to tell the user
+  Elsewhere(String),
+}
+
+fn moved_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session) -> Result<Moved> {
   let state = &session.state;
   let branch = check_update_guards(git_executor, repo_path)?;
   let actual = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
-  if branch != state.branch || actual != state.tip {
-    return Err(stale(&format!(
-      "{} left {}, where the session moved it, before its files followed",
-      state.branch,
-      short_id(&state.tip)
-    )));
-  }
   let changed = changed_paths(git_executor, repo_path, &state.head, &state.tip)?;
-  if !changed.is_empty() && !index_has(git_executor, repo_path, &changed)? {
-    let mut rollback_with = RefTransaction::new();
-    let applying = git_executor.execute_command(&["rev-parse", &format!("{}^", session.commit)], repo_path)?;
-    rollback_with.update(&session.ref_name, &applying, Some(&session.commit));
-    let (notes_now, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{RESOLVE_NOTES_REF}^{{commit}}")], repo_path)?;
-    if exit_code == 0 && state.notes_before.as_deref() != Some(notes_now.as_str()) {
-      match &state.notes_before {
-        Some(before) => rollback_with.update(RESOLVE_NOTES_REF, before, Some(&notes_now)),
-        None => rollback_with.delete(RESOLVE_NOTES_REF, Some(&notes_now)),
-      };
+  let followed = changed.is_empty() || !index_left_behind(git_executor, repo_path, &changed)?;
+  let contains_tip = actual == state.tip || {
+    let (_, exit_code) = git_executor.execute_command_with_status(&["merge-base", "--is-ancestor", &state.tip, &actual], repo_path)?;
+    exit_code == 0
+  };
+  if branch == state.branch && contains_tip && followed {
+    return Ok(Moved::FilesFollowed);
+  }
+  if branch == state.branch && actual == state.tip {
+    return Ok(Moved::AtTip { changed });
+  }
+  Ok(Moved::Elsewhere(format!(
+    "The resolve session moved {} from {} to {}, but HEAD is at {} on {branch} now and the index still holds {} for the paths the \
+     update changes. bd can't finish this session: look at `git status` with the user. `git update-ref -d {} {}` removes the \
+     session",
+    state.branch,
+    short_id(&state.head),
+    short_id(&state.tip),
+    short_id(&actual),
+    short_id(&state.head),
+    session.ref_name,
+    session.commit
+  )))
+}
+
+/// Recover a session whose branch moved (`applied`) but whose files may not have followed: when the index holds no
+/// path of the old HEAD any more and the branch contains the tip, the files did follow and only the session ref is left
+/// (also after peers committed on top). At the tip, the files follow now through the guarded update, and when local
+/// changes block it or it fails, the branch, the session ref and the notes move back together (`applying`). Anything
+/// else is `FinishPending`
+fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, session: Session) -> Result<Step> {
+  let state = &session.state;
+  match moved_session(git_executor, repo_path, &session)? {
+    Moved::FilesFollowed => {}
+    Moved::Elsewhere(message) => return Err(anyhow::Error::new(ResolveError::FinishPending { message })),
+    Moved::AtTip { changed } => {
+      let mut rollback_with = RefTransaction::new();
+      let applying = git_executor.execute_command(&["rev-parse", &format!("{}^", session.commit)], repo_path)?;
+      rollback_with.update(&session.ref_name, &applying, Some(&session.commit));
+      let (notes_now, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{RESOLVE_NOTES_REF}^{{commit}}")], repo_path)?;
+      if exit_code == 0 && state.notes_before.as_deref() != Some(notes_now.as_str()) {
+        match &state.notes_before {
+          Some(before) => rollback_with.update(RESOLVE_NOTES_REF, before, Some(&notes_now)),
+          None => rollback_with.delete(RESOLVE_NOTES_REF, Some(&notes_now)),
+        };
+      }
+      files_follow(git_executor, repo_path, &state.branch, &state.head, &state.tip, &changed, &rollback_with)?;
     }
-    files_follow(git_executor, repo_path, &state.branch, &state.head, &state.tip, &changed, &rollback_with)?;
   }
   let mut transaction = RefTransaction::new();
   transaction.delete(&session.ref_name, Some(&session.commit));
@@ -1289,18 +1573,25 @@ fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, s
   Ok(Step::Applied { session, previous_head })
 }
 
-/// Whether the index holds the new side of every changed path (`cat-file --batch-check` of `:<path>`)
-fn index_has(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<bool> {
+/// Whether the index still holds the old side of a changed path (`cat-file --batch-check` of `:<path>`): the files did
+/// not follow the move. A path that is neither side (staged since) counts as followed
+fn index_left_behind(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<bool> {
   let input = changed.iter().fold(String::new(), |mut input, c| {
     let _ = write!(input, ":{}\0", c.path);
     input
   });
   let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
-  let null_id = "0".repeat(changed.first().map_or(40, |c| c.new_id.len()));
-  Ok(changed.iter().zip(output.split(|&b| b == 0)).all(|(c, id)| {
+  Ok(changed.iter().zip(output.split(|&b| b == 0)).any(|(c, id)| {
     let id = String::from_utf8_lossy(id);
-    if c.new_id == null_id { id.ends_with(" missing") } else { id == c.new_id }
+    if c.was_added() { id.ends_with(" missing") } else { id == c.old_id() }
   }))
+}
+
+/// The local changes that likely block the finish, known before it: changes on the paths the upstream changes since
+/// the merge base and HEAD has otherwise (the check of every sync, at a cost that grows with those paths). The finish
+/// runs the exact check
+pub fn session_blocked_paths(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<Vec<String>> {
+  likely_blocking_paths(git_executor, repo_path, &state.head, &state.base, &state.upstream_head)
 }
 
 #[cfg(test)]
