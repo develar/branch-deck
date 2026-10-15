@@ -122,6 +122,7 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-canvas: var(--canvas);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --radius-sm: calc(var(--radius) * 0.6);
@@ -136,44 +137,59 @@
 :root {
   /*
    * Primary palette, switchable at runtime by applyPrimaryColor() (src/lib/theme.ts),
-   * which writes these variables on <html>. Defaults are Tailwind `green`.
+   * which writes these variables on <html>. Defaults are the IntelliJ Islands blue ramp (`blue-160` … `blue-40`).
    */
-  --bd-primary-50: oklch(98.2% 0.018 155.826);
-  --bd-primary-100: oklch(96.2% 0.044 156.743);
-  --bd-primary-200: oklch(92.5% 0.084 155.995);
-  --bd-primary-300: oklch(87.1% 0.15 154.449);
-  --bd-primary-400: oklch(79.2% 0.209 151.711);
-  --bd-primary-500: oklch(72.3% 0.219 149.579);
-  --bd-primary-600: oklch(62.7% 0.194 149.214);
-  --bd-primary-700: oklch(52.7% 0.154 150.069);
-  --bd-primary-800: oklch(44.8% 0.119 151.328);
-  --bd-primary-900: oklch(39.3% 0.095 152.535);
-  --bd-primary-950: oklch(26.6% 0.065 152.934);
+  --bd-primary-50: #f7f8ff;
+  --bd-primary-100: #e3ebfe;
+  --bd-primary-200: #d0dffe;
+  --bd-primary-300: #a7c5ff;
+  --bd-primary-400: #71a1fe;
+  --bd-primary-500: #538af9;
+  --bd-primary-600: #3871e1;
+  --bd-primary-700: #2f5eb9;
+  --bd-primary-800: #2e4d89;
+  --bd-primary-900: #2a4371;
+  --bd-primary-950: #233558;
 
+  /*
+   * The neutrals and status colours are the IntelliJ Islands values (ManyIslandsLight/Dark.theme.json), see
+   * docs/design/ui-theme.md. muted, secondary and accent are a translucent tint of the foreground (the IntelliJ hover is
+   * #00000008 on a list, #00000012 on a toolbar), so one hover reads on an island and on the canvas.
+   */
+  --bd-tint: 5%;
+  /* MainWindow.background #E9EAEE */
+  --canvas: oklch(0.937 0.005 275);
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* text-default #000000 */
+  --foreground: oklch(0 0 0);
+  /* ToolWindow.background, the island */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: var(--bd-primary-500);
+  --popover-foreground: var(--foreground);
+  /* Button.default #3871E1 */
+  --primary: var(--bd-primary-600);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  /* green-600, amber-600, blue-600 */
-  --success: oklch(62.7% 0.194 149.214);
+  --secondary: color-mix(in oklab, var(--foreground) var(--bd-tint), transparent);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--secondary);
+  /* muted text #5F6269 */
+  --muted-foreground: oklch(0.496 0.012 267.3);
+  --accent: var(--secondary);
+  --accent-foreground: var(--foreground);
+  /* error #C54E58, success #338555, warning #A56906 */
+  --destructive: oklch(0.584 0.152 18.1);
+  --success: oklch(0.553 0.11 154.6);
   --success-foreground: oklch(1 0 0);
-  --warning: oklch(66.6% 0.179 58.318);
+  --warning: oklch(0.572 0.122 70.1);
   --warning-foreground: oklch(1 0 0);
-  --info: oklch(54.6% 0.245 262.881);
+  /* merged, landed, integrated: violet (GitHub merged #8250DF), the blue being the primary */
+  --info: oklch(0.563 0.207 295);
   --info-foreground: oklch(1 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  /* separatorColor #E9EAEE */
+  --border: oklch(0.937 0.005 275);
+  /* Component.borderColor #D1D3D9 */
+  --input: oklch(0.867 0.009 271.3);
   --ring: var(--primary);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -194,31 +210,32 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
+    /* the IntelliJ hover is #FFFFFF10 on a list, #FFFFFF17 on a toolbar */
+    --bd-tint: 7%;
+    /* MainWindow.background #26282C: in Islands Dark the window is lighter than the islands */
+    --canvas: oklch(0.276 0.008 264.4);
+    /* ToolWindow.background #191A1C */
+    --background: oklch(0.218 0.004 264.5);
+    --card: oklch(0.218 0.004 264.5);
+    /* Popup.background #26282C, lighter than the island under it */
+    --popover: oklch(0.276 0.008 264.4);
+    /* text-default #D1D3D9, muted #9FA2A8 */
+    --foreground: oklch(0.867 0.009 271.3);
+    --muted-foreground: oklch(0.712 0.009 264.5);
+    /* the dark-theme link #71A1FE, with dark text */
     --primary: var(--bd-primary-400);
-    /* dark text on the lighter dark-mode primary */
-    --primary-foreground: oklch(0.145 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    /* green-400, amber-400, blue-400 */
-    --success: oklch(79.2% 0.209 151.711);
-    --success-foreground: oklch(0.145 0 0);
-    --warning: oklch(82.8% 0.189 84.429);
-    --warning-foreground: oklch(0.145 0 0);
-    --info: oklch(70.7% 0.165 254.624);
-    --info-foreground: oklch(0.145 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
+    --primary-foreground: oklch(0.218 0.004 264.5);
+    /* error #F57E84, success #6DB083, warning #D59637, violet #AB7DF8 */
+    --destructive: oklch(0.729 0.146 18.2);
+    --success: oklch(0.7 0.095 153.9);
+    --success-foreground: oklch(0.218 0.004 264.5);
+    --warning: oklch(0.719 0.131 73.5);
+    --warning-foreground: oklch(0.218 0.004 264.5);
+    --info: oklch(0.688 0.178 298.9);
+    --info-foreground: oklch(0.218 0.004 264.5);
+    /* separatorColor #33353B, Component.borderColor #40434A */
+    --border: oklch(0.329 0.011 271.1);
+    --input: oklch(0.383 0.013 267.2);
     /* --chart-1…5: the neutral greys of :root serve both themes */
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
@@ -236,8 +253,8 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /* Islands layering: the window is muted, top-level blocks are `Card` islands */
-    @apply bg-muted text-foreground;
+    /* Islands layering: the window is the canvas, top-level blocks are `Card` islands */
+    @apply bg-canvas text-foreground;
   }
   html {
     @apply font-sans;

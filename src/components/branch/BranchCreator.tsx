@@ -78,7 +78,7 @@ export function BranchCreator() {
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []
   const errorDetails = [errorLines.join("\n"), pathValidation.errorDetails === error ? "" : pathValidation.errorDetails].filter(Boolean).join("\n")
   return (
-    <div className="flex flex-col gap-6" data-testid="branch-creator-root">
+    <div className="flex flex-col gap-2" data-testid="branch-creator-root">
       <ConfigurationHeader />
 
       <GitSetupAlert />

@@ -33,7 +33,7 @@ export function BranchPrefixField({ disabled = false }: BranchPrefixFieldProps) 
           disabled={disabled}
           placeholder={placeholder}
           aria-label="Branch prefix"
-          className={cn("h-7 w-28 border-border bg-background md:text-xs", warn && "border-warning focus-visible:border-warning focus-visible:ring-warning/30")}
+          className={cn("h-7 w-28 border-input bg-background md:text-xs", warn && "border-warning focus-visible:border-warning focus-visible:ring-warning/30")}
         />
         <BranchPrefixHelp configured={configured} disabled={disabled} />
       </TooltipTrigger>

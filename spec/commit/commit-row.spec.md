@@ -310,7 +310,7 @@ The commit hash popover shows the same header and body.
 ### Hover and selection
 
 - A selectable row shows the pointer cursor and `bg-muted` on hover.
-- A selected row uses `bg-primary/10`, and `bg-primary/15` on hover.
+- A selected row uses `bg-primary/15` (the IntelliJ light selection), and `bg-primary/20` on hover.
 - A selected row has no accent bar.
 - A row that is not selectable has no hover tint and keeps the default cursor.
 - The selection actions show `N selected` in muted text, then an outline "Move to…" button in the primary colour.
@@ -319,7 +319,7 @@ The commit hash popover shows the same header and body.
 
 - In the expanded row the viewer is three `NestedPanel`s (`rounded-lg border border-border bg-card`, no ring and no
   shadow), 16px apart: the title with the insight and the hint, the conflicting files, the missing commits. A sub-window
-  shows the same sections as `Card` islands in a `Container`, 24px apart.
+  shows the same sections as `Card` islands in a `Container`, 8px apart.
 - The title is `text-sm font-medium` after a `destructive` `TriangleAlertIcon`.
 - The insight is a `warning` `Callout` with `FileDiffIcon`; the common ancestor is a hash with its popover.
 - The file without conflict markers states it in a muted `text-xs` line above its diff.

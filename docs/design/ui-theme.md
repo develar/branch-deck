@@ -1,8 +1,8 @@
-# UI Theme: Islands Layering and the Radius Scale
+# UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-10-14  
-**Tags:** [ui, theme, shadcn, tailwind, radius]
+**Updated:** 2026-10-15  
+**Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
 
@@ -17,14 +17,23 @@ The preset had two problems:
 
   The archived branches block visibly differed from the table above it.
 
+The first pass fixed both but kept the shadcn colours, and the window still read as a web page next to the IDE:
+
+- **Achromatic greys.** The neutrals had chroma 0. The canvas `#F5F5F5` was so close to white that the islands needed a
+  shadow, and the dark text was near-white.
+- **A green accent everywhere.** Primary was Tailwind green-500, with white text on it at 2.2:1. It coloured every push
+  label, every folder icon and the selection, and it was the hue of `success`, so a selected commit read as "passed".
+- **Dark popovers in the island colour**, so a menu over a table was told apart only by its ring.
+
 The goal is the look and feel of the IntelliJ Islands Light and Dark themes while staying on stock shadcn components, so a
-later `npx shadcn@latest add --overwrite` keeps working.
+later `npx shadcn@latest add --overwrite` keeps working. No shadcn preset or tweakcn theme comes close. The nearest stock
+base colour, `zinc`, has the lightness and chroma of the IntelliJ greys, but its hue is 286, not about 265.
 
 ## Solution Overview
 
-**Coherence over copying.** We take the proportions and the layering of Islands and express them only through shadcn
-tokens. We do not copy IntelliJ pixel values into individual components. Every radius comes from one token, and every
-top-level block is the same `Card`.
+**Coherence over copying.** We take the proportions, the layering and the colours of Islands and express them only
+through shadcn tokens. We do not copy IntelliJ pixel values into individual components. Every radius comes from one
+token, every colour is an IntelliJ value in `src/index.css`, and every top-level block is the same `Card`.
 
 ## Design
 
@@ -32,21 +41,51 @@ top-level block is the same `Card`.
 
 ```mermaid
 flowchart TD
-    W["Window canvas: body bg-muted"] --> H["Header island: Card"]
+    W["Window canvas: body bg-canvas"] --> H["Header island: Card"]
     W --> T["Branch table island: Card"]
     W --> U["Unassigned commits island: Card"]
     W --> A["Archived branches island: CollapsibleCard built on Card"]
-    T --> R["Rows, table header bg-muted/50, hover bg-muted"]
+    T --> R["Rows: hover bg-muted, a translucent tint"]
     T --> P["Inner panels: rounded-lg, e.g. NestedPanel, InfoCard"]
 ```
 
-- **Window canvas.** `body` is `bg-muted` (base layer of `src/index.css`), the Islands main window.
-- **Islands.** Every top-level block on the canvas is a stock `Card` (`bg-card`, `ring-foreground/5`, `shadow-sm`).
-  Examples are the header, the tables, the collapsible sections, alerts and the sub-window context cards.
-- **Dark mode.** The same tokens give cards (0.205) darker than the canvas (0.269), which is what Islands Dark does. There
-  are no `dark:` overrides.
-- **White fields.** `--background` stays white, so outline buttons and white bordered fields (`bg-background`) still read
-  inside a card.
+- **Window canvas.** `body` is `bg-canvas` (base layer of `src/index.css`), the IntelliJ `MainWindow.background`.
+- **Islands.** Every top-level block on the canvas is a `Card` (`bg-card`, `ring-foreground/5`, no shadow). Examples are
+  the header, the tables, the collapsible sections, alerts and the sub-window context cards.
+- **Dark mode.** The same tokens give islands (`#191A1C`) darker than the canvas (`#26282C`), which is what Islands Dark
+  does. Popovers (`#26282C`) are lighter than the island under them. There are no `dark:` overrides.
+- **White fields.** `--background` stays white (the island colour in dark), so outline buttons and bordered fields
+  (`bg-background border-input`) read as fields on an island and on the canvas.
+
+### Palette
+
+`src/index.css` holds the IntelliJ Islands values (`ManyIslandsLight.theme.json`, `ManyIslandsDark.theme.json`), each
+with its IntelliJ key in a comment:
+
+| Token | Light | Dark | IntelliJ key |
+| --- | --- | --- | --- |
+| `--canvas` | `#E9EAEE` | `#26282C` | `MainWindow.background` |
+| `--card`, `--background` | `#FFFFFF` | `#191A1C` | `ToolWindow.background`, the island |
+| `--popover` | `#FFFFFF` | `#26282C` | `Popup.background` |
+| `--foreground` | `#000000` | `#D1D3D9` | text-default |
+| `--muted-foreground` | `#5F6269` | `#9FA2A8` | muted text |
+| `--border` | `#E9EAEE` | `#33353B` | `*.separatorColor` |
+| `--input` | `#D1D3D9` | `#40434A` | `Component.borderColor` |
+| `--primary` | `#3871E1` | `#71A1FE` | `Button.default`; the dark-theme link |
+| `--success` | `#338555` | `#6DB083` | success text |
+| `--warning` | `#A56906` | `#D59637` | warning text |
+| `--destructive` | `#C54E58` | `#F57E84` | error text |
+| `--info` | `#8250DF` | `#AB7DF8` | none: GitHub's merged violet |
+
+- **`muted`, `secondary` and `accent`** are one translucent tint of the foreground, 5% in light and 7% in dark
+  (`--bd-tint`), as the IntelliJ hovers are (`#00000008` on a list, `#00000012` on a toolbar) and as the JetBrains genui
+  mapping does. One hover then reads on a white island and on the canvas.
+- **The primary palette** is switchable in the "Theme…" dialog (`src/lib/theme.ts`). The default is `intellij`, the
+  IntelliJ blue ramp (`blue-160` … `blue-40`). Every palette gives shade 600 in light (white text) and 400 in dark (dark
+  text). The Tailwind palettes follow; the neutrals, including the 4.3 `mauve`, `olive`, `mist` and `taupe`, are not
+  offered.
+- Contrast on the island: `primary` 4.6:1 with white text, the status colours 4.5:1 and more, muted text 6.1:1
+  (light) and 6.8:1 (dark).
 
 ### Radius scale
 
@@ -73,13 +112,22 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
    **Rationale**: Matching IntelliJ exactly would need per-component overrides. A consistent scale matters more than
    pixel parity.
 
-3. **Decision**: The canvas is `bg-muted`, not a changed `--background`.
-   **Rationale**: Changing `--background` would turn outline buttons and fields inside cards grey. `bg-muted` is an
-   existing semantic token, so no new colour is needed.
+3. **Decision**: The canvas is its own token, `--canvas`, and `muted` is a translucent tint.
+   **Rationale**: The IntelliJ canvas is darker than any hover on an island. A solid `muted` equal to the canvas would
+   make every ghost hover on the canvas invisible and every row hover heavy. Changing `--background` instead would turn
+   the fields grey.
 
-4. **Decision**: Keep the stock `Card` ring and shadow.
-   **Rationale**: The Islands border has the island colour, so it is invisible. On screenshots, the faint `ring-foreground/5`
-   reads as a soft edge, not a line, and it keeps islands distinct in dark mode where a shadow alone is too weak.
+4. **Decision**: No `Card` shadow, only the ring (`card.tsx` is locally customised).
+   **Rationale**: Islands has no shadow; an island stands out by the contrast of `#E9EAEE` and white. The faint
+   `ring-foreground/5` reads as a soft edge, not a line, and it keeps islands distinct in dark mode.
+
+5. **Decision**: The exact IntelliJ greys, not a stock base colour.
+   **Rationale**: `zinc` is close in lightness and chroma but warmer (hue 286 instead of 265); next to the IDE the
+   difference shows. The values are tokens either way, so the ui files don't change.
+
+6. **Decision**: The IntelliJ blue is the default primary, and `info` is violet.
+   **Rationale**: One accent as in Islands, readable with white text, and no longer the hue of `success`. Blue would
+   have collided with the old blue `info` (merged, landed), so `info` takes the violet GitHub uses for merged.
 
 ### Rules for UI changes
 
@@ -101,11 +149,13 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   and check every component.
 - **Colours** use semantic tokens only, as in the Code Style section of `AGENTS.md`.
 - **A colour means one thing** (statuses, chips, badges, callouts, their icons):
-  - `info`: already in the baseline: merged, landed, integrated;
+  - `info` (violet): already in the baseline: merged, landed, integrated;
   - `success`: approved, passed, clean;
   - `warning`: attention without a failure: blocked, outdated, a push that drops remote commits;
   - `destructive`: a failure or a conflict;
-  - `primary`: the user's actions and selection: push, Sync, the folder icons, a selected or drop-target row;
+  - `primary` (blue): the user's actions and selection: Sync, the icon of a routine push, a selected or drop-target row.
+    An action that repeats on every row colours only its icon, so a fully coloured label means "look here"; the folder
+    icons are neutral;
   - neutral (a `secondary` badge, muted text): a count or a routine state, such as the `SectionCardHeader` count.
 - **A note inside a form, a popover or a panel is a `Callout`** (`src/components/shared/Callout.tsx`), never a
   hand-rolled tinted box:
@@ -172,9 +222,9 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
 - **Spacing**:
-  - islands in the main window are separated by `gap-6` (`BranchCreator`), and so are the islands of a sub-window
-    page, in a `Container` with `py-4` (`ConflictWindowPage`);
-  - `IndexPage` has `py-4`, so the header island does not touch the title bar.
+  - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in
+    `BranchCreator` and `ConflictWindowPage`, a full-width `Container` with `px-2` and `py-2`;
+  - islands take the full window width, as IntelliJ tool windows do.
 
 ### Verification
 
@@ -196,10 +246,16 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
   - Why not: Rhea was chosen for its compact density and Inter, and the radius token alone reaches the target.
 - **shadcn preset radius "small"** (~0.45rem):
   - Why not: it still gives 19px cards and 13px controls, far rounder than Islands.
+- **Stock `zinc` base colour** (`baseColor: zinc`):
+  - Why not: warmer than the IntelliJ greys (hue 286 instead of 265), and hand-written tokens cost nothing more.
+- **Keep the green accent and use it less**:
+  - Why not: green stays the hue of `success`, and white on it stays below AA. Green remains a choice in the "Theme…"
+    dialog.
 
 ## References
 
-- Tokens and scale: `src/index.css` (`--radius`, the `@theme inline` radius multipliers, `body` in the base layer).
+- Tokens and scale: `src/index.css` (`--radius`, the `@theme inline` radius multipliers, the palette, `body` in the base
+  layer); the primary palettes: `src/lib/theme.ts`.
 - Islands containers:
   - `src/components/ui/card.tsx`;
   - `src/components/shared/CollapsibleCard.tsx`;
@@ -210,7 +266,7 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
   - `src/components/branch/BranchCreator.tsx`.
 - IntelliJ Islands theme: `community/platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json` and
   `ManyIslandsDark.theme.json` in the IntelliJ monorepo (`Island.arc`, `Button.arc`, `Component.arc`, `Banner.arc`,
-  `main-window-bg`, `tool-window-bg`).
+  `main-window-bg`, `tool-window-bg`, the `gray-*` and `blue-*` palette).
 - JetBrains genui, the IntelliJ theme mapped to shadcn tokens:
   `plugins/air/frontend/genui/jcef/web-bundle/src/host/style-variables.ts` and `src/catalog/styles/catalog.css`.
 - Related docs: [e2e-testing.md](e2e-testing.md) for the snapshot workflow.

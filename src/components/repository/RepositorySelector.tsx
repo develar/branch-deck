@@ -70,7 +70,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
       {/* gives way first on a narrow window */}
       <TooltipTrigger render={<FieldGroup className="min-w-0" />}>
         <Select items={items} value={value} onValueChange={onValueChange} disabled={disabled}>
-          <SelectTrigger size="sm" className="w-3xs min-w-0 border-border bg-background" aria-invalid={hasError || undefined}>
+          <SelectTrigger size="sm" className="w-3xs min-w-0 border-input bg-background" aria-invalid={hasError || undefined}>
             <SelectValue>
               {(selected: string | null) => (
                 // rtl clips the start, the project name stays; bdi keeps the path itself left to right

@@ -268,7 +268,8 @@ parent's commits runs into the rule of its children.
 
 - Every cell has `py-4`. The name cell has `px-6`, a nested one `pl-8 pr-6`; the other cells `px-4`, `w-px` and
   `whitespace-nowrap`. The Status `<th>` has `min-w-[16rem]`.
-- The folder button is a ghost `icon-xs` button in `text-primary`. The name is `text-sm font-medium`, the subject
+- The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
+  repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the subject
   `text-xs text-muted-foreground`, its prefix `font-mono text-muted-foreground/70`.
 - The tree rules and the commit rail are neutral `border-l border-border` lines (`bd-nesting-level`,
   `bd-nesting-leaf` and `--bd-nesting-step` in `src/index.css`).

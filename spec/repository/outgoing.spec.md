@@ -266,9 +266,11 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   `border-border` rule under the caption "Dropped from the remote" (`text-xs text-muted-foreground`); a subject is
   one truncated line with its issue links and its dimmed conventional-commit prefix, as in the commit rows, the
   author, the `font-mono` short id and the age a muted line below it.
+- A routine push (`primary`) colours only its icon, the label stays `text-foreground`: the button repeats on every
+  row, and a fully coloured label (a force push in `warning`) means "look here".
 - A coloured push button keeps its colour and its tint while its description is open
-  (`aria-expanded:text-primary aria-expanded:bg-primary/10`, per hue, in `ghostButtonColorClass`): the ghost variant
-  would turn an open trigger to the foreground.
+  (`aria-expanded:bg-primary/10` with the icon in `text-primary`, `aria-expanded:text-warning aria-expanded:bg-warning/10`
+  for a force push, in `ghostButtonColorClass`): the ghost variant would turn an open trigger to the foreground.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should keep the colour of the push while its description is open`)
 - A disabled push button is `focusableWhenDisabled` (`aria-disabled`, no `disabled` attribute, which would stop the
   pointer events of the hover) and dimmed by `aria-disabled:opacity-50`; a running push keeps its colour beside the
@@ -287,11 +289,10 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 
 ## Open Questions / Risks
 
-- The `primary` green has a 2.2:1 contrast on the light card, the light tints 1.4–2.7:1; the counts and the state words
-  carry the values in text.
-- Solid green and solid amber are 6.4 ΔE apart for deuteranopia (validator floor band): the 2px gaps, the state words
-  and the button labels carry the state too. The two light tints are only 4–5 ΔE apart under CVD (13 normal vision);
-  they touch only across a gap, when a branch with others' commits is followed by one with none of the user's.
+- The `primary` blue has a 4.6:1 contrast on the light card, the light tints (`/40`) 1.7:1; the counts and the state
+  words carry the values in text.
+- Solid blue and solid amber stay far apart for deuteranopia, which keeps the blue–yellow axis (ΔE76 121 in a Machado
+  simulation, the light tints 49); the 2px gaps, the state words and the button labels carry the state too.
 - No test covers a branch whose remote status is not loaded yet, or the bar of more than 8 branches in the page.
 
 ## References

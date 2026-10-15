@@ -9,7 +9,7 @@ export function IndexPage() {
   // the "Install Agent CLI…" menu item
   useInstallAgentCli()
   return (
-    <Container className="py-4" data-testid="app-container">
+    <Container className="py-2" data-testid="app-container">
       <BranchCreator />
     </Container>
   )

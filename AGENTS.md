@@ -204,10 +204,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 
 ### Code Style
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
-  `text-destructive`) plus the custom `success`, `warning`, `info` (`text-success`, `bg-warning/10`). **Never** use `dark:`
-  variants; the theme is handled by the tokens.
+  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`). **Never** use
+  `dark:` variants; the theme is handled by the tokens, which are the IntelliJ Islands values (`src/index.css`).
 - **Window and cards** (Islands layering, see [UI Theme](docs/design/ui-theme.md)):
-  - the page canvas is `bg-muted`;
+  - the page canvas is `bg-canvas`; `bg-muted` is a translucent tint (hover, chips, code), not a surface;
   - top-level blocks (header, tables, collapsible sections, alerts) are stock `Card` islands, or `CollapsibleCard`;
   - never put `bg-muted`/`bg-background` divs on the canvas, and never recolour a top-level `Card` with `bg-muted`;
   - nested panels inside a card use `rounded-lg` (`rounded-xl` at most).
@@ -228,7 +228,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt
   the files. `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3
   API and pnpm dlx resolves zod 4.
-- **Locally customised ui files**: `alert`, `badge`, `button`, `popover`, `spinner`, `tooltip`, `toast` in `src/components/ui/` carry
+- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `popover`, `spinner`, `tooltip`, `toast` in `src/components/ui/` carry
   a `// local customisation: …` header naming the edits. After `add --overwrite` (e.g. a style switch), re-apply them;
   `git diff HEAD -- src/components/ui` shows what was lost.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.

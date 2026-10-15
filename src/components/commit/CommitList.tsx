@@ -244,7 +244,7 @@ const CommitRow = memo(function CommitRow(props: CommitRowProps) {
     // only selectable rows react to the pointer: hover on a row that does nothing on click is a false affordance
     "className": cn(
       selectable && "cursor-pointer select-none hover:bg-muted",
-      selectable && selected && "bg-primary/10 hover:bg-primary/15",
+      selectable && selected && "bg-primary/15 hover:bg-primary/20",
     ),
     "onClick": selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
     ...(onDragStart === undefined

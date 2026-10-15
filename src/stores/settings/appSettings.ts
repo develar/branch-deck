@@ -1,10 +1,11 @@
 import { z } from "zod"
+import { DEFAULT_PRIMARY_COLOR } from "@/lib/theme"
 import { useStore } from "zustand"
 import { createPersistentStore } from "./persistent-store"
 
 // Validation schema with defaults
 const AppSettingsSchema = z.object({
-  primaryColor: z.string().default("green"),
+  primaryColor: z.string().default(DEFAULT_PRIMARY_COLOR),
   neutralColor: z.string().optional(),
   radius: z.number().optional(),
   globalUserBranchPrefix: z.string().optional(),

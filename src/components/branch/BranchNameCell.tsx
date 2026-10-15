@@ -42,7 +42,7 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="shrink-0 text-primary hover:text-primary aria-expanded:text-primary"
+                className="shrink-0 text-muted-foreground aria-expanded:text-foreground"
                 // every row has one: the label names the branch
                 aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
                 aria-expanded={expanded}

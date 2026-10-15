@@ -27,12 +27,13 @@ export function subtleBadgeVariant(color: UIColor): SubtleBadgeVariant {
 
 /**
  * Text colour of a ghost button, for an action that repeats on every row and must stay quiet. The colour stays while
- * the button's popover is open (`aria-expanded`), which the ghost variant would turn to the foreground.
+ * the button's popover is open (`aria-expanded`), which the ghost variant would turn to the foreground. A routine
+ * action (`primary`) colours only its icon, so a fully coloured label in the column means "look here".
  */
 export function ghostButtonColorClass(color: UIColor): string {
   switch (color) {
     case "primary":
-      return "text-primary hover:bg-primary/10 hover:text-primary aria-expanded:bg-primary/10 aria-expanded:text-primary"
+      return "text-foreground hover:bg-primary/10 aria-expanded:bg-primary/10 aria-expanded:text-foreground [&_svg]:text-primary"
     case "success":
       return "text-success hover:bg-success/10 hover:text-success aria-expanded:bg-success/10 aria-expanded:text-success"
     case "info":
