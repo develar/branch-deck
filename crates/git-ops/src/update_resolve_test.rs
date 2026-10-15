@@ -32,6 +32,7 @@ fn file(key: usize, path: &str) -> ConflictFile {
     onto: None,
     commit: None,
     mode: String::new(),
+    renamed_from: None,
   }
 }
 
@@ -74,6 +75,13 @@ fn only_text_and_modify_delete_conflicts_are_supported() {
       ("md.txt", ConflictKind::ModifyDelete, true),
       ("added.txt", ConflictKind::Content, false)
     ]
+  );
+  // a rename on one side and a delete on the other: the stages are at the new path
+  let renamed =
+    conflict_files(&parse_merge_tree_output(b"tree\x00100644 r1 1\ty.txt\x00100644 r1 2\ty.txt\0\x002\0y.txt\0x.txt\0CONFLICT (rename/delete)\0x\n\0").unwrap()).unwrap();
+  assert_eq!(
+    (renamed[0].kind, renamed[0].renamed_from.as_deref(), renamed[0].is_named("x.txt")),
+    (ConflictKind::RenameDelete, Some("x.txt"), true)
   );
 
   let refused = |output: &[u8]| {

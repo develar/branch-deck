@@ -110,6 +110,9 @@ pub struct UpdateOutput {
   /// The finish of a resolve session: the local commits a resolution dropped (`--drop-empty`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub dropped_by_resolution: Option<u32>,
+  /// The finish of a resolve session: the local commits left out because the baseline has the same patch
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed_dropped: Vec<LandedDropOutput>,
   /// `update:<previous_head>..<head>` with full ids: `bd undo` moves the branch and the files back; omitted when
   /// nothing changed
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -169,8 +172,21 @@ pub struct UpdateSession {
   /// The labels after the markers in the `edit` copies of the open round
   #[serde(skip_serializing_if = "Option::is_none")]
   pub marker_labels: Option<MarkerLabelsOutput>,
+  /// Local commits left out of the replay: the baseline has a commit with the same patch (`git cherry`), as
+  /// `git rebase` leaves them out
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed_dropped: Vec<LandedDropOutput>,
   /// The command that continues, e.g. `bd -C /repo update --continue --round 2`
   pub next: String,
+}
+
+/// A local commit left out because the baseline has the same patch
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandedDropOutput {
+  pub commit: String,
+  pub subject: String,
+  /// The baseline commit with the same patch id
+  pub upstream: String,
 }
 
 /// The text after `<<<<<<<`, `|||||||` and `>>>>>>>` in the `edit` copies (the full ids bd passed to the merge)
@@ -203,9 +219,16 @@ pub struct SessionCommit {
 pub struct SessionFile {
   /// The path in the repository
   pub path: String,
-  /// `content` (both sides changed the text: `edit` has zdiff3 markers) or `modify_delete` (one side deleted it: `edit`
-  /// is the changed version)
+  /// `content` (both sides changed the text: `edit` has zdiff3 markers), `modify_delete` (one side deleted it: `edit` is
+  /// the changed version) or `rename_delete` (one side renamed it from `renamed_from`, the other deleted it)
   pub kind: String,
+  /// The path before the rename of a `rename_delete`; `--take` and `--delete` take either path
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub renamed_from: Option<String>,
+  /// The `edit` copy differs from bd's merge result: your resolution is there (a refused --continue keeps it); absent
+  /// without a regular file there
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub edited: Option<bool>,
   /// The file to edit (absolute): the merge result, with the markers
   pub edit: String,
   /// The file in the commit's parent (absolute)
@@ -452,6 +475,7 @@ fn view_ids(view: &SessionView) -> Vec<&str> {
       .flat_map(|resolution| [Some(resolution.commit.as_str()), resolution.resolved.as_deref()])
       .flatten(),
   );
+  ids.extend(view.landed_dropped.iter().flat_map(|(commit, _, upstream)| [commit.as_str(), upstream.as_str()]));
   ids
 }
 
@@ -481,14 +505,17 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
       kind: match file.kind {
         ConflictKind::Content => "content",
         ConflictKind::ModifyDelete => "modify_delete",
+        ConflictKind::RenameDelete => "rename_delete",
       }
       .to_string(),
+      renamed_from: file.renamed_from.clone(),
+      edited: file.edited,
       edit: path_string(&file.edit),
       before: file.before.as_deref().map(path_string),
       onto: file.onto.as_deref().map(path_string),
       commit: file.commit.as_deref().map(path_string),
       markers: file.markers,
-      hint: file_hint(file.kind, file.onto.is_some(), &file.path),
+      hint: file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref()),
       upstream_commits: conflict_commits(&file.upstream_commits, short),
     })
     .collect();
@@ -507,6 +534,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
     files,
     resolutions: resolutions_of(&state.resolutions, short),
     blocked_paths: view.blocked_paths.clone(),
+    landed_dropped: landed_dropped_of(view, short),
     marker_labels: view.round.as_ref().map(|round| MarkerLabelsOutput {
       onto: round.labels.onto.clone(),
       before: round.labels.before.clone(),
@@ -516,8 +544,27 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
   }
 }
 
-fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str) -> String {
+fn landed_dropped_of(view: &SessionView, short: &ShortIds) -> Vec<LandedDropOutput> {
+  view
+    .landed_dropped
+    .iter()
+    .map(|(commit, subject, upstream)| LandedDropOutput {
+      commit: short.get(commit).to_string(),
+      subject: subject.clone(),
+      upstream: short.get(upstream).to_string(),
+    })
+    .collect()
+}
+
+fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Option<&str>) -> String {
+  let from = renamed_from.unwrap_or(path);
   match kind {
+    ConflictKind::RenameDelete if onto_has_it => {
+      format!("`onto` renamed {from} to {path} and the commit deletes it: --delete {path} keeps the delete, --take onto:{path} keeps the renamed file, or edit `edit`")
+    }
+    ConflictKind::RenameDelete => {
+      format!("The commit renames {from} to {path} and `onto` deleted it: --delete {path} keeps the delete, --take commit:{path} keeps the renamed file, or edit `edit`")
+    }
     ConflictKind::Content => "Edit `edit`: keep the change of `onto` and reapply the intent of the commit (`patch`), then remove every conflict marker".to_string(),
     ConflictKind::ModifyDelete if onto_has_it => {
       format!("The commit deletes the file that `onto` changed: --delete {path} keeps the delete, --take onto:{path} keeps the file of `onto`, or edit `edit`")
@@ -608,6 +655,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     replayed: None,
     dropped_already_upstream: None,
     dropped_by_resolution: None,
+    landed_dropped: Vec::new(),
     undo_token: None,
     landed: Vec::new(),
     conflict: None,
@@ -622,6 +670,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.replayed = Some(replayed);
       output.dropped_already_upstream = Some(dropped);
       output.dropped_by_resolution = Some(dropped_by_resolution);
+      output.landed_dropped = landed_dropped_of(&view, &short);
       output.undo_token = Some(UpdateUndoToken { previous_head, new_head }.to_string());
       output.landed = landed_summary(landed, &short);
       output.resolutions = resolutions_of(&state.resolutions, &short);
@@ -671,6 +720,7 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
     };
     let mut cli_error = CliError::new(code, refusal.to_string());
     cli_error.paths = refusal.paths().to_vec();
+    cli_error.commits = refusal.commit().map(|commit| short_id(commit).to_string()).into_iter().collect();
     return cli_error;
   } else {
     return CliError::from(error);
@@ -738,6 +788,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     session: None,
     resolutions: Vec::new(),
     dropped_by_resolution: None,
+    landed_dropped: Vec::new(),
   })
 }
 

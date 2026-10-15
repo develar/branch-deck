@@ -63,6 +63,10 @@ pub struct FileView {
   pub commit: Option<PathBuf>,
   /// The conflict blocks left in the `edit` copy on disk now; `None` without a regular file there
   pub markers: Option<usize>,
+  /// The `edit` copy differs from bd's merge result: the agent's resolution is there; `None` without a regular file
+  pub edited: Option<bool>,
+  /// The path before the rename of a rename/delete
+  pub renamed_from: Option<String>,
   /// The upstream commits since the merge base that changed the file, newest first
   pub upstream_commits: Vec<UpdateCommit>,
 }
@@ -95,6 +99,8 @@ pub struct SessionView {
   pub round: Option<RoundView>,
   /// Local changes on paths the update likely writes: they will block the finish
   pub blocked_paths: Vec<String>,
+  /// The local commits left out because the upstream has the same patch: `(commit, subject, upstream commit)`
+  pub landed_dropped: Vec<(String, String, String)>,
 }
 
 /// What a session step did
@@ -133,6 +139,7 @@ pub fn view_session(git_executor: &GitCommandExecutor, repo_path: &str, session:
 /// The view of `state`; `objects` of its round when the step read them already
 fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, objects: Option<&RoundObjects>, materialize: Option<Materialize>) -> Result<SessionView> {
   let root = session_root(state);
+  let landed_dropped = landed_dropped(git_executor, repo_path, state);
   let blocked_paths = if state.status == SessionStatus::Applied {
     Vec::new()
   } else {
@@ -147,6 +154,7 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
       root,
       round: None,
       blocked_paths,
+      landed_dropped,
     });
   };
   let read;
@@ -172,9 +180,9 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     .iter()
     .map(|file| {
       let edit = copy_path(&root, state.round, "edit", file);
-      let markers = match read_edit_copy(state, file) {
-        Ok(EditCopy::Content(content)) => Some(count_markers(&content, labels)),
-        _ => None,
+      let (markers, edited) = match read_edit_copy(state, file) {
+        Ok(EditCopy::Content(content)) => (Some(count_markers(&content, labels)), Some(objects.merged.get(&file.path) != Some(&content))),
+        _ => (None, None),
       };
       let side = |side: &str, stage: &Option<Stage>| stage.as_ref().map(|_| copy_path(&root, state.round, side, file));
       FileView {
@@ -185,6 +193,8 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
         commit: side("commit", &file.commit),
         edit,
         markers,
+        edited,
+        renamed_from: file.renamed_from.clone(),
         upstream_commits: upstream.remove(&file.path).unwrap_or_default(),
       }
     })
@@ -214,7 +224,29 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     root,
     round: Some(round),
     blocked_paths,
+    landed_dropped,
   })
+}
+
+/// The commits of `state.landed_dropped` with their subjects, with one `log --no-walk` when there are any
+fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Vec<(String, String, String)> {
+  if state.landed_dropped.is_empty() {
+    return Vec::new();
+  }
+  let mut args = vec!["log", "--no-walk=unsorted", "--format=%H%x00%s"];
+  args.extend(state.landed_dropped.iter().map(|drop| drop.commit.as_str()));
+  args.push("--");
+  let subjects: HashMap<String, String> = git_executor
+    .execute_command_lines(&args, repo_path)
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|line| line.split_once('\0').map(|(id, subject)| (id.to_string(), subject.to_string())))
+    .collect();
+  state
+    .landed_dropped
+    .iter()
+    .map(|drop| (drop.commit.clone(), subjects.get(&drop.commit).cloned().unwrap_or_default(), drop.upstream.clone()))
+    .collect()
 }
 
 /// Start the session of an update whose check conflicted, under the lock the update holds. `candidates` are the landed
@@ -386,7 +418,8 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
       let dropped_already_upstream = u32::try_from(state.total())
         .unwrap_or(u32::MAX)
         .saturating_sub(replayed)
-        .saturating_sub(dropped_by_resolution);
+        .saturating_sub(dropped_by_resolution)
+        .saturating_add(u32::try_from(state.landed_dropped.len()).unwrap_or(u32::MAX));
       Ok(SessionOutcome::Applied {
         view: view_state(git_executor, repo_path, state, None, None)?,
         previous_head,

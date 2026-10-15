@@ -67,6 +67,15 @@ pub enum ConflictKind {
   Content,
   /// One side changed the file and the other deleted it: `edit` is the changed version, without markers
   ModifyDelete,
+  /// One side renamed the file (`renamed_from` to `path`) and the other deleted it: `edit` is the renamed version
+  RenameDelete,
+}
+
+impl ConflictKind {
+  /// One side has no file: `edit` is the version left in the tree, without markers
+  pub fn is_one_sided(self) -> bool {
+    matches!(self, Self::ModifyDelete | Self::RenameDelete)
+  }
 }
 
 /// A stage of a conflicting path: its mode and blob
@@ -92,6 +101,16 @@ pub struct ConflictFile {
   /// The mode of the resolved file, merged as git does: a change of one side wins
   #[serde(default)]
   pub mode: String,
+  /// The path before the rename of a `RenameDelete`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub renamed_from: Option<String>,
+}
+
+impl ConflictFile {
+  /// Whether `path` names this file: its path, or the path before its rename
+  pub fn is_named(&self, path: &str) -> bool {
+    self.path == path || self.renamed_from.as_deref() == Some(path)
+  }
 }
 
 impl ConflictFile {
@@ -265,11 +284,29 @@ pub struct SessionState {
   /// Where the notes ref pointed before the finish moved it, for its rollback
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notes_before: Option<String>,
+  /// Local commits left out because the upstream has a commit with the same patch id, as `git rebase` leaves them out
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed_dropped: Vec<LandedDrop>,
+  /// The indices of `local` where a run of consecutive commits starts after one left out: a replay covers one run
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub run_starts: Vec<usize>,
+}
+
+/// A local commit left out of the replay: the upstream has `upstream`, a commit with the same patch id
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LandedDrop {
+  pub commit: String,
+  pub upstream: String,
 }
 
 impl SessionState {
   pub fn total(&self) -> usize {
     self.local.len()
+  }
+
+  /// The end (exclusive) of the run of consecutive commits that holds `local[index]`
+  fn run_end(&self, index: usize) -> usize {
+    self.run_starts.iter().copied().find(|&start| start > index).unwrap_or(self.local.len())
   }
 
   /// The committer as `GIT_COMMITTER_*` variables for `git replay`
@@ -371,7 +408,9 @@ pub struct Refusal {
   pub edits: Vec<String>,
   /// The paths that also changed in the working tree, where bd never reads
   pub changed_in_working_tree: Vec<String>,
-  /// The subject of the round's commit
+  /// The round and its commit, with the commit's subject
+  pub round: u32,
+  pub commit: String,
   pub subject: String,
 }
 
@@ -393,6 +432,7 @@ impl Refusal {
 impl fmt::Display for Refusal {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let names = self.names();
+    write!(f, "Round {}, commit {} {}: ", self.round, short_id(&self.commit), self.subject)?;
     match self.kind {
       RefusalKind::UnresolvedMarkers => write!(f, "Conflict markers are left in {names}; remove the markers of every block")?,
       RefusalKind::OutsideConflict => write!(
@@ -418,8 +458,13 @@ impl fmt::Display for Refusal {
         self.changed_in_working_tree.join(", ")
       )?;
     }
-    Ok(())
+    write!(f, ". {}", unchanged(self.round))
   }
+}
+
+/// What a refused `--continue` leaves: nothing
+fn unchanged(round: u32) -> String {
+  format!("Nothing changed: round {round} stays open, and the edit copies keep your edits; fix them and run --continue again")
 }
 
 /// A refusal of a session step; nothing was written
@@ -428,7 +473,7 @@ pub enum ResolveError {
   /// The resolution of some files is refused
   Refused(Refusal),
   /// The resolution leaves the commit without changes, and neither `--allow-empty` nor `--drop-empty` decided it
-  EmptyResolution { commit: String, subject: String },
+  EmptyResolution { round: u32, commit: String, subject: String },
   /// The conflict is of a type a round can't resolve (binary, file/directory, rename, mode, submodule, symlink)
   Unsupported { paths: Vec<String>, message: String },
   /// The branch was rewritten, HEAD left the branch, or the session belongs to another worktree; `--abort` removes it
@@ -445,12 +490,13 @@ impl fmt::Display for ResolveError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Refused(refusal) => refusal.fmt(f),
-      Self::EmptyResolution { commit, subject } => write!(
+      Self::EmptyResolution { round, commit, subject } => write!(
         f,
-        "The resolution leaves {} ({subject}) without any change. Ask the user: --allow-empty keeps it as an empty commit, \
-         --drop-empty {} drops it; or resolve it another way",
+        "Round {round}, commit {} {subject}: the resolution leaves it without any change. Ask the user: --allow-empty keeps it \
+         as an empty commit, --drop-empty {} drops it; or resolve it another way. {}",
         short_id(commit),
-        short_id(commit)
+        short_id(commit),
+        unchanged(*round)
       ),
       Self::Unsupported { message, .. } | Self::Stale { message } | Self::InvalidInput { message } | Self::FinishPending { message } => f.write_str(message),
       Self::RoundMoved { expected, actual } => write!(
@@ -464,6 +510,15 @@ impl fmt::Display for ResolveError {
 impl std::error::Error for ResolveError {}
 
 impl ResolveError {
+  /// The local commit the refusal is about, when it names one
+  pub fn commit(&self) -> Option<&str> {
+    match self {
+      Self::Refused(refusal) => Some(&refusal.commit),
+      Self::EmptyResolution { commit, .. } => Some(commit),
+      _ => None,
+    }
+  }
+
   /// The paths the refusal is about
   pub fn paths(&self) -> &[String] {
     match self {
@@ -604,7 +659,20 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   let mut args = vec!["rev-list", "--reverse"];
   args.extend(revs.iter().map(String::as_str));
   args.push("--");
-  let local = git_executor.execute_command_lines(&args, repo_path)?;
+  let all_local = git_executor.execute_command_lines(&args, repo_path)?;
+  let landed_dropped = patch_identical(git_executor, repo_path, &checked.upstream_head, &checked.head, &all_local)?;
+  let mut local = Vec::with_capacity(all_local.len());
+  let mut run_starts = Vec::new();
+  for (index, commit) in all_local.iter().enumerate() {
+    if landed_dropped.iter().any(|drop| drop.commit == *commit) {
+      continue;
+    }
+    // a gap before it: a run of consecutive commits starts here
+    if index > 0 && !local.is_empty() && local.last() != Some(&all_local[index - 1]) {
+      run_starts.push(local.len());
+    }
+    local.push(commit.clone());
+  }
   let worktree = start.worktree;
   let mut state = SessionState {
     version: STATE_VERSION,
@@ -629,9 +697,15 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     conflict: None,
     resolutions: Vec::new(),
     notes_before: None,
+    landed_dropped,
+    run_starts,
   };
-  // the check replayed all of them and conflicted
-  let objects = advance(git_executor, repo_path, &mut state, true)?;
+  if !state.landed_dropped.is_empty() {
+    info!(left_out = state.landed_dropped.len(), "local commits the upstream has with the same patch id are left out");
+  }
+  // the check replayed all of them and conflicted; without the landed ones it may not
+  let known_conflict = state.landed_dropped.is_empty();
+  let objects = advance(git_executor, repo_path, &mut state, known_conflict)?;
   let session_ref = session_ref(&worktree.id);
   let written = write_state(git_executor, repo_path, &state, None)?;
   let mut transaction = RefTransaction::new();
@@ -746,7 +820,7 @@ pub fn continue_session(
       )?;
       let empty = written.tree == written.parent_tree;
       let resolved = if empty {
-        match empty_choice(&conflict, raw, input) {
+        match empty_choice(state.round, &conflict, raw, input) {
           Ok(keep) => keep.then(|| written.commit.clone()),
           Err(e) => {
             written_discard(git_executor, repo_path, &written.temp_ref);
@@ -808,9 +882,50 @@ pub fn continue_session(
   Ok(Step::Round(session))
 }
 
+/// The local commits (`local`) whose patch id equals that of an upstream commit since the merge base, with that commit:
+/// one `rev-list --cherry-mark` marks the commits of both sides that have a counterpart, then one `diff-tree --stdin -p`
+/// and one `patch-id --stable` pair them. As `git rebase` does, they are left out of the replay; the patch id is the
+/// proof that the upstream has their change
+fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_head: &str, head: &str, local: &[String]) -> Result<Vec<LandedDrop>> {
+  let marked = git_executor.execute_command_lines(&["rev-list", "--cherry-mark", "--no-merges", &format!("{upstream_head}...{head}"), "--"], repo_path)?;
+  let equivalent: Vec<&str> = marked.iter().filter_map(|line| line.strip_prefix('=')).collect();
+  if equivalent.is_empty() {
+    return Ok(Vec::new());
+  }
+  let input: String = equivalent.iter().fold(String::new(), |mut input, id| {
+    let _ = writeln!(input, "{id}");
+    input
+  });
+  let patches = git_executor.execute_command_with_input_raw(&["diff-tree", "--stdin", "-p", "--no-renames", "--no-ext-diff", "--no-textconv"], repo_path, &input)?;
+  let ids = git_executor.execute_command_with_input_bytes(&["patch-id", "--stable"], repo_path, &patches)?;
+  // `<patch id> <commit>` per commit
+  let mut upstream_by_patch: HashMap<&str, &str> = HashMap::new();
+  let mut local_by_patch: Vec<(&str, &str)> = Vec::new();
+  let ids = String::from_utf8_lossy(&ids).into_owned();
+  for line in ids.lines() {
+    let Some((patch, commit)) = line.split_once(' ') else { continue };
+    if local.iter().any(|id| id == commit) {
+      local_by_patch.push((patch, commit));
+    } else {
+      upstream_by_patch.entry(patch).or_insert(commit);
+    }
+  }
+  Ok(
+    local_by_patch
+      .into_iter()
+      .filter_map(|(patch, commit)| {
+        upstream_by_patch.get(patch).map(|upstream| LandedDrop {
+          commit: commit.to_string(),
+          upstream: (*upstream).to_string(),
+        })
+      })
+      .collect(),
+  )
+}
+
 /// What a resolution without changes does: `Ok(true)` keeps the empty commit (`--allow-empty`), `Ok(false)` drops it
 /// (`--drop-empty` with the round's commit); without either, `EmptyResolution`
-fn empty_choice(conflict: &RoundConflict, raw: &RawCommit, input: &RoundInput) -> Result<bool> {
+fn empty_choice(round: u32, conflict: &RoundConflict, raw: &RawCommit, input: &RoundInput) -> Result<bool> {
   if input.allow_empty {
     return Ok(true);
   }
@@ -821,6 +936,7 @@ fn empty_choice(conflict: &RoundConflict, raw: &RawCommit, input: &RoundInput) -
       short_id(&conflict.commit)
     ))),
     None => Err(anyhow::Error::new(ResolveError::EmptyResolution {
+      round,
       commit: conflict.commit.clone(),
       subject: subject_of(raw),
     })),
@@ -903,6 +1019,10 @@ fn follow_head(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut S
   ensure_no_merges(git_executor, repo_path, &head, &[&state.head])?;
   let new = git_executor.execute_command_lines(&["rev-list", "--reverse", &head, &format!("^{}", state.head), "--"], repo_path)?;
   info!(new = new.len(), "commits on top of the session's HEAD join the session");
+  // a run of consecutive commits ends at a commit left out as landed
+  if !new.is_empty() && state.local.last() != Some(&state.head) {
+    state.run_starts.push(state.local.len());
+  }
   state.local.extend(new);
   state.head = head;
   // a finished replay replays the new commits too
@@ -946,7 +1066,7 @@ fn check_round(
   conflict: &RoundConflict,
   input: &RoundInput,
 ) -> Result<(Resolution, Vec<PathEdit>, RoundObjects)> {
-  let known = |path: &str| conflict.files.iter().any(|file| file.path == path);
+  let known = |path: &str| conflict.files.iter().any(|file| file.is_named(path));
   if let Some(path) = input.takes.iter().map(|(_, path)| path).chain(&input.deletes).find(|path| !known(path)) {
     return Err(invalid_input(&format!("{path} is not a conflicting file of round {}", state.round)));
   }
@@ -958,9 +1078,9 @@ fn check_round(
   let mut paths = Vec::new();
   let mut edits = Vec::new();
   for file in &conflict.files {
-    let take = input.takes.iter().find(|(_, path)| *path == file.path).map(|(side, _)| *side);
-    let delete = input.deletes.contains(&file.path);
-    if take.is_some() && delete || input.takes.iter().filter(|(_, path)| *path == file.path).count() > 1 {
+    let take = input.takes.iter().find(|(_, path)| file.is_named(path)).map(|(side, _)| *side);
+    let delete = input.deletes.iter().any(|path| file.is_named(path));
+    if take.is_some() && delete || input.takes.iter().filter(|(_, path)| file.is_named(path)).count() > 1 {
       return Err(invalid_input(&format!("{} has more than one resolution", file.path)));
     }
     let path = file.path.clone();
@@ -992,11 +1112,11 @@ fn check_round(
       let failure = match file.kind {
         ConflictKind::Content => check_resolution(merged, content, labels).err(),
         // the version left in the tree: unchanged, it decides nothing
-        ConflictKind::ModifyDelete if content.as_slice() == merged => {
+        kind if kind.is_one_sided() && content.as_slice() == merged => {
           refused.push((RefusalKind::MissingResolution, path));
           continue;
         }
-        ConflictKind::ModifyDelete => has_markers(content, labels).then_some(CheckFailure::UnresolvedMarkers),
+        _ => has_markers(content, labels).then_some(CheckFailure::UnresolvedMarkers),
       };
       if let Some(failure) = failure {
         let kind = match failure {
@@ -1038,6 +1158,8 @@ fn check_round(
         paths,
         edits: Vec::new(),
         changed_in_working_tree: Vec::new(),
+        round: state.round,
+        commit: conflict.commit.clone(),
         subject: subject_of(&objects.commit),
       })));
     }
@@ -1151,23 +1273,32 @@ fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut Sessi
   let env: Vec<(&str, &str)> = env.iter().map(|(name, value)| (*name, value.as_str())).collect();
   let total = state.local.len();
   let replay = |state: &SessionState, last: usize| -> Result<Option<String>> {
-    // linear history: `<last> ^<first>^` is exactly the commits from `replayed` to `last`
+    // linear history within a run: `<last> ^<first>^` is exactly the commits from `replayed` to `last`
     let revs = [state.local[last].clone(), format!("^{}^", state.local[state.replayed])];
     let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
     Ok(replay_range_with_env(git_executor, repo_path, &state.tip, &revs, &env)?)
   };
-  if state.replayed == total {
-    state.status = SessionStatus::Ready;
-    return Ok(None);
-  }
-  if !known_conflict && let Some(tip) = replay(state, total - 1)? {
-    state.tip = tip;
-    state.replayed = total;
-    state.status = SessionStatus::Ready;
-    return Ok(None);
-  }
+  // one replay per run of consecutive commits; the first run that conflicts is searched
+  let high = loop {
+    if state.replayed == total {
+      state.status = SessionStatus::Ready;
+      return Ok(None);
+    }
+    let end = state.run_end(state.replayed);
+    // the check replayed all of them in one run and conflicted
+    if known_conflict && state.run_starts.is_empty() {
+      break end - 1;
+    }
+    match replay(state, end - 1)? {
+      Some(tip) => {
+        state.tip = tip;
+        state.replayed = end;
+      }
+      None => break end - 1,
+    }
+  };
   // the first commit whose prefix conflicts: `high` always conflicts, every prefix before `low` replays cleanly
-  let (mut low, mut high) = (state.replayed, total - 1);
+  let (mut low, mut high) = (state.replayed, high);
   let mut tip = state.tip.clone();
   while low < high {
     let middle = low + (high - low) / 2;
@@ -1214,10 +1345,11 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
   if exit_code == 0 || merge.entries.is_empty() {
     bail!("{} replays with a conflict, but merge-tree merges it cleanly", short_id(commit));
   }
+  let files = conflict_files(&merge).map_err(|e| name_the_commit(git_executor, repo_path, state, e))?;
   let conflict = RoundConflict {
     commit: commit.clone(),
     onto: state.tip.clone(),
-    files: conflict_files(&merge)?,
+    files,
     merge_tree: merge.tree,
   };
   let objects = read_round_objects(git_executor, repo_path, &conflict)?;
@@ -1234,15 +1366,37 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
       "The conflict can't be resolved in a round of bd update: bd finds no conflict block it wrote in {}. `bd update --abort`, then update in a terminal",
       unreadable.join(", ")
     );
-    return Err(anyhow::Error::new(ResolveError::Unsupported { paths: unreadable, message }));
+    let error = anyhow::Error::new(ResolveError::Unsupported { paths: unreadable, message });
+    return Err(name_the_commit(git_executor, repo_path, state, error));
   }
   Ok((conflict, objects))
+}
+
+/// An `Unsupported` refusal of the round of `state` with the round and the commit (id and subject) in front
+fn name_the_commit(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, error: anyhow::Error) -> anyhow::Error {
+  let Some(ResolveError::Unsupported { paths, message }) = error.downcast_ref::<ResolveError>() else {
+    return error;
+  };
+  let commit = &state.local[state.replayed];
+  let subject = git_executor.execute_command(&["log", "-1", "--format=%s", commit, "--"], repo_path).unwrap_or_default();
+  let mut message = format!("Round {}, commit {} {subject}: {message}", state.round, short_id(commit));
+  if !state.resolutions.is_empty() {
+    message.push_str(". The rounds resolved so far are lost with --abort");
+  }
+  anyhow::Error::new(ResolveError::Unsupported { paths: paths.clone(), message })
 }
 
 /// The conflicting paths of a merge, each a supported type; any other type refuses the whole round
 pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile>> {
   let mut unsupported: Vec<(String, String)> = Vec::new();
-  let supported_kind = |kind: &str| matches!(kind, "CONFLICT (contents)" | "CONFLICT (modify/delete)" | "CONFLICT (add/add)");
+  let supported_kind = |kind: &str| matches!(kind, "CONFLICT (contents)" | "CONFLICT (modify/delete)" | "CONFLICT (add/add)" | "CONFLICT (rename/delete)");
+  // `<new path>`, `<old path>` of each rename/delete
+  let renamed: Vec<(&[u8], &[u8])> = merge
+    .messages
+    .iter()
+    .filter(|message| message.kind == "CONFLICT (rename/delete)")
+    .filter_map(|message| Some((message.paths.first()?.as_slice(), message.paths.get(1)?.as_slice())))
+    .collect();
   for message in merge
     .messages
     .iter()
@@ -1290,8 +1444,14 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       (_, Some(side), None) | (_, None, Some(side)) => side.mode.clone(),
       _ => String::new(),
     };
+    let renamed_from = renamed
+      .iter()
+      .find(|(new, _)| *new == path.as_bytes())
+      .and_then(|(_, old)| std::str::from_utf8(old).ok())
+      .map(str::to_string);
     let kind = match (&before, &onto, &commit) {
       (_, Some(_), Some(_)) => ConflictKind::Content,
+      (Some(_), Some(_), None) | (Some(_), None, Some(_)) if renamed_from.is_some() => ConflictKind::RenameDelete,
       (Some(_), Some(_), None) | (Some(_), None, Some(_)) => ConflictKind::ModifyDelete,
       _ => {
         unsupported.push((path.to_string(), "an unknown stage set".to_string()));
@@ -1306,12 +1466,13 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       onto,
       commit,
       mode,
+      renamed_from,
     });
   }
   if !unsupported.is_empty() {
     unsupported.dedup();
     let message = format!(
-      "The conflict can't be resolved in a round of bd update: {}. Only text conflicts and modify/delete are supported; `bd update --abort`, then update in a terminal",
+      "The conflict can't be resolved in a round of bd update: {}. Only text conflicts, modify/delete and rename/delete are supported; `bd update --abort`, then update in a terminal",
       unsupported.iter().map(|(path, kind)| format!("{path} ({kind})")).collect::<Vec<_>>().join(", ")
     );
     let mut paths: Vec<String> = unsupported.into_iter().map(|(path, _)| path).collect();

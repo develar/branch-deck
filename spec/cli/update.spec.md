@@ -44,7 +44,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - Binary, file/directory, rename, mode, symlink and submodule conflicts: a round refuses them.
 - A partial `--continue`: a round needs a resolution for every conflicting file.
-- Skipping a commit that the baseline likely has: bd only marks it.
+- Skipping a commit that the baseline likely has by its author, author time and subject only: bd marks it. Only a
+  patch id that equals one of the baseline proves that the baseline has the change.
 - Notes that follow a later rewrite of a resolved commit.
 
 ## Requirements
@@ -125,15 +126,22 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   replayed so far) and `commit` (the commit's version), a side left out when it has no such file, `markers` (the
   blocks left in `edit` now), a `hint`, and the newest 10 `upstream_commits` that changed it since the merge base.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `modify_delete_is_resolved_with_take_and_delete`)
-- A commit that the baseline likely has (same author, author time and subject) must get the hint "likely landed",
-  never be skipped.
+- A local commit whose patch id (`patch-id --stable`) equals that of a baseline commit since the merge base must be
+  left out of the replay, as `git rebase` leaves it out, and listed as `landed_dropped` with that baseline commit (in
+  each round and at the finish); it counts in `dropped_already_upstream`. The commits around it replay as runs, so a
+  conflict after it still opens its round.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_commit_the_upstream_has_with_the_same_patch_is_left_out`, `a_conflict_after_a_left_out_commit_opens_its_round`)
+- A commit that the baseline likely has by its author, author time and subject only must get the hint "likely
+  landed", never be skipped: that key is no proof.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`likely_landed_commits_get_the_hint`)
-- Only text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`) and
-  modify/delete must be supported. A mode that one side changed must be merged as git does; two modes that differ on
+- Only text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`),
+  modify/delete and rename/delete (kind `rename_delete`, with `renamed_from`; `--take` and `--delete` take either path)
+  must be supported. A mode that one side changed must be merged as git does; two modes that differ on
   both sides are `distinct modes`. Any other type (binary, file/directory, rename, distinct modes, a symlink or a
   submodule, an invalid path), and a `content` file whose merge result has no block of bd's labels, must refuse the
   whole round with `unsupported_conflict` (exit 4) and its `paths`; at the start no session is created.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`)
+  The same rename on both sides merges cleanly and opens no round.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `a_rename_and_a_delete_resolve_with_a_take`)
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`only_text_and_modify_delete_conflicts_are_supported`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_tree_the_stages_and_the_messages`, `a_clean_merge_has_only_the_tree`)
 - A second conflicting commit must open a new round with its own directory; the copies of the closed round are
@@ -167,8 +175,11 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 ### `--continue`
 
 - `bd update --continue` must check the resolution of every conflicting file of the open round, commit the round,
-  replay the rest, and open the next round (exit 1) or apply the update (exit 0). A refusal must change nothing.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
+  replay the rest, and open the next round (exit 1) or apply the update (exit 0). A refusal must change nothing, name
+  the round and its commit (id and subject, also in `error.commits`), and say that the round stays open and the edit
+  copies keep the agent's edits; `--status` then shows `edited` per file, whether its copy differs from bd's merge
+  result.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `a_refusal_names_the_commit_and_keeps_the_round`)
 - A resolution must be an edited `edit` copy, `--take onto:<path>`, `--take commit:<path>` or `--delete <path>`; a
   missing file is never a delete. No resolution is `missing_resolution`; an unchanged modify/delete copy is no
   resolution either. A take of a side without the file deletes it. A `--take` or `--delete` of a path the round does

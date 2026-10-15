@@ -556,7 +556,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 
 | Step | Command |
 |---|---|
-| Start | the check of "Update project" conflicted under the lock, and the session reuses its landed candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits) |
+| Start | the check of "Update project" conflicted under the lock, and the session reuses its landed candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits), `rev-list --cherry-mark`, `diff-tree --stdin -p` and `patch-id --stable` (the landed ones, left out) |
 | Find the conflict | a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
 | Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
 | The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
@@ -578,14 +578,22 @@ check for `blocked_paths` is the largest share.
   `dropped_by_resolution` and keeps it out of `dropped_already_upstream` and of the landed report, because the
   upstream does not have it.
 - **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
-  without `before`) and `CONFLICT (modify/delete)`, on regular files (`100644`, `100755`). The mode is merged as git
+  without `before`), `CONFLICT (modify/delete)` and `CONFLICT (rename/delete)` (the stages are at the new path; the
+  message gives the old one, so `--take` and `--delete` take either), on regular files (`100644`, `100755`). The mode is merged as git
   does: the side that changed it wins, and only two different modes on both sides are `distinct modes`. Any other
   conflict type of the `-z` messages (binary, file/directory, rename/*, distinct modes), a symlink (`120000`) or a
   gitlink (`160000`) stage, an invalid path, and a content file whose merge result has no block of bd's labels refuse
   the whole round with `unsupported_conflict`, with the paths. A file/directory conflict names its moved side file
-  (`df~<id>`) too. At the start no session is created.
-- **Landed commits.** A local commit that the landed detection likely finds upstream gets the hint "likely landed:
-  take onto". It is never skipped: in a session no whole replay proves that leaving it out keeps every local change.
+  (`df~<id>`) too. At the start no session is created. Every refusal names the round and its commit (id and
+  subject), and a refused `--continue` says that the round stays open and the copies keep the agent's edits.
+- **Landed commits.** At the start, one `rev-list --cherry-mark --no-merges U...H` marks the commits of both sides
+  that have a counterpart with the same patch, and one `diff-tree --stdin -p` with one `patch-id --stable` pairs them.
+  A local commit whose patch id equals that of an upstream commit since the merge base is left out of the replay, as
+  `git rebase` leaves it out (`landed_dropped`): the patch id proves that the upstream has its change, also when the
+  upstream changed the lines further and a replay would conflict. The other local commits form runs of consecutive
+  commits (`run_starts`): each replay covers one run, and the binary search runs inside the first run that conflicts.
+  A commit that the landed detection finds only by its author, author time and subject gets the hint "likely landed:
+  take onto" and is never left out: that key is no proof.
 - **Blocked paths early.** Each round prints `blocked_paths`: the local changes on the paths that the upstream changed
   since the merge base and that differ between HEAD and the upstream, found with the cheaper check of every sync. The
   agent asks the user about them before it resolves; the finish runs the exact check.

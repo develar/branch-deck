@@ -145,6 +145,18 @@ fn resolve_round(wrapped: &Wrapped) {
   std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
 }
 
+/// The subjects of the commits on top of the upstream, newest first
+fn local_subjects(clone: &TestRepo, upstream: &TestRepo) -> String {
+  git(clone, &["log", "--format=%s", &format!("{}..HEAD", upstream.head())])
+}
+
+/// Resolve `shared.txt` of `round`, the last one, and finish: `replayed` local commits on the upstream
+fn resolve_the_last_round(clone: &TestRepo, round: &Value, content: &str, replayed: usize) {
+  std::fs::write(edit_of(round, "shared.txt"), content).unwrap();
+  let (exit_code, done) = run_in(clone, &["update", "--continue"]);
+  assert_eq!((exit_code, &done["replayed"]), (0, &json!(replayed)), "{done}");
+}
+
 /// `--continue` with the wrapper's `fail` mark: the finish fails after the branch moved onto `upstream`
 #[cfg(unix)]
 fn fail_the_finish(wrapped: &Wrapped, clone: &TestRepo, upstream: &TestRepo) {
@@ -344,6 +356,8 @@ fn binary_and_file_directory_conflicts_are_refused_and_start_no_session() {
   let (exit_code, output) = run_in(&clone, &["update"]);
   assert_error(&output, exit_code, (4, "unsupported_conflict"));
   assert_eq!(output["error"]["paths"], json!(["bin.dat"]));
+  // the refusal names the commit
+  assert!(output["error"]["message"].as_str().unwrap().contains("(auth) Change the binary"), "{output}");
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
 
   git(&clone, &["reset", "-q", "--hard", "origin/master"]);
@@ -404,13 +418,8 @@ fn peers_commits_on_top_become_more_rounds() {
     "{round2}"
   );
   assert_eq!(round2["session"]["commit"]["subject"], json!("(peer) Change line 2 too"));
-  std::fs::write(edit_of(&round2, "shared.txt"), "one\ntheirs mine and peer\nthree\n").unwrap();
-  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
-  assert_eq!((exit_code, &done["replayed"]), (0, &json!(3)), "{done}");
-  assert_eq!(
-    git(&clone, &["log", "--format=%s", &format!("{}..HEAD", upstream.head())]),
-    "(peer) Change line 2 too\n(peer) Add peer\n(auth) Change line 2"
-  );
+  resolve_the_last_round(&clone, &round2, "one\ntheirs mine and peer\nthree\n", 3);
+  assert_eq!(local_subjects(&clone, &upstream), "(peer) Change line 2 too\n(peer) Add peer\n(auth) Change line 2");
   assert_eq!(worktree_status(&clone), "");
 }
 
@@ -873,4 +882,104 @@ fn a_take_reports_the_lines_of_the_other_side_it_drops() {
   assert_eq!(exit_code, 0, "{checked}");
   assert_eq!(checked["resolutions"][0]["files"][0]["dropped_upstream_lines"], json!(["theirs"]), "{checked}");
   assert_eq!(checked["resolutions"][0]["files"][0].get("dropped_commit_lines"), None, "{checked}");
+}
+
+/// A local commit that the upstream cherry-picked and then changed further: as `git rebase` does, bd leaves it out by
+/// its patch id instead of opening a round for it
+#[test_log::test]
+fn a_commit_the_upstream_has_with_the_same_patch_is_left_out() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
+  clone.create_commit("(auth) Add a", "a.txt", "a\n");
+  let landed = clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
+  clone.create_commit("(auth) Add b", "b.txt", "b\n");
+  let picked = upstream.create_commit("Change line 2 (picked)", "shared.txt", "one\nmine\nthree\n");
+  upstream.create_commit("Change line 2 further", "shared.txt", "one\nmine, further\nthree\n");
+
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(done["state"], json!("rebase"));
+  assert_eq!(
+    done["landed_dropped"],
+    json!([{ "commit": landed, "subject": "(auth) Change line 2", "upstream": picked }]),
+    "{done}"
+  );
+  assert_eq!((&done["replayed"], &done["dropped_already_upstream"]), (&json!(2), &json!(1)), "{done}");
+  assert_eq!(local_subjects(&clone, &upstream), "(auth) Add b\n(auth) Add a");
+  assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\nmine, further\nthree\n");
+  assert_eq!(worktree_status(&clone), "");
+}
+
+/// A left-out commit splits the local commits into runs; the conflict after it still opens its round
+#[test_log::test]
+fn a_conflict_after_a_left_out_commit_opens_its_round() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
+  clone.create_commit("(auth) Change other", "other.txt", "other, mine\n");
+  clone.create_commit("(auth) Add a", "a.txt", "a\n");
+  clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
+  clone.create_commit("(auth) Add b", "b.txt", "b\n");
+  upstream.create_commit("Change other (picked)", "other.txt", "other, mine\n");
+  upstream.create_commit("Change other further", "other.txt", "other, mine, further\n");
+  upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
+
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(round["session"]["commit"]["subject"], json!("(auth) Change line 2"));
+  assert_eq!((&round["session"]["replayed"], &round["session"]["total"]), (&json!(1), &json!(3)), "{round}");
+  assert_eq!(round["session"]["landed_dropped"][0]["subject"], json!("(auth) Change other"));
+  resolve_the_last_round(&clone, &round, "one\ntheirs mine\nthree\n", 3);
+  assert_eq!(local_subjects(&clone, &upstream), "(auth) Add b\n(auth) Change line 2\n(auth) Add a");
+}
+
+/// The same rename on both sides merges cleanly; a rename on one side and a delete on the other is a round that a
+/// take of either path resolves
+#[test_log::test]
+fn a_rename_and_a_delete_resolve_with_a_take() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("x.txt", "1\n2\n3\n4\n5\n6\n7\n8\n"), ("other.txt", "other\n")]);
+  git(&upstream, &["mv", "x.txt", "y.txt"]);
+  upstream.create_commit("Rename x", "other.txt", "other, upstream\n");
+  git(&clone, &["mv", "x.txt", "y.txt"]);
+  clone.create_commit("(auth) Rename x and change it", "y.txt", "1\nmine\n3\n4\n5\n6\n7\n8\n");
+  let (exit_code, done) = run_in(&clone, &["update"]);
+  assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+
+  for (take, kept) in [("onto:x.txt", true), ("commit:y.txt", false)] {
+    let (upstream, clone) = TestRepo::upstream_and_clone(&[("x.txt", "1\n2\n3\n4\n5\n6\n7\n8\n"), ("other.txt", "other\n")]);
+    git(&upstream, &["mv", "x.txt", "y.txt"]);
+    upstream.create_commit("Rename x", "other.txt", "other, upstream\n");
+    git(&clone, &["rm", "-q", "x.txt"]);
+    clone.create_commit("(auth) Delete x", "other.txt", "other, mine\n");
+    let (exit_code, round) = run_in(&clone, &["update"]);
+    assert_eq!(exit_code, 1, "{round}");
+    let file = file_of(&round, "y.txt");
+    assert_eq!((&file["kind"], &file["renamed_from"]), (&json!("rename_delete"), &json!("x.txt")), "{round}");
+    // other.txt conflicts too
+    std::fs::write(edit_of(&round, "other.txt"), "other, upstream and mine\n").unwrap();
+    let (exit_code, done) = run_in(&clone, &["update", "--continue", "--take", take]);
+    assert_eq!(exit_code, 0, "{take}: {done}");
+    assert_eq!(clone.path().join("y.txt").exists(), kept, "{take}");
+    assert!(!clone.path().join("x.txt").exists(), "{take}");
+  }
+}
+
+/// Every refusal names the round's commit, and says the round and the copies are as they were
+#[test_log::test]
+fn a_refusal_names_the_commit_and_keeps_the_round() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  let commit = round["session"]["commit"]["commit"].as_str().unwrap().to_string();
+  std::fs::write(edit_of(&round, "shared.txt"), "ONE\ntheirs mine\nthree\n").unwrap();
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (2, "resolution_outside_conflict"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.starts_with(&format!("Round 1, commit {commit} (auth) Change line 2:")), "{message}");
+  assert!(message.contains("Nothing changed: round 1 stays open, and the edit copies keep your edits"), "{message}");
+  assert_eq!(output["error"]["commits"], json!([commit]));
+  // the status says the copy holds the agent's edit
+  let (_, status) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(
+    (&status["session"]["round"], &status["session"]["files"][0]["edited"]),
+    (&json!(1), &json!(true)),
+    "{status}"
+  );
+  assert_eq!(read(&edit_of(&round, "shared.txt")), "ONE\ntheirs mine\nthree\n");
 }

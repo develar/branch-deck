@@ -450,8 +450,11 @@ session open prints the open round again, fetches nothing and writes the missing
   heading, is text.
 - `blocked_paths` lists local changes on paths the update likely writes: they block the finish, so ask the user about
   them before you resolve. `next` is the command that continues, with this binary and `-C <repository>`.
-- `kind` is `content` or `modify_delete`; a `hint` says how to resolve it. `commit.hint` "likely landed" says the
-  baseline likely has the commit already: take `onto`.
+- `kind` is `content`, `modify_delete` or `rename_delete` (with `renamed_from`; `--take` and `--delete` take either
+  path); a `hint` says how to resolve it. `commit.hint` "likely landed" says the baseline likely has the commit
+  already: take `onto`. `landed_dropped` lists the local commits left out because the baseline has the same patch.
+- A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep your edits;
+  `edited` per file says whether a copy differs from bd's merge result.
 - `bd update --continue [--round N] [--take onto:<path>|commit:<path>]… [--delete <path>]… [--allow-empty |
   --drop-empty <commit>] [--dry-run]` commits the round: every file needs an edited `edit`, a `--take` or a
   `--delete`. Exit 1 is the next round; exit 0 is the finish (`state` `rebase`, the `undo_token`,
