@@ -4,9 +4,10 @@ use tracing::instrument;
 
 pub const PREFIX: &str = "v-commit-v1:";
 
-/// The virtual branch commit a note (`{PREFIX}{new}`) maps its commit to; `None` for any other note
+/// The virtual branch commit a note (`{PREFIX}{new}`) maps its commit to; `None` for any other note. Only the first line
+/// counts: `%N` may hold the notes of other refs after it
 pub fn mapped_commit_id(note: &str) -> Option<&str> {
-  note.trim().strip_prefix(PREFIX).map(str::trim)
+  note.trim_start().lines().next()?.strip_prefix(PREFIX).map(str::trim)
 }
 
 /// The notes ref the mapping notes live on (`core.notesRef`, normally `refs/notes/commits`)

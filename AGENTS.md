@@ -109,8 +109,9 @@ Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part o
 ### Git Operations
 Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
-- All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false`
-  and strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF`; callers don't add `--no-pager`.
+- All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false`,
+  strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF` and empties `GIT_NOTES_DISPLAY_REF` (`%N` shows
+  only the mapping notes, or an explicit `--notes=<ref>`); callers don't add `--no-pager`.
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary

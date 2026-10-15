@@ -158,6 +158,29 @@ fn test_commit_with_non_mapping_notes() {
   assert_eq!(commits[0].note, Some("This is just a regular note".to_string()));
 }
 
+/// `notes.displayRef=refs/notes/*` adds the notes of every ref to `%N`: the mapping note must still be read alone
+#[test]
+fn mapping_note_is_read_from_its_own_ref_with_a_display_ref_of_every_note() {
+  let test_repo = repo_with_origin_master();
+  let commit_hash = test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
+  test_repo.add_note(&commit_hash, "v-commit-v1:abc123def456").unwrap();
+  // a ref that sorts before `refs/notes/commits`, so its note would come first
+  test_repo
+    .git_executor()
+    .execute_command(
+      &["notes", "--ref=refs/notes/branch-deck/a", "add", "-m", "resolved", &commit_hash],
+      test_repo.path().to_str().unwrap(),
+    )
+    .unwrap();
+  test_repo.set_config("notes.displayRef", "refs/notes/*").unwrap();
+
+  let commits = commits_ahead(&test_repo, "origin/master");
+  assert_eq!(commits[0].note.as_deref(), Some("v-commit-v1:abc123def456"));
+  assert_eq!(commits[0].mapped_commit_id.as_deref(), Some("abc123def456"));
+  // a reader that gets more than one note takes the first line only
+  assert_eq!(crate::notes::mapped_commit_id("v-commit-v1:abc123def456\nresolved\n"), Some("abc123def456"));
+}
+
 #[test]
 fn test_get_commit_list_with_main_branch() {
   let test_repo = TestRepo::new();

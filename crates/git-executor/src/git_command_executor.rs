@@ -5,9 +5,12 @@ use std::process::{Child, ChildStderr, ChildStdout, Command, Output, Stdio};
 use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
-/// Environment set for every git invocation: never prompt (there is no terminal to answer) and
-/// never take optional locks (read-only commands like `status` must not contend with the user's git).
-const BASE_ENV: [(&str, &str); 2] = [("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0")];
+/// Environment set for every git invocation: never prompt (there is no terminal to answer), never take optional locks
+/// (read-only commands like `status` must not contend with the user's git), and show the notes of `%N` from the default
+/// notes ref only (`core.notesRef`, the mapping notes) or from an explicit `--notes=<ref>`. An empty
+/// `GIT_NOTES_DISPLAY_REF` replaces an inherited one and turns off `notes.displayRef`, which would add every note of
+/// `refs/notes/*` to `%N`.
+const BASE_ENV: [(&str, &str); 3] = [("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0"), ("GIT_NOTES_DISPLAY_REF", "")];
 
 /// Inherited variables that would redirect git away from `repository_path` or its real index and notes
 /// (the app may be started from a git hook or a shell inside another repository).

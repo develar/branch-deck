@@ -114,6 +114,10 @@ All git runs through `GitCommandExecutor`:
   variables `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`.
 - Inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_NOTES_REF` are removed. A temporary index is always
   passed explicitly.
+- `GIT_NOTES_DISPLAY_REF` is set to an empty value. It replaces an inherited one and turns off `notes.displayRef`. So
+  `%N` shows only the notes of `core.notesRef`, the mapping notes, or those of an explicit `--notes=<ref>`. With
+  `notes.displayRef=refs/notes/*`, `%N` would otherwise print the notes of every ref, and the mapping readers would take
+  a wrong id. The mapping readers also parse only the first line of a note.
 - stdout is a pipe, so git never starts a pager and callers do not need `--no-pager`.
 - Special exit codes still apply: `merge-tree` and `replay` exit with 1 on conflicts.
 
