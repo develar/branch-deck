@@ -49,10 +49,11 @@ the native title bar above it.
 
 ### macOS
 
-- The window has an overlay title bar with a hidden title; the traffic lights are centred in the 40px toolbar (14px from
-  the left, 13px from the top).
-- The toolbar starts after the traffic lights (`pl-20`); in fullscreen, where they are hidden, it starts at the edge
-  (`isFullscreen`, re-read on every resize).
+- The window has an overlay title bar with a hidden title; the traffic lights are centred in the 40px toolbar, 14px
+  from the left as from the top (`traffic_light_position(14, 22)`: wry takes y as the height of the button container
+  above the buttons, not as their top).
+- The toolbar starts after the traffic lights (`pl-22`, 15px after the zoom button); in fullscreen, where they are
+  hidden, it starts at the edge (`isFullscreen`, re-read on every resize).
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
 
 ### Windows
@@ -85,7 +86,8 @@ the native title bar above it.
   to the mock (`plugin:window` in `tests/e2e/setup/tauri-mocks.ts`): `__e2eWindowState` holds fullscreen and
   maximized, a test fires `tauri://resize`, `__e2eWindowCalls` records minimize, toggle_maximize and close.
 - By hand: `pnpm install-app` on macOS (the traffic lights, dragging, double click, entering and leaving fullscreen), a
-  Windows build for the window buttons.
+  Windows build for the window buttons (a Windows on ARM VM works, see "Windows on ARM" in `DEVELOPMENT.md`; UI
+  Automation finds the buttons by their `aria-label` and invokes them).
 
 ## Open Questions / Risks
 

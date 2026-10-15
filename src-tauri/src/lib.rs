@@ -214,8 +214,10 @@ pub fn run() {
       let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        // the 14 px buttons centred in the 40 px toolbar
-        .traffic_light_position(tauri::LogicalPosition::new(14.0, 13.0));
+        // centred in the 40 px toolbar, 14 px from the left as from the top. wry takes y as the height of the button
+        // container above the buttons, not as their top: the buttons keep their offset in the container, so y = 13 left
+        // their centre at 11 px, and y = 22 puts it at 20 px
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
       #[cfg(target_os = "windows")]
       let builder = builder.decorations(false).shadow(true);
       builder.build()?;

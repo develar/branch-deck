@@ -71,7 +71,7 @@ export function ConfigurationHeader() {
     <header
       className={cn(
         "flex h-10 shrink-0 items-center gap-3 select-none",
-        titleBar === "overlay" && !frame.fullscreen ? "pl-20" : "pl-2",
+        titleBar === "overlay" && !frame.fullscreen ? "pl-22" : "pl-2",
         titleBar === "custom" ? "pr-0" : "pr-2",
       )}
       data-testid="configuration-header"

@@ -60,6 +60,16 @@ pnpm tauri build
 pnpm build
 ```
 
+#### Windows on ARM (e.g. a Parallels VM on Apple Silicon)
+
+Releases are built for Windows x86_64 only. A native `aarch64-pc-windows-msvc` build for a quick check needs LLVM
+besides the MSVC Build Tools (ARM64 component): `aws-lc-sys` compiles its ARM assembly with `clang-cl`, which it finds
+in `C:\Program Files\LLVM\bin` (`winget install LLVM.LLVM`). `AWS_LC_SYS_NO_ASM` is no way around it: it switches
+to the CMake builder.
+
+The frontend can come from macOS: copy the repository with a built `dist/` and run
+`cargo build -p branch-deck --features tauri/custom-protocol`, which embeds `dist/` as `pnpm tauri build` does.
+
 ### Testing
 
 ```bash

@@ -29,9 +29,9 @@ test.describe("Title bar", () => {
     // the empty parts of the toolbar drag the window
     await expect(header(page)).toHaveAttribute("data-tauri-drag-region", "deep")
     await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
-    // the traffic lights take the first 80px
+    // the traffic lights take the first 73px (14px inset, three 12px buttons), the toolbar starts 15px after them
     const selector = page.getByTestId("configuration-header").getByRole("combobox").first()
-    expect((await boxOf(selector)).x).toBeGreaterThanOrEqual(80)
+    expect((await boxOf(selector)).x).toBe(88)
 
     // fullscreen hides the traffic lights: the toolbar starts at the edge
     await page.evaluate(() => {
