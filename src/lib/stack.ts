@@ -1,8 +1,9 @@
 import { groupFor } from "@/lib/commit"
+import type { ParentState } from "@/lib/bindings"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 
-/** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that is missing); null if not blocked */
+/** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that can't be built); null if not blocked */
 export function blockingBranchOf(branch: Branch): string | null {
   if (branch.status !== "Blocked") {
     return null
@@ -32,15 +33,16 @@ export interface PrefixChange {
 
 /**
  * What saving `after` instead of `before` does to the commit's place: same branch, another branch, another parent.
- * With `stacks`, it also warns about a parent that has no commits and about a parent that differs from the one the
- * other commits of the branch declare. `branchOf` looks a branch up in the branch table; `issueGroups` are the issue
- * groups of the last grouping.
+ * With `stacks`, it also warns about a parent that has no commits (the branch is built on `baselineBranch` then, likely a
+ * typo) and about a parent that differs from the one the other commits of the branch declare. `branchOf` looks a branch
+ * up in the branch table; `issueGroups` are the issue groups of the last grouping.
  */
 export function describePrefixChange(
   before: string,
   after: string,
   action: string,
   stacks: boolean,
+  baselineBranch: string,
   branchOf: (name: string) => StackBranchInfo | undefined,
   issueGroups: Readonly<Record<string, string>> = {},
 ): PrefixChange {
@@ -66,7 +68,7 @@ export function describePrefixChange(
     return { text: `The other commits of ${to.branch} ${declared === null ? "declare no parent" : `declare ${declared}`}: its parents would conflict`, warning: true }
   }
   if (stacks && parent !== null && branchOf(parent) === undefined) {
-    return { text: `${parent} has no commits: ${to.branch} would be blocked until it has`, warning: true }
+    return { text: `${parent} has no commits: ${to.branch} is built on ${baselineOnRemote(baselineBranch)} until it has`, warning: true }
   }
   const onParent = stacks && parent !== null ? ` on ${parent}` : ""
   if (sameBranch) {
@@ -76,7 +78,7 @@ export function describePrefixChange(
 }
 
 /** The branch name a remote knows the baseline by: `origin/master` is `master` there */
-function baselineOnRemote(baselineBranch: string): string {
+export function baselineOnRemote(baselineBranch: string): string {
   const slash = baselineBranch.indexOf("/")
   return slash === -1 ? baselineBranch : baselineBranch.slice(slash + 1)
 }
@@ -90,6 +92,35 @@ export function pullRequestBaseOf(branch: Branch, baselineBranch: string, fullNa
   const base = branch.stack?.effectiveBase ?? null
   // a parent whose remote status isn't loaded yet keeps the base
   return base === null || branchOf(base)?.remoteStatus?.exists === false ? baselineOnRemote(baselineBranch) : fullName(base)
+}
+
+/**
+ * Why a branch isn't built on its declared parent, which has no commits: "air-misc landed", "air-misc is unapplied",
+ * "air-misc has no commits"
+ */
+export function describeParentState(parent: string, state: Exclude<ParentState, "Active">): string {
+  switch (state) {
+    case "Integrated":
+      return `${parent} landed`
+    case "Unapplied":
+      return `${parent} is unapplied`
+    case "Missing":
+      return `${parent} has no commits`
+  }
+}
+
+/**
+ * The declared parent of a branch built on another branch or the baseline because the parent has no commits, and how
+ * the parent stands; null for any other branch
+ */
+export function passedParentOf(branch: Branch): { parent: string, state: Exclude<ParentState, "Active"> } | null {
+  const stack = branch.stack
+  const parent = stack?.declaredParent ?? null
+  const state = stack?.parentState ?? null
+  if (stack?.prBaseChanged !== true || parent === null || state === null || state === "Active") {
+    return null
+  }
+  return { parent, state }
 }
 
 /** Whether a push of the branch has work for the remote; false while its remote status is unknown */

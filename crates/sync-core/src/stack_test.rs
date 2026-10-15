@@ -1,7 +1,7 @@
 use crate::commit_grouper::CommitGrouper;
 use crate::stack::{PendingDetection, StackForest, empty_parent_states, place_branches, read_only_detection};
 use crate::test_commit::commit;
-use branch_integration::cache::{CacheOps, NOTES_REF};
+use branch_integration::cache::{CacheOps, CachedDetection, NOTES_REF, Recheck, deserialize_from_cache};
 use branch_integration::strategy::DetectionStrategy;
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
@@ -45,18 +45,23 @@ fn a_child_is_built_on_its_active_parent() {
 }
 
 #[test]
-fn a_missing_or_unapplied_parent_blocks_the_child_and_its_descendants() {
+fn a_parent_without_commits_moves_the_child_to_the_nearest_ancestor_with_commits() {
   let placed = place(
     &["(auth/login) Add form", "(login/oauth) Add OAuth", "(api/client) Add client"],
     &[("api", ParentState::Unapplied)],
   );
 
   assert_eq!(placed["login"].parent_state, Some(ParentState::Missing));
-  assert_eq!(placed["login"].blocked_by, Some(blocked("auth", BlockReason::Missing)));
   assert_eq!(placed["login"].effective_base, None);
-  assert_eq!(placed["oauth"].blocked_by, Some(blocked("login", BlockReason::Blocked)));
+  assert!(placed["login"].pr_base_changed);
+  assert_eq!(placed["login"].blocked_by, None);
+  assert_eq!(placed["oauth"].effective_base.as_deref(), Some("login"));
+  assert_eq!(placed["oauth"].blocked_by, None);
+  assert!(!placed["oauth"].pr_base_changed);
   assert_eq!(placed["client"].parent_state, Some(ParentState::Unapplied));
-  assert_eq!(placed["client"].blocked_by, Some(blocked("api", BlockReason::Unapplied)));
+  assert_eq!(placed["client"].effective_base, None);
+  assert!(placed["client"].pr_base_changed);
+  assert_eq!(placed["client"].blocked_by, None);
 }
 
 #[test]
@@ -129,10 +134,18 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
       }
     }
   };
-  let info = |name: &str, integrated| BranchIntegrationInfo {
-    name: name.to_string(),
-    summary: String::new(),
-    status: status(integrated),
+  // checked against the current baseline, else the virtual tip of `old` would be detected again
+  let head = test_repo.head();
+  let info = |name: &str, integrated: bool| CachedDetection {
+    info: BranchIntegrationInfo {
+      name: name.to_string(),
+      summary: String::new(),
+      status: status(integrated),
+    },
+    check: (!integrated).then(|| Recheck {
+      baseline: head.clone(),
+      orphaned: None,
+    }),
   };
   let cache = CacheOps::new(git_executor, repo_path);
   // only the newest archive of a name counts
@@ -191,4 +204,8 @@ fn a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placeme
   let notes = notes();
   assert!(notes.iter().any(|line| line.ends_with(&integrated)), "{notes:?}");
   assert!(notes.iter().any(|line| line.ends_with(&local)), "a root branch caches any result");
+  // a `NotIntegrated` note records the baseline commit it was checked against
+  let note = git_executor.execute_command(&["notes", &format!("--ref={NOTES_REF}"), "show", &local], repo_path).unwrap();
+  let cached = deserialize_from_cache(note.trim()).unwrap();
+  assert_eq!(cached.check.map(|check| check.baseline), Some(baseline));
 }

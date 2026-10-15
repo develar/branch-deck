@@ -229,8 +229,6 @@ export type AutosquashScope = { type: "all" } |
 
 /**  Why a branch is not rebuilt: its parent can't be built on */
 export type BlockReason = 
-/**  The parent has no commits and is not integrated */
-"Missing" | "Unapplied" | 
 /**  The parent can't be placed (a stack problem) or failed to build */
 "Error" | 
 /**  A commit of the parent has a merge conflict */
@@ -288,15 +286,16 @@ export type BranchStack = {
 	/**  The branch the virtual branch is built on; `None` for the baseline */
 	effectiveBase: string | null,
 	/**
-	 *  Why the branch is not rebuilt this sync, known before the sync starts; a parent that fails while building
-	 *  blocks its descendants with a `Blocked` branch status
+	 *  Why the branch is not rebuilt this sync, known before the sync starts: its parent can't be built (a problem, a
+	 *  conflict, a failure or a block); a parent that fails while building blocks its descendants with a `Blocked`
+	 *  branch status
 	 */
 	blockedBy: StackBlock | null,
 	/**  Why the branch itself can't be placed; it is not rebuilt either */
 	problems: StackProblem[],
 	/**
-	 *  The declared parent is integrated, so the branch is built on its nearest active ancestor or the baseline and the
-	 *  base of its pull request has to change
+	 *  The declared parent has no commits, so the branch is built on its nearest active ancestor or the baseline and the
+	 *  base of its pull request differs from the declared parent
 	 */
 	prBaseChanged: boolean,
 	/**  A commit of the branch comes before every commit of its parent on the current branch */
@@ -713,7 +712,7 @@ export type OrphanFixup = {
 	branch: string | null,
 };
 
-/**  The state of a declared parent */
+/**  The state of a declared parent; a label only: a parent without commits, whatever its state, doesn't block its children */
 export type ParentState = 
 /**  The parent has commits */
 "Active" | 

@@ -26,3 +26,6 @@ pub mod remote_status_tests;
 
 #[cfg(test)]
 pub mod stack_tests;
+
+#[cfg(test)]
+pub mod recheck_tests;

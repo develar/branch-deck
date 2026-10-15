@@ -1,8 +1,9 @@
 //! Integration detection of archived stacked branches: only the commits after the stack base are the branch's own
 
-use super::test_helpers::{setup_test_repos, sync_user_branches};
+use super::test_helpers::{detection_note, setup_test_repos, sync_user_branches};
 use branch_integration::cache::{NOTES_REF, STACK_NOTES_REF};
 use branch_integration::strategy::DetectionStrategy;
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use sync_types::SyncEvent;
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
@@ -22,7 +23,7 @@ fn archived_info(events: &[SyncEvent], name: &str) -> BranchIntegrationInfo {
 }
 
 /// A clone with stacked branches on and `login` stacked on `auth`, synced; returns the tips of both virtual branches
-async fn stacked_clone(local_repo: &TestRepo, git_executor: &git_executor::git_command_executor::GitCommandExecutor) -> (String, String) {
+pub(crate) async fn stacked_clone(local_repo: &TestRepo, git_executor: &GitCommandExecutor) -> (String, String) {
   local_repo.set_config("branchdeck.stacks", "true").unwrap();
   local_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
   local_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
@@ -35,7 +36,7 @@ async fn stacked_clone(local_repo: &TestRepo, git_executor: &git_executor::git_c
 
 /// Drops the local commits and commits auth again on the fetched baseline, so login leaves the current branch, then
 /// syncs and returns the detection result of the archived login
-async fn sync_without_login(local_repo: &TestRepo, git_executor: &git_executor::git_command_executor::GitCommandExecutor) -> BranchIntegrationInfo {
+async fn sync_without_login(local_repo: &TestRepo, git_executor: &GitCommandExecutor) -> BranchIntegrationInfo {
   local_repo.fetch_prune("origin").unwrap();
   local_repo.reset_hard("origin/master").unwrap();
   local_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
@@ -65,7 +66,7 @@ async fn an_archived_child_is_integrated_when_its_own_commits_are() {
 }
 
 #[test(tokio::test)]
-async fn an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_integrated() {
+async fn an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_orphaned_commits() {
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
   let (_, login) = stacked_clone(&local_repo, &git_executor).await;
 
@@ -84,20 +85,20 @@ async fn an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_i
     "{:?}",
     info.status
   );
-  assert!(!local_repo.list_notes_with_ref(NOTES_REF).unwrap_or_default().iter().any(|line| line.ends_with(&login)));
+  // cached with the baseline it was checked against; its one own commit is all of its side, so `u` is implied
+  let check = detection_note(&local_repo, &login).check.expect("a NotIntegrated note records its baseline");
+  assert_eq!(check.baseline, local_repo.rev_parse("origin/master").unwrap());
+  assert_eq!(check.orphaned, None);
 }
 
-#[test(tokio::test)]
-async fn the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline() {
-  let (upstream_repo, local_repo, git_executor) = setup_test_repos();
-  let (auth, _) = stacked_clone(&local_repo, &git_executor).await;
-
-  // upstream takes auth's change; the update drops auth's commit, so only login's is left
+/// Upstream takes auth's change and the update drops auth's commit, so only login's is left; syncs, checks that login
+/// is built on the baseline with its parent integrated, and returns the events
+pub(crate) async fn land_auth_and_sync_login(upstream_repo: &TestRepo, local_repo: &TestRepo, git_executor: &GitCommandExecutor) -> Vec<SyncEvent> {
   upstream_repo.create_commit("Add auth", "auth.rs", "// auth");
   local_repo.fetch_prune("origin").unwrap();
   local_repo.reset_hard("origin/master").unwrap();
   local_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  let events = sync_user_branches(&git_executor, &local_repo, DetectionStrategy::All).await.unwrap().get_events();
+  let events = sync_user_branches(git_executor, local_repo, DetectionStrategy::All).await.unwrap().get_events();
 
   let stack = events
     .iter()
@@ -109,8 +110,18 @@ async fn the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_b
   assert_eq!(stack.parent_state, Some(ParentState::Integrated));
   assert_eq!((stack.effective_base, stack.blocked_by, stack.pr_base_changed), (None, None, true));
   assert_eq!(local_repo.rev_parse("user/virtual/login~1").unwrap(), local_repo.rev_parse("origin/master").unwrap());
+  // the archiving reports the parent as integrated
+  assert!(matches!(archived_info(&events, "auth").status, BranchIntegrationStatus::Integrated { .. }));
+  events
+}
+
+#[test(tokio::test)]
+async fn the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline() {
+  let (upstream_repo, local_repo, git_executor) = setup_test_repos();
+  let (auth, _) = stacked_clone(&local_repo, &git_executor).await;
+
+  land_auth_and_sync_login(&upstream_repo, &local_repo, &git_executor).await;
 
   // detected once, before the placement; the archiving reports it from the note
-  assert!(matches!(archived_info(&events, "auth").status, BranchIntegrationStatus::Integrated { .. }));
   assert!(local_repo.list_notes_with_ref(NOTES_REF).unwrap().iter().any(|line| line.ends_with(&auth)));
 }

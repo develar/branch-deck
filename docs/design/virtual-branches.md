@@ -132,11 +132,15 @@ whose virtual branch is built on `auth`'s (`crates/sync-core/src/stack.rs`). The
 `user/virtual/login`, so no level is a ref directory of another. The grouper records every declared edge with its
 commits; `StackForest` holds the declared parents, the problems (conflicting parents, cycles, `(a/a)`, leaves that
 differ in case, empty levels) and a parents-first order. `place_branches` decides where each branch goes: on its active
-parent, on the nearest active ancestor of an integrated parent, on the baseline, or nowhere (`blocked_by`). A parent
-without commits is integrated by the detection note of its branch. When that branch is still its virtual branch,
-which this sync archives, and has no note, `empty_parent_states` detects it first (`detect_pending_branches`) and
-writes the note, so the first sync after the parent's merge moves the child and the archiving reports the parent from
-the note. The sync sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. Without the setting a `/` is
+parent, on the nearest active ancestor of a parent without commits, on the baseline, or nowhere (`blocked_by`: a parent
+with a problem, a conflict, a failure or a block). A parent without commits never blocks: the local history is linear
+on the baseline, so the child's commits can be picked onto the branch below like those of any flat branch, and
+`pr_base_changed` tells the UI and the push toast that the pull request base is not the declared parent. Rewriting the
+prefixes is the user's (Unstack). How the parent stands (`Integrated`, `Unapplied`, `Missing`) is a label: integrated
+by the detection note of its branch. When that branch is still its virtual branch, which this sync archives, and has
+no note that holds for the current baseline, `empty_parent_states` detects it first (`detect_pending_branches`) and
+writes the note, so the first sync after the parent's merge labels it landed and the archiving reports the parent
+from the note. The sync sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. Without the setting a `/` is
 part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;

@@ -117,6 +117,9 @@ pub struct BriefBranch {
   /// Why it is not built: its parent can't be built on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
+  /// The declared parent has no commits: the branch is built on the nearest active ancestor or the baseline
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub pr_base_changed: bool,
   /// Why the branch can't be placed in the stack
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
@@ -145,15 +148,19 @@ pub struct BranchStatus {
   /// The parent its commits declare (`(parent/name)`), with stacked branches on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
-  /// Whether the declared parent has commits
+  /// Whether the declared parent has commits, else how it stands; a parent without commits in any state is passed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent_state: Option<ParentStateName>,
   /// The branch it is built on; omitted when it is built on the baseline
   #[serde(skip_serializing_if = "Option::is_none")]
   pub effective_base: Option<String>,
-  /// Why it is not built: its parent can't be built on
+  /// Why it is not built: its parent can't be built (a problem, a conflict, a failure or a block)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
+  /// The declared parent has no commits (any `parent_state` but `active`): the branch is built on the nearest active
+  /// ancestor (`effective_base`) or the baseline, and the base of its pull request is not the declared parent
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub pr_base_changed: bool,
   /// Why the branch can't be placed in the stack: conflicting parents, a cycle, a case collision, …
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
@@ -192,13 +199,14 @@ impl From<BranchOrigin> for OriginName {
   }
 }
 
+/// How the declared parent stands; every state but `active` is passed: the branch is built on the nearest active
+/// ancestor or the baseline (`pr_base_changed`)
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ParentStateName {
   /// The parent has commits
   Active,
-  /// No commit is grouped into the parent and its archived branch is integrated: the branch is built on the nearest
-  /// active ancestor or the baseline, and the base of its pull request changes
+  /// No commit is grouped into the parent and its archived branch is integrated
   Integrated,
   /// The parent was unapplied
   Unapplied,
@@ -221,15 +229,13 @@ impl From<ParentState> for ParentStateName {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct StackBlockSummary {
   pub parent: String,
-  /// `missing`, `unapplied`, `error`, `conflict` or `blocked`
+  /// `error` (a stack problem or a failed build), `conflict` or `blocked`
   pub reason: String,
 }
 
 impl StackBlockSummary {
   pub fn of(parent: &str, reason: BlockReason) -> Self {
     let reason = match reason {
-      BlockReason::Missing => "missing",
-      BlockReason::Unapplied => "unapplied",
       BlockReason::Error => "error",
       BlockReason::Conflict => "conflict",
       BlockReason::Blocked => "blocked",
@@ -386,6 +392,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
           blocked_by: placement(&branch.name)
             .and_then(|stack| stack.blocked_by.as_ref())
             .map(|block| StackBlockSummary::of(&block.parent, block.reason)),
+          pr_base_changed: placement(&branch.name).is_some_and(|stack| stack.pr_base_changed),
           problems: placement(&branch.name).map_or_else(Vec::new, |stack| stack_issues(&branch.name, stack, &short)),
           description: descriptions
             .get(&reference_of(&branch.name))
@@ -456,6 +463,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
         commit_count: branch.commit_count,
         parent: branch.parent,
         blocked_by: branch.blocked_by,
+        pr_base_changed: branch.pr_base_changed,
         problems: branch.problems,
       })
       .collect()

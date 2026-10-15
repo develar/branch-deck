@@ -1,6 +1,7 @@
 //! Test helper functions for integration detection tests
 
 use anyhow::Result;
+use branch_integration::cache::CachedDetection;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::time::Instant;
@@ -101,31 +102,50 @@ pub fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a Bran
     .expect("Should find integration info")
 }
 
+/// The detection note on `commit`, parsed
+pub fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
+  let note = repo
+    .git_executor()
+    .execute_command(
+      &["notes", &format!("--ref={}", branch_integration::cache::NOTES_REF), "show", commit],
+      repo.path().to_str().unwrap(),
+    )
+    .unwrap_or_else(|e| panic!("no detection note on {commit}: {e}"));
+  branch_integration::cache::deserialize_from_cache(note.trim()).unwrap()
+}
+
 /// Detection cache entry of a fully integrated branch
-pub fn integrated_cache_info() -> BranchIntegrationInfo {
-  BranchIntegrationInfo {
-    name: "test-branch".to_string(),
-    summary: String::new(),
-    status: BranchIntegrationStatus::Integrated {
-      integrated_at: Some(0),
-      confidence: IntegrationConfidence::High,
-      commit_count: 1,
-      commit: None,
+pub fn integrated_cache_info() -> CachedDetection {
+  CachedDetection {
+    info: BranchIntegrationInfo {
+      name: "test-branch".to_string(),
+      summary: String::new(),
+      status: BranchIntegrationStatus::Integrated {
+        integrated_at: Some(0),
+        confidence: IntegrationConfidence::High,
+        commit_count: 1,
+        commit: None,
+      },
     },
+    check: None,
   }
 }
 
-/// Detection cache entry of a branch whose commits are partly or not at all integrated
-pub fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> BranchIntegrationInfo {
-  BranchIntegrationInfo {
-    name: "test-branch".to_string(),
-    summary: String::new(),
-    status: BranchIntegrationStatus::NotIntegrated {
-      total_commit_count,
-      integrated_count,
-      orphaned_count,
-      integrated_at: None,
+/// Detection cache entry of a branch whose commits are partly or not at all integrated, without the baseline it was
+/// checked against, as version 1 wrote it
+pub fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> CachedDetection {
+  CachedDetection {
+    info: BranchIntegrationInfo {
+      name: "test-branch".to_string(),
+      summary: String::new(),
+      status: BranchIntegrationStatus::NotIntegrated {
+        total_commit_count,
+        integrated_count,
+        orphaned_count,
+        integrated_at: None,
+      },
     },
+    check: None,
   }
 }
 
@@ -155,7 +175,7 @@ pub async fn verify_detection_cache_works(
   let mut orphaned_cache_count = 0;
 
   for (commit, cache) in &branch_data.branch_notes {
-    match &cache.status {
+    match &cache.info.status {
       BranchIntegrationStatus::Integrated { commit_count, integrated_at, .. } => {
         integrated_cache_count += 1;
         assert!(*commit_count > 0, "Integrated branch cache should have commit_count > 0, got {commit_count}");

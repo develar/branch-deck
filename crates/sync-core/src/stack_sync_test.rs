@@ -3,7 +3,7 @@ use git_ops::model::{BranchError, BranchSyncStatus};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_test_utils::TestReporter;
-use sync_types::stack::{BlockReason, BranchStack, ParentState, StackBlock};
+use sync_types::stack::{BranchStack, ParentState};
 use sync_types::{GroupedBranchInfo, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
 
@@ -84,13 +84,10 @@ async fn an_unapplied_parent_is_reported_before_the_sync_starts() {
 
   let stack = branches["login"].stack.clone().unwrap();
   assert_eq!(stack.parent_state, Some(ParentState::Unapplied));
-  assert_eq!(
-    stack.blocked_by,
-    Some(StackBlock {
-      parent: "auth".to_string(),
-      reason: BlockReason::Unapplied,
-    })
-  );
+  assert_eq!(stack.blocked_by, None);
+  assert!(stack.pr_base_changed);
+  // built on the baseline
+  assert_eq!(rev(&test_repo, "test/virtual/login~1"), rev(&test_repo, "master~1"));
 }
 
 /// The final status of each branch and its error text
@@ -191,7 +188,7 @@ async fn a_parent_conflict_blocks_its_descendants() {
 }
 
 #[tokio::test]
-async fn a_missing_parent_or_a_problem_is_not_built() {
+async fn a_problem_is_not_built_and_a_missing_parent_is_passed() {
   let test_repo = stacked_repo();
   test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
   let looped = test_repo.create_commit("(a/a) Loop", "a.rs", "// a");
@@ -199,13 +196,13 @@ async fn a_missing_parent_or_a_problem_is_not_built() {
 
   let statuses = final_statuses(&sync(&test_repo).await);
 
-  assert_eq!(statuses["login"], (BranchSyncStatus::Blocked, Some("Blocked: parent auth has no commits".to_string())));
+  assert_eq!(statuses["login"], status(BranchSyncStatus::Created));
   assert_eq!(
     statuses["a"],
     (BranchSyncStatus::Error, Some(format!("A prefix makes the branch its own parent: {}", &looped[..8])))
   );
   assert_eq!(statuses["docs"], status(BranchSyncStatus::Created));
-  assert!(!test_repo.branch_exists("test/virtual/login"));
+  assert_eq!(rev(&test_repo, "test/virtual/login~1"), rev(&test_repo, "master~3"));
   assert!(!test_repo.branch_exists("test/virtual/a"));
 }
 

@@ -112,9 +112,10 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   when the commits moved. A failure must keep the form with the typed name (the error is a toast).
 - With [stacked branches](stacked-branches.spec.md) on, Rename must rename the branch in the prefixes of the branches
   stacked on it too (`rename_branch`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
-  branch that others stack on must confirm and name them: they are blocked until it has commits again. The
+  branch that others stack on must confirm and name them: they stay stacked on it and are built on the baseline until
+  it has commits again. The
   confirmation focuses its button, so Enter confirms.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should build a child on the baseline once its parent has no commits, and unstack it`)
 
 ### Drag and drop
 

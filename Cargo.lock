@@ -591,6 +591,7 @@ dependencies = [
  "chrono",
  "git-executor",
  "git-ops",
+ "indexmap 2.14.2",
  "serde_json",
  "sync-types",
  "sync-utils",

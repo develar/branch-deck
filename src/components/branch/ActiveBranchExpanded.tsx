@@ -1,14 +1,16 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { TriangleAlertIcon } from "lucide-react"
+import { InfoIcon, Layers2Icon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { NestingRules } from "@/components/branch/BranchNameCell"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
+import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { useListFixups } from "@/hooks/useSquashFixups"
-import { blockingBranchOf } from "@/lib/stack"
+import { restackBranch } from "@/hooks/useStackActions"
+import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
@@ -27,6 +29,7 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, depth
   return (
     <CommitRail depth={depth} hasChildren={hasChildren}>
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
+      {branch.status !== "Blocked" && <PassedParentAlert branch={branch} />}
       {genericError !== undefined
         ? (
             <Alert variant="destructive">
@@ -76,6 +79,34 @@ function BlockedAlert({ branch }: { branch: Branch }) {
             {`Show ${blocker}`}
           </Button>
         )}
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+/**
+ * Where a stacked branch is built while its declared parent has no commits, and why: "Built on master: air-misc
+ * landed. The pull request base is master." The tone follows the parent: `info` landed (in the baseline), `warning` no
+ * commits (likely a typo), neutral unapplied. The only fix that rewrites prefixes is the user's: Unstack.
+ */
+function PassedParentAlert({ branch }: { branch: Branch }) {
+  const baseline = useBaselineOnRemote()
+  const passed = passedParentOf(branch)
+  if (passed === null) {
+    return null
+  }
+  const base = branch.stack?.effectiveBase ?? baseline
+  const variant = passed.state === "Integrated" ? "info" : passed.state === "Missing" ? "warning" : "default"
+  const linkTone = passed.state === "Integrated" ? "text-info" : passed.state === "Missing" ? "text-warning" : undefined
+  return (
+    <Alert variant={variant} data-testid="branch-base-changed">
+      {passed.state === "Missing" ? <TriangleAlertIcon /> : <InfoIcon />}
+      <AlertDescription className="flex flex-wrap items-center gap-x-2">
+        <span>{`Built on ${base}: ${describeParentState(passed.parent, passed.state)}. The pull request base is ${base}.`}</span>
+        <Button variant="link" size="xs" className={cn("h-auto px-0", linkTone)} onClick={() => void restackBranch(branch.name, null)}>
+          <Layers2Icon data-icon="inline-start" />
+          {`Unstack from ${passed.parent}`}
+        </Button>
       </AlertDescription>
     </Alert>
   )

@@ -131,9 +131,12 @@ access. It runs about ten short git processes, with one `log` for all the commit
   the commits in both of these modes, and page the branches otherwise.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
   - `parent`, the parent its commits declare, and `parent_state`: `active` (it has commits), `integrated` (its branch
-    is integrated: the branch goes on the nearest active ancestor), `unapplied` or `missing`. A parent whose commits
-    left HEAD since the last sync is detected now, as the next sync detects it, without writing the detection note;
-  - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}`;
+    is integrated), `unapplied` or `missing`. A parent without commits, in any of these states, doesn't block: the
+    branch goes on the nearest active ancestor or the baseline and has `pr_base_changed: true` (its pull request base
+    is not the declared parent). A parent whose commits left HEAD since the last sync is detected now, as the next
+    sync detects it, without writing the detection note;
+  - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}` when the
+    parent can't be built: `error` (a stack problem or a failed build), `conflict` or `blocked`;
   - `problems` (`{message, commits}`): conflicting parents, a cycle, a self parent, a case collision, an empty level.
 
   The output has `forest`: the branches with commits, each after its parent.
@@ -163,7 +166,7 @@ access. It runs about ten short git processes, with one `log` for all the commit
   branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
     of the newest commit, and `issue_keys` of an issue group. With stacked branches on, it keeps `parent`,
-    `blocked_by`, `problems` and `forest`. It keeps `idle_issue_groups` and `issue_group_problems`.
+    `blocked_by`, `pr_base_changed`, `problems` and `forest`. It keeps `idle_issue_groups` and `issue_group_problems`.
   - `unassigned` lists the ids and subjects.
   - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
   - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
@@ -524,9 +527,9 @@ repository lock.
  "unassigned_count":0}
 ```
 
-- `result` is `ok`, `conflict`, `blocked` (with `blocked_by` `{parent, reason}`: the parent conflicts, is blocked,
-  missing or unapplied), `problems` or `error`. `built_on` is the branch it would be built on, `null` for
-  `base_commit`.
+- `result` is `ok`, `conflict`, `blocked` (with `blocked_by` `{parent, reason}`: the parent has a problem, conflicts or
+  is blocked; a parent without commits is passed), `problems` or `error`. `built_on` is the branch it would be built on,
+  `null` for `base_commit`.
 - `missing_commits` are the older commits outside the branch and the branches it is built on that change the
   conflicting files, computed from the cached commit diffs: move them into the branch, or stack the branch on the
   one that has them.
@@ -582,7 +585,7 @@ branch tips), their changes from the object cache without lock files, generated 
    the deepest cluster it needs that covers the others. When the clusters it needs lie on two stacks, those stacks
    become one chain in that order, which only adds ancestors, so the clusters placed before keep theirs. In a cycle the
    declared parent gives way first, then the oldest cluster goes first. A declared parent that is no cluster goes,
-   because the sync blocks on it, and `--fresh` declares no parent.
+   because the sync would build the branch on the baseline anyway, and `--fresh` declares no parent.
 
 Each cluster then gets a name, the first of: its prefix; the branch its commits come from, when it holds the most
 commits of that branch (so `--fresh` keeps the names of the branches it finds again); its single issue key; a scope of

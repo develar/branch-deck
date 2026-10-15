@@ -140,7 +140,7 @@ test.describe("Stacked branches", () => {
     await expect.poll(() => tree(page)).toEqual(["docs@0", "identity@0", "session@1", "login@1", "oauth@2"])
   })
 
-  test("should confirm ungrouping a parent and list its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should build a child on the baseline once its parent has no commits, and unstack it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
 
@@ -148,12 +148,25 @@ test.describe("Stacked branches", () => {
     await clickContextMenuItem(page, "Ungroup")
     const note = page.getByTestId("stack-children-note")
     await expect(note).toContainText("1 branch is stacked on login")
-    await expect(note).toContainText("oauth will be blocked until login has commits again")
+    await expect(note).toContainText("oauth stays stacked on login and is built on master until login has commits again")
     // a confirmation focuses its button: Enter confirms
     await expect(page.getByRole("button", { name: "Ungroup" })).toBeFocused()
     await page.keyboard.press("Enter")
 
-    await expect(findBranchRow(page, "oauth")).toContainText("blocked by login")
+    // not blocked: built on the baseline, and the row says so
+    const oauth = findBranchRow(page, "oauth")
+    await expect(oauth.getByTestId("stack-base")).toHaveText("on master")
+    await expect(oauth).not.toContainText("blocked by")
+    await expect(getPushButton(oauth)).toBeEnabled()
+    await expandBranch(page, oauth)
+    const alert = getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")
+    await expect(alert).toContainText("Built on master: login has no commits. The pull request base is master.")
+
+    // the user rewrites the prefixes, never the sync
+    await alert.getByRole("button", { name: "Unstack from login" }).click()
+    await expect.poll(() => tree(page)).toContain("oauth@0")
+    await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
+    await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
   })
 
   test("should move commits to a new branch on a parent with Move to…", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -1,7 +1,7 @@
 # Integration Detection and Caching
 
 **Status:** Implemented  
-**Updated:** 2025-08-22  
+**Updated:** 2026-10-15  
 **Tags:** [git, performance, caching]
 
 ## Problem
@@ -14,7 +14,7 @@ Detecting integration is expensive - it requires analyzing commit history for ev
 
 By default, detect branch integration using only the rebase/cherry-pick strategy for optimal performance. This fast detection covers most common workflows where commits are cherry-picked or rebased onto the baseline. Full detection including merge and squash strategies is available via environment variable when needed.
 
-Results are cached as git notes on branch tip commits, providing instant lookups for unchanged branches while automatically invalidating when branches receive new commits. The system runs detection in parallel for performance, writes cache entries sequentially to avoid races, and uses compact JSON encoding to minimize storage overhead.
+Results are cached as git notes on branch tip commits, providing instant lookups for unchanged branches while automatically invalidating when branches receive new commits or the baseline moves: a `NotIntegrated` result holds only for the baseline it was checked against, and is checked again against the baseline commits added since. The system runs detection in parallel for performance, writes cache entries sequentially to avoid races, and uses compact JSON encoding to minimize storage overhead.
 
 ## Design
 
@@ -64,18 +64,46 @@ flowchart TB
 4. **Decision**: Default to Rebase strategy only
    **Rationale**: Fast cherry-pick detection covers most workflows; Full detection optional via env var
 
-5. **Decision**: Cache all statuses, not just integrated
-   **Rationale**: Avoid re-computation for any unchanged branch. The exception is a stacked branch: only `Integrated`
-   is cached for it, because its result also depends on its parent
+5. **Decision**: A result is cached on the tip; a `NotIntegrated` one also records the baseline commit it was checked
+   against (`b`) and its orphaned commits (`u`), and is checked again against the baseline commits since then when the
+   baseline moved (`^<b>` in the cherry-mark scan)
+   **Rationale**: `Integrated` and `Partial` are final for a tip, but "not integrated" is only true for one baseline:
+   a note reused forever kept a merged branch "not integrated" in the archived card, and a stack parent "has no
+   commits" instead of "landed" (a tip noted at 12:28, merged at 12:30, archived at 12:37 from the stale note). A full
+   re-detection is no option for old archives (21.7 s for a 5-month-old one against 78k upstream commits, while the
+   patch ids of one day of upstream commits cost 0.15 s). So step 4 of `detect_integrated_branches`:
+   - `Integrated` or `Partial`, or `NotIntegrated` with `b` equal to the baseline: reported from the note;
+   - `NotIntegrated` with a `b` the baseline descends from (`merge-base --is-ancestor`, one process per distinct `b`):
+     the incremental recheck (`rebase::recheck_rebase_status`). The scan keeps the branch side as it is and shrinks
+     the baseline side to the new commits: a commit still orphaned is one of `u` (all of the branch side when `u` is
+     omitted) marked `>` again; one that left the branch side is reachable from the baseline now. None left:
+     `Integrated` with the commit count of the note; else `NotIntegrated` with the new counts and the newer of the
+     integration times. Merge and squash checks run as for a fresh detection;
+   - `NotIntegrated` without `b` (written by version 1, before the baseline was recorded) or with a `b` the baseline
+     doesn't descend from (rewound, renamed, a commit gone in a gc): detected in full once, but only within the
+     retention period of the archive (`retention_days`, `ARCHIVE_RETENTION_DAYS` by default, against the date in its name). An older such note is
+     reported as is, permanently: the bounded migration keeps a sync from spending seconds per old archive, and such a
+     branch is never cleaned up (only `Integrated` archives are);
+   - no note: a fresh detection.
 
-6. **Decision**: An archived stacked branch is detected from its stack base
+   The jobs are one per tip: two archived names with one tip (an issue branch archived, then again under its new
+   name) are detected once and reported under both. Every result is cached, a stacked branch's too: its stack base
+   keeps its parent's commits out, and a `NotIntegrated` result is checked again when the baseline moves.
+
+6. **Decision**: Detection compares with the baseline commit, not its name: `resolve_baseline` (`rev-parse --verify
+   <baseline>^{commit}`) runs once per detection and per `empty_parent_states`, and the id goes into every range,
+   `--merged=` and the squash `merge-tree`
+   **Rationale**: A fetch runs without the repository lock, so `origin/master` may move during a sync. With the id, the
+   scanned range and the `b` recorded in the note are the same commit by construction.
+
+7. **Decision**: An archived stacked branch is detected from its stack base
    **Rationale**: Its virtual branch contains its parent's commits too. The sync writes a note on the tip of every
    rebuilt stacked branch (`refs/notes/branch-deck/stack`, the commit it was built on); detection reads those notes
    for the branches it detects afresh (one `log --no-walk --stdin`, one `cat-file --batch-check` for the bases that
    still exist) and excludes `^<base>` from the cherry-mark scans and the merge count, and uses the base as the merge
    base of the squash check
 
-7. **Decision**: An integrated branch names the baseline commit that brought it in (`commit: UpstreamCommit`, with
+8. **Decision**: An integrated branch names the baseline commit that brought it in (`commit: UpstreamCommit`, with
    its id, author, committer and commit time; `integratedAt` is that commit time)
    **Rationale**: "Merged" alone doesn't say where the work is, or who pushed it (a Safe Push robot, a reviewer).
    Each strategy already finds the commit for the time, so the id and the names come from the same process, with
@@ -88,11 +116,11 @@ flowchart TB
    still parses, without a commit. The archived card shows it as "Merged as abc12345 by <committer>",
    with the full hash to copy; the "Integrated" column shows the time once.
 
-8. **Decision**: `ArchivedBranchesFound` carries `newlyArchived`, the branches this sync archived
+9. **Decision**: `ArchivedBranchesFound` carries `newlyArchived`, the branches this sync archived
    **Rationale**: Archiving is the moment a branch landed; the archived card marks those rows "New" for the rest of
    the session, until the user dismisses what landed, instead of the branch silently moving into a collapsed card.
 
-9. **Decision**: Landed commits are found by author email, author time and subject without the `(prefix)`, with the
+10. **Decision**: Landed commits are found by author email, author time and subject without the `(prefix)`, with the
    replay onto the upstream as the ground truth where it is known
    **Rationale**: Archiving sees only whole branches, and only after the update. A Safe Push robot, `git rebase` and
    `cherry-pick` keep the author, the author time and the message, and the pushed message is the local one without the
@@ -126,8 +154,15 @@ flowchart TB
 
 - **Cache Management**:
   - Stored at branch tip SHA, auto-invalidates on new commits
-  - Versioned format for future migration
+  - Versioned format (`"v": 2`): `{"v":2,"s":{"k":"n","tc":2,"ic":1,"oc":1,"ia":1760000000,"b":"<baseline id>","u":["<id>"]},"sum":"…"}`.
+    `b` and `u` are written only for `NotIntegrated`; `u` is omitted while nothing is integrated (`oc == tc`), when it
+    is the whole branch side. `CachedDetection { info, check: Option<Recheck { baseline, orphaned }> }` is what a note
+    parses to (`check` is `None` for a final result and for a note without `b`); `BranchIntegrationStatus`, sent to
+    the UI, has neither field
   - Compact encoding with field omission for defaults
+  - `empty_parent_states` (stacked branches) treats a `NotIntegrated` note on a virtual tip whose `b` isn't the current
+    baseline as no note and detects the branch in full before the placement (a virtual branch's merge base is recent,
+    so that is cheap); an archived tip keeps its note, the archive step of the same sync checks it again
 
 - **Performance Optimizations**:
   - Batch fetch all branch data (tips and subjects in one `for-each-ref`, notes in one `log --no-walk --stdin`)
@@ -158,7 +193,8 @@ flowchart TB
 Key optimizations:
 - Single `git log --no-walk` fetches all notes
 - Parallel detection with configurable concurrency
-- "Detect once, cache forever" for integrated branches
+- "Detect once, cache forever" for integrated branches; a not integrated one costs one scan of the new baseline
+  commits per baseline move
 - Compact cache format reduces I/O
 
 ## References

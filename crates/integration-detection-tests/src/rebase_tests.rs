@@ -376,7 +376,7 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
     &git_executor,
     local_repo.path().to_str().unwrap(),
     "user",
-    progress,
+    progress.clone(),
     SyncOptions {
       archive_retention_days: 5, // 5 days retention - should delete 10-day-old branches
       ..options_with_strategy(DetectionStrategy::Rebase)
@@ -394,6 +394,21 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   // Other branches should remain
   assert!(archived_after.contains(&orphaned_archived_name), "Old orphaned branch should remain (not integrated)");
   assert!(archived_after.contains(&recent_archived_name), "Recent integrated branch should remain (not old enough)");
+  // its note has no baseline, but it is beyond the retention period: reported as is, not detected again
+  let events = progress.get_events();
+  let status = &crate::test_helpers::detected_branch_info(&events, &orphaned_archived_name).status;
+  assert!(
+    matches!(
+      status,
+      sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+        total_commit_count: 1,
+        integrated_count: 0,
+        orphaned_count: 1,
+        ..
+      }
+    ),
+    "{status:?}"
+  );
 
   Ok(())
 }

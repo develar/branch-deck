@@ -3,8 +3,8 @@
 //! (`git config branchdeck.stacks true`), because without it a `/` in a prefix is part of a flat branch name.
 
 use anyhow::{Result, anyhow};
-use branch_integration::cache::{NOTES_REF, deserialize_from_cache};
-use branch_integration::detector::{PendingBranch, detect_pending_branches};
+use branch_integration::cache::{CachedDetection, NOTES_REF, deserialize_from_cache};
+use branch_integration::detector::{PendingBranch, detect_pending_branches, resolve_baseline};
 use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
@@ -278,9 +278,11 @@ fn topological_order(nodes: &IndexMap<String, StackNode>, cycle_members: &HashSe
   order
 }
 
-/// Where each branch with commits goes: on its parent, on the nearest active ancestor of an integrated parent, on the
-/// baseline, or nowhere (blocked or with a problem of its own). `empty_parent_state` tells how a declared ancestor
-/// without commits stands (`Integrated`, `Unapplied` or `Missing`).
+/// Where each branch with commits goes: on its parent, on the nearest active ancestor of a parent without commits, on
+/// the baseline, or nowhere (blocked by a parent that can't be built, or with a problem of its own). A parent without
+/// commits never blocks: the local history is linear on the baseline, so the child's commits can be picked onto the
+/// ancestor below it like those of any flat branch. `empty_parent_state` tells how a declared ancestor without commits
+/// stands (`Integrated`, `Unapplied` or `Missing`), a label for the row and `bd status`.
 pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String, ParentState>) -> IndexMap<String, BranchStack> {
   let state_of = |name: &str| {
     if forest.nodes.get(name).is_some_and(|node| node.has_commits) {
@@ -302,7 +304,7 @@ pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String,
       ..BranchStack::default()
     };
     if stack.problems.is_empty() {
-      // the walk passes integrated ancestors; `visited` guards against a cycle among ancestors without commits
+      // the walk passes ancestors without commits; `visited` guards against a cycle among ancestors without commits
       let mut visited = HashSet::new();
       let mut current = node.declared_parent.as_deref();
       while let Some(ancestor) = current {
@@ -324,17 +326,9 @@ pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String,
             }
             break;
           }
-          ParentState::Integrated => {
+          ParentState::Integrated | ParentState::Unapplied | ParentState::Missing => {
             stack.pr_base_changed = true;
             current = forest.declared_parent(ancestor);
-          }
-          ParentState::Unapplied => {
-            stack.blocked_by = block(BlockReason::Unapplied);
-            break;
-          }
-          ParentState::Missing => {
-            stack.blocked_by = block(BlockReason::Missing);
-            break;
           }
         }
       }
@@ -366,9 +360,10 @@ pub fn read_only_detection(baseline_branch: &str) -> PendingDetection<'_> {
 /// How the declared ancestors without commits stand: `Unapplied` with an unapplied branch of that name, `Integrated`
 /// when its branch is integrated, else `Missing`. The branch is the virtual branch of that name, which this sync
 /// archives, else the newest archived one; it is integrated by its detection note, and a virtual branch without a note
-/// is detected now (`detection`). `branch_refs` maps the full names of the branches under the prefix to their tips. At
-/// most one git process for the notes, only for ancestors with such a branch, plus the detection of a virtual branch
-/// without a note.
+/// that holds for the current baseline (a `NotIntegrated` one checked against another baseline) is detected now
+/// (`detection`). An archived branch keeps its note: the archive step of the sync checks it again. `branch_refs` maps
+/// the full names of the branches under the prefix to their tips. At most one git process for the notes, only for
+/// ancestors with such a branch, plus the detection of a virtual branch without a usable note.
 pub fn empty_parent_states(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -423,19 +418,29 @@ pub fn empty_parent_states(
   }
   let notes_arg = format!("--notes={NOTES_REF}");
   let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%s%x1f%N%x1e", &notes_arg], repo_path, &input)?;
-  // tip -> (subject, the status of its note)
-  let mut noted: HashMap<&str, (&str, Option<BranchIntegrationStatus>)> = HashMap::new();
+  // tip -> (subject, its note)
+  let mut noted: HashMap<&str, (&str, Option<CachedDetection>)> = HashMap::new();
   for record in output.split('\u{1e}') {
     let mut fields = record.trim_start().splitn(3, '\u{1f}');
     if let (Some(tip), Some(subject), Some(note)) = (fields.next(), fields.next(), fields.next()) {
-      noted.insert(tip, (subject, deserialize_from_cache(note.trim()).ok().map(|info| info.status)));
+      noted.insert(tip, (subject, deserialize_from_cache(note.trim()).ok()));
     }
   }
 
+  let baseline = if pending.is_empty() {
+    String::new()
+  } else {
+    resolve_baseline(git_executor, repo_path, detection.baseline_branch)?
+  };
+  // a `NotIntegrated` result holds only for the baseline it was checked against
+  let holds = |cached: &CachedDetection| match &cached.info.status {
+    BranchIntegrationStatus::NotIntegrated { .. } => cached.check.as_ref().is_some_and(|check| check.baseline == baseline),
+    _ => true,
+  };
   let undetected: Vec<PendingBranch<'_>> = pending
     .values()
     .filter_map(|(full_name, tip)| match noted.get(tip) {
-      Some((_, Some(_))) => None,
+      Some((_, Some(cached))) if holds(cached) => None,
       noted => Some(PendingBranch {
         branch: full_name,
         tip,
@@ -443,10 +448,12 @@ pub fn empty_parent_states(
       }),
     })
     .collect();
-  let detected = detect_pending_branches(git_executor, repo_path, detection.baseline_branch, detection.strategy, &undetected, detection.cache)?;
+  let detected = detect_pending_branches(git_executor, repo_path, &baseline, detection.strategy, &undetected, detection.cache)?;
 
   for (parent, tip) in tips {
-    let status = noted.get(tip).and_then(|(_, status)| status.as_ref()).or_else(|| detected.get(tip));
+    let status = detected
+      .get(tip)
+      .or_else(|| noted.get(tip).and_then(|(_, cached)| cached.as_ref()).map(|cached| &cached.info.status));
     if matches!(status, Some(BranchIntegrationStatus::Integrated { .. })) {
       states.insert(parent.to_string(), ParentState::Integrated);
     }
@@ -480,8 +487,6 @@ pub fn describe_problem(problem: &StackProblem) -> String {
 pub fn describe_block(block: &StackBlock) -> String {
   let parent = &block.parent;
   match block.reason {
-    BlockReason::Missing => format!("Blocked: parent {parent} has no commits"),
-    BlockReason::Unapplied => format!("Blocked: parent {parent} is unapplied"),
     BlockReason::Error => format!("Blocked: parent {parent} failed"),
     BlockReason::Conflict => format!("Blocked: parent {parent} has a merge conflict"),
     BlockReason::Blocked => format!("Blocked: parent {parent} is blocked"),

@@ -1,8 +1,7 @@
-use super::cache::deserialize_from_cache;
+use super::cache::{CachedDetection, deserialize_from_cache};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
-use sync_types::branch_integration::BranchIntegrationInfo;
 use sync_types::upstream_commit::UpstreamCommit;
 use tracing::{debug, instrument, warn};
 
@@ -35,12 +34,12 @@ pub fn oldest_logged_commit(git_executor: &GitCommandExecutor, repo_path: &str, 
 
 /// Structure to hold all branch data from a single git query
 pub struct BranchData {
-  pub virtual_commits: HashMap<String, String>,             // virtual branch -> commit
-  pub archived_all: Vec<String>,                            // all archived branches
-  pub archived_today_names: HashSet<String>,                // just names (not full paths) for conflict check
-  pub branch_notes: HashMap<String, BranchIntegrationInfo>, // commit -> parsed detection cache
-  pub all_branch_commits: HashMap<String, String>,          // ALL branches -> commit (includes both virtual and archived)
-  pub commit_subjects: HashMap<String, String>,             // branch tip commit -> subject
+  pub virtual_commits: HashMap<String, String>,       // virtual branch -> commit
+  pub archived_all: Vec<String>,                      // all archived branches
+  pub archived_today_names: HashSet<String>,          // just names (not full paths) for conflict check
+  pub branch_notes: HashMap<String, CachedDetection>, // commit -> parsed detection cache
+  pub all_branch_commits: HashMap<String, String>,    // ALL branches -> commit (includes both virtual and archived)
+  pub commit_subjects: HashMap<String, String>,       // branch tip commit -> subject
 }
 
 /// Get all virtual and archived branches with their notes
@@ -94,7 +93,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
   }
 
   // Second call: batch fetch all notes, passing the commits on stdin (no argv length limit)
-  let mut branch_notes: HashMap<String, BranchIntegrationInfo> = HashMap::new();
+  let mut branch_notes: HashMap<String, CachedDetection> = HashMap::new();
   if !commit_subjects.is_empty() {
     let notes_arg = format!("--notes={}", super::cache::NOTES_REF);
     let mut input = String::with_capacity(commit_subjects.len() * 41);
@@ -126,7 +125,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
         match deserialize_from_cache(note) {
           Ok(mut cache_info) => {
             if let Some(branch_name) = commit_to_branch.get(commit) {
-              (*branch_name).clone_into(&mut cache_info.name);
+              (*branch_name).clone_into(&mut cache_info.info.name);
             }
             branch_notes.insert(commit.to_string(), cache_info);
           }

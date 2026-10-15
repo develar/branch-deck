@@ -88,6 +88,21 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   assert!(!reported.contains(&old_integrated), "deleted old-integrated must not be reported: {reported:?}");
   assert!(reported.contains(&old_orphaned), "old-orphaned should be reported: {reported:?}");
   assert!(reported.contains(&recent_integrated), "recent-integrated should be reported: {reported:?}");
+  // a note without a baseline beyond the retention period is reported as is, not detected again
+  let events = progress.get_events();
+  let status = &crate::test_helpers::detected_branch_info(&events, &old_orphaned).status;
+  assert!(
+    matches!(
+      status,
+      sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+        total_commit_count: 3,
+        integrated_count: 1,
+        orphaned_count: 2,
+        ..
+      }
+    ),
+    "{status:?}"
+  );
 
   Ok(())
 }

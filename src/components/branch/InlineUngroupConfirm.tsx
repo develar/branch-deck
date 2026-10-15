@@ -6,7 +6,7 @@ import { getStackChildren, useBranch } from "@/stores/branch-sync"
 import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
 
-/** Confirms ungrouping a branch that other branches stack on: they keep naming it as their parent and are blocked */
+/** Confirms ungrouping a branch that other branches stack on: they keep naming it as their parent and go on the baseline */
 export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
   const processing = useIsRowProcessing(branchName)

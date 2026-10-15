@@ -151,9 +151,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `issue_group_problems`, the lines of the issue groups that are not used.
   [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
 - With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active`, `integrated`,
-  `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, and its stack `problems` with the
-  commits that declare them, and the output must list the `forest` order, parents first; `bd commits` must group by
-  the leaf as well.
+  `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, `pr_base_changed` when a parent
+  without commits is passed (the branch is built on the nearest active ancestor or the baseline, never blocked by it),
+  and its stack `problems` with the commits that declare them, and the output must list the `forest` order, parents
+  first; `bd commits` must group by the leaf as well.
   [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`)
 - Each branch with a `bd describe` text must show its title, read for all branches in one git process.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)
@@ -162,8 +163,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   base (`null` if it was never synced), for all branches in at most three more git processes.
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
 - `--brief` must print per branch only the name, the commit count, the issue key when it is not the name, and the
-  newest subject, with stacked branches on also the parent, `blocked_by`, the problems and the forest, then the
-  unassigned commits; it must not go with `--branch` or `--stats`.
+  newest subject, with stacked branches on also the parent, `blocked_by`, `pr_base_changed`, the problems and the
+  forest, then the unassigned commits; it must not go with `--branch` or `--stats`.
   [@test] ../../crates/bd-cli/src/status_test.rs (`brief_status`, `brief_status_keeps_the_stack_state`)
 
 ### `bd commits`

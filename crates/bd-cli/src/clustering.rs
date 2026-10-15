@@ -1287,7 +1287,8 @@ pub enum Restack {
   ForAbove,
   /// Its declared parent depends on it
   ParentNeedsIt,
-  /// Its declared parent has no commits, so the sync would block it
+  /// Its declared parent has no commits: the sync would build it on the baseline anyway, so the suggestion declares
+  /// no parent
   ParentWithoutCommits,
   /// The commits of its declared parent went into a cluster of another name
   ParentMerged,
@@ -1311,7 +1312,8 @@ impl Placement {
 
 /// Where each cluster named `leaves` builds. Without stacked branches each one is a root under its leaf. With them,
 /// the parent its prefixes declare stays when it holds every cluster it depends on as an ancestor (`stack_clusters`);
-/// a declared parent that is no cluster goes, as the sync would block on it, and `fresh` declares no parent
+/// a declared parent that is no cluster goes, as the sync would build the branch on the baseline anyway, and `fresh`
+/// declares no parent
 pub fn place_clusters(input: &ClusterInput, clustering: &Clustering, leaves: &[String], fresh: bool) -> Vec<Placement> {
   if !input.stacks {
     return leaves.iter().map(|leaf| Placement::root(leaf)).collect();

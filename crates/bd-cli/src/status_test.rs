@@ -291,7 +291,10 @@ fn stacks_in_status() {
   assert_eq!((&branch("login")["parent"], &branch("login")["parent_state"]), (&json!("auth"), &json!("active")));
   assert_eq!(branch("auth").get("parent"), None);
   assert_eq!(branch("oauth")["parent_state"], json!("missing"));
-  assert_eq!(branch("oauth")["blocked_by"], json!({ "parent": "ghost", "reason": "missing" }));
+  // a parent without commits is passed: built on the baseline
+  assert_eq!((branch("oauth").get("blocked_by"), branch("oauth").get("effective_base")), (None, None));
+  assert_eq!(branch("oauth")["pr_base_changed"], json!(true));
+  assert_eq!(branch("login").get("pr_base_changed"), None);
   assert_eq!(branch("login")["effective_base"], json!("auth"));
   assert_eq!(
     branch("c")["problems"],
@@ -354,7 +357,7 @@ fn brief_status_keeps_the_stack_state() {
   assert_eq!(
     output["branches"],
     json!([
-      { "name": "oauth", "commit_count": 1, "newest": "Add oauth", "parent": "ghost", "blocked_by": { "parent": "ghost", "reason": "missing" } },
+      { "name": "oauth", "commit_count": 1, "newest": "Add oauth", "parent": "ghost", "pr_base_changed": true },
       {
         "name": "c",
         "commit_count": 2,

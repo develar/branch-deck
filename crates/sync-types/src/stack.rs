@@ -26,7 +26,7 @@ pub struct DeclaredParent {
   pub commits: Vec<String>,
 }
 
-/// The state of a declared parent
+/// The state of a declared parent; a label only: a parent without commits, whatever its state, doesn't block its children
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum ParentState {
@@ -44,9 +44,6 @@ pub enum ParentState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum BlockReason {
-  /// The parent has no commits and is not integrated
-  Missing,
-  Unapplied,
   /// The parent can't be placed (a stack problem) or failed to build
   Error,
   /// A commit of the parent has a merge conflict
@@ -72,13 +69,14 @@ pub struct BranchStack {
   pub parent_state: Option<ParentState>,
   /// The branch the virtual branch is built on; `None` for the baseline
   pub effective_base: Option<String>,
-  /// Why the branch is not rebuilt this sync, known before the sync starts; a parent that fails while building
-  /// blocks its descendants with a `Blocked` branch status
+  /// Why the branch is not rebuilt this sync, known before the sync starts: its parent can't be built (a problem, a
+  /// conflict, a failure or a block); a parent that fails while building blocks its descendants with a `Blocked`
+  /// branch status
   pub blocked_by: Option<StackBlock>,
   /// Why the branch itself can't be placed; it is not rebuilt either
   pub problems: Vec<StackProblem>,
-  /// The declared parent is integrated, so the branch is built on its nearest active ancestor or the baseline and the
-  /// base of its pull request has to change
+  /// The declared parent has no commits, so the branch is built on its nearest active ancestor or the baseline and the
+  /// base of its pull request differs from the declared parent
   pub pr_base_changed: bool,
   /// A commit of the branch comes before every commit of its parent on the current branch
   pub child_precedes_parent: bool,

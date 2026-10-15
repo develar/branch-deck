@@ -13,11 +13,32 @@ pub const NOTES_REF: &str = "refs/notes/branch-deck/detection";
 /// of the archived branch looks only at its own commits
 pub const STACK_NOTES_REF: &str = "refs/notes/branch-deck/stack";
 
-// Current detection cache version
-pub const DETECTION_CACHE_VERSION: u8 = 1;
+/// Current detection cache version: 2 records the baseline a `NotIntegrated` result was checked against (`b`) and the
+/// commits without an equivalent (`u`); a note without `b` is detected again in full, within the retention period
+pub const DETECTION_CACHE_VERSION: u8 = 2;
 
-/// Serialize `BranchIntegrationInfo` to compact JSON for git notes storage
-pub fn serialize_for_cache(info: &BranchIntegrationInfo) -> Result<String> {
+/// A note on a branch tip: the detection result and, for a `NotIntegrated` one, what a recheck needs
+#[derive(Debug, Clone)]
+pub struct CachedDetection {
+  pub info: BranchIntegrationInfo,
+  /// `None` for a final result (`Integrated`, `Partial`) and for a `NotIntegrated` note without a baseline (written by
+  /// version 1)
+  pub check: Option<Recheck>,
+}
+
+/// What a `NotIntegrated` result was checked against: when the baseline moves on from it, only the baseline commits
+/// since then are compared (`^<baseline>` in the cherry-mark scan)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recheck {
+  /// The baseline commit the result was checked against
+  pub baseline: String,
+  /// The commits of the branch without an equivalent in that baseline; `None` when it is all of them
+  pub orphaned: Option<Vec<String>>,
+}
+
+/// Serialize a detection result to compact JSON for git notes storage; `check` is written only with a `NotIntegrated`
+/// result
+pub fn serialize_for_cache(info: &BranchIntegrationInfo, check: Option<&Recheck>) -> Result<String> {
   let status_json = match &info.status {
     BranchIntegrationStatus::Integrated {
       integrated_at,
@@ -63,6 +84,12 @@ pub fn serialize_for_cache(info: &BranchIntegrationInfo) -> Result<String> {
       if let Some(ia) = integrated_at {
         status.as_object_mut().unwrap().insert("ia".to_string(), json!(ia));
       }
+      if let Some(check) = check {
+        status.as_object_mut().unwrap().insert("b".to_string(), json!(check.baseline));
+        if let Some(orphaned) = &check.orphaned {
+          status.as_object_mut().unwrap().insert("u".to_string(), json!(orphaned));
+        }
+      }
       status
     }
     BranchIntegrationStatus::Partial { missing } => {
@@ -107,14 +134,25 @@ fn read_upstream_commit(value: &serde_json::Value, time: u32) -> Option<Upstream
   })
 }
 
-/// Deserialize compact JSON from git notes to `BranchIntegrationInfo` (with empty name)
-pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
+/// The recheck data of a `NotIntegrated` status: `None` without a baseline or with an unreadable `u`
+fn read_recheck(value: &serde_json::Value) -> Option<Recheck> {
+  let baseline = value.get("b")?.as_str().filter(|baseline| !baseline.is_empty())?.to_string();
+  let orphaned = match value.get("u") {
+    None => None,
+    Some(ids) => Some(ids.as_array()?.iter().map(|id| id.as_str().map(str::to_string)).collect::<Option<Vec<String>>>()?),
+  };
+  Some(Recheck { baseline, orphaned })
+}
+
+/// Deserialize compact JSON from git notes (the info with an empty name)
+pub fn deserialize_from_cache(json: &str) -> Result<CachedDetection> {
   let value: Value = serde_json::from_str(json)?;
 
   let summary = value.get("sum").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
   let status_value = value.get("s").ok_or_else(|| anyhow::anyhow!("Missing status field"))?;
 
+  let mut check = None;
   let status = match status_value.get("k").and_then(|v| v.as_str()) {
     Some("i") => {
       let commit_count = read_u32(status_value, "cc").unwrap_or(0);
@@ -146,6 +184,8 @@ pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
 
       let integrated_at = read_u32(status_value, "ia");
 
+      check = read_recheck(status_value);
+
       BranchIntegrationStatus::NotIntegrated {
         total_commit_count,
         integrated_count,
@@ -161,10 +201,13 @@ pub fn deserialize_from_cache(json: &str) -> Result<BranchIntegrationInfo> {
     _ => return Err(anyhow::anyhow!("Unknown status kind")),
   };
 
-  Ok(BranchIntegrationInfo {
-    name: String::new(), // Empty name - to be filled by caller
-    summary,
-    status,
+  Ok(CachedDetection {
+    info: BranchIntegrationInfo {
+      name: String::new(), // Empty name - to be filled by caller
+      summary,
+      status,
+    },
+    check,
   })
 }
 
@@ -180,16 +223,16 @@ impl<'a> CacheOps<'a> {
   }
 
   /// Write one cached detection result as a note
-  pub fn write(&self, commit: &str, info: &BranchIntegrationInfo) -> Result<()> {
-    self.write_all(&[(commit.to_string(), info.clone())])
+  pub fn write(&self, commit: &str, detection: &CachedDetection) -> Result<()> {
+    self.write_all(&[(commit.to_string(), detection.clone())])
   }
 
   /// Write the cached detection results as notes, all in one notes commit
   #[instrument(skip(self, entries), fields(count = entries.len()))]
-  pub fn write_all(&self, entries: &[(String, BranchIntegrationInfo)]) -> Result<()> {
+  pub fn write_all(&self, entries: &[(String, CachedDetection)]) -> Result<()> {
     let notes = entries
       .iter()
-      .map(|(commit, info)| Ok((commit.clone(), serialize_for_cache(info)?)))
+      .map(|(commit, detection)| Ok((commit.clone(), serialize_for_cache(&detection.info, detection.check.as_ref())?)))
       .collect::<Result<Vec<_>>>()?;
     write_notes(self.git, self.repo, NOTES_REF, &notes).context("Failed to write notes")?;
     debug!("Cached detection for {} branches", notes.len());

@@ -1,5 +1,5 @@
 import { describePrefixChange } from "@/lib/stack"
-import { getBranch, useIssueGroups, useStacksEnabled } from "@/stores/branch-sync"
+import { getBranch, useBranchSync, useIssueGroups, useStacksEnabled } from "@/stores/branch-sync"
 
 export interface PrefixChangeHintProps {
   before: string
@@ -10,12 +10,13 @@ export interface PrefixChangeHintProps {
 
 /**
  * Warns that a changed subject moves the commit to another branch (or out of every branch); with stacked branches also
- * that it restacks the branch, or would make a parent conflict or a missing parent.
+ * that it restacks the branch, or would make a parent conflict or name a parent without commits (built on the baseline).
  */
 export function PrefixChangeHint({ before, after, action }: PrefixChangeHintProps) {
   const stacks = useStacksEnabled()
   const issueGroups = useIssueGroups()
-  const change = describePrefixChange(before, after, action, stacks, (name) => {
+  const baselineBranch = useBranchSync(state => state.baselineBranch) ?? "the baseline"
+  const change = describePrefixChange(before, after, action, stacks, baselineBranch, (name) => {
     const branch = getBranch(name)
     return branch === undefined ? undefined : { declaredParent: branch.stack?.declaredParent ?? null, commitCount: branch.commitCount }
   }, issueGroups)

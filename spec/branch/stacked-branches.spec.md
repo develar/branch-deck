@@ -1,6 +1,6 @@
 ---
 name: Stacked Branches
-description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, with problems and blocked parents reported per branch and the setting opt-in per repository.
+description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, a parent without commits passed to the branch below it, problems and blocked parents reported per branch and the setting opt-in per repository.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack.rs
@@ -10,6 +10,8 @@ targets:
   - ../../crates/sync-core/src/autosquash.rs
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/branch-integration/src/detector.rs
+  - ../../crates/branch-integration/src/cache.rs
+  - ../../crates/branch-integration/src/rebase.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/sync-types/src/stack.rs
@@ -23,6 +25,7 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useStackActions.ts
   - ../../src/components/branch/InlineUngroupConfirm.tsx
+  - ../../src/components/branch/StackChildrenNote.tsx
   - ../../src/components/branch/InlineRenameBranchInput.tsx
   - ../../crates/sync-core/src/stack_operations.rs
   - ../../src/lib/commit.ts
@@ -50,15 +53,18 @@ Date: 2026-10-14
 A commit `(auth/login) Add form` belongs to the branch `login`, and `login` stacks on `auth`. Its virtual branch is
 built on the new head of `auth`'s virtual branch, so a pull request for `login` contains only its own commits on top
 of `auth`. Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
-its parent is declared. A branch that can't be placed, or whose parent can't be built on, is reported and not rebuilt;
-the other branches still sync. The branch table shows the stacks as a tree, and the branch menu stacks, unstacks and
+its parent is declared. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
+nearest ancestor with commits, or the baseline. A branch that can't be placed, or whose parent can't be built, is
+reported and not rebuilt; the other branches still sync. The branch table shows the stacks as a tree, and the branch menu stacks, unstacks and
 renames branches.
 
 ## Goals
 
 - Review a feature in dependent steps, each a branch with its own commits.
 - Keep linear development on the main branch: the prefix is the only stack state.
-- Never re-base a branch silently: a child whose parent is missing stays where it was.
+- The history decides where a branch is built: a parent without commits (landed, unapplied, mistyped) doesn't stop its
+  children; the base change is visible in the row, the alert and the push toast; only the user rewrites prefixes
+  (Unstack).
 
 ## Non-goals
 
@@ -94,7 +100,7 @@ renames branches.
   - two branches differ only in case (both);
   - a syntax problem.
   [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`conflicting_parents_name_their_commits`, `a_branch_can_not_be_its_own_parent`, `a_cycle_marks_each_of_its_branches`, `leaves_that_differ_only_in_case_collide`)
-  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_missing_parent_or_a_problem_is_not_built`)
+  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_problem_is_not_built_and_a_missing_parent_is_passed`)
 
 ### Placement
 
@@ -104,20 +110,25 @@ renames branches.
   [@test] ../../crates/sync-core/src/stack_test.rs (`a_child_is_built_on_its_active_parent`)
 - A parent without commits must be `Unapplied` with an unapplied branch of its name, `Integrated` when its branch is
   integrated, else `Missing`. Its branch is its virtual branch, which the sync is about to archive, else its newest
-  archived branch; a detection note says whether it is integrated.
+  archived branch; a detection note says whether it is integrated. The state is a label (the row, `bd status`); the
+  placement doesn't depend on it.
   [@test] ../../crates/sync-core/src/stack_test.rs (`reads_the_state_of_parents_without_commits_from_their_branches`)
-- A virtual branch of a parent without commits and without a note must be detected before the branches are placed, so
-  the first sync after the parent's merge already moves the child. The sync writes the note, and its archiving reports
-  the parent from it; `bd status` and `bd check` detect without writing.
+- A virtual branch of a parent without commits must be detected before the branches are placed when it has no note,
+  or a `NotIntegrated` note checked against another baseline, so the first sync after the parent's merge already labels
+  the parent landed. The sync writes the note, and its archiving reports the parent from it; `bd status` and
+  `bd check` detect without writing.
   [@test] ../../crates/sync-core/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
+  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`)
   [@test] ../../crates/bd-cli/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
-- An integrated parent must move the child to its nearest active ancestor, or the baseline, with `prBaseChanged`.
-  [@test] ../../crates/sync-core/src/stack_test.rs (`an_integrated_parent_moves_the_child_to_the_nearest_active_ancestor`)
-- A missing or unapplied parent, a parent with a problem and a blocked parent must block the child: the `Blocked`
-  status, the reason as its text, its commits blocked, its virtual branch left as it was.
-  [@test] ../../crates/sync-core/src/stack_test.rs (`a_missing_or_unapplied_parent_blocks_the_child_and_its_descendants`, `a_parent_with_a_problem_blocks_its_children`)
-  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`an_unapplied_parent_is_reported_before_the_sync_starts`)
+- A parent without commits, whatever its state, must move the child to its nearest active ancestor, or the baseline,
+  with `prBaseChanged`: the local history is linear on the baseline, so the child's commits can be picked there like
+  those of any flat branch (or conflict like them).
+  [@test] ../../crates/sync-core/src/stack_test.rs (`an_integrated_parent_moves_the_child_to_the_nearest_active_ancestor`, `a_parent_without_commits_moves_the_child_to_the_nearest_ancestor_with_commits`)
+  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`an_unapplied_parent_is_reported_before_the_sync_starts`, `a_problem_is_not_built_and_a_missing_parent_is_passed`)
+- A parent with a problem and a blocked parent must block the child: the `Blocked` status, the reason as its text, its
+  commits blocked, its virtual branch left as it was.
+  [@test] ../../crates/sync-core/src/stack_test.rs (`a_parent_with_a_problem_blocks_its_children`)
 - A parent that conflicts or fails while it is built must block its descendants the same way.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_parent_conflict_blocks_its_descendants`)
 
@@ -142,8 +153,12 @@ renames branches.
   the merge count, the base as the merge base of the squash check. A child whose own commits are upstream is
   integrated even if its parent is not.
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
-- Only an `Integrated` result of a stacked child may be cached; another one is detected again on the next sync.
-  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_not_cached_until_integrated`)
+- The result of a stacked child must be cached like any other: a `NotIntegrated` note records the baseline it was
+  checked against and the commits without an equivalent, and is checked again against the baseline commits since then
+  when the baseline moves ([Integration Detection](../../docs/design/integration-detection.md)).
+  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_orphaned_commits`)
+  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`)
+  [@test] ../../crates/integration-detection-tests/src/cache_tests.rs (`a_not_integrated_note_records_its_baseline_and_orphaned_commits`, `a_final_result_records_no_baseline`, `a_version_1_note_has_no_check_data`)
 
 ### Pull requests
 
@@ -203,7 +218,8 @@ renames branches.
 - `groupFor` must read a prefix as the backend does: the leaf, its parent and an empty level.
   [@test] ../../src/lib/commit.test.ts (`reads %j as the backend stack_path does`, `keeps a slash in a flat name without stacked branches`)
 - The commit message editor must say when an edit restacks the branch, and warn when it would make the branch's
-  parents conflict or name a parent without commits.
+  parents conflict or name a parent without commits, likely a typo: "api has no commits: docs is built on master until
+  it has".
   [@test] ../../src/lib/stack.test.ts (`names the new branch and its parent`, `warns about a parent the other commits of the branch don't declare`, `says a single-commit branch is restacked or unstacked`, `warns about a parent without commits`)
 
 ### Fixups
@@ -228,16 +244,27 @@ renames branches.
   parent, and "Unstack from <parent>" for a stacked branch (`restack_branch`, with an undo).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restacks_and_unstacks_a_branch`, `renaming_a_parent_renames_it_in_its_children`)
-- Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name the children
-  they block. See [Move Commits](move-commits.spec.md).
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should confirm ungrouping a parent and list its children`)
+- Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name its children:
+  "oauth stays stacked on login and is built on master until login has commits again." See
+  [Move Commits](move-commits.spec.md).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should rename a parent with its children following`, `should build a child on the baseline once its parent has no commits, and unstack it`)
+- A branch built elsewhere because its declared parent has no commits (`prBaseChanged`) must say so in the third
+  column of its Status cell: a muted "on master" (or the ancestor it is built on) with the reason as its tooltip ("login
+  landed · oauth is built on master"; "login has no commits", "login is unapplied"). Its push button is enabled.
+  Expanded, an alert says "Built on master: login landed. The pull request base is master." (`info` for a landed
+  parent, `warning` for one without commits, likely a typo, neutral for an unapplied one) with an
+  "Unstack from login" link: the undoable rewrite of the branch menu, the only change of the prefixes, by the user. The
+  push toast offers the retarget of an open pull request ([Pull requests](#pull-requests)).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
+  [@test] ../../src/lib/stack.test.ts (`says why the branch isn't built on its parent`, `is passed only when the branch is built elsewhere`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
   a disabled push button (in the row, the Outgoing overview and the preview), no share in the outgoing counts, and,
   expanded, a `warning` alert with a link that reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
-- Where the tree isn't visible, a stacked branch must say what it is built on ("on auth"): the Outgoing overview and the
-  branch preview. The branch row says it only while the parent has work for the remote ([Pull requests](#pull-requests)).
+- Where the tree isn't visible, a stacked branch must say what it is built on ("on auth", "on master" while its parent
+  has no commits): the Outgoing overview and the branch preview. The branch row says it only while the parent has work
+  for the remote ([Pull requests](#pull-requests)) or has no commits.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
 - A push of a stacked branch must count only its own commits as unpushed afterwards (`parentBranch`).
 
@@ -249,8 +276,8 @@ renames branches.
 
 ## Open Questions / Risks
 
-- A parent integrated by a squash merge is `Missing` under the default rebase detection, so its child stays blocked
-  until the user restacks it.
+- A parent integrated by a squash merge is `Missing` under the default rebase detection: its child is labelled "has no
+  commits" instead of "landed"; the placement is the same.
 
 ## References
 

@@ -159,6 +159,11 @@ parent's commits runs into the rule of its children.
   disabled push button, and, expanded, a `warning` alert with the reason and "Show <parent>", which reveals the parent.
   Its commits carry the `warning` Blocked badge.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
+- A stacked branch whose declared parent has no commits is not blocked but built elsewhere ("Base changed"): the muted
+  "on master" in the third column of the Status cell, the reason in its tooltip ("login landed · oauth is built on
+  master"), an enabled push button, and, expanded, an alert "Built on master: login landed. The pull request base is
+  master." with "Unstack from login" ([Stacked Branches](stacked-branches.spec.md#ui)).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
 
 ### Actions cell
 
@@ -225,7 +230,7 @@ parent's commits runs into the rule of its children.
 - A form with an input must focus the input. A confirmation without one (Unapply, Ungroup, Safe Push, Dry Run) must
   focus its button once the button is enabled, so Enter confirms. Escape cancels.
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should focus input when opened`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should confirm ungrouping a parent and list its children`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
 - While its action runs, the form must be a progress row that says what runs ("Adding ABC-123 to auth…"), and close
   when the action is done. A failure of a form with an input (rename, issue reference, the archived delete) must show
   the form again with the typed text, focused; the error is a toast.
@@ -292,7 +297,9 @@ parent's commits runs into the rule of its children.
 - The colours: `info` merged and landed; `warning` attention (blocked, a pull request or a robot behind the branch,
   "Needs review"); `destructive` a failure or a conflict; `success` approved or passed; the push colour (`primary`, or
   `warning` for a push that drops remote commits) for the push only.
-- The blocked alert is the `warning` alert with the warning triangle; its "Show auth" link is `text-warning`.
+- The blocked alert is the `warning` alert with the warning triangle; its "Show auth" link is `text-warning`. The alert
+  of a changed base is `info` with the info icon for a landed parent, `warning` with the triangle for a parent without
+  commits, the neutral alert for an unapplied one; its "Unstack from login" link takes the alert's colour.
 
 ### Actions
 

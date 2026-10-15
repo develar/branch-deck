@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { describePrefixChange, pullRequestBaseOf, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { describeParentState, describePrefixChange, passedParentOf, pullRequestBaseOf, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -12,7 +12,7 @@ const table: Record<string, StackBranchInfo> = {
 }
 
 function change(before: string, after: string, stacks = true) {
-  return describePrefixChange(before, after, "Saving", stacks, name => table[name])
+  return describePrefixChange(before, after, "Saving", stacks, "origin/master", name => table[name])
 }
 
 describe("describePrefixChange", () => {
@@ -35,12 +35,27 @@ describe("describePrefixChange", () => {
   })
 
   it("warns about a parent without commits", () => {
-    expect(change("(docs) Document", "(api/docs) Document").text).toBe("api has no commits: docs would be blocked until it has")
+    expect(change("(docs) Document", "(api/docs) Document")).toEqual({ text: "api has no commits: docs is built on master until it has", warning: true })
   })
 
   it("compares the whole prefix without stacked branches", () => {
     expect(change("(docs) Document", "(auth/login) Document", false).text).toBe("Saving moves the commit to the branch auth/login")
     expect(change("(auth/login) Add form", "(auth/login) Add the form", false).warning).toBe(false)
+  })
+})
+
+describe("a parent without commits", () => {
+  it("says why the branch isn't built on its parent", () => {
+    expect(describeParentState("air-misc", "Integrated")).toBe("air-misc landed")
+    expect(describeParentState("air-misc", "Unapplied")).toBe("air-misc is unapplied")
+    expect(describeParentState("air-misc", "Missing")).toBe("air-misc has no commits")
+  })
+
+  it("is passed only when the branch is built elsewhere", () => {
+    const stack = { ...testBranch("IJAI-1184", "air-misc").stack!, parentState: "Integrated" as const, effectiveBase: null, prBaseChanged: true }
+    expect(passedParentOf(testBranch("IJAI-1184", "air-misc", { stack }))).toEqual({ parent: "air-misc", state: "Integrated" })
+    expect(passedParentOf(testBranch("login", "auth"))).toBeNull()
+    expect(passedParentOf(testBranch("auth", null))).toBeNull()
   })
 })
 
