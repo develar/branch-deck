@@ -118,6 +118,22 @@ How agents commit to this repository; "Git Operations" below is about the git th
   every worktree shares the setting: `git config core.hooksPath .githooks && git config merge.ff only`.
 - Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
 
+### Worktrees
+Parallel work runs in a worktree from the [treehouse](https://github.com/kunchenguid/treehouse) pool
+(`~/.treehouse/<repo>-<hash>/`); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
+- **Acquire**: `treehouse get --lease --lease-holder <agent-name>` fetches origin and prints only the worktree path
+  (`--json` adds the lease id, `--no-fetch` skips the fetch). A leased worktree is never handed out again or pruned.
+- **Branch**: the worktree starts on a detached HEAD; branch off local master, which may be ahead of `origin/master`:
+  `git switch -c <branch> master`.
+- **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
+  `node_modules` and `target/` survive a reuse; run `pnpm install` when `pnpm-lock.yaml` changed.
+- **E2E**: port 3030 of the mock server is shared by all worktrees, so one `pnpm e2e` at a time; check
+  `lsof -nP -i :3030` first.
+- **Integrate** as in "Commits and History": `git rebase master` in the worktree, `git merge --ff-only <branch>` in
+  the main checkout.
+- **Release**: commit, then `treehouse return <path>`; it cleans and resets the worktree, the branch survives.
+  `treehouse status` lists the pool; `treehouse prune` and `treehouse destroy` are dry runs without `--yes`.
+
 ### Git Operations
 Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
