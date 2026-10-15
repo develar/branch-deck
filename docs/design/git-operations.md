@@ -195,8 +195,8 @@ a message rewrite keeps HEAD's tree.
 
 **Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`
 ([Issue Groups](../../spec/branch/issue-groups.spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.
-- A write makes a commit with the one file `issue-groups` on the previous map commit (`FileCommit` and `StoreUpdate`
-  in `commit_writer.rs`). With a rewrite, it is one more commit of the reword's `fast-import` stream
+- A write makes a commit with the one file `issue-groups` on the previous map commit (`StoreCommit::file` and
+  `StoreUpdate` in `commit_writer.rs`). With a rewrite, it is one more commit of the reword's `fast-import` stream
   (`reword_commits_batch_at`), so a mixed plan costs one `git var` and one `fast-import`. Without a rewrite,
   `write_store_commit` writes it alone. `fast-import` objects are readable only after the stream ends, which suits
   this write.

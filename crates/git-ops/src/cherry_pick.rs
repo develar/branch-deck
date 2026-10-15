@@ -2,10 +2,10 @@ use crate::cache::TreeIdCache;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{ConflictContext, build_merge_conflict_info};
 use crate::merge_memo::{MemoizedMerge, MergeTrees};
+use crate::merge_tree_output::parse_merge_tree_output;
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use tracing::{debug, instrument};
 
@@ -77,62 +77,40 @@ pub fn perform_fast_cherry_pick_with_context(
   ];
 
   // Exit code 1 means the merge has conflicts; the output still holds the tree and the conflicted entries
-  let output = git_executor
-    .execute_command_accepting(&args, repo_path, &[1])
+  let (output, _) = git_executor
+    .execute_command_raw_accepting(&args, repo_path, &[1])
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
-
   debug!(output_length = output.len(), "git merge-tree completed");
+  let merge = parse_merge_tree_output(&output).map_err(CopyCommitError::Other)?;
+  let tree_oid = merge.tree.as_str();
 
-  // Check if command produced output
-  if output.is_empty() {
-    return Err(CopyCommitError::Other(anyhow!("git merge-tree did not produce output")));
-  }
-
-  // Parse the NUL-separated output
-  let parts: Vec<&str> = output.trim_end_matches('\0').split('\0').collect();
-
-  if parts.is_empty() || parts[0].is_empty() {
-    return Err(CopyCommitError::Other(anyhow!("No output from git merge-tree")));
-  }
-
-  let tree_oid = parts[0];
-
-  // Check if there were conflicts by looking for file entries
-  if parts.len() > 1 {
-    // Parse file entries (one per conflict stage) and collect the unique conflicted paths
-    let mut conflict_paths: BTreeSet<PathBuf> = BTreeSet::new();
-    for part in parts.iter().skip(1).take_while(|p| !p.is_empty()) {
-      // File entries have format: "<mode> <object> <stage>\t<filename>"
-      if let Some((prefix, filename)) = part.split_once('\t')
-        && prefix.split_whitespace().count() == 3
-      {
-        conflict_paths.insert(PathBuf::from(filename));
+  if !merge.entries.is_empty() {
+    // the unique conflicted paths
+    let conflict_files: Vec<PathBuf> = merge
+      .conflicted_paths()
+      .into_iter()
+      .map(|path| PathBuf::from(String::from_utf8_lossy(path).into_owned()))
+      .collect();
+    if let (Some(memo), Some(trees)) = (memo, &trees) {
+      let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
+      memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
+      if memo.light_conflicts() {
+        return Err(light_conflict(files));
       }
     }
-    let conflict_files: Vec<PathBuf> = conflict_paths.into_iter().collect();
+    // Conflict analysis takes a while; let the UI show it
+    on_status(BranchSyncStatus::AnalyzingConflict);
 
-    if !conflict_files.is_empty() {
-      if let (Some(memo), Some(trees)) = (memo, &trees) {
-        let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
-        memo.remember_merge(trees, &MemoizedMerge::Conflict { files: files.clone() });
-        if memo.light_conflicts() {
-          return Err(light_conflict(files));
-        }
-      }
-      // Conflict analysis takes a while; let the UI show it
-      on_status(BranchSyncStatus::AnalyzingConflict);
-
-      let conflict_info = build_merge_conflict_info(ConflictContext {
-        git_executor,
-        repo_path,
-        conflict_files: &conflict_files,
-        merge_tree_oid: tree_oid,
-        parent_commit_id: cherry_parent_id,
-        target_commit_id,
-        cherry_commit_id,
-      })?;
-      return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
-    }
+    let conflict_info = build_merge_conflict_info(ConflictContext {
+      git_executor,
+      repo_path,
+      conflict_files: &conflict_files,
+      merge_tree_oid: tree_oid,
+      parent_commit_id: cherry_parent_id,
+      target_commit_id,
+      cherry_commit_id,
+    })?;
+    return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
   }
 
   // No conflicts, return the merged tree ID

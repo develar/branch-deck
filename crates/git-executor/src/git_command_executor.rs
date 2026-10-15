@@ -192,6 +192,20 @@ impl GitCommandExecutor {
     Ok(Self::trimmed(&output))
   }
 
+  /// `execute_command_accepting` that returns the exit code and stdout bytes untouched: no trimming and no UTF-8
+  /// decoding, for `-z` output that holds paths and blob content (`merge-tree --write-tree -z`)
+  pub fn execute_command_raw_accepting(&self, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<(Vec<u8>, i32)> {
+    let output = self.run(
+      args,
+      repository_path,
+      &RunOptions {
+        ok_exit_codes,
+        ..RunOptions::default()
+      },
+    )?;
+    Ok((output.stdout, output.status.code().unwrap_or(-1)))
+  }
+
   /// Execute a git command and return raw untrimmed output
   /// Useful for commands where exact formatting matters (e.g., git status --porcelain)
   pub fn execute_command_raw(&self, args: &[&str], repository_path: &str) -> Result<String> {

@@ -137,7 +137,7 @@ pub fn reword_commits_batch_at(
 
   let mut transaction = RefTransaction::new();
   transaction.update(&target.full_ref(), new_tip, Some(&target.head));
-  if let (Some(store), Some(store_commit)) = (store, &written.file_commit) {
+  if let (Some(store), Some(store_commit)) = (store, &written.store_commit) {
     store.add_to(&mut transaction, store_commit);
   }
   transaction.delete(&written.temp_ref, None);
@@ -160,7 +160,7 @@ pub fn reword_commits_batch_at(
 
   info!("Successfully reworded {} commits", rewrite_map.len());
 
-  let store_commit = written.file_commit;
+  let store_commit = written.store_commit;
   Ok((to_recreate.iter().map(|id| (*id).to_string()).zip(written.ids).collect(), store_commit))
 }
 

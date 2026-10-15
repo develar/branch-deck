@@ -10,7 +10,7 @@ use crate::move_commits::validate_branch_name;
 use crate::stack::stacks_enabled;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_writer::{FileCommit, StoreUpdate};
+use git_ops::commit_writer::{StoreCommit, StoreUpdate};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use sync_utils::issue_pattern::find_issue_number;
@@ -177,12 +177,7 @@ pub fn validate_issue_group_name(name: &str) -> Result<(), String> {
 pub fn issue_groups_store_update<'a>(previous: Option<&'a str>, content: &'a str) -> StoreUpdate<'a> {
   StoreUpdate {
     store_ref: ISSUE_GROUPS_REF,
-    commit: FileCommit {
-      path: ISSUE_GROUPS_FILE,
-      content: content.as_bytes(),
-      parent: previous,
-      message: "Issue groups of Branch Deck",
-    },
+    commit: StoreCommit::file(ISSUE_GROUPS_FILE, content.as_bytes(), previous, "Issue groups of Branch Deck"),
   }
 }
 
