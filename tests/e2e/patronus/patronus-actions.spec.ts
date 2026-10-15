@@ -373,6 +373,19 @@ test.describe("Patronus actions", () => {
       await routeCommand(page, "get_patronus_review_requirement", () => NO_REVIEW)
     }
 
+    /**
+     * Runs the fake clock over the app's wait before it reads the bot's reply to the posted comment
+     * (`COMMAND_REPLY_INTERVAL_MS`, 3 s, in src/stores/patronus.ts) until it read it, instead of waiting it out
+     */
+    async function skipReplyWait(page: Page, posts: unknown[], replies: unknown[]) {
+      await expect.poll(() => posts.length).toBe(1)
+      // the wait starts once the app has the posted comment, so a step can come before it: step until the read
+      await expect.poll(async () => {
+        await page.clock.fastForward(3000)
+        return replies.length
+      }).toBeGreaterThan(0)
+    }
+
     async function openSafePush(page: Page) {
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       // a pull request replaces the Space merge request
@@ -395,6 +408,7 @@ test.describe("Patronus actions", () => {
       await expect(form.getByTestId("patronus-start-profile-note")).toBeVisible()
       await expect(form.getByTestId("patronus-profile")).toHaveCount(0)
       await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
+      await skipReplyWait(page, posts, replies)
 
       await expect(chip(page, "JIRA-456")).toHaveText("Running")
       expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 7, mode: "rebaseAutosquash" })])
@@ -409,11 +423,12 @@ test.describe("Patronus actions", () => {
 
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
-      await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
-      await routeCommand(page, "read_patronus_command_reply", () => ({ status: "rejected", reason: "Patronus did not start the robot due to an error. A robot is already running for the branch." }))
+      const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
+      const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "rejected", reason: "Patronus did not start the robot due to an error. A robot is already running for the branch." }))
 
       const form = await openSafePush(page)
       await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
+      await skipReplyWait(page, posts, replies)
       const error = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" })
       await expect(error).toContainText("A robot is already running for the branch.")
       await expect(chip(page, "JIRA-456")).toHaveCount(0)
