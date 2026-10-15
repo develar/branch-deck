@@ -107,8 +107,7 @@ impl std::fmt::Display for Violation {
 fn literals_of(text: &str) -> Vec<&str> {
   let mut literals = Vec::new();
   let mut rest = text;
-  loop {
-    let Some(index) = rest.find(['"', ']']) else { break };
+  while let Some(index) = rest.find(['"', ']']) {
     if rest.as_bytes()[index] == b']' {
       break;
     }

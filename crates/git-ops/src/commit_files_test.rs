@@ -185,5 +185,5 @@ fn file_diff_takes_the_path_literally() {
 
   // a path the commit didn't change has no patch
   let unchanged = read_commit_file_diff(repo.git_executor(), repo_path(&repo), &head, "missing.txt", None).unwrap();
-  assert!(unchanged.hunks.is_empty());
+  assert_eq!(unchanged.hunks, Vec::<String>::new());
 }
