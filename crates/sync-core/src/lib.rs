@@ -3,6 +3,7 @@ pub mod amend_to_branch;
 pub mod autosquash;
 pub mod baseline;
 pub mod baseline_fetch;
+pub mod branch_name_suggestion;
 pub mod branch_prefix;
 mod branch_processor;
 pub mod check;
@@ -40,6 +41,8 @@ pub mod update_project;
 
 #[cfg(test)]
 mod baseline_test;
+#[cfg(test)]
+mod branch_name_suggestion_test;
 #[cfg(test)]
 mod branch_prefix_test;
 #[cfg(test)]

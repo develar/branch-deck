@@ -121,32 +121,9 @@ test.describe("Inline Branch Creator Feature", () => {
     await testInputAutoFocus(input)
   })
 
-  test("should show AI toggle and verify form structure", async ({ page }) => {
+  test("should verify form structure", async ({ page }) => {
     await openBranchCreatorForFirstCommit(page)
-
-    // Verify the branch creator structure with HTML snapshot
-    const branchCreatorPortal = inlineBranchCreator.getPortal(page)
-
-    // Check if AI is available by looking for the AI button
-    const aiToggle = inlineBranchCreator.getAiToggle(page)
-    const isAiAvailable = await aiToggle.isVisible()
-
-    if (isAiAvailable) {
-      // With AI available
-      await captureHtmlSnapshot(branchCreatorPortal, "branch-creator-with-ai")
-
-      // Toggle AI on
-      await aiToggle.click()
-
-      // Check if pressed state changed
-      const isPressed = await aiToggle.getAttribute("aria-pressed")
-      if (isPressed === "true") {
-        await captureHtmlSnapshot(branchCreatorPortal, "branch-creator-ai-enabled")
-      }
-    }
-    else {
-      // Without AI
-      await captureHtmlSnapshot(branchCreatorPortal, "branch-creator-no-ai")
-    }
+    // the AI controls have their own spec (inline-branch-creator-ai)
+    await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "branch-creator-no-ai")
   })
 })

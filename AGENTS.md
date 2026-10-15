@@ -17,7 +17,6 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 pnpm test                 # Run all tests (Rust and E2E)
 pnpm test:backend         # Run backend tests with nextest (fast)
 pnpm test:unit            # Run frontend unit tests (vitest, src/**/*.test.ts)
-pnpm test-model-ai        # Run AI model tests (requires --release)
 
 # E2E Testing (Playwright)
 pnpm setup:e2e            # First-time setup: Install Playwright browsers
@@ -67,7 +66,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 
 ## Recent Features
 - **Integration Status**: Auto-detection and archiving of merged, rebased, or squashed branches.
-- **AI Branch Naming**: On-device ML model to generate branch names from unassigned commits.
+- **AI Branch Naming**: two names for selected commits from the user's Claude Code (`claude -p --model haiku`, commit
+  messages and file names only, after a consent prompt) (`spec/branch/branch-name-suggestions.spec.md`).
 - **Context Menus**: Right-click operations (shadcn `ContextMenu`) for common actions on branches and commits.
 - **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits (also `bd fold`), with undo
   (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
@@ -233,7 +233,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Imports**: Always use explicit, full module paths. Never use `pub use` re-exports. Examples:
   - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
   - ✅ `use sync_types::issue_navigation::IssueNavigationConfig`
-  - ❌ `pub use config::ModelConfig` (in lib.rs)
+  - ❌ `pub use pull_request::PullRequestAvailability` (in lib.rs)
 
 ### Naming Conventions
 - **Components**: PascalCase `.tsx` files with a named export (e.g., `BranchTableCard.tsx`).
@@ -254,10 +254,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 ### Performance Guidelines
 - **Frontend**: Select narrow slices from zustand stores and `memo` list rows. Debounce user inputs where appropriate (e.g., using `p-debounce`).
 - **Backend**: One git process per operation phase, never one per commit, note or file (see [Git Operations](docs/design/git-operations.md)).
-- **AI/ML**: Always build with `--release` for ML inference (it's 8-10x faster). In dev mode, only ML dependencies are optimized to keep rebuilds fast.
 
 ### Debugging & Troubleshooting
-- **Slow ML inference**: Ensure you are running in `--release` mode.
 - **E2E Test Issues**: Run with `DEBUG_E2E=1` for verbose logging from the mock server.
 - **Playwright browser errors**: If tests fail with "Executable doesn't exist", run `pnpm setup:e2e` to install browsers. This happens automatically when running `pnpm e2e`, but may be needed after updating `@playwright/test`.
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
@@ -294,7 +292,7 @@ src/
 │   ├── commit/      # Commit list, commit info, floating selection bar
 │   ├── unassigned/  # Unassigned commits card and inline branch creator
 │   ├── conflict/    # Conflict and missing-commits views
-│   ├── ai/          # AI suggestions and model download
+│   ├── ai/          # AI branch name suggestions (Claude Code)
 │   └── settings/    # Settings dialogs
 ├── hooks/           # React hooks (useX.ts)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
@@ -312,10 +310,6 @@ crates/
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
-├── model-ai/        # AI model inference & domain logic
-├── model-core/      # Core AI types (e.g. candle, tokenizers)
-├── model-tauri/     # Tauri integration for AI models
-├── model-types/     # Serializable AI command types (no ML deps; used by test-server)
 ├── test-server/     # E2E mock server
 └── ...
 ```

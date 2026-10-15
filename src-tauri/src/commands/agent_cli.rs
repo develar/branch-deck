@@ -1,6 +1,6 @@
+use crate::command_error::CommandError;
 use bd_cli::context::Environment;
 use bd_cli::install::{InstallArgs, bd_command, install};
-use model_tauri::command_error::CommandError;
 use sync_utils::child_process::login_shell_path;
 use tracing::instrument;
 

@@ -29,28 +29,28 @@ This simplifies navigation and refactoring by making dependencies explicit. Appl
 
 ```rust
 // lib.rs
-pub use config::ModelConfig;
-pub use generator::BranchGenerator;
+pub use pull_request::PullRequestAvailability;
+pub use branch_name_suggestion::BranchNameSuggestionOutcome;
 
 // Other files
-use crate::{ModelConfig, BranchGenerator}; // Uses re-exports
-use model_core::{ModelConfig, BranchGenerator}; // Uses re-exports
+use crate::{PullRequestAvailability, BranchNameSuggestionOutcome}; // Uses re-exports
+use sync_types::{PullRequestAvailability, BranchNameSuggestionOutcome}; // Uses re-exports
 ```
 
 ### ✅ Correct - Direct imports
 
 ```rust
 // lib.rs
-pub mod config;
-pub mod generator;
+pub mod branch_name_suggestion;
+pub mod pull_request;
 
 // Other files
-use crate::config::ModelConfig;
-use crate::generator::BranchGenerator;
+use crate::pull_request::PullRequestAvailability;
+use crate::branch_name_suggestion::BranchNameSuggestionOutcome;
 
 // From other crates
-use model_core::config::ModelConfig;
-use model_core::generator::BranchGenerator;
+use sync_types::pull_request::PullRequestAvailability;
+use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
 ```
 
 ## Module Structure Guidelines
@@ -61,11 +61,11 @@ Instead of re-exporting contents, make the modules themselves public:
 
 ```rust
 // ❌ Wrong
-mod config;
-pub use config::ModelConfig;
+mod pull_request;
+pub use pull_request::PullRequestAvailability;
 
 // ✅ Correct
-pub mod config;
+pub mod pull_request;
 ```
 
 ### Internal Organization
@@ -109,13 +109,12 @@ use sync_types::issue_navigation::IssueNavigationConfig;
 
 ```rust
 // lib.rs
-pub mod commands;
-pub mod generator;
-pub mod path_provider;
+pub mod branch_name_suggestion;
+pub mod pull_requests;
 
 // No re-exports - users import what they need:
-use model_tauri::generator::ModelGeneratorState;
-use model_tauri::path_provider::TauriModelPathProvider;
+use sync_core::branch_name_suggestion::suggest_branch_names;
+use sync_core::pull_requests::get_pull_requests;
 ```
 
 ### Error Types
@@ -169,20 +168,20 @@ reports anything missing. The same no-re-exports rule applies: there are no barr
 
 Before:
 ```rust
-// model_core/lib.rs  
-pub mod config;
+// sync_types/lib.rs
+pub mod pull_request;
 
 // Other crate
-use model_core::config::ModelConfig;
+use sync_types::pull_request::PullRequestAvailability;
 ```
 
 After:
 ```rust
-// model_core/lib.rs  
-pub mod config;
+// sync_types/lib.rs
+pub mod pull_request;
 
 // Other crate
-use model_core::config::ModelConfig;
+use sync_types::pull_request::PullRequestAvailability;
 ```
 
 ## Tools and Enforcement

@@ -1,49 +1,31 @@
 import { ChevronRightIcon, ExternalLinkIcon, SparklesIcon } from "lucide-react"
-import { useEffect } from "react"
-import { ModelDownloadProgress } from "@/components/ai/ModelDownloadProgress"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { Callout } from "@/components/shared/Callout"
 import { HelpList, HelpPopoverContent, HelpSection } from "@/components/shared/HelpPopover"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useAIToggle } from "@/hooks/useAIToggle"
 import { formatTimestamp } from "@/lib/time"
-import type { AIError } from "@/stores/model"
-import { ensureModelStatus, useModelStore } from "@/stores/model"
+import type { AIError } from "@/stores/ai-suggestions"
 
 /**
  * AI status icon next to the inline branch creator buttons: a click toggles AI (after an error it turns AI off, so the
- * next click retries), hover explains what AI does; while the model downloads, hover shows its state and "Pause" (the
- * download toast shows the progress).
+ * next click retries), hover explains what AI does and what it sends.
  */
 export function AIStatusIndicator() {
   const { aiMode, aiError, statusIconClassName, toggleAIMode } = useAIToggle()
-  const isDownloading = useModelStore(state => state.isDownloading)
-
-  if (isDownloading) {
-    return (
-      <Popover>
-        <PopoverTrigger openOnHover render={<Button variant="ghost" size="icon-xs" aria-label="AI model download" />}>
-          <SparklesIcon className="animate-pulse text-primary" data-testid="ai-status-icon-downloading" />
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0">
-          <ModelDownloadProgress variant="popover" />
-        </PopoverContent>
-      </Popover>
-    )
-  }
 
   return (
     <Popover>
       <PopoverTrigger
         openOnHover
-        render={<Button variant="ghost" size="icon-xs" aria-label={aiMode === "enabled" ? "Disable AI" : "Enable AI"} onClick={toggleAIMode} />}
+        render={<Button variant="ghost" size="icon-xs" aria-label={aiMode === "claude" ? "Disable AI" : "Enable AI"} onClick={toggleAIMode} />}
       >
         <SparklesIcon className={statusIconClassName} data-testid="ai-status-icon" />
       </PopoverTrigger>
       <HelpPopoverContent>
-        {aiError ? <AIErrorDetails error={aiError} /> : <AIHelp isEnabled={aiMode === "enabled"} />}
+        {aiError ? <AIErrorDetails error={aiError} /> : <AIHelp isEnabled={aiMode === "claude"} />}
       </HelpPopoverContent>
     </Popover>
   )
@@ -81,25 +63,6 @@ function AIErrorDetails({ error }: { error: AIError }) {
   )
 }
 
-/** "the <model> model" linked to its Hugging Face page; "a local model" until the backend reports the model */
-function ModelLink() {
-  const modelStatus = useModelStore(state => state.modelStatus)
-  useEffect(ensureModelStatus, [])
-
-  if (modelStatus === null) {
-    return <>a local model</>
-  }
-  return (
-    <>
-      the
-      {" "}
-      <a href={modelStatus.modelUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">{modelStatus.modelName}</a>
-      {" "}
-      model
-    </>
-  )
-}
-
 function AIHelp({ isEnabled }: { isEnabled: boolean }) {
   return (
     <>
@@ -108,7 +71,7 @@ function AIHelp({ isEnabled }: { isEnabled: boolean }) {
         {" "}
         <span className="text-muted-foreground">{isEnabled ? "The button turns them off." : "The button turns them on."}</span>
       </p>
-      <p>AI analyzes only commit metadata to suggest branch names:</p>
+      <p>Claude suggests branch names from commit metadata only:</p>
       <HelpList>
         <li>Commit messages (title and body)</li>
         <li>Modified file names and their status</li>
@@ -119,9 +82,9 @@ function AIHelp({ isEnabled }: { isEnabled: boolean }) {
       </p>
       <HelpSection title="Privacy">
         <p>
-          {"Uses "}
-          <ModelLink />
-          , which runs on your machine. No data is sent to any external service.
+          {"Runs "}
+          <InlineCode>claude -p --model haiku</InlineCode>
+          {" with your Claude Code login: the commit messages and changed file names go to Anthropic. No diffs or file contents are sent."}
         </p>
       </HelpSection>
     </>

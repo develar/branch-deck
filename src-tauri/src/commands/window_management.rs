@@ -1,4 +1,4 @@
-use model_tauri::command_error::CommandError;
+use crate::command_error::CommandError;
 use serde::Deserialize;
 use specta::Type;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};

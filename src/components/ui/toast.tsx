@@ -1,6 +1,5 @@
-// local customisation: typed `data.kind` with a custom `model-download` body rendering `ModelDownloadProgress` and a
-// `robot` body with two actions below the text (the primary one, then "Open in Patronus"); the viewport `z-[60]` above
-// the dialog overlays (`z-50`); the toast text `select-text`
+// local customisation: typed `data.kind` with a `robot` body with two actions below the text (the primary one, then
+// "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`
 "use client"
 
 import * as React from "react"
@@ -8,7 +7,6 @@ import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
-import { ModelDownloadProgress } from "@/components/ai/ModelDownloadProgress"
 import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const toast = ToastPrimitive.createToastManager()
@@ -186,7 +184,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
 /** Custom toast data; `kind` selects a custom body */
 interface ToastData {
   /** `robot`: a Patronus robot, the primary action (`actionProps`, e.g. Fetch), then "Open in Patronus" */
-  kind?: "model-download" | "robot"
+  kind?: "robot"
   /** `robot`: opens the robot page */
   openRobot?: () => void
 }
@@ -203,10 +201,7 @@ function ToastList() {
           <ToastIcon type={toastItem.type} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <ToastTitle />
-            {data?.kind === "model-download"
-              // live body subscribed to the model store (the toast itself isn't updated per progress event)
-              ? <ToastDescription render={<div />}><ModelDownloadProgress variant="toast" /></ToastDescription>
-              : <ToastDescription />}
+            <ToastDescription />
             {openRobot !== undefined && (
               // two actions next to the text would squeeze it: both go below it, the primary one first
               <div className="flex gap-2 pt-1">

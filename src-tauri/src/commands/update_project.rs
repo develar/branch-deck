@@ -1,6 +1,6 @@
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
 use sync_core::landed::dismiss_landed as dismiss_landed_core;
 use sync_core::update_project::{UpdateProgress, UpdateProjectParams, UpdateProjectResult, update_project_core};
 use tauri::State;

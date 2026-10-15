@@ -122,7 +122,6 @@ export const inlineBranchCreator = {
   getPortal: (page: Page) => page.getByTestId("inline-branch-target"),
   getInput: (page: Page) => page.getByTestId("inline-branch-target").locator("input[type=\"text\"]"),
   getCancelButton: (page: Page) => page.getByTestId("inline-branch-target").locator("button:has-text('Cancel')"),
-  getAiToggle: (page: Page) => page.getByTestId("inline-branch-target").locator("button[aria-label=\"AI\"]"),
 
   async waitForVisible(page: Page): Promise<void> {
     await expect(this.getPortal(page)).toBeVisible({ timeout: 10000 })

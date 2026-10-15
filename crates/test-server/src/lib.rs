@@ -71,6 +71,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/pull-requests", post(set_pull_requests).get(get_pull_request_fixture))
+    .route(
+      "/repositories/{id}/branch-name-suggestions",
+      post(set_branch_name_suggestions).get(get_branch_name_suggestion_fixture),
+    )
     .route("/repositories/{id}/patronus", post(set_patronus).get(get_patronus_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
@@ -107,11 +111,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_commits_files", post(tauri_command_bridge::get_commits_files))
     .route("/invoke/get_commit_file_diff", post(tauri_command_bridge::get_commit_file_diff))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
-    // AI command endpoints
-    .route("/invoke/suggest_branch_name_stream", post(tauri_command_bridge::suggest_branch_name_stream))
-    .route("/invoke/download_model/{repo_id}", post(tauri_command_bridge::download_model))
-    .route("/invoke/cancel_model_download/{repo_id}", post(tauri_command_bridge::cancel_model_download))
-    .route("/invoke/check_model_status/{repo_id}", post(tauri_command_bridge::check_model_status))
+    .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
     // Menu command endpoints
     .route("/invoke/update_menu_checkbox", post(tauri_command_bridge::update_menu_checkbox))
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
@@ -323,8 +323,6 @@ pub struct CreateRepositoryRequest {
   pub template: RepositoryTemplate,
   #[serde(default = "default_prepopulate_store")]
   pub prepopulate_store: bool,
-  #[serde(default)]
-  pub model_state: Option<state::ModelState>,
 }
 
 fn default_prepopulate_store() -> bool {
@@ -333,9 +331,6 @@ fn default_prepopulate_store() -> bool {
 
 pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request): Json<CreateRepositoryRequest>) -> Result<Json<CreateRepositoryResponse>, StatusCode> {
   let id = Ksuid::new::<SystemTime>(None, None).to_string();
-
-  // Determine model state - default to NotDownloaded
-  let model_state = std::sync::Arc::new(std::sync::RwLock::new(request.model_state.unwrap_or(state::ModelState::NotDownloaded)));
 
   // Handle special NO_REPO template
   if matches!(request.template, RepositoryTemplate::NoRepo) {
@@ -356,7 +351,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       tracing::info!("Populated NO_REPO store with invalid path: {}", path);
     }
 
-    insert_repository(&state, &id, &path, store, model_state);
+    insert_repository(&state, &id, &path, store);
     // Don't insert into path_to_id for NO_REPO
 
     tracing::info!("Created NO_REPO repository with id: {}", id);
@@ -408,7 +403,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     );
   }
 
-  insert_repository(&state, &id, &path, store, model_state);
+  insert_repository(&state, &id, &path, store);
   state.path_to_id.insert(path.clone(), id.clone());
 
   tracing::info!("Created repository with id: {} at path: {}", id, path);
@@ -416,18 +411,18 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   Ok(Json(CreateRepositoryResponse { id, path }))
 }
 
-fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<String, serde_json::Value>, model_state: Arc<std::sync::RwLock<state::ModelState>>) {
+fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<String, serde_json::Value>) {
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
     store,
-    model_state,
-    download_cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     pull_requests: std::sync::RwLock::new(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
     patronus: std::sync::RwLock::new(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
+    branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
+    branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
   };
   state.repositories.insert(id.to_string(), repo);
 }
@@ -485,6 +480,28 @@ pub async fn set_pull_requests(
   Ok(StatusCode::OK)
 }
 
+/// Sets what `suggest_branch_names` answers for the repository, and how long it takes
+pub async fn set_branch_name_suggestions(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(fixture): Json<state::BranchNameSuggestionFixture>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  *repo.branch_name_suggestions.write().expect("branch name suggestion fixture lock") = fixture;
+  Ok(StatusCode::OK)
+}
+
+/// How often the app asked for branch names
+pub async fn get_branch_name_suggestion_fixture(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  Ok(Json(
+    serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(std::sync::atomic::Ordering::SeqCst) }),
+  ))
+}
+
 /// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch
 pub async fn set_patronus(
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -515,10 +532,6 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   // Remove the repository from the map
   match state.repositories.remove(&id) {
     Some((_, repo)) => {
-      // Cancel any ongoing download before deleting
-      repo.download_cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
-      tracing::debug!(id, "Repository being deleted, cancelling any ongoing downloads");
-
       // Also remove from path_to_id map
       state.path_to_id.remove(&repo.path);
 

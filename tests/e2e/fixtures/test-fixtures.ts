@@ -153,16 +153,17 @@ export const testWithIssueLinks = test.extend<{ issueLinksRepo: TestRepositoryBu
  * Test fixture for tests that need unassigned commits
  */
 export const testWithUnassigned = test.extend<{
-  setupUnassignedRepo: (options?: SetupRepoOptions) => Promise<void>
+  setupUnassignedRepo: (options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
 }>({
   setupUnassignedRepo: async ({ page, setupRepo }, use) => {
     const setupFn = async (options?: SetupRepoOptions) => {
-      await setupRepo("unassigned", options)
+      const repo = await setupRepo("unassigned", options)
       await syncBranches(page)
 
       // Wait for unassigned commits section
       await page.waitForSelector("[data-testid=\"unassigned-commits-section\"]", { timeout: 10000 })
       await page.waitForSelector("[data-row-id]", { timeout: 10000 })
+      return repo
     }
 
     await use(setupFn)

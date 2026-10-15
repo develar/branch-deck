@@ -61,21 +61,11 @@ git-executor = { path = "../crates/git-executor" }
 object-cache = { path = "../crates/object-cache" }
 patronus = { path = "../crates/patronus" }
 bd-cli = { path = "../crates/bd-cli" }
-model-core = { path = "../crates/model-core" }
-model-ai = { path = "../crates/model-ai" }
-model-types = { path = "../crates/model-types", features = ["specta"] }
 tokio.workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-window-state = "2"
-
-# Platform-specific ML acceleration
-[target.'cfg(target_os = "macos")'.dependencies]
-model-tauri = { path = "../crates/model-tauri", features = ["metal", "accelerate"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-model-tauri = { path = "../crates/model-tauri" }
 
 [dev-dependencies]
 tempfile = "3"

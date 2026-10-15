@@ -14,22 +14,10 @@ export async function setupTestRepository(
   // Parse options and apply defaults
   const parsedOptions = parseSetupOptions(options)
 
-  // Determine model state based on aiMode in initialStoreValues if not explicitly set
-  let modelState = parsedOptions.modelState
-  if (!modelState && parsedOptions.initialStoreValues.ai) {
-    const ai = parsedOptions.initialStoreValues.ai as { aiMode?: string }
-    const aiMode = ai.aiMode
-    modelState = aiMode === "enabled" ? "downloaded" : "not_downloaded"
-  }
-
   // Create a test repository using the specified template
   const repoBuilder = new TestRepositoryBuilder()
     .useTemplate(templateName)
     .withPrepopulateStore(parsedOptions.prepopulateStore)
-
-  if (modelState) {
-    repoBuilder.withModelState(modelState)
-  }
 
   await repoBuilder.init()
 
@@ -39,6 +27,9 @@ export async function setupTestRepository(
   }
   if (parsedOptions.patronus !== undefined) {
     await repoBuilder.setPatronus(parsedOptions.patronus)
+  }
+  if (parsedOptions.branchNameSuggestions !== undefined) {
+    await repoBuilder.setBranchNameSuggestions(parsedOptions.branchNameSuggestions)
   }
 
   // Set initial store values if provided BEFORE navigating

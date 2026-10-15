@@ -146,63 +146,6 @@ async fn test_sync_branches_sse_stream() {
 }
 
 #[tokio::test]
-async fn test_download_model_sse_immediate_response() {
-  use futures::StreamExt;
-  // This test verifies that download_model sends at least one event immediately
-  // to prevent ERR_EMPTY_RESPONSE issues
-  let _ = tracing_subscriber::fmt::try_init();
-
-  // Start test server
-  let (addr, _server_handle) = start_test_server().await;
-
-  // Create HTTP client
-  let client = reqwest::Client::new();
-
-  // First, create a repository
-  let create_response = client
-    .post(format!("http://{addr}/repositories"))
-    .json(&serde_json::json!({
-        "template": "simple",
-        "model_state": "not_downloaded"
-    }))
-    .send()
-    .await
-    .expect("Failed to create repository");
-
-  assert_eq!(create_response.status(), 200);
-  let create_result: serde_json::Value = create_response.json().await.unwrap();
-  let repo_id = create_result["id"].as_str().unwrap();
-
-  // Make SSE request to download_model
-  let response = client
-    .post(format!("http://{addr}/invoke/download_model/{repo_id}"))
-    .header("Accept", "text/event-stream")
-    .send()
-    .await
-    .expect("Failed to send download request");
-
-  assert_eq!(response.status(), 200);
-
-  // Read the first event immediately - this should not timeout
-  let mut stream = response.bytes_stream();
-
-  // Use a very short timeout - if the fix is working, we should get an event immediately
-  let first_chunk_result = tokio::time::timeout(Duration::from_millis(100), stream.next()).await;
-
-  // Should not timeout - we should receive data immediately
-  assert!(first_chunk_result.is_ok(), "Should receive SSE data immediately without timeout");
-
-  let first_chunk = first_chunk_result.unwrap().expect("Stream should have data").expect("Should read chunk successfully");
-
-  let data = String::from_utf8_lossy(&first_chunk);
-  println!("First chunk received immediately: {data}");
-
-  // Verify it's the Started event
-  assert!(data.contains("Started"), "First event should be Started");
-  assert!(data.contains("totalFiles"), "Started event should contain totalFiles");
-}
-
-#[tokio::test]
 async fn test_sse_format() {
   // Test that we can parse SSE format correctly
   let sse_data = r#"event: sync

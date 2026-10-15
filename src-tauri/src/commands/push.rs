@@ -1,6 +1,6 @@
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
 use sync_core::push::{PushBranchParams, PushOutcome, push_branch as core_push_branch};
 use sync_core::transfer_progress::TransferProgress;
 use tauri::State;

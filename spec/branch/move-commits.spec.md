@@ -87,7 +87,8 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   one, see [Issue Groups](issue-groups.spec.md)), or "Move to Unassigned".
 - "Move to…", Enter or M must open the form. One name input decides: an existing branch name moves the commits there,
   a new name creates the branch. The help text and the submit button ("Move" or "Create") must say which.
-- The form must offer the existing branches as chips, the branches of the same issue first, then the AI suggestions.
+- The form must offer the existing branches as chips, the branches of the same issue first, then the AI suggestions
+  ([Branch Name Suggestions](branch-name-suggestions.spec.md)).
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
 - With [stacked branches](stacked-branches.spec.md) on, the input may name a parent (`auth/login`), the target is
   looked up by its leaf, the help text names the parent ("Moves 2 commits to login (on auth)", "Creates login on
@@ -180,3 +181,4 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 
 - [Virtual Branches](../../docs/design/virtual-branches.md)
 - [Commit Row](../commit/commit-row.spec.md)
+- [Branch Name Suggestions](branch-name-suggestions.spec.md): the AI suggestions of the form

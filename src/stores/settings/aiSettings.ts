@@ -2,12 +2,15 @@ import { z } from "zod"
 import { useStore } from "zustand"
 import { createPersistentStore } from "./persistent-store"
 
-// AI mode states
-export type AIMode = "initial" | "enabled" | "disabled"
+/**
+ * Whether branch names are suggested: `initial` until the user answers the prompt, `claude` once the user agreed that
+ * the commit messages and file names go to Claude through their Claude Code.
+ */
+export type AIMode = "initial" | "claude" | "disabled"
 
-// Validation schema with defaults
-const AISettingsSchema = z.object({
-  aiMode: z.enum(["initial", "enabled", "disabled"]).default("initial"),
+export const AISettingsSchema = z.object({
+  // a stored `enabled` was the consent to the on-device model that `claude` replaced: the prompt asks again
+  aiMode: z.enum(["initial", "claude", "disabled"]).catch("initial"),
 })
 
 export type AISettings = z.infer<typeof AISettingsSchema>
@@ -23,9 +26,4 @@ export function useAISettings<T>(selector: (state: AISettings) => T): T {
 
 export function setAiMode(aiMode: AIMode): void {
   aiSettingsStore.setState({ aiMode })
-}
-
-// Helper to check if AI is in initial state
-export function isAIInitial(aiMode: AIMode): boolean {
-  return aiMode === "initial"
 }

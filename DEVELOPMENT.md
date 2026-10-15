@@ -101,7 +101,7 @@ branch-deck/
 │   ├── components/ui/     # shadcn/ui components (generated, see components.json)
 │   └── lib/bindings.ts    # TypeScript bindings generated from Rust (Specta)
 ├── index.html             # SPA entry page
-├── crates/                # Rust libraries (git operations, sync, AI model, test server)
+├── crates/                # Rust libraries (git operations, sync, test server)
 ├── src-tauri/             # Rust backend source
 │   ├── src/               # Rust source code
 │   ├── Cargo.toml         # Rust dependencies

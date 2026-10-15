@@ -1,4 +1,4 @@
-use model_tauri::command_error::CommandError;
+use crate::command_error::CommandError;
 use std::sync::OnceLock;
 use tauri::menu::CheckMenuItem;
 use tracing::{error, warn};

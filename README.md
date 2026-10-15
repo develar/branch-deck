@@ -25,8 +25,10 @@ repositories: all operations run through the Git CLI.
   `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
   name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and
   the app shows and renames them.
-- **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection, with branch
-  name suggestions from an on-device AI model, or move commits to an existing branch.
+- **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection or move commits
+  to an existing branch.
+- **Branch name suggestions**: two names for the selected commits from your Claude Code (Haiku), after you agree to send
+  their messages and changed file names; no diffs, nothing on your machine to download.
 - **Conflict viewer**: when grouping changes the order of dependent commits, Branch Deck shows the conflicting files in a
   3-way merge view and lists the missing commits.
 - **Integration detection**: merged, rebased and squashed branches are detected and archived automatically.
@@ -120,8 +122,8 @@ Requirements:
   The app says so, with the command, when Git is missing or too old.
 - **A Git identity** (`git config --global user.name` and `user.email`): Branch Deck records its notes and rewritten
   commits with it.
-- Optional: `gh`, logged in with `gh auth login`, for the pull request status. Branch name suggestions download an
-  on-device model (2.5 GB) the first time you enable AI.
+- Optional: `gh`, logged in with `gh auth login`, for the pull request status, and
+  [Claude Code](https://code.claude.com/docs/en/setup), logged in, for branch name suggestions.
 
 ## Getting Started
 

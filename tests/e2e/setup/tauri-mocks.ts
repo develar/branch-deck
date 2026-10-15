@@ -348,12 +348,9 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * Handle app-specific commands
-   */
-  /**
    * Helper to proxy simple commands to test server with repoId in URL
    */
-  async function proxyCommandWithRepoId(command: string, expectJson: boolean = true): Promise<any> {
+  async function proxyCommandWithRepoId(command: string): Promise<any> {
     const response = await fetch(`http://localhost:3030/invoke/${command}/${repoId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -364,12 +361,15 @@ export const tauriMockScript = () => {
       throw new Error(`${command} failed: ${response.status} ${response.statusText}`)
     }
     
-    return expectJson ? await response.json() : null
+    return await response.json()
   }
 
   // Returned by handleAppCommand for commands it does not handle (handled commands may legitimately return null)
   const NOT_HANDLED = Symbol("not handled")
 
+  /**
+   * Handle app-specific commands
+   */
   async function handleAppCommand(cmd: string, payload: any): Promise<any> {
     switch (cmd) {
       case "validate_repository_path":
@@ -399,20 +399,6 @@ export const tauriMockScript = () => {
         } catch (_) {}
         return await proxyCommandWithRepoId("browse_repository")
         
-      case "download_model":
-        // Handle streaming command with repoId in URL
-        if (payload && payload.progress) {
-          return handleStreamingCommand(`download_model/${repoId}`, payload)
-        }
-        // Fallback shouldn't happen for download_model
-        throw new Error("download_model requires progress channel")
-        
-      case "cancel_model_download":
-        return proxyCommandWithRepoId("cancel_model_download", false)  // Returns null, not JSON
-
-      case "check_model_status":
-        return proxyCommandWithRepoId("check_model_status")
-
       default:
         return NOT_HANDLED
     }
@@ -464,14 +450,6 @@ export const tauriMockScript = () => {
     // (the main window runs a silent check a few seconds after startup)
     "check_for_updates": () => NO_UPDATE,
     "get_update_status": () => NO_UPDATE,
-
-    // AI streaming commands
-    "suggest_branch_name_stream": async (_cmd: string, payload: any) => {
-      if (payload && payload.progress) {
-        return handleStreamingCommand("suggest_branch_name_stream", payload)
-      }
-      return proxyToTestServer("suggest_branch_name_stream", payload)
-    },
   }
 
   // All unhandled commands are proxied to test server for single source of truth
@@ -523,7 +501,7 @@ export const tauriMockScript = () => {
     
     tauriInternals.mockIPC(async (cmd: string, payload: any) => {
       // Special handling for commands with Channel objects
-      if ((cmd === "sync_branches" || cmd === "suggest_branch_name_stream" || cmd === "download_model") && payload && payload.progress) {
+      if (cmd === "sync_branches" && payload && payload.progress) {
         // Store the onmessage handler before it gets lost
         const onmessageHandler = payload.progress.onmessage
         debug("[Test Mock] Captured onmessage handler:", typeof onmessageHandler)

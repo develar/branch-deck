@@ -40,7 +40,7 @@ flowchart TB
     subgraph "Test Resources"
         I[Git Repos]
         J[Store State]
-        K[Model State]
+        K[Command Fixtures]
     end
     
     A --> B

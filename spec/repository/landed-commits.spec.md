@@ -183,7 +183,7 @@ by the next sync the same way.
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace --exclude model-ai`: `crates/sync-core/src/landed_test.rs`, the `landed_upstream` template
+- `cargo nextest run --workspace`: `crates/sync-core/src/landed_test.rs`, the `landed_upstream` template
   in `update_project_test.rs`, `crates/bd-cli/src/sync_test.rs`.
 - `pnpm test:unit`: `src/lib/landed.test.ts`.
 - `pnpm e2e`: `tests/e2e/update-project/landed.spec.ts` with the template `landed_upstream`: a robot pushed `feature-auth`

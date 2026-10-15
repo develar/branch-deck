@@ -259,7 +259,7 @@ the one write of the app on GitHub.
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace --exclude model-ai` covers the parsing, matching, URL parsing and the `gh` process
+- `cargo nextest run --workspace` covers the parsing, matching, URL parsing and the `gh` process
   handling with a fake `gh` script (`crates/sync-core/src/pull_requests_test.rs`).
 - `pnpm test:unit` covers the refresh policy and the chip mapping.
 - `pnpm e2e` covers the chip, the popover, the preview section and the overview (`tests/e2e/pull-requests`). E2E never

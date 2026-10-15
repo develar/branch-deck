@@ -1,6 +1,6 @@
 #[cfg(feature = "auto-update")]
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 #[cfg(feature = "auto-update")]

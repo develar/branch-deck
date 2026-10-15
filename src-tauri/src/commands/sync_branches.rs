@@ -1,8 +1,8 @@
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_types::SyncEvent;

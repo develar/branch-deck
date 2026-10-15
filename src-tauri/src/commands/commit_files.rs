@@ -1,9 +1,9 @@
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, GetCommitFileDiffParams, GetCommitFilesParams, GetCommitsFilesParams, read_commit_file_diff, read_commit_files_cached};
 use git_ops::conflict_analysis::FileDiff;
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
 use tauri::State;
 use tracing::instrument;
 

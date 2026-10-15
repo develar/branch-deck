@@ -1,7 +1,7 @@
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient, PreMergeCommitDto};
 use patronus::review::ReviewSubject;

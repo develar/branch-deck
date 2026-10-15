@@ -10,44 +10,41 @@ export function getAIStatusIcon(page: Page) {
 }
 
 /**
- * Gets the AI suggestion buttons
+ * Gets the AI suggestion chips (the test server names them `fix-…` and `update-…` after the commit message words)
  */
 export function getSuggestionButtons(page: Page) {
   return inlineBranchCreator.getPortal(page)
+    .locator("[data-testid='branch-name-suggestions'] button[aria-pressed]")
+}
+
+/**
+ * Gets the disabled "Generating…" placeholders of a request in flight
+ */
+export function getGeneratingPlaceholders(page: Page) {
+  return inlineBranchCreator.getPortal(page)
     .locator("[data-testid='branch-name-suggestions'] button")
-    .filter({ hasText: /^user-name/ })
+    .filter({ hasText: "Generating…" })
+}
+
+/**
+ * Gets what the user has to do for suggestions (install or log in to Claude Code)
+ */
+export function getSuggestionHint(page: Page) {
+  return inlineBranchCreator.getPortal(page).getByTestId("ai-suggestion-hint")
 }
 
 /**
  * Clicks the "Enable AI" button in the initial prompt
  */
 export async function clickEnableAI(page: Page) {
-  const enableButton = inlineBranchCreator.getPortal(page).locator("button:has-text('Enable AI')")
-  await enableButton.click()
+  await getEnableButton(page).click()
 }
 
 /**
  * Clicks the "Not now" button in the initial prompt
  */
 export async function clickNotNow(page: Page) {
-  const notNowButton = inlineBranchCreator.getPortal(page).locator("button:has-text('Not now')")
-  await notNowButton.click()
-}
-
-/**
- * Gets the downloading icon element
- */
-export function getDownloadingIcon(page: Page) {
-  return inlineBranchCreator.getPortal(page).locator("[data-testid='ai-status-icon-downloading']")
-}
-
-/**
- * Waits for the download icon to appear and be visible
- */
-export async function waitForDownloadIcon(page: Page) {
-  const downloadingIcon = getDownloadingIcon(page)
-  await expect(downloadingIcon).toBeVisible()
-  return downloadingIcon
+  await getNotNowButton(page).click()
 }
 
 /**
@@ -66,23 +63,6 @@ export async function expectAIDisabled(page: Page) {
   const aiStatusIcon = getAIStatusIcon(page)
   await expect(aiStatusIcon).toBeVisible()
   await expect(aiStatusIcon).toHaveClass(/text-muted/)
-}
-
-/**
- * Pauses the download via the toast pause button
- */
-export async function pauseDownload(page: Page) {
-  const toastPauseButton = page.locator("button:has-text('Pause')").first()
-  await expect(toastPauseButton).toBeVisible()
-  await toastPauseButton.click()
-}
-
-/**
- * Waits for the download paused message to appear
- */
-export async function waitForDownloadPaused(page: Page) {
-  const pausedMessage = page.getByText("Download paused", { exact: true })
-  await expect(pausedMessage).toBeVisible()
 }
 
 /**

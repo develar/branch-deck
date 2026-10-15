@@ -1,4 +1,4 @@
-use model_tauri::command_error::CommandError;
+use crate::command_error::CommandError;
 use tauri::State;
 use tracing::instrument;
 

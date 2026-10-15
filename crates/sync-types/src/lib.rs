@@ -6,6 +6,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub mod branch_integration;
+pub mod branch_name_suggestion;
 pub mod issue_navigation;
 pub mod landed;
 pub mod patronus;

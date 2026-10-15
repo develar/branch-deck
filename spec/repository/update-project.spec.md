@@ -345,7 +345,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace --exclude model-ai` covers the check, the update and the scan
+- `cargo nextest run --workspace` covers the check, the update and the scan
   (`crates/sync-core/src/update_project_test.rs`, `crates/git-executor/src/worktree_safety_test.rs`).
 - `pnpm test:unit` covers the state words and the prompt.
 - `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict` and

@@ -1,7 +1,7 @@
 cargo-features = ["profile-rustflags"]
 
 [workspace]
-members = ["src-tauri", "crates/model-core", "crates/git-ops", "crates/model-ai", "crates/model-types", "crates/model-tauri", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli", "crates/object-cache", "crates/patronus"]
+members = ["src-tauri", "crates/git-ops", "crates/test-utils", "crates/test-server", "crates/sync-core", "crates/sync-types", "crates/sync-utils", "crates/branch-integration", "crates/integration-detection-tests", "crates/sync-test-utils", "crates/git-executor", "crates/bd-cli", "crates/object-cache", "crates/patronus"]
 resolver = "2"
 
 [workspace.package]
@@ -14,7 +14,7 @@ version = "0.1.0"
 # Workspace Dependencies - Shared across multiple crates
 # ============================================================================
 
-# Core utilities (used by both src-tauri and model-core)
+# Core utilities
 anyhow = { version = "1.0.104", features = ["default", "backtrace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -64,18 +64,6 @@ too_many_lines = "allow"
 items_after_statements = "allow"
 # Internal application functions never need custom hashers; generic `S: BuildHasher` parameters only add noise.
 implicit_hasher = "allow"
-
-# Optimize ML dependencies for better performance
-[profile.dev.package."candle-core"]
-opt-level = 2
-[profile.dev.package."candle-nn"]
-opt-level = 2
-[profile.dev.package."candle-transformers"]
-opt-level = 2
-[profile.dev.package."tokenizers"]
-opt-level = 2
-[profile.dev.package."safetensors"]
-opt-level = 2
 
 [profile.release]
 codegen-units = 1          # Allows LLVM to perform better optimization

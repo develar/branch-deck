@@ -127,8 +127,9 @@ alert with the reason and the next step, never a raw Git error.
 
 ### AI and help
 
-- The first suggestions prompt ("Not now", "Enable AI") says what enabling costs while the model is missing:
-  "Downloads a 2.5 GB model once; it runs on your machine".
+- The first suggestions prompt ("Not now", "Enable AI") says what enabling sends and where: "Sends the commit messages
+  and changed file names to Claude (Haiku) through your Claude Code" ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
+  [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should ask before anything is sent to Claude`)
 - Help → Getting Started opens the Getting Started section of the README.
 
 ## User Experience

@@ -1,5 +1,8 @@
 pub mod auto_update;
+pub mod blocking;
+pub mod command_error;
 pub mod commands;
+pub mod legacy_model_cache;
 pub mod menu;
 pub mod menu_state;
 pub mod progress;
@@ -16,7 +19,6 @@ use commands::agent_cli::{agent_cli_command, install_agent_cli};
 use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
-use commands::clear_model_cache::clear_model_cache;
 use commands::commit_files::{get_commit_file_diff, get_commit_files, get_commits_files};
 use commands::fetch_baseline::fetch_baseline;
 use commands::menu_commands::update_menu_checkbox;
@@ -33,7 +35,7 @@ use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
 use commands::stack_operations::{rename_branch, restack_branch, undo_issue_groups};
-use commands::suggest_branch_name::suggest_branch_name_stream;
+use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::sync_branches::sync_branches;
 use commands::unapply_branch::unapply_branch;
 use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
@@ -93,7 +95,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     fetch_baseline,
     dismiss_landed,
     amend_uncommitted_to_branch,
-    suggest_branch_name_stream,
+    suggest_branch_names,
     get_archived_branch_commits,
     delete_archived_branch,
     unapply_branch,
@@ -105,10 +107,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
     update_menu_checkbox,
     install_agent_cli,
     agent_cli_command,
-    model_tauri::commands::download_model,
-    model_tauri::commands::check_model_status,
-    model_tauri::commands::cancel_model_download,
-    clear_model_cache,
   ])
 }
 
@@ -135,11 +133,6 @@ pub fn run() {
   let builder = builder.plugin(
     tauri_plugin_log::Builder::new()
       .level(log::LevelFilter::Debug)
-      .level_for("tokenizers", log::LevelFilter::Off)
-      .level_for("candle", log::LevelFilter::Off)
-      .level_for("candle_core", log::LevelFilter::Off)
-      .level_for("candle_nn", log::LevelFilter::Off)
-      .level_for("candle_transformers", log::LevelFilter::Off)
       .filter(|metadata| {
         // Filter out logs containing default_window_icon in the message
         // This is a workaround since we can't access the message content in the filter
@@ -168,9 +161,10 @@ pub fn run() {
       app.manage(MenuState::new());
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
-      app.manage(model_tauri::generator::ModelGeneratorState::new(
-        model_tauri::generator::ModelBasedBranchGenerator::with_config(model_core::config::ModelConfig::default()).expect("Failed to create model-based generator"),
-      ));
+      app.manage(BranchNameSuggestionState::default());
+      if let Ok(app_cache_dir) = app.path().app_cache_dir() {
+        tauri::async_runtime::spawn_blocking(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir));
+      }
 
       let current_version = app.package_info().version.to_string();
       app.manage(PatronusState::new(&current_version));

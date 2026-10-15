@@ -1,5 +1,5 @@
-use model_tauri::blocking::run_blocking;
-use model_tauri::command_error::CommandError;
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
 use serde::Deserialize;
 use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;

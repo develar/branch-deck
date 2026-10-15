@@ -483,7 +483,7 @@ reports in it and closes it once merged.
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace --exclude model-ai` covers the token, the request policy (rejected token, backoff,
+- `cargo nextest run --workspace` covers the token, the request policy (rejected token, backoff,
   retries, reuse of a full list) against an in-process axum Patronus (`crates/patronus/src/service_test.rs`), and the
   Space URL parsing.
 - `pnpm test:unit` covers the list and poll policy, the matching, the chip mapping and the merge toast and

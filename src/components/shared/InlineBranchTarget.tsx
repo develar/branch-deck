@@ -11,7 +11,7 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import type { Commit } from "@/lib/bindings"
 import { groupFor } from "@/lib/commit"
 import { useBranch, useMoveTargets, useStacksEnabled } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
+import { useSelectedProject } from "@/stores/repository"
 
 /** Existing branches offered as chips */
 const MAX_TARGET_CHIPS = 6
@@ -32,7 +32,6 @@ export interface InlineBranchTargetProps {
  */
 export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, onSuccess }: InlineBranchTargetProps) {
   const repositoryPath = useSelectedProject()?.path ?? ""
-  const effectiveBranchPrefix = useEffectiveBranchPrefix()
   const targets = useMoveTargets(sourceBranch, MAX_TARGET_CHIPS)
   const [isMoving, setIsMoving] = useState(false)
 
@@ -156,7 +155,6 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
             )}
             <BranchNameSuggestions
               repositoryPath={repositoryPath}
-              branchPrefix={effectiveBranchPrefix}
               commits={commits}
               isActive={isActive}
               selectedName={sanitizedBranchName}

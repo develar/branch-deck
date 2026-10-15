@@ -123,7 +123,11 @@ export const commands = {
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
 	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams) => typedError<AmendCommandResult, CommandError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params })),
-	suggestBranchNameStream: (params: SuggestBranchNameParams, progress: Channel<SuggestionProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("suggest_branch_name_stream", { params, progress })),
+	/**
+	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
+	 *  logged-out `claude` and its failures are outcomes
+	 */
+	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, CommandError>(__TAURI_INVOKE("suggest_branch_names", { params })),
 	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
@@ -144,10 +148,6 @@ export const commands = {
 	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
 	 */
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, CommandError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
-	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("download_model", { progress })),
-	checkModelStatus: () => typedError<ModelStatus, CommandError>(__TAURI_INVOKE("check_model_status")),
-	cancelModelDownload: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_model_download")),
-	clearModelCache: (params: ClearModelCacheParams) => typedError<CacheClearResult, CommandError>(__TAURI_INVOKE("clear_model_cache", { params })),
 };
 
 /* Types */
@@ -256,6 +256,19 @@ export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number
  */
 commit: UpstreamCommit | null } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
 
+/**  What a request for branch names ended with; a failure of git or of `claude` is an outcome, not an error */
+export type BranchNameSuggestionOutcome = 
+/**  One or two distinct names, the best first */
+{ status: "suggested"; names: string[] } | 
+/**  A newer request for this window replaced it: `claude` was killed */
+{ status: "superseded" } | 
+/**  The `claude` CLI is not installed */
+{ status: "claudeMissing" } | 
+/**  `claude` is not logged in (`claude`, then `/login`) */
+{ status: "notLoggedIn" } | 
+/**  git or `claude` failed, e.g. offline, overloaded or timed out */
+{ status: "error"; message: string };
+
 /**  What groups the commits of a branch */
 export type BranchOrigin = 
 /**  An explicit `(name)` subject prefix */
@@ -290,12 +303,6 @@ export type BranchStack = {
 	childPrecedesParent: boolean,
 };
 
-/**  Branch name suggestion */
-export type BranchSuggestion = {
-	name: string,
-	reason: string | null,
-};
-
 /**  Status of a branch synchronization operation. */
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict" | 
 /**  Not rebuilt: the parent branch of a stacked branch can't be built on */
@@ -306,12 +313,6 @@ export type BrowseResult = {
 	path: string | null,
 	valid: boolean,
 	error: string | null,
-};
-
-export type CacheClearResult = {
-	cleared_models: string[],
-	total_size_mb: number,
-	errors: string[],
 };
 
 export type ChecksState = "passing" | "failing" | "pending";
@@ -325,10 +326,6 @@ export type ChecksSummary = {
 	pending: number,
 	/**  The names of the failed checks, at most a few */
 	failedNames: string[],
-};
-
-export type ClearModelCacheParams = {
-	keepCurrent: boolean,
 };
 
 /**  Error returned by Tauri commands, serialized as `{ message }`. */
@@ -443,24 +440,6 @@ export type DivergenceSummary = {
 	commitsAheadInTarget: number,
 	commonAncestorDistance: number,
 };
-
-/**  Progress events for model download operations */
-export type DownloadProgress = { type: "Started"; data: {
-	totalFiles: number,
-} } | { type: "FileStarted"; data: {
-	fileName: string,
-	fileSize: number | null,
-} } | { type: "Progress"; data: {
-	fileName: string,
-	downloaded: number,
-	total: number,
-	bytesPerSecond: number | null,
-	secondsRemaining: number | null,
-} } | { type: "FileCompleted"; data: {
-	fileName: string,
-} } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: {
-	message: string,
-} };
 
 /**  A commit of the remote branch whose content the local branch lacks: a push drops it */
 export type DroppedCommit = {
@@ -682,20 +661,6 @@ export type MissingCommit = {
 	author: string,
 	filesTouched: string[],
 	fileDiffs: FileDiff[],
-};
-
-export type ModelFilesStatus = {
-	model: boolean,
-	tokenizer: boolean,
-};
-
-export type ModelStatus = {
-	available: boolean,
-	modelName: string,
-	modelSize: string,
-	/**  Model card of the model on Hugging Face */
-	modelUrl: string,
-	filesPresent: ModelFilesStatus,
 };
 
 export type MoveCommitsParams = {
@@ -1213,25 +1178,11 @@ export type StartPatronusRobotParams = {
 	mergeRequest: PatronusMergeRequest | null,
 };
 
-/**  Parameters for requesting branch name suggestions */
-export type SuggestBranchNameParams = {
+export type SuggestBranchNamesParams = {
 	repositoryPath: string,
-	branchPrefix: string,
+	/**  The commits of the new branch; the message is not sent, the backend reads it from git with the changed files */
 	commits: CommitInfo[],
 };
-
-/**  Progress events for branch name suggestion generation */
-export type SuggestionProgress = { type: "Started"; data: {
-	total: number,
-} } | { type: "SuggestionReady"; data: {
-	suggestion: BranchSuggestion,
-	index: number,
-} } | { type: "Completed" } | { type: "Cancelled" } | { type: "Error"; data: {
-	message: string,
-} } | { type: "ModelDownloadInProgress"; data: {
-	model_name: string,
-	model_size: string,
-} };
 
 export type SyncBranchesParams = {
 	repositoryPath: string,

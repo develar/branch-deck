@@ -18,10 +18,11 @@ export const SetupRepoOptionsSchema = z.object({
   createRecentProject: z.boolean().default(false),
 
   /**
-   * Model download state for AI features
-   * Default: undefined - Only set when testing AI-specific functionality
+   * What `suggest_branch_names` answers (`{ outcome?: BranchNameSuggestionOutcome, delayMs?: number }`, see
+   * `ai-test-helpers.ts`), set before the first sync
+   * Default: undefined - two names from the words of the commit messages after 100 ms
    */
-  modelState: z.enum(["not_downloaded", "downloaded", "downloading"]).optional(),
+  branchNameSuggestions: z.any().optional(),
 
   /**
    * Additional store values to inject into the test

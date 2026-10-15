@@ -1,4 +1,4 @@
-import type { PatronusRobotsResult, PullRequestsResult } from "../../../src/lib/bindings"
+import type { BranchNameSuggestionOutcome, PatronusRobotsResult, PullRequestsResult } from "../../../src/lib/bindings"
 
 export class TestRepositoryBuilder {
   private baseUrl = "http://localhost:3030"
@@ -6,7 +6,6 @@ export class TestRepositoryBuilder {
   public path: string = ""
   private template: string | null = null
   private prepopulateStore: boolean = true
-  private modelState: "not_downloaded" | "downloaded" | "downloading" | null = null
 
   useTemplate(templateName: string): this {
     this.template = templateName
@@ -15,11 +14,6 @@ export class TestRepositoryBuilder {
 
   withPrepopulateStore(prepopulate: boolean): this {
     this.prepopulateStore = prepopulate
-    return this
-  }
-
-  withModelState(state: "not_downloaded" | "downloaded" | "downloading"): this {
-    this.modelState = state
     return this
   }
 
@@ -37,7 +31,6 @@ export class TestRepositoryBuilder {
       body: JSON.stringify({
         template: this.template,
         prepopulate_store: this.prepopulateStore,
-        ...(this.modelState && { model_state: this.modelState }),
       }),
     })
 
@@ -76,6 +69,16 @@ export class TestRepositoryBuilder {
   /** How often the app asked for pull requests */
   async getPullRequestCalls(): Promise<number> {
     return (await this.getFixture<{ calls: number }>("pull-requests")).calls
+  }
+
+  /** Sets what `suggest_branch_names` answers from now on and how long it takes (E2E never runs claude) */
+  async setBranchNameSuggestions(fixture: { outcome?: BranchNameSuggestionOutcome, delayMs?: number }): Promise<void> {
+    await this.setFixture("branch-name-suggestions", fixture)
+  }
+
+  /** How often the app asked for branch names */
+  async getBranchNameSuggestionCalls(): Promise<number> {
+    return (await this.getFixture<{ calls: number }>("branch-name-suggestions")).calls
   }
 
   /** Sets what `get_patronus_robots` and `poll_patronus_robots` answer from now on (E2E never calls Patronus) */
