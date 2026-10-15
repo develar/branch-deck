@@ -29,6 +29,8 @@ targets:
   - ../../src/lib/diff/file-diff.ts
   - ../../src/lib/diff/diff-engine.ts
   - ../../src/lib/diff/diff-languages.ts
+  - ../../src/lib/diff/bundled-languages.ts
+  - ../../vite.config.ts
   - ../../src/lib/diff/islands-themes.ts
   - ../../src/index.css
   - ../../src/hooks/useCommitCopyActions.ts
@@ -149,7 +151,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   lines waits for `Show Diff`, as its diff is not virtualized under its row.
 - The diff must mark the changed words of a changed line, and highlight the code as the IntelliJ editor does, in the
   light and the dark scheme. Kotlin, Gradle (`.gradle`, `.gradle.kts`), Rust, TypeScript, Java and the other common
-  languages must be read by their grammar; an unknown file is plain text.
+  languages must be read by their grammar; a file of a language the app does not bundle (`BUNDLED_LANGUAGE_IDS`: 84
+  90 of Shiki's grammars, no Emacs Lisp, COBOL or Wolfram) and an unknown file are plain text, never a failed diff.
+  [@test] ../../src/lib/diff/bundled-languages.test.ts (`keeps only the bundled entries of Shiki's language list, so the other grammars leave the build`, `fails the build for an id Shiki does not have`, `highlights %s with a bundled grammar`, `maps our custom extensions to bundled grammars`, `shows a file of a grammar the build leaves out as plain text`)
   [@test] ../../src/lib/diff/file-diff.test.ts (`keeps a whole git patch as it is, also its last context line of a blank line`, `parses a git patch with its object ids, partial without the contents`, `has no hunks for a file without hunks`)
   [@test] ../../src/lib/diff/diff-languages.test.ts (`maps our custom extensions to grammars Shiki has`, `highlights %s as %s`)
   [@test] ../../src/lib/diff/islands-themes.test.ts (`colour Kotlin as the IntelliJ Light scheme does`, `colour Rust and TypeScript with the dark scheme`)

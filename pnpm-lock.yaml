@@ -68,6 +68,9 @@ importers:
       shadcn:
         specifier: 4.21.4
         version: 4.21.4(supports-color@10.2.2)
+      shiki:
+        specifier: 4.5.0
+        version: 4.5.0
       tw-animate-css:
         specifier: 1.4.0
         version: 1.4.0

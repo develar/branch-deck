@@ -81,6 +81,17 @@ flowchart LR
   fonts come from `src/index.css` (`diffs-container { --diffs-* }`, see [UI Theme](ui-theme.md) "Diffs").
 - **Extensions.** Shiki has no grammar for `.gradle`, `.iml`, `.form` or `Cargo.lock`; `diff-languages.ts` maps them to
   Groovy, XML and TOML. The worker pool receives the map with its render options.
+- **Languages.** The build bundles 84 of Shiki's ~230 grammars, `BUNDLED_LANGUAGE_IDS` in
+  `src/lib/diff/bundled-languages.ts`: the JVM, the web, the languages of the other JetBrains IDEs (their test data
+  lands in commits too), scripts, the build, the infrastructure and the files of a repository. The `shikiBundle` plugin
+  of `vite.config.ts` filters Shiki's language list (`langs-bundle-full-*.mjs`) to them, so the dynamic imports of the
+  others and their chunks leave the build, and fails the build when an id is not in the list. The grammars a kept one
+  embeds come with it (Vue brings its template languages). Pierre fails a highlight of a language it cannot resolve,
+  so `registerDiffLanguages` maps every extension of Pierre's table whose grammar is missing (`.el`, `.cob`, `.ftl`,
+  which Shiki has no grammar for at all) to plain text. The same plugin empties Shiki's theme list and the Shiki
+  collection of `@pierre/theming` (the diffs register their own themes) and replaces `shiki/wasm` with a stub: the
+  JavaScript regex engine is preferred, the WebAssembly one never loads. It runs for the build, the worker build and
+  the dev server's pre-bundle of `@pierre/diffs`.
 - **Untrimmed patches.** The backend reads every patch with `execute_command_raw`: trimming drops a last context line
   of a blank line (a single space), and Pierre would read a hunk shorter than its header says.
 
@@ -100,9 +111,10 @@ flowchart LR
 
 ## Performance Considerations
 
-- The engine is a lazy chunk (about 600 KB) and the worker another (about 210 KB). The Shiki grammars add about 11 MB of
-  lazy chunks to `dist`, of which a diff loads only the grammars of its files. Shiki's WebAssembly engine is bundled
-  twice (main thread and worker, about 620 KB each) but never loaded, as the JavaScript engine is preferred.
+- The engine is a lazy chunk (about 550 KB) and the worker another (about 210 KB). The bundled grammars add about 3.5 MB
+  of lazy chunks to `dist` (C++ alone 770 KB), of which a diff loads only the grammars of its files; `dist/assets` is
+  6.6 MB. Without the `shikiBundle` plugin all grammars, 58 themes and two copies of the WebAssembly engine made it
+  13.2 MB.
 - Highlighting runs in the workers; the main thread only parses the patch and lays out the rows.
 
 ## References
