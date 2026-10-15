@@ -504,7 +504,13 @@ pub async fn get_patronus_robot_details(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_types::patronus::PatronusRobotParams>,
 ) -> CommandResult<sync_types::patronus::PatronusRobotDetails> {
-  let result = repository_by_path(&state, &params.repository_path)?.patronus.read().expect("patronus fixture lock").clone();
+  // the repository is not held across the await
+  let (result, progress) = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.patronus_detail_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let progress = repo.patronus_progress.read().expect("patronus progress lock").get(&params.robot_id).cloned();
+    (repo.patronus.read().expect("patronus fixture lock").clone(), progress)
+  };
   let git_executor = state.git_executor.clone();
   run_command("read the Patronus robot", move || {
     let result = resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result);
@@ -521,6 +527,7 @@ pub async fn get_patronus_robot_details(
       profile_name: profile.and_then(|profile| profile.name),
       checks: None,
       problems: Vec::new(),
+      progress,
     })
   })
   .await

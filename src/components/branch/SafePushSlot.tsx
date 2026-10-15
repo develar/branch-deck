@@ -83,7 +83,7 @@ function formatRobotLabel(robot: PatronusRobot, chip: PatronusChipState): string
 
 /** A running robot: the ring, how long it runs and how long it usually takes; its own component, as its time ticks */
 function RunningRobotChip({ branchName, robot, chip }: { branchName: string, robot: PatronusRobot, chip: PatronusChipState }) {
-  const timing = useRobotTiming(robot)
+  const timing = useRobotTiming(robot, true)
   const canceling = robot.status === "canceling"
   const progress = formatRobotProgress(timing)
   const label = canceling ? formatRobotLabel(robot, chip) : `${formatRobotLabel(robot, chip)}, ${formatSpokenRobotProgress(timing)}`
@@ -132,6 +132,6 @@ export function RobotProgressRow({ name, columnCount, insetClass }: RobotProgres
 }
 
 function RobotRowProgressBar({ robot, className }: { robot: PatronusRobot, className?: string }) {
-  const timing = useRobotTiming(robot)
+  const timing = useRobotTiming(robot, true)
   return <RobotProgressBar progress={robot.status === "canceling" ? null : timing.progress} className={cn("absolute inset-x-0 -top-px h-0.5", className)} />
 }

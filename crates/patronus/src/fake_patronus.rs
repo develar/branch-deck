@@ -21,6 +21,8 @@ pub(crate) struct FakePatronus {
   pub start_calls: AtomicU32,
   pub restart_calls: AtomicU32,
   pub cancel_calls: AtomicU32,
+  /// The builds whose progress was asked, in order
+  pub build_progress_calls: Mutex<Vec<String>>,
   /// The query of the last list request
   pub last_query: Mutex<HashMap<String, String>>,
   /// The body of the last fetch-updates request
@@ -147,7 +149,24 @@ pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
           {"id": "2", "buildConfigurationId": "b", "buildConfigurationName": "Compilation", "status": "SUCCESS"},
           {"id": "3", "buildConfigurationId": "c", "buildConfigurationName": "Smoke", "status": "QUEUED"},
           {"id": "4", "buildConfigurationId": "d", "buildConfigurationName": "Optional", "status": "SKIPPED"},
+          // the second attempt of a check runs, its first failed
+          {"id": "5", "buildConfigurationId": "e", "buildConfigurationName": "Unit Tests", "status": "RUNNING", "attempts": [
+            {"id": "a1", "number": 1, "buildId": "101", "status": "FAILURE"},
+            {"id": "a2", "number": 2, "buildId": "102", "status": "RUNNING"},
+          ]},
+          {"id": "6", "buildConfigurationId": "f", "buildConfigurationName": "Integration Tests", "status": "RUNNING", "attempts": [
+            {"id": "a3", "number": 1, "buildId": "201", "status": "RUNNING"},
+          ]},
         ]}))
+      }),
+    )
+    .route(
+      "/app/rest/v1/teamcity-proxy/build-progress/{id}",
+      get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        fake.build_progress_calls.lock().unwrap().push(id.clone());
+        // Unit Tests: 9 minutes left; Integration Tests: 5
+        let (percent, elapsed, total) = if id == "102" { (93, 1000, 1540) } else { (50, 300, 600) };
+        fake.answer(serde_json::json!({"queued": false, "elapsedQueueSeconds": 12, "percentageComplete": percent, "elapsedRunningSeconds": elapsed, "estimatedTotalRunningSeconds": total, "probablyHanging": false}))
       }),
     )
     .route(

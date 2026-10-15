@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PatronusRobotProfile } from "@/lib/bindings"
 import type { RobotEstimate, RobotSample, RobotTiming } from "@/lib/robot-eta"
-import { estimateRobotDuration, formatDuration, formatRobotProgress, formatRobotTimingDetails, formatShortDuration, formatSpokenRobotProgress, getRobotTiming, isRobotOverdue, robotSample } from "@/lib/robot-eta"
+import { estimateRobotDuration, formatCheckProgress, formatDuration, formatRobotProgress, formatRobotTimingDetails, formatShortDuration, formatSpokenRobotProgress, getRobotTiming, isRobotOverdue, robotSample, withCheckProgress } from "@/lib/robot-eta"
 
 /** 2024-01-02 10:00Z, the clock of the E2E tests */
 const NOW = 1704189600_000
@@ -148,6 +148,34 @@ describe("formatRobotProgress", () => {
     expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(40), NOW))).toBe("usually ~40 min for Safe Push · about 22 min left")
     expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(10), NOW))).toBe("usually ~10 min for Safe Push · 18 min, longer than usual")
     expect(formatRobotTimingDetails(running, getRobotTiming(start, null, NOW))).toBe("running 18 min · no Safe Push finished in the last 30 days to estimate from")
+    // the estimate of the CI tells the time left
+    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { remaining: false })).toBe("usually ~1 h 50 min for Large Scale Change")
+  })
+})
+
+describe("the estimate of the CI", () => {
+  const progress = { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 0, probablyHanging: false }
+
+  it("names the time left, the check the robot waits for, and the queued checks", () => {
+    expect(formatCheckProgress(progress)).toBe("about 9 min left · Unit Tests 93%")
+    expect(formatCheckProgress({ ...progress, queued: 1 })).toBe("about 9 min left · Unit Tests 93% · 1 check queued")
+    expect(formatCheckProgress({ ...progress, queued: 2 }, { remaining: false })).toBe("Unit Tests 93% · 2 checks queued")
+    expect(formatCheckProgress({ ...progress, remainingSeconds: null, overtimeSeconds: 240, checkPercent: 100 })).toBe("Overtime 4 min · Unit Tests 100%")
+    expect(formatCheckProgress({ ...progress, remainingSeconds: null, checkName: null, checkPercent: null, queued: 3 })).toBe("3 checks queued")
+  })
+
+  it("counts down the time left it read while the details were open, for the slot", () => {
+    const history = getRobotTiming({ startTime: NOW_SECONDS - 18 * 60 }, rough(40), NOW)
+    // read a minute ago: 8 minutes left now
+    const timing = withCheckProgress(history, { progress, readAt: NOW - 60_000 }, NOW)
+    expect(timing).toMatchObject({ elapsed: 18 * 60, remaining: 8 * 60, expected: 26 * 60 })
+    expect(progressText(timing)).toBe("18m · ~8m left")
+    // the tick before the answer counts as the moment of the answer
+    expect(withCheckProgress(history, { progress, readAt: NOW + 5_000 }, NOW).remaining).toBe(540)
+    // nothing read, no time left in it, or it ran out: the estimate from history
+    expect(withCheckProgress(history, undefined, NOW)).toBe(history)
+    expect(withCheckProgress(history, { progress: { ...progress, remainingSeconds: null, overtimeSeconds: 60 }, readAt: NOW }, NOW)).toBe(history)
+    expect(withCheckProgress(history, { progress, readAt: NOW - 600_000 }, NOW)).toBe(history)
   })
 })
 

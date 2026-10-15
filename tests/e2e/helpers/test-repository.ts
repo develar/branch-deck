@@ -1,4 +1,4 @@
-import type { BranchNameSuggestionOutcome, PatronusRobotsResult, PullRequestsResult, ReviewRequestsResult } from "../../../src/lib/bindings"
+import type { BranchNameSuggestionOutcome, PatronusRobotProgress, PatronusRobotsResult, PullRequestsResult, ReviewRequestsResult } from "../../../src/lib/bindings"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 export class TestRepositoryBuilder {
@@ -105,8 +105,16 @@ export class TestRepositoryBuilder {
     await this.setFixture("patronus", result)
   }
 
-  /** How often the app listed and polled the Patronus robots */
-  async getPatronusCalls(): Promise<{ listCalls: number, pollCalls: number }> {
+  /**
+   * Sets the estimate of the CI the details of running robots answer, by robot id; in the app it is the build progress of
+   * their running checks, asked only with the details
+   */
+  async setPatronusProgress(progress: Record<string, PatronusRobotProgress>): Promise<void> {
+    await this.setFixture("patronus-progress", progress)
+  }
+
+  /** How often the app listed and polled the Patronus robots and asked for their details */
+  async getPatronusCalls(): Promise<{ listCalls: number, pollCalls: number, detailCalls: number }> {
     return this.getFixture("patronus")
   }
 

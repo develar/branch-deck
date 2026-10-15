@@ -154,6 +154,47 @@ test.describe("Patronus chip", () => {
 })
 
 baseTest.describe("Patronus robot timing", () => {
+  baseTest("should read the estimate of the CI only while the details of a running robot are open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // two Safe Pushes of 40 minutes this week; JIRA-456 started 18 minutes ago, its Unit Tests have 9 minutes left
+    const history = ["a", "b"].map(id => robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }))
+    const repo = await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
+    await repo.setPatronusProgress({ "running-robot": { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 1, probablyHanging: false } })
+    await syncAndWaitForBranches()
+    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+    const chip = getChip(page, "JIRA-456")
+    await expect(chip).toHaveText("18m · ~22m left")
+    // no details open: the row, the indicator, the Dock and the timers ask nothing
+    await page.clock.fastForward("02:00")
+    await expect(chip).toHaveText("20m · ~20m left")
+    expect((await repo.getPatronusCalls()).detailCalls).toBe(0)
+
+    const popover = await hoverChip(page, "JIRA-456")
+    await expect(popover.getByTestId("patronus-progress")).toHaveText("about 9 min left · Unit Tests 93% · 1 check queued")
+    // the time left is the CI's: the start line keeps only the usual time
+    await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~40 min for Safe Push$/)
+    // while they are open the slot takes it
+    await expect(chip).toHaveText("20m · ~9m left")
+    expect((await repo.getPatronusCalls()).detailCalls).toBe(1)
+    // asked again once a minute while open
+    await page.clock.fastForward("01:01")
+    await expect.poll(async () => (await repo.getPatronusCalls()).detailCalls).toBe(2)
+    await page.keyboard.press("Escape")
+    await expect(popover).toBeHidden()
+    await page.mouse.move(0, 0)
+
+    // closed: the estimate from history again, and nothing asked
+    await expect(chip).toHaveText("21m · ~19m left")
+    await page.clock.fastForward("03:00")
+    expect((await repo.getPatronusCalls()).detailCalls).toBe(2)
+
+    // the list of the robots indicator asks while it is open
+    await page.getByTestId("robots-indicator").hover()
+    const row = page.getByTestId("robots-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
+    await expect(row.getByTestId("robots-row-checks")).toHaveText("Unit Tests 93% · 1 check queued")
+    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · 24m · ~9m left")
+    expect((await repo.getPatronusCalls()).detailCalls).toBe(3)
+  })
+
   baseTest("should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const LSC = { id: "lsc", name: "Large Scale Change" }
     // three Large Scale Changes of 110 minutes and two Safe Pushes without a profile of 40, of branches merged since
@@ -190,8 +231,8 @@ baseTest.describe("Patronus robot timing", () => {
     await page.getByTestId("robots-indicator").hover()
     const row = page.getByTestId("robots-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · Large Scale Change · 18m · ~1h 32m left")
-    // no list and no poll for the estimates
-    expect(await repo.getPatronusCalls()).toEqual(calls)
+    // no list and no poll for the estimates, only the details that were open
+    expect(await repo.getPatronusCalls()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
   })
 
   baseTest("should count the time of a running robot and the time it usually takes", async ({ page, setupRepo, syncAndWaitForBranches }) => {

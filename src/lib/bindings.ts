@@ -1009,6 +1009,8 @@ export type PatronusRobotDetails = {
 	checks: PatronusChecks | null,
 	/**  The problems of severity error, e.g. "Changes require review approval" */
 	problems: PatronusProblem[],
+	/**  The estimate of the CI for a running robot; null for a finished one and before its checks run */
+	progress: PatronusRobotProgress | null,
 };
 
 /**  A robot of the selected repository */
@@ -1025,6 +1027,27 @@ export type PatronusRobotParams = {
 export type PatronusRobotProfile = {
 	id: string | null,
 	name: string | null,
+};
+
+/**
+ *  How far a running robot is by the CI's own estimate of its running checks (`build-progress`), read only while its
+ *  details are open
+ */
+export type PatronusRobotProgress = {
+	/**
+	 *  Seconds until the running check that ends last is done; null when no running check has an estimate or every one
+	 *  ran past it
+	 */
+	remainingSeconds: number | null,
+	/**  That check, e.g. "Unit Tests", and how far it is, 0 to 100 */
+	checkName: string | null,
+	checkPercent: number | null,
+	/**  Seconds that check ran past its estimate, when every estimate is exceeded */
+	overtimeSeconds: number | null,
+	/**  Checks waiting in the build queue */
+	queued: number,
+	/**  The CI thinks a running check hangs */
+	probablyHanging: boolean,
 };
 
 export type PatronusRobotStatus = "running" | 

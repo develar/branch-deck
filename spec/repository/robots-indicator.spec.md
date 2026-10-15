@@ -12,6 +12,7 @@ targets:
   - ../../src/lib/dock.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/lib/robot-overview.ts
+  - ../../src/hooks/usePatronusRobotDetails.ts
   - ../../src/lib/dock.ts
   - ../../src/lib/platform.ts
   - ../../src/lib/outgoing-attention.ts
@@ -32,7 +33,8 @@ the robots of the repository's branches do: a shield in the rotating ring and "2
 when a robot failed on the branch as it is. Hovering it lists the running robots with their time and progress, the
 failed ones, and the others that finished in the last day; a branch name shows its row. The Dock of the app shows the
 progress of the robot nearest to finishing, and a badge only for what needs the user. It all comes from the robots the
-app already listed: nothing asks Patronus more ([Patronus](../branch/patronus.spec.md#load-on-patronus)).
+app already listed; only the open list asks for the details of its running robots, as their popovers do
+([Patronus](../branch/patronus.spec.md#load-on-patronus)).
 
 ## Goals
 
@@ -79,6 +81,10 @@ app already listed: nothing asks Patronus more ([Patronus](../branch/patronus.sp
   minutes ago"); then "Cancel Safe Push" for a running robot and "Open in Patronus", icon buttons named after the robot
   ("Cancel Safe Push of JIRA-456") with the tooltip of the action.
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`, `should cancel a running robot from the list`)
+- While the list is open, a running row asks for the details of its robot, as its popover would, and shows below its
+  bar the check the robot waits for and the queued checks by the estimate of the CI ("Unit Tests 93% · 1 check
+  queued"), its time counting down the time left the CI estimated ([Patronus](../branch/patronus.spec.md#timing)).
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
 - A click on a branch name closes the list and reveals the row (`requestReveal`), as in the outgoing overview; a branch
   without a row (archived since) is plain text.
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show what runs and what failed in the header, and list the robots of the last day`)

@@ -18,7 +18,7 @@ import { canCancelRobot, formatPushMode, formatRobotCommitNotice, getPatronusChi
 import { runRobotAction } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { openPullRequestUrl } from "@/lib/pull-request"
-import { formatRobotTimingDetails } from "@/lib/robot-eta"
+import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
@@ -151,7 +151,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
             <dt className="text-muted-foreground">Started</dt>
             <dd className="text-muted-foreground" data-testid="patronus-started">
               {formatTimestamp(robot.startTime)}
-              {robot.status === "running" && <RobotTimingDetails robot={robot} />}
+              {robot.status === "running" && <RobotTimingDetails robot={robot} remaining={details?.progress?.remainingSeconds == null} />}
             </dd>
           </>
         )}
@@ -159,6 +159,15 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
           <>
             <dt className="text-muted-foreground">Finished</dt>
             <dd className="text-muted-foreground">{formatTimestamp(robot.finishTime)}</dd>
+          </>
+        )}
+        {robot.status === "running" && details?.progress != null && (
+          <>
+            <dt className="text-muted-foreground">Progress</dt>
+            <dd className="break-words tabular-nums" data-testid="patronus-progress">
+              {formatCheckProgress(details.progress)}
+              {details.progress.probablyHanging && <span className="text-warning">{" · probably hanging"}</span>}
+            </dd>
           </>
         )}
         {details?.checks != null && (
@@ -235,9 +244,9 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
 }
 
 /** " · usually ~40 min · about 22 min left" after the start time of a running robot; it ticks, so it is its own component */
-function RobotTimingDetails({ robot }: { robot: PatronusRobot }) {
+function RobotTimingDetails({ robot, remaining }: { robot: PatronusRobot, remaining: boolean }) {
   const timing = useRobotTiming(robot)
-  return ` · ${formatRobotTimingDetails(robot, timing)}`
+  return ` · ${formatRobotTimingDetails(robot, timing, { remaining })}`
 }
 
 /** The robot of the branch in the branch preview, above the commits; nothing without one */

@@ -52,6 +52,8 @@ pub(crate) struct Caches {
   pub(crate) merge_requests: Cache<String, (Instant, Option<crate::client::MergeRequestDto>)>,
   /// By robot id, of finished robots: the error problems
   pub(crate) problems: Cache<String, Vec<sync_types::patronus::PatronusProblem>>,
+  /// By build id: its progress, so the details open in two windows ask it once a minute
+  pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
 }
 
 impl Caches {
@@ -63,6 +65,7 @@ impl Caches {
       reviews: Cache::builder().max_capacity(500).support_invalidation_closures().build(),
       merge_requests: Cache::new(500),
       problems: Cache::new(1_000),
+      build_progress: Cache::new(500),
     }
   }
 }

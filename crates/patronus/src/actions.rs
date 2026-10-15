@@ -1,18 +1,22 @@
 //! What the user does with a robot (start, restart, cancel) and what the chip popover asks on demand (the checks, the
-//! problems, the merge profiles). Each is one request or a few in parallel; the answers that don't change are cached:
-//! the details of a finished robot for the session, of a running one for a minute, the profiles for 10 minutes.
+//! problems, the merge profiles, the progress of the running checks). Each is one request or a few in parallel; the
+//! answers that don't change are cached: the details of a finished robot for the session, of a running one for a
+//! minute, the progress of a build for a minute, the profiles for 10 minutes.
 
-use crate::client::{BranchRobotStartRequest, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto};
+use crate::client::{BranchRobotStartRequest, BuildProgressDto, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto};
 use crate::service::{PatronusService, parse_push_mode, parse_status, robot_profile, to_robot};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use sync_types::patronus::{
   PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile,
-  PatronusRobotStatus, PatronusStartOptions,
+  PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
 use tracing::instrument;
 
 /// The details of a running robot change: asked again after this
 const RUNNING_DETAILS_TTL: Duration = Duration::from_secs(60);
+/// Patronus caches the progress of a build for a minute: asking more often would read the same answer
+const BUILD_PROGRESS_TTL: Duration = Duration::from_secs(60);
 /// The profiles of a branch change rarely
 const START_SUPPORTED_TTL: Duration = Duration::from_secs(600);
 const START_SUPPORTED_ERROR_TTL: Duration = Duration::from_secs(60);
@@ -25,6 +29,7 @@ pub struct CachedDetails {
   robot: RobotDto,
   checks: Option<PatronusChecks>,
   problems: Vec<PatronusProblem>,
+  progress: Option<PatronusRobotProgress>,
 }
 
 /// A failed action, for the user
@@ -43,6 +48,7 @@ impl PatronusService {
       robot,
       checks: details.checks,
       problems: details.problems,
+      progress: details.progress,
     })
   }
 
@@ -60,17 +66,57 @@ impl PatronusService {
       client.get_problems(&token.value, robot_id),
     );
     let robot = self.settle(robot, &token.stamp).map_err(availability_message)?;
+    let checks = checks.ok();
+    // only while the details of a running robot are open: TeamCity's estimate of its running checks
+    let progress = match &checks {
+      Some(checks) if parse_status(&robot.status) == PatronusRobotStatus::Running => self.checks_progress(&token, checks).await,
+      _ => None,
+    };
     let details = CachedDetails {
       robot,
       // the checks and the problems are extras: the details show without them
-      checks: checks.ok().and_then(|checks| summarize_checks(&checks)),
+      checks: checks.as_deref().and_then(summarize_checks),
       problems: problems.unwrap_or_default().into_iter().map(to_problem).collect(),
+      progress,
     };
     if parse_status(&details.robot.status).is_finished() {
       self.caches.problems.insert(robot_id.to_string(), details.problems.clone());
     }
     self.caches.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
     Ok(details)
+  }
+
+  /// The progress of the current build of each running check, in parallel, each cached for a minute; None before a check
+  /// runs. A build Patronus can't answer for is left out.
+  async fn checks_progress(&self, token: &crate::token::Token, checks: &[TeamCityCheckDto]) -> Option<PatronusRobotProgress> {
+    let builds: Vec<String> = checks
+      .iter()
+      .filter(|check| check.status == "RUNNING")
+      .filter_map(|check| check.running_build_id().map(str::to_string))
+      .collect();
+    let mut progress = HashMap::new();
+    let mut pending = tokio::task::JoinSet::new();
+    for build_id in builds {
+      if let Some((fetched_at, known)) = self.caches.build_progress.get(&build_id)
+        && fetched_at.elapsed() < BUILD_PROGRESS_TTL
+      {
+        progress.insert(build_id, known);
+        continue;
+      }
+      let client = self.client().clone();
+      let token = token.value.clone();
+      pending.spawn(async move {
+        let answer = client.get_build_progress(&token, &build_id).await;
+        (build_id, answer)
+      });
+    }
+    while let Some(Ok((build_id, answer))) = pending.join_next().await {
+      if let Ok(answer) = self.settle(answer, &token.stamp) {
+        self.caches.build_progress.insert(build_id.clone(), (Instant::now(), answer.clone()));
+        progress.insert(build_id, answer);
+      }
+    }
+    summarize_progress(checks, &progress)
   }
 
   /// The error problems of a finished robot, asked once per session (the chip names a missing review); the details
@@ -253,6 +299,52 @@ pub fn summarize_checks(checks: &[TeamCityCheckDto]) -> Option<PatronusChecks> {
     }
   }
   Some(summary)
+}
+
+/// How far a robot is by the estimates of the CI: the running check that ends last (its estimate minus its running time),
+/// its name and percent; when every running check ran past its estimate, the one closest to its estimate and by how
+/// much; the queued checks; whether one probably hangs. None before a check runs.
+pub fn summarize_progress(checks: &[TeamCityCheckDto], progress: &HashMap<String, BuildProgressDto>) -> Option<PatronusRobotProgress> {
+  let mut queued = 0;
+  let mut probably_hanging = false;
+  let mut running = false;
+  // the check that ends last: the most seconds left, or the least overtime
+  let mut last: Option<(i64, &TeamCityCheckDto, &BuildProgressDto)> = None;
+  for check in checks {
+    match check.status.as_str() {
+      "QUEUED" => queued += 1,
+      "RUNNING" => {
+        running = true;
+        let Some(build) = check.running_build_id().and_then(|build_id| progress.get(build_id)) else {
+          continue;
+        };
+        if build.queued {
+          queued += 1;
+          continue;
+        }
+        probably_hanging |= build.probably_hanging == Some(true);
+        if let Some(estimate) = build.estimated_total_running_seconds {
+          let left = estimate - build.elapsed_running_seconds;
+          if last.is_none_or(|(known, _, _)| left > known) {
+            last = Some((left, check, build));
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  if !running && queued == 0 {
+    return None;
+  }
+  let seconds = |value: i64| u32::try_from(value.max(0)).unwrap_or(u32::MAX);
+  Some(PatronusRobotProgress {
+    remaining_seconds: last.filter(|(left, _, _)| *left > 0).map(|(left, _, _)| seconds(left)),
+    check_name: last.map(|(_, check, _)| check.build_configuration_name.clone()),
+    check_percent: last.map(|(_, _, build)| seconds(build.percentage_complete.min(100))),
+    overtime_seconds: last.filter(|(left, _, _)| *left <= 0).map(|(left, _, _)| seconds(-left)),
+    queued,
+    probably_hanging,
+  })
 }
 
 fn to_problem(problem: ProblemDto) -> PatronusProblem {

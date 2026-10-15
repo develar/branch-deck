@@ -1,4 +1,4 @@
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
 import { formatPushMode } from "@/lib/patronus"
 
 /** An estimate learns from the robots started this long before now: as long as the history of finished robots keeps them */
@@ -127,6 +127,47 @@ export function getRobotTiming(robot: Pick<PatronusRobot, "startTime">, estimate
   return { elapsed, expected, basis, remaining: expected - elapsed, progress: elapsed / expected }
 }
 
+/**
+ * The timing with the time left the CI estimated for the running checks (`PatronusRobotProgress`, read at `readAt`
+ * while the robot's details were open), counting down since; unchanged without such an estimate or once it ran out
+ */
+export function withCheckProgress(timing: RobotTiming, read: { progress: PatronusRobotProgress, readAt: number } | undefined, now: number): RobotTiming {
+  const left = read?.progress.remainingSeconds
+  if (read === undefined || left == null) {
+    return timing
+  }
+  // `now` of the last tick may be older than the answer
+  const remaining = left - Math.max(0, Math.floor((now - read.readAt) / 1000))
+  if (remaining <= 0) {
+    return timing
+  }
+  const expected = timing.elapsed + remaining
+  return { ...timing, expected, remaining, progress: timing.elapsed / expected }
+}
+
+/**
+ * The estimate of the CI in the details: "about 9 min left · Unit Tests 93% · 1 check queued", "Overtime 4 min · …";
+ * without the time left (`remaining: false`) where the time stands beside it (a row of the robots indicator)
+ */
+export function formatCheckProgress(progress: PatronusRobotProgress, { remaining = true }: { remaining?: boolean } = {}): string {
+  const parts: string[] = []
+  if (progress.remainingSeconds !== null) {
+    if (remaining) {
+      parts.push(`about ${formatDuration(roundUpToMinute(progress.remainingSeconds))} left`)
+    }
+  }
+  else if (progress.overtimeSeconds !== null) {
+    parts.push(`Overtime ${formatDuration(progress.overtimeSeconds)}`)
+  }
+  if (progress.checkName !== null) {
+    parts.push(progress.checkPercent === null ? progress.checkName : `${progress.checkName} ${progress.checkPercent}%`)
+  }
+  if (progress.queued > 0) {
+    parts.push(progress.queued === 1 ? "1 check queued" : `${progress.queued} checks queued`)
+  }
+  return parts.join(" · ")
+}
+
 /** The usual duration is known and the robot runs past it */
 export function isRobotOverdue(timing: RobotTiming): boolean {
   return timing.expected !== null && timing.remaining === null
@@ -230,13 +271,18 @@ function formatEstimateBasis(robot: Pick<PatronusRobot, "pushMode">, basis: Esti
 /**
  * The timing after the start time in the details of a running robot, with what the estimate is of: "usually ~1 h 50
  * min for Large Scale Change · about 22 min left", the rough "usually ~40 min for Safe Push · 55 min, longer than
- * usual", and without history "running 18 min · no Safe Push finished in the last 30 days to estimate from"
+ * usual", and without history "running 18 min · no Safe Push finished in the last 30 days to estimate from"; without
+ * the time left (`remaining: false`) while the estimate of the CI tells it
  */
-export function formatRobotTimingDetails(robot: Pick<PatronusRobot, "pushMode">, timing: RobotTiming): string {
+export function formatRobotTimingDetails(robot: Pick<PatronusRobot, "pushMode">, timing: RobotTiming, { remaining = true }: { remaining?: boolean } = {}): string {
   if (timing.expected === null || timing.basis === null) {
     return `running ${formatDuration(timing.elapsed)} · no ${formatPushMode(robot.pushMode)} finished in the last 30 days to estimate from`
   }
   const usually = `usually ~${formatDuration(timing.expected)} ${formatEstimateBasis(robot, timing.basis)}`
+  // the estimate of the CI says the time left better
+  if (!remaining) {
+    return usually
+  }
   return timing.remaining === null
     ? `${usually} · ${formatDuration(timing.elapsed)}, longer than usual`
     : `${usually} · about ${formatDuration(roundUpToMinute(timing.remaining))} left`

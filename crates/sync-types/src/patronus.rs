@@ -178,6 +178,28 @@ pub struct PatronusRobotDetails {
   pub checks: Option<PatronusChecks>,
   /// The problems of severity error, e.g. "Changes require review approval"
   pub problems: Vec<PatronusProblem>,
+  /// The estimate of the CI for a running robot; null for a finished one and before its checks run
+  pub progress: Option<PatronusRobotProgress>,
+}
+
+/// How far a running robot is by the CI's own estimate of its running checks (`build-progress`), read only while its
+/// details are open
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusRobotProgress {
+  /// Seconds until the running check that ends last is done; null when no running check has an estimate or every one
+  /// ran past it
+  pub remaining_seconds: Option<u32>,
+  /// That check, e.g. "Unit Tests", and how far it is, 0 to 100
+  pub check_name: Option<String>,
+  pub check_percent: Option<u32>,
+  /// Seconds that check ran past its estimate, when every estimate is exceeded
+  pub overtime_seconds: Option<u32>,
+  /// Checks waiting in the build queue
+  pub queued: u32,
+  /// The CI thinks a running check hangs
+  pub probably_hanging: bool,
 }
 
 /// The CI checks of a robot, counted

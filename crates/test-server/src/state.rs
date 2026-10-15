@@ -41,6 +41,10 @@ pub struct TestRepository {
   /// How often the app listed and polled the robots, so a test can check the request policy
   pub patronus_list_calls: AtomicU32,
   pub patronus_poll_calls: AtomicU32,
+  /// How often the app asked for the details of a robot: the build progress of its checks comes only with them
+  pub patronus_detail_calls: AtomicU32,
+  /// What the details answer as the progress of a running robot, by robot id (`POST /repositories/{id}/patronus-progress`)
+  pub patronus_progress: RwLock<std::collections::HashMap<String, sync_types::patronus::PatronusRobotProgress>>,
   /// What `suggest_branch_names` answers (E2E never runs claude)
   pub branch_name_suggestions: RwLock<BranchNameSuggestionFixture>,
   /// How often the app asked for branch names: nothing may leave before the user enabled AI

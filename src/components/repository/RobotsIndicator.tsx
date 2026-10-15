@@ -8,11 +8,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
+import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { canCancelRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
-import { formatRobotProgress } from "@/lib/robot-eta"
+import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
 import type { RobotIndicatorPart, RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { formatRobotIndicatorLabel, getRobotIndicatorParts } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
@@ -179,7 +180,7 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (n
 
 /** "18m · ~22m left", "Canceling"; it ticks, so it is its own component */
 function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
-  const timing = useRobotTiming(entry.robot)
+  const timing = useRobotTiming(entry.robot, true)
   if (entry.robot.status === "canceling") {
     return entry.chip.label
   }
@@ -192,10 +193,25 @@ function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
   )
 }
 
-/** The share of the usual time, below the time */
+/**
+ * The share of the usual time, below the time; while the list is open the details of the robot are asked (as its
+ * popover asks them), and the check the robot waits for and the queued checks follow by the estimate of the CI
+ */
 function RunningProgress({ entry }: { entry: RobotOverviewEntry }) {
-  const timing = useRobotTiming(entry.robot)
-  return <RobotProgressBar progress={entry.robot.status === "canceling" ? null : timing.progress} className="mt-0.5 h-1 rounded-sm" />
+  const timing = useRobotTiming(entry.robot, true)
+  const details = usePatronusRobotDetails(entry.robot.id, entry.robot.status, true)
+  const checks = details?.progress ?? null
+  return (
+    <>
+      <RobotProgressBar progress={entry.robot.status === "canceling" ? null : timing.progress} className="mt-0.5 h-1 rounded-sm" />
+      {checks !== null && (
+        <span className="text-xs text-muted-foreground tabular-nums" data-testid="robots-row-checks">
+          {formatCheckProgress(checks, { remaining: false })}
+          {checks.probablyHanging && <span className="text-warning">{" · probably hanging"}</span>}
+        </span>
+      )}
+    </>
+  )
 }
 
 function IconAction({ label, tooltip, onClick, children }: { label: string, tooltip: string, onClick: () => void, children: ReactNode }) {

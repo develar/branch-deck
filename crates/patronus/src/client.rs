@@ -101,6 +101,43 @@ pub struct TeamCityCheckDto {
   pub build_configuration_name: String,
   /// `QUEUED`, `RUNNING`, `FAILURE`, `SUCCESS`, `CANCELED`, `SKIPPED`
   pub status: String,
+  /// The builds of the check, one per attempt (a failed build may be retried)
+  #[serde(default)]
+  pub attempts: Vec<TeamCityCheckAttemptDto>,
+}
+
+impl TeamCityCheckDto {
+  /// The build of the attempt that runs now: the running attempt with the highest number
+  pub fn running_build_id(&self) -> Option<&str> {
+    self
+      .attempts
+      .iter()
+      .filter(|attempt| attempt.status == "RUNNING")
+      .max_by_key(|attempt| attempt.number)
+      .map(|attempt| attempt.build_id.as_str())
+  }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamCityCheckAttemptDto {
+  pub number: u32,
+  pub build_id: String,
+  /// `RUNNING`, `CANCELED`, `SUCCESS`, `FAILURE`
+  pub status: String,
+}
+
+/// The estimate of the CI for a build (its `RUNNING_INFO`), as the robot page of the web UI shows it
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildProgressDto {
+  pub queued: bool,
+  #[serde(default)]
+  pub percentage_complete: i64,
+  #[serde(default)]
+  pub elapsed_running_seconds: i64,
+  pub estimated_total_running_seconds: Option<i64>,
+  pub probably_hanging: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -351,6 +388,21 @@ impl PatronusClient {
     let url = self.robot_api_url(robot_id, &["teamcity-checks"])?;
     let checks: TeamCityChecksDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     Ok(checks.team_city_checks)
+  }
+
+  /// The estimate of the CI for a build of a check (`teamcity-proxy`, cached by Patronus for a minute)
+  #[instrument(skip(self, token))]
+  pub async fn get_build_progress(&self, token: &str, build_id: &str) -> Result<BuildProgressDto, PatronusError> {
+    let mut url = reqwest::Url::parse(&format!("{}/app/rest/v1/teamcity-proxy/build-progress", self.base_url)).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
+    // the id comes from an answer: one escaped path segment
+    url
+      .path_segments_mut()
+      .map_err(|()| PatronusError::InvalidResponse(format!("{} is not a base URL", self.base_url)))?
+      .push(build_id);
+    let started = Instant::now();
+    let progress: BuildProgressDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
+    info!(elapsed_ms = started.elapsed().as_millis(), "read the build progress");
+    Ok(progress)
   }
 
   /// The problems of severity error

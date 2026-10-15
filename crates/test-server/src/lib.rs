@@ -86,6 +86,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     )
     .route("/repositories/{id}/patronus", post(set_patronus).get(get_patronus_fixture))
     .route("/repositories/{id}/review-requests", post(set_review_requests).get(get_review_request_fixture))
+    .route("/repositories/{id}/patronus-progress", post(set_patronus_progress))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -432,6 +433,8 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     patronus: std::sync::RwLock::new(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
+    patronus_detail_calls: std::sync::atomic::AtomicU32::new(0),
+    patronus_progress: std::sync::RwLock::new(std::collections::HashMap::new()),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
   };
@@ -524,13 +527,26 @@ pub async fn set_patronus(
   Ok(StatusCode::OK)
 }
 
-/// How often the app listed and polled the robots
+/// Sets the progress the details of running robots answer, by robot id
+pub async fn set_patronus_progress(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(progress): Json<std::collections::HashMap<String, sync_types::patronus::PatronusRobotProgress>>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  *repo.patronus_progress.write().expect("patronus progress lock") = progress;
+  Ok(StatusCode::OK)
+}
+
+/// How often the app listed and polled the robots and asked for their details
 pub async fn get_patronus_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   let ordering = std::sync::atomic::Ordering::SeqCst;
-  Ok(Json(
-    serde_json::json!({ "listCalls": repo.patronus_list_calls.load(ordering), "pollCalls": repo.patronus_poll_calls.load(ordering) }),
-  ))
+  Ok(Json(serde_json::json!({
+    "listCalls": repo.patronus_list_calls.load(ordering),
+    "pollCalls": repo.patronus_poll_calls.load(ordering),
+    "detailCalls": repo.patronus_detail_calls.load(ordering),
+  })))
 }
 
 /// Sets what `get_review_requests` answers for the repository and how `fetch_review_head` fails (`fetchError`)

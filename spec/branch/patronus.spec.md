@@ -27,6 +27,7 @@ targets:
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/lib/robot-eta.ts
   - ../../src/stores/robot-history.ts
+  - ../../src/stores/robot-progress.ts
   - ../../src/lib/patronus-icons.ts
   - ../../src/hooks/useRobotTiming.ts
   - ../../src/components/branch/ReviewCommitNotice.tsx
@@ -159,6 +160,18 @@ reports in it and closes it once merged.
   repeated by itself.
   [@test] ../../crates/patronus/src/service_test.rs (`background_requests_back_off_after_a_server_failure`)
   [@test] ../../crates/patronus/src/service_test.rs (`a_client_error_is_not_asked_again`)
+- The progress of the running checks of a robot (`GET /teamcity-proxy/build-progress/{buildId}`, the estimate of the CI
+  for a build, as the robot page of the web UI shows it) is asked only with the details of a running robot, while they
+  are open: the popover of the Safe Push slot, the Patronus section of the branch preview, or a running row of the list
+  of the robots indicator. One request per running check, for the build of its current attempt (the running attempt
+  with the highest number), in parallel, after the details' checks, and so 300 ms after the details opened; again once
+  a minute while they stay open (61 s, as Patronus caches the progress for a minute: never faster), never after they
+  closed. The backend caches the progress of each build for 60 s, so two windows don't ask it twice. No request comes
+  from the row, the robots indicator's button, the Dock or a timer of its own. The request goes through the request
+  policy above (the token, the backoff, the user agent, a GET asked once more after a transient failure, the log line
+  "read the build progress" with its duration).
+  [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_running_robot_have_the_estimate_of_its_running_checks`, `the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
 - One HTTP client with a kept-alive connection (connect timeout 5 s, list, poll and details 15 s, the review pre-check
   20 s, actions and merge requests 30 s) and the user agent
   `Branch Deck/<version> (<os>; <arch>)`, so Patronus can tell its load apart. `SAFEPUSH_PATRONUS_URL` (as for the
@@ -226,8 +239,10 @@ reports in it and closes it once merged.
 
 ### Timing
 
-- No request is made for the estimate: it comes from the robots the app already listed and polled, and the polling
-  stays as [above](#load-on-patronus).
+- A running robot has two estimates. The one from history is always there and costs nothing: no request is made for
+  it, it comes from the robots the app already listed and polled, and the polling stays as [above](#load-on-patronus).
+  The estimate of the CI is precise but costs a request per running check: it is read only while the details of the
+  robot are open ([above](#load-on-patronus)), and used only while they are.
 - The merge profile decides the checks of a robot, and so how long it runs (a Large Scale Change runs for hours, the
   default checks for minutes). A list doesn't name it; the answers that do carry it onto the robot at no cost: a poll
   (`fetch-updates` answers a robot with its options once its status changed, so every robot polled to its finish), the
@@ -255,6 +270,16 @@ reports in it and closes it once merged.
 - A thin line under the row of a running robot shows the share of its usual time; without history, past it and while it
   cancels, it runs across (indeterminate).
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should count the time of a running robot and the time it usually takes`)
+- While the details of a running robot are open, they show the estimate of the CI in the row "Progress": the time left
+  of the running check that ends last (its estimate minus its running time) and its name and percent, "about 9 min
+  left · Unit Tests 93%"; "1 check queued" when checks wait in the queue; "Overtime 4 min" when every running check
+  ran past its estimate; "probably hanging" in `warning` when the CI says so. The slot and the progress line of the row
+  count down the time left it read meanwhile ("20m · ~9m left"), and the start line of the details keeps only the usual
+  time ("usually ~1 h 50 min for Large Scale Change"); once the details closed, the slot and the line take the estimate
+  from history again. A running row of the robots indicator's list shows the check and the queued checks too.
+  [@test] ../../crates/patronus/src/actions_test.rs (`a_robot_ends_with_its_slowest_check_and_runs_over_when_every_check_did`)
+  [@test] ../../src/lib/robot-eta.test.ts (`names the time left, the check the robot waits for, and the queued checks`, `counts down the time left it read while the details were open, for the slot`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
 - The details of a running robot say it after the start time, with what the estimate is of: "Today 14:02 · usually ~1 h
   50 min for Large Scale Change · about 1 h 32 min left", "… without a merge profile …", the rough "… · usually ~40 min
   for Safe Push · 55 min, longer than usual", "… · running 18 min · no Safe Push finished in the last 30 days to
@@ -276,7 +301,9 @@ reports in it and closes it once merged.
 - The popover asks for the details of the robot 300 ms after it opened (a popover that only flashes asks nothing): the
   merge profile, the TeamCity checks ("1 failing (Fast Tests), 9 passed") and the problems of severity error. They are
   `GET /robots/{id}`, `/teamcity-checks` and `/problems?severity=ERROR` in parallel, cached by the backend: a finished
-  robot for the session, a running one for a minute. When Patronus can't answer, the popover shows the list data.
+  robot for the session, a running one for a minute. Of a running robot, the progress of its running checks follows
+  ([Load on Patronus](#load-on-patronus)), and the details are asked again every 61 s while open. When Patronus can't
+  answer, the popover shows the list data.
   [@test] ../../crates/patronus/src/actions_test.rs (`details_have_the_profile_the_checks_and_the_error_problems`)
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_finished_robot_are_asked_once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should show the profile, the checks and the problems in the popover`)
