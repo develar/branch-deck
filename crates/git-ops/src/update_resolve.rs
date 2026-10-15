@@ -1090,6 +1090,8 @@ fn check_round(
       (None, true) => Some((Outcome::Deleted, &None)),
       (None, false) => None,
     };
+    // the lines of an edit that replaced the conflict blocks: where the dropped lines are looked for
+    let mut replaced: Option<Vec<&[u8]>> = None;
     let (outcome, edit, result): (Outcome, PathEdit, &[u8]) = if let Some((outcome, stage)) = taken {
       match stage {
         Some(stage) => (
@@ -1110,7 +1112,13 @@ fn check_round(
       };
       let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
       let failure = match file.kind {
-        ConflictKind::Content => check_resolution(merged, content, labels).err(),
+        ConflictKind::Content => match check_resolution(merged, content, labels) {
+          Ok(lines) => {
+            replaced = Some(lines);
+            None
+          }
+          Err(failure) => Some(failure),
+        },
         // the version left in the tree: unchanged, it decides nothing
         kind if kind.is_one_sided() && content.as_slice() == merged => {
           refused.push((RefusalKind::MissingResolution, path));
@@ -1135,7 +1143,7 @@ fn check_round(
       (Outcome::Edited, edit, content.as_slice())
     };
     let before = blob(&file.before).unwrap_or_default();
-    let dropped = |side: &Option<Stage>| blob(side).map_or_else(Vec::new, |side| dropped_lines(before, side, result));
+    let dropped = |side: &Option<Stage>| blob(side).map_or_else(Vec::new, |side| dropped_lines(before, side, result, replaced.as_deref()));
     paths.push(ResolvedPath {
       path,
       outcome,

@@ -88,7 +88,7 @@ describe("buildAgentPrompt", () => {
     const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
     expect(prompt).toBe([
       ...blockedLines,
-      `${askFirst} When I say the files are ready, run \`/Users/me/.local/bin/bd -C '/work/my repo' update --no-fetch\` and continue as its output says.`,
+      `${askFirst} When I say the files are ready, run \`/Users/me/.local/bin/bd -C '/work/my repo' update --no-fetch\` and continue as its output says. If it prints \`state: conflict\` (exit 1), run \`/Users/me/.local/bin/bd -C '/work/my repo' help update\` and follow it; edit only the files at \`edit\`, never the same path in the working tree.`,
     ].join("\n"))
     expect(prompt).not.toContain("git stash")
   })
@@ -96,7 +96,7 @@ describe("buildAgentPrompt", () => {
   it("names PowerShell for the command of Windows", () => {
     const bd = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\my repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
-    expect(prompt).toContain(`run \`${bd.command} update --no-fetch\` in PowerShell and continue as its output says.`)
+    expect(prompt).toContain(`run \`${bd.command} update --no-fetch\` in PowerShell and continue as its output says. If it prints`)
   })
 
   it("without bd, sends a blocked update to the user and back to Branch Deck, never to a stash", () => {
@@ -127,7 +127,7 @@ describe("buildAgentPrompt", () => {
       "1. `bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
       "2. Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, add `--take` or `--delete` to the command of step 3, as its `hint` says. A change the commit needs outside the conflict blocks waits for a `fixup!` commit after step 4.",
       "3. `bd update --continue --round <session.round>`. Exit 1 is the next commit: go to step 2 (`state: pending`: run `session.next`). Exit 2: `error.message` says what to fix (the copies of `error.paths`; `round_moved`: go to step 1; `empty_resolution`: ask me).",
-      "4. Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as `fixup! <subject>` and run `bd fold`, or run `bd undo <undo_token>` and tell me.",
+      "4. Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as `git commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
       "5. Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
       "",
       "Rules:",

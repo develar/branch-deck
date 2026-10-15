@@ -162,15 +162,16 @@ fn normalized_line_ends(content: &[u8]) -> Vec<u8> {
 }
 
 /// Check the resolution `resolved` of the merge result `merged` (the `edit` file as bd wrote it): outside the conflict
-/// blocks it must be byte for byte the same, and no marker may be left where a block was
+/// blocks it must be byte for byte the same, and no marker may be left where a block was. Returns the lines of
+/// `resolved` that replaced the blocks
 ///
 /// # Errors
 /// `CheckFailure::OutsideConflict` when the plain runs of `merged` are not found in order (`LineEnds` when only the line
 /// ends differ), `UnresolvedMarkers` when a replaced region still has a marker line of bd's labels
-pub fn check_resolution(merged: &[u8], resolved: &[u8], labels: Labels<'_>) -> Result<(), CheckFailure> {
+pub fn check_resolution<'a>(merged: &[u8], resolved: &'a [u8], labels: Labels<'_>) -> Result<Lines<'a>, CheckFailure> {
   let Some(plains) = split_blocks(merged, labels).filter(|plains| plains.len() > 1) else {
     // a round opens only with blocks; anything else must stay as it is
-    return if merged == resolved { Ok(()) } else { Err(CheckFailure::OutsideConflict) };
+    return if merged == resolved { Ok(Vec::new()) } else { Err(CheckFailure::OutsideConflict) };
   };
   let Some(replaced) = replaced_regions(&plains, resolved) else {
     let (merged, resolved) = (normalized_line_ends(merged), normalized_line_ends(resolved));
@@ -180,7 +181,7 @@ pub fn check_resolution(merged: &[u8], resolved: &[u8], labels: Labels<'_>) -> R
   if replaced.iter().any(|line| is_labelled_marker(line, labels)) {
     return Err(CheckFailure::UnresolvedMarkers);
   }
-  Ok(())
+  Ok(replaced)
 }
 
 /// A line without its trailing whitespace and line end, as the dropped-line report compares lines
@@ -203,17 +204,22 @@ fn words(line: &[u8]) -> HashSet<&[u8]> {
 }
 
 /// The lines that `side` added to `before` (the side's change) that `result` lost, at most `MAX_REPORTED_LINES`: the
-/// report of what a resolution of one file dropped of that side. A changed line counts as kept when one line of the
-/// result has every word that the side added to its nearest line of `before` (the one with the most words in common),
-/// so a lost change of one value (`APP_MODE=test`, a version) is reported, and a rewrite that keeps the change (both
-/// sides combined in one line) is not. Lines without a word (a lone `}`) are not reported
-pub fn dropped_lines(before: &[u8], side: &[u8], result: &[u8]) -> Vec<String> {
+/// report of what a resolution of one file dropped of that side. A line the result has as it is counts as kept; a
+/// changed line counts as kept when one line of `replaced` (the lines of an edit that replaced the conflict blocks, or
+/// the whole result of a take) has every word that the side added to its nearest line of `before` (the one with the
+/// largest share of words in common). So a lost change of one value (`APP_MODE=test`, a version) is reported, also when
+/// its word is elsewhere in the file, and a rewrite that keeps the change (both sides combined in one line) is not.
+/// Lines without a word (a lone `}`) are not reported
+pub fn dropped_lines(before: &[u8], side: &[u8], result: &[u8], replaced: Option<&[&[u8]]>) -> Vec<String> {
   let before_lines = trimmed_lines(before);
   let before_set: HashSet<&[u8]> = before_lines.iter().copied().collect();
   let before_words: Vec<HashSet<&[u8]>> = before_lines.iter().map(|line| words(line)).collect();
-  let result_lines = trimmed_lines(result);
-  let result_set: HashSet<&[u8]> = result_lines.iter().copied().collect();
-  let result_words: Vec<HashSet<&[u8]>> = result_lines.iter().map(|line| words(line)).collect();
+  let result_set: HashSet<&[u8]> = trimmed_lines(result).into_iter().collect();
+  let candidates: Vec<&[u8]> = match replaced {
+    Some(replaced) => replaced.iter().map(|line| trim(line)).filter(|line| !line.is_empty()).collect(),
+    None => trimmed_lines(result),
+  };
+  let result_words: Vec<HashSet<&[u8]>> = candidates.iter().map(|line| words(line)).collect();
   let mut seen = HashSet::new();
   let mut dropped = Vec::new();
   for line in trimmed_lines(side) {
@@ -227,10 +233,16 @@ pub fn dropped_lines(before: &[u8], side: &[u8], result: &[u8]) -> Vec<String> {
     if line_words.is_empty() {
       continue;
     }
+    // the nearest line: the largest share of words in common, the first on a tie
+    let share = |before: &HashSet<&[u8]>| (before.intersection(&line_words).count(), before.union(&line_words).count().max(1));
     let nearest = before_words
       .iter()
-      .max_by_key(|before| before.intersection(&line_words).count())
-      .filter(|before| !before.is_disjoint(&line_words));
+      .filter(|before| !before.is_disjoint(&line_words))
+      .fold(None::<&HashSet<&[u8]>>, |best, before| match best {
+        // a/b >= c/d without a division
+        Some(best) if share(best).0 * share(before).1 >= share(before).0 * share(best).1 => Some(best),
+        _ => Some(before),
+      });
     let added: Vec<&[u8]> = line_words.iter().copied().filter(|word| nearest.is_none_or(|nearest| !nearest.contains(word))).collect();
     let kept = result_words.iter().any(|result| added.iter().all(|word| result.contains(word)));
     if !kept {

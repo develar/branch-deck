@@ -983,3 +983,46 @@ fn a_refusal_names_the_commit_and_keeps_the_round() {
   );
   assert_eq!(read(&edit_of(&round, "shared.txt")), "ONE\ntheirs mine\nthree\n");
 }
+
+/// Synthetic cases shaped by a field run: a `Date:` line both sides changed, a deleted test whose upstream edit belongs
+/// in another file now, and the same line added on both sides
+#[test_log::test]
+fn field_shaped_conflicts_resolve_as_the_hints_say() {
+  // a spec whose `Date:` line both sides changed: a content round, resolved by an edit
+  let spec = "# Spec\n\nStatus: Draft\nDate: 2026-01-01\n\nText.\n";
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("spec.md", spec)]);
+  clone.create_commit("(spec) Update the spec", "spec.md", &spec.replace("2026-01-01", "2026-03-01"));
+  upstream.create_commit("Update the spec upstream", "spec.md", &spec.replace("2026-01-01", "2026-02-01"));
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(file_of(&round, "spec.md")["kind"], json!("content"), "{round}");
+  std::fs::write(edit_of(&round, "spec.md"), spec.replace("2026-01-01", "2026-03-01")).unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(done["resolutions"][0]["files"][0]["dropped_upstream_lines"], json!(["Date: 2026-02-01"]), "{done}");
+
+  // the commit deletes a test that the upstream edited; the edit belongs in the new test of the commit
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("old_test.txt", "test one\ntest two\n")]);
+  git(&clone, &["rm", "-q", "old_test.txt"]);
+  // rewritten, so no rename is found: a rename would carry the upstream edit into the new file by itself
+  clone.create_commit("(tests) Move the tests", "new_test.txt", "fn tests() {\n  check(1);\n  check(2);\n}\n");
+  upstream.create_commit("Fix test two", "old_test.txt", "test one\ntest two, fixed\n");
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  let hint = file_of(&round, "old_test.txt")["hint"].as_str().unwrap().to_string();
+  assert!(hint.contains("--take commit:old_test.txt") && hint.contains("`fixup!` commit after the update"), "{hint}");
+  let (exit_code, done) = run_in(&clone, &["update", "--continue", "--take", "commit:old_test.txt"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(done["resolutions"][0]["files"][0]["dropped_upstream_lines"], json!(["test two, fixed"]), "{done}");
+  assert!(!clone.path().join("old_test.txt").exists());
+
+  // the same line added on both sides merges cleanly: no round, no block of identical sides
+  let build = "deps = [\n  \"a\",\n  \"c\",\n]\n";
+  let added = build.replace("  \"c\",", "  \"b\",\n  \"c\",");
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("BUILD", build)]);
+  clone.create_commit("(build) Add b", "BUILD", &added);
+  upstream.create_commit("Add b upstream", "BUILD", &added);
+  upstream.create_commit("Add d upstream", "d.txt", "d\n");
+  let (exit_code, done) = run_in(&clone, &["update"]);
+  assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+}

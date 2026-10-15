@@ -305,7 +305,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   3. `bd update --continue --round <session.round>`: exit 1 is the next commit (`state: pending`: run
      `session.next`); on exit 2, `error.message` says what to fix (the copies of `error.paths`; `round_moved`: step 1
      again; `empty_resolution`: ask the user);
-  4. on exit 0, build and test, and on a failure a `fixup! <subject>` commit with `bd fold`, or `bd undo <undo_token>`;
+  4. on exit 0, build and test, and on a failure a `fixup! <subject>` commit of only the fixed files
+     (`git commit -m 'fixup! <subject>' -- <paths>`, never the changes of other sessions) with `bd fold`, or
+     `bd undo <undo_token>`;
   5. report each resolution with its dropped lines.
 
   The rules: other sessions work in the tree, so never `git rebase`, `git stash`,
@@ -331,7 +333,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The blocked prompt must never stash: it lists the files, says that other sessions work in the tree, forbids to
   stash, reset, check out or commit them, and asks the agent to ask the user about each file. Then, with the app's bd,
   it runs `<bd> -C <repository> update --no-fetch` (quoted for the shell, `& '…'` in PowerShell on Windows) and
-  continues as its output says; without one, it tells the user to update in Branch Deck again.
+  continues as its output says; if that prints `state: conflict`, the agent runs `<bd> help update`, follows it and
+  edits only the files at `edit`. Without one, it tells the user to update in Branch Deck again.
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, sends a blocked update to the user and then to bd, never to a stash`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for the command of Windows`)
   [@test] ../../src/lib/agent-prompt.test.ts (`without bd, sends a blocked update to the user and back to Branch Deck, never to a stash`)

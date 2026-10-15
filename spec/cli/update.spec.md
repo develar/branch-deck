@@ -204,10 +204,16 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`an_edit_in_the_working_tree_is_pointed_to_the_copy`)
 - The lines of a side's change (`before` to `onto`, `before` to `commit`) that the result lost must be reported per
   file as `dropped_upstream_lines` and `dropped_commit_lines`, also for `--take` and `--delete`, never refused. A line
-  counts as kept when one result line has every word that the side added to its nearest `before` line, so a lost
-  change of one value (a mode, a version, a flag) is reported, and a rewrite that keeps the change is not.
-  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`dropped_lines_are_the_lines_of_a_side_that_the_result_lost`, `a_lost_change_of_one_value_is_reported`)
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_take_reports_the_lines_of_the_other_side_it_drops`)
+  counts as kept when the result has it as it is, or when one line that replaced a conflict block (of an edit; the
+  whole result of a take) has every word that the side added to its nearest `before` line (the largest share of words
+  in common). So a lost change of one value (a mode, a version, a flag) is reported, also when its word is elsewhere
+  in the file, and a rewrite that keeps the change is not.
+  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`dropped_lines_are_the_lines_of_a_side_that_the_result_lost`, `a_lost_change_of_one_value_is_reported`, `a_lost_value_is_reported_when_its_word_is_elsewhere_in_the_file`)
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_take_reports_the_lines_of_the_other_side_it_drops`, `field_shaped_conflicts_resolve_as_the_hints_say`)
+- The hint of a modify/delete whose commit deletes the file must say how to keep the delete (`--take commit:<path>`)
+  and that a change of `onto` that belongs in another file now goes into a `fixup!` commit after the update, reported
+  as `dropped_upstream_lines`. The same line added on both sides merges cleanly and opens no round.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`field_shaped_conflicts_resolve_as_the_hints_say`)
 - A resolution that leaves the commit without changes must be `empty_resolution` (exit 2), nothing written.
   `--allow-empty` keeps it as an empty commit (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at
   least 4 characters of its id) drops it (`empty: "dropped"`, no `resolved` id, no note). The finish counts a dropped

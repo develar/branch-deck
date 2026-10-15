@@ -567,7 +567,9 @@ fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Op
     }
     ConflictKind::Content => "Edit `edit`: keep the change of `onto` and reapply the intent of the commit (`patch`), then remove every conflict marker".to_string(),
     ConflictKind::ModifyDelete if onto_has_it => {
-      format!("The commit deletes the file that `onto` changed: --delete {path} keeps the delete, --take onto:{path} keeps the file of `onto`, or edit `edit`")
+      format!(
+        "The commit deletes the file that `onto` changed: --take commit:{path} (or --delete {path}) keeps the delete, --take onto:{path} keeps the file of `onto`, or edit `edit`. When the change of `onto` belongs in another file now, keep the delete and carry that change there in a `fixup!` commit after the update: the round reports it as `dropped_upstream_lines`"
+      )
     }
     ConflictKind::ModifyDelete => {
       format!("`onto` deleted the file that the commit changes: --delete {path} keeps the delete, --take commit:{path} keeps the commit's file, or edit `edit`")

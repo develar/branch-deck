@@ -620,9 +620,11 @@ decides nothing).
   reads: the commonest mistake of an agent.
 - Report only: per file the lines of a side's change (`before` to `onto` for `dropped_upstream_lines`, `before` to
   `commit` for `dropped_commit_lines`) that the result lost, at most 20 per side; also for `--take` and `--delete`. A
-  line counts as kept when one result line has every word that the side added to its nearest `before` line (the one
-  with the most words in common), so a lost change of one value (`APP_MODE=test`, a version, a flag) is reported, and a
-  rewrite that combines both sides in one line is not. A rule by the share of words in common hid such losses. The agent shows them to the
+  line counts as kept when the result has it as it is, or when one line that replaced a conflict block (of an edit;
+  the whole result of a take) has every word that the side added to its nearest `before` line (the largest share of
+  words in common). So a lost change of one value (`APP_MODE=test`, a version, a flag) is reported, also when its word
+  is in another line of the file, and a rewrite that combines both sides in one line is not. A rule by the share of
+  words in common hid such losses, and so did a look at the whole file. The agent shows them to the
   user. An earlier gate that merged the result with the upstream again fired on nearly every correct resolution, and
   is cut.
 
