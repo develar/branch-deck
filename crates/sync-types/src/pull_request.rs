@@ -107,6 +107,8 @@ pub enum PullRequestAvailability {
   /// The branches are not on GitHub: `origin` is not on github.com, the Space settings name no GitHub mirror, and
   /// `branchdeck.githubRepository` is not set
   NotGitHub,
+  /// GitHub refused the request for its rate limit: ask again later
+  RateLimited,
   /// `gh` failed, e.g. offline or timed out
   Error { message: String },
 }

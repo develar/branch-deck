@@ -11,6 +11,7 @@ pub mod patronus;
 pub mod pull_requests;
 pub mod push;
 pub mod repository_browser;
+pub mod review_requests;
 pub mod reword_commit;
 pub mod squash_commits;
 pub mod squash_fixups;

@@ -103,6 +103,7 @@ pub fn gh_failure(availability: PullRequestAvailability) -> String {
   match availability {
     PullRequestAvailability::GhMissing => "The gh CLI is not installed".to_string(),
     PullRequestAvailability::NotAuthenticated => "gh is not logged in: run gh auth login".to_string(),
+    PullRequestAvailability::RateLimited => "GitHub refused the request for its rate limit: try again later".to_string(),
     PullRequestAvailability::Error { message } => message,
     PullRequestAvailability::NotGitHub | PullRequestAvailability::Available { .. } => "The repository is not on GitHub".to_string(),
   }

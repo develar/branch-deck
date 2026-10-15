@@ -150,6 +150,8 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
       return "Install the GitHub CLI (gh) to see pull requests"
     case "notAuthenticated":
       return "Run gh auth login to see pull requests"
+    case "rateLimited":
+      return "GitHub: rate limit reached, asking again later"
     case "error":
       return `GitHub: ${availability.message}`
     default:

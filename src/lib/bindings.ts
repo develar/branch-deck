@@ -27,6 +27,25 @@ export const commands = {
 	 */
 	closePullRequest: (params: ClosePullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("close_pull_request", { params })),
 	/**
+	 *  The pull requests of others that wait for the user's review (requested by name), through `gh api graphql`; when `gh`
+	 *  can't answer, the availability says why
+	 */
+	getReviewRequests: (params: GetReviewRequestsParams) => typedError<ReviewRequestsResult, CommandError>(__TAURI_INVOKE("get_review_requests", { params })),
+	/**
+	 *  Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
+	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call or
+	 *  `cancel_review_fetch` kills the fetch.
+	 */
+	fetchReviewHead: (params: FetchReviewHeadParams, progress: Channel<TransferProgress>) => typedError<ReviewRange, CommandError>(__TAURI_INVOKE("fetch_review_head", { params, progress })),
+	/**  Kills the review fetch in flight, if any */
+	cancelReviewFetch: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_review_fetch")),
+	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
+	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, CommandError>(__TAURI_INVOKE("prune_review_refs", { params })),
+	/**  The changed files of `base..head` with their line counts: one `diff-tree` of the two commits, not cached */
+	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_range_files", { params })),
+	/**  The patch of `base..head`: one `diff-tree -p` of the two commits, cut into files */
+	getRangePatch: (params: GetRangeParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_range_patch", { params })),
+	/**
 	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
 	 *  `since`. When Patronus can't be asked, the availability says why.
 	 */
@@ -501,6 +520,16 @@ export type FetchBaselineResult = {
 	fetchedAt: number,
 };
 
+export type FetchReviewHeadParams = {
+	repositoryPath: string,
+	number: number,
+	headRefName: string,
+	headRefOid: string,
+	baseRefName: string,
+	baseRefOid: string,
+	isCrossRepository: boolean,
+};
+
 /**  Represents the diff between two versions of a file. */
 export type FileDiff = {
 	oldFile: FileInfo,
@@ -601,6 +630,19 @@ export type GetPatronusStartOptionsParams = {
 export type GetPullRequestsParams = {
 	repositoryPath: string,
 	branchPrefix: string,
+};
+
+/**  Two commits of the repository to diff, `base..head` */
+export type GetRangeParams = {
+	repositoryPath: string,
+	base: string,
+	head: string,
+};
+
+export type GetReviewRequestsParams = {
+	repositoryPath: string,
+	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
+	githubRepository: string | null,
 };
 
 export type GetUncommittedChangesParams = {
@@ -1032,6 +1074,12 @@ export type PostPatronusCommandParams = {
 	mode: PatronusPushMode,
 };
 
+export type PruneReviewRefsParams = {
+	repositoryPath: string,
+	/**  The pull requests whose review refs stay */
+	keep: number[],
+};
+
 /**  A GitHub pull request of a virtual branch, as `gh pr list` reports it */
 export type PullRequest = {
 	number: number,
@@ -1075,6 +1123,8 @@ export type PullRequestAvailability =
  *  `branchdeck.githubRepository` is not set
  */
 { status: "notGitHub" } | 
+/**  GitHub refused the request for its rate limit: ask again later */
+{ status: "rateLimited" } | 
 /**  `gh` failed, e.g. offline or timed out */
 { status: "error"; message: string };
 
@@ -1188,7 +1238,104 @@ export type RetargetPullRequestParams = {
 	base: string,
 };
 
+/**  A commit of the pull request */
+export type ReviewCommit = {
+	id: string,
+	subject: string,
+	author: string,
+	/**  Unix seconds */
+	authorTime: number,
+};
+
 export type ReviewDecision = "approved" | "changesRequested" | "reviewRequired";
+
+/**  How the fetched branch relates to the commit the pull request shows */
+export type ReviewHeadState = 
+/**  The source has the commit the pull request shows (or nothing was fetched: it was local) */
+"same" | 
+/**  The source branch has commits after it: the mirror has not got them yet */
+"sourceAhead" | 
+/**  The source branch has other commits: it was force-pushed since */
+"diverged" | 
+/**  The commit the pull request shows could not be fetched: the review shows the source branch */
+"missing";
+
+/**  What the review of a pull request diffs: `base..head`, as GitHub's "Files changed" */
+export type ReviewRange = {
+	/**  The merge base of the head and the base branch */
+	base: string,
+	/**  The commit the review shows: the one the pull request shows when it could be fetched */
+	head: string,
+	headState: ReviewHeadState,
+	source: ReviewSource,
+	/**  `base..head`, oldest first */
+	commits: ReviewCommit[],
+};
+
+/**
+ *  A pull request of someone else that waits for the user's review: the user is a requested reviewer by name
+ *  (`user-review-requested:@me`), not only through a team
+ */
+export type ReviewRequest = {
+	number: number,
+	title: string,
+	url: string,
+	/**  The description as plain text; empty without one */
+	bodyText: string,
+	/**  The login of the author; None for a deleted user */
+	author: string | null,
+	/**
+	 *  The login of who asked the user for the review (the actor of the newest review request of the user); None if
+	 *  unknown
+	 */
+	requestedBy: string | null,
+	/**  Unix seconds */
+	createdAt: number,
+	/**  Unix seconds */
+	updatedAt: number,
+	/**  Unix seconds: when the user was asked for the review the last time, else when the pull request was opened */
+	waitingSince: number,
+	additions: number,
+	deletions: number,
+	changedFiles: number,
+	/**  The checks of the head commit; None without checks */
+	checksState: ChecksState | null,
+	/**  null when the repository requires no review */
+	reviewDecision: ReviewDecision | null,
+	/**  The user reviewed before and was asked again */
+	reRequested: boolean,
+	/**  The commit the user's latest submitted review was on; None if the user has not reviewed */
+	reviewedCommit: string | null,
+	/**  The branch of the pull request, e.g. `alice/virtual/feature-auth` */
+	headRefName: string,
+	/**  The commit the pull request shows */
+	headRefOid: string,
+	/**  The branch it merges into */
+	baseRefName: string,
+	/**  The tip of the base branch as GitHub knows it */
+	baseRefOid: string,
+	/**  The pull request comes from a fork */
+	isCrossRepository: boolean,
+	/**  The base is the default branch of the repository */
+	baseIsDefault: boolean,
+};
+
+export type ReviewRequestsResult = {
+	availability: PullRequestAvailability,
+	/**  All pull requests waiting for the user, also those beyond `requests` (GitHub's `issueCount`) */
+	totalCount: number,
+	/**  At most 50, as GitHub returns them; empty unless available */
+	requests: ReviewRequest[],
+};
+
+/**  Where the review of a pull request was fetched from */
+export type ReviewSource = 
+/**  Both commits were local: nothing was fetched */
+"local" | 
+/**  `origin` */
+"origin" | 
+/**  GitHub, a remote or the URL of the repository */
+"gitHub";
 
 export type Reviewer = {
 	/**  The user login, or the team slug */
