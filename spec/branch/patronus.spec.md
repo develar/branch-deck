@@ -185,7 +185,8 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`offers "Safe Push…" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`)
 - The row hover (or the keyboard focus in the row) gives the state text of a finished robot to "Safe Push…" when a start
   is possible and useful: not after a merge, not while `canStartRobot` refuses. The shield stays in the state's hue and
-  keeps the details on hover and the robot on click.
+  keeps the details on hover and the robot on click; while they are open the slot stays so, as the pointer on its way
+  into them leaves the row.
   [@test] ../../src/lib/patronus.test.ts (`shows a finished robot of the branch as it is, and offers a restart on hover where a start is possible, never after a merge`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should offer a new Safe Push of a failed robot on the row hover, the state staying on its shield`)
 - Running and canceling are muted, failed `destructive`, failed for missing approvals "Needs review" `warning`, a

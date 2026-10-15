@@ -18,9 +18,13 @@ import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailabl
  */
 const SLOT_CHIP = "h-6 min-w-0 shrink pr-2.5 pl-2 hover:bg-muted hover:no-underline"
 
-/** Hidden while the row is hovered or has the keyboard focus: a finished robot's text gives way to "Safe Push…" */
-const HIDDEN_ON_ROW_HOVER = "group-hover:hidden group-focus-visible:hidden group-has-focus-visible:hidden"
-const SHOWN_ON_ROW_HOVER = "hidden group-hover:inline-flex group-focus-visible:inline-flex group-has-focus-visible:inline-flex"
+/**
+ * Hidden while the row is hovered or has the keyboard focus: a finished robot's text gives way to "Safe Push…". So also
+ * while the robot's details are open: the pointer on its way into them leaves the row, and the slot must not change
+ * under the popover.
+ */
+const HIDDEN_ON_ROW_HOVER = "group-hover:hidden group-focus-visible:hidden group-has-focus-visible:hidden in-data-popup-open:hidden"
+const SHOWN_ON_ROW_HOVER = "hidden group-hover:inline-flex group-focus-visible:inline-flex group-has-focus-visible:inline-flex group-has-data-popup-open/slot:inline-flex"
 
 /**
  * The Safe Push slot of a branch row, after the push button, one fixed width in every row, so the push buttons and "⋯"
@@ -50,12 +54,12 @@ export function SafePushSlot({ branch }: { branch: Branch }) {
     return null
   }
   return (
-    <div className="flex w-40 items-center" data-testid="safe-push-slot" data-slot-kind={slot.kind}>
+    <div className="group/slot flex w-40 items-center" data-testid="safe-push-slot" data-slot-kind={slot.kind}>
       {slot.kind === "start" && <SafePushButton branch={branch} shortcut="S" />}
       {slot.kind === "running" && robot !== undefined && <RunningRobotChip branchName={branch.name} robot={robot} chip={slot.chip} />}
       {slot.kind === "finished" && robot !== undefined && (
         <>
-          <RobotStatusChip branchName={branch.name} robot={robot} chip={slot.chip} label={formatRobotLabel(robot, slot.chip)} className={cn(SLOT_CHIP, slot.restart && "group-hover:pr-1 group-focus-visible:pr-1 group-has-focus-visible:pr-1")}>
+          <RobotStatusChip branchName={branch.name} robot={robot} chip={slot.chip} label={formatRobotLabel(robot, slot.chip)} className={cn(SLOT_CHIP, slot.restart && "group-hover:pr-1 group-focus-visible:pr-1 group-has-focus-visible:pr-1 data-popup-open:pr-1")}>
             <FinishedRobotIcon chip={slot.chip} />
             <span className={cn("truncate", slot.restart && HIDDEN_ON_ROW_HOVER)}>{slot.chip.label}</span>
             {slot.chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
