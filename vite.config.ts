@@ -59,6 +59,9 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // kB; the app reads its chunks from disk, not over a network. Catches a diff view pulled into the main chunk
+    // (~600 + ~550 kB), not the lazy C++ grammar (~790 kB)
+    chunkSizeWarningLimit: 1000,
   },
   // the diff highlighter worker imports shiki chunks lazily
   worker: {

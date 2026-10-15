@@ -115,6 +115,10 @@ flowchart LR
   of lazy chunks to `dist` (C++ alone 770 KB), of which a diff loads only the grammars of its files; `dist/assets` is
   6.6 MB. Without the `shikiBundle` plugin all grammars, 58 themes and two copies of the WebAssembly engine made it
   13.2 MB.
+- The main chunk is about 600 KB (React, React Router, Base UI and the app). `build.chunkSizeWarningLimit` in
+  `vite.config.ts` is 1000 KB: the app reads its chunks from disk, so the web default of 500 KB only flags chunks that
+  cannot be split (a grammar, the startup UI, the engine), while 1000 KB still warns when a diff view lands in the main
+  chunk.
 - Highlighting runs in the workers; the main thread only parses the patch and lays out the rows.
 
 ## References
