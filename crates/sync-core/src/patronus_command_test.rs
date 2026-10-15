@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusPushMode};
 use test_log::test;
+use test_utils::fake_executable::fake_executable;
 
 fn repository() -> GitHubRepository {
   GitHubRepository {
@@ -15,11 +16,7 @@ fn repository() -> GitHubRepository {
 
 /// A fake `gh` that records its arguments and answers by the endpoint
 fn fake_gh(dir: &Path, script: &str) -> PathBuf {
-  use std::os::unix::fs::PermissionsExt;
-  let path = dir.join("gh");
-  std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\n{script}\n", dir.join("args").display())).unwrap();
-  std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-  path
+  fake_executable(dir, "gh", &format!("printf '%s\\n' \"$@\" >> '{}'\n{script}", dir.join("args").display()))
 }
 
 fn args(dir: &Path) -> Vec<String> {

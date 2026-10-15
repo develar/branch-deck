@@ -8,11 +8,11 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
+use sync_utils::child_process::{ChildProcessError, find_executable, run_child};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
 
@@ -180,9 +180,7 @@ pub fn find_gh() -> Option<PathBuf> {
     }
   }
 
-  let name = if cfg!(windows) { "gh.exe" } else { "gh" };
-  let paths = std::env::var_os("PATH")?;
-  std::env::split_paths(&paths).map(|dir| dir.join(name)).find(|path| path.is_file())
+  find_executable("gh", &std::env::var_os("PATH")?)
 }
 
 /// Runs `gh` without a terminal, prompts or update notices, killed after `timeout`; stdout on success.
@@ -198,65 +196,30 @@ pub fn run_gh(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration
     .env("NO_COLOR", "1")
     // terminal-style output would not be JSON
     .env_remove("GH_FORCE_TTY")
-    .env_remove("CLICOLOR_FORCE")
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
+    .env_remove("CLICOLOR_FORCE");
 
-  let mut child = match command.spawn() {
-    Ok(child) => child,
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(PullRequestAvailability::GhMissing),
-    Err(e) => return Err(gh_error(format!("Cannot run gh: {e}"))),
+  let output = match run_child(&mut command, None, timeout, &|| false) {
+    Ok(output) => output,
+    Err(ChildProcessError::NotFound) => return Err(PullRequestAvailability::GhMissing),
+    Err(ChildProcessError::TimedOut) => return Err(gh_error(format!("gh did not answer within {timeout:?}"))),
+    Err(ChildProcessError::Spawn(e)) => return Err(gh_error(format!("Cannot run gh: {e}"))),
+    Err(ChildProcessError::Wait(e)) => return Err(gh_error(format!("Cannot wait for gh: {e}"))),
+    Err(ChildProcessError::Superseded) => unreachable!("gh is never superseded"),
   };
-  // read both pipes while waiting: a full pipe would block gh
-  let stdout = read_pipe(child.stdout.take());
-  let stderr = read_pipe(child.stderr.take());
-
-  let deadline = Instant::now() + timeout;
-  let status = loop {
-    match child.try_wait() {
-      Ok(Some(status)) => break status,
-      Ok(None) if Instant::now() >= deadline => {
-        // the readers are left behind: a grandchild may still hold the pipes open
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(gh_error(format!("gh did not answer within {timeout:?}")));
-      }
-      Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-      Err(e) => return Err(gh_error(format!("Cannot wait for gh: {e}"))),
-    }
-  };
-
-  let stdout = stdout.join().unwrap_or_default();
-  let stderr = String::from_utf8_lossy(&stderr.join().unwrap_or_default()).trim().to_string();
-  match status.code() {
-    Some(0) => Ok(stdout),
+  match output.status.code() {
+    Some(0) => Ok(output.stdout),
     // an expired or revoked token fails the request instead of the local auth check
     Some(4) => Err(PullRequestAvailability::NotAuthenticated),
-    _ if stderr.contains("HTTP 401") => Err(PullRequestAvailability::NotAuthenticated),
+    _ if output.stderr.contains("HTTP 401") => Err(PullRequestAvailability::NotAuthenticated),
     code => {
-      warn!(?code, %stderr, command = args.first().copied().unwrap_or_default(), "gh failed");
-      let message = stderr.lines().find(|line| !line.trim().is_empty()).map_or_else(
-        || format!("gh exited with {}", code.map_or_else(|| "a signal".to_string(), |code| format!("code {code}"))),
-        |line| line.trim().to_string(),
-      );
-      Err(gh_error(message))
+      warn!(?code, stderr = %output.stderr, command = args.first().copied().unwrap_or_default(), "gh failed");
+      Err(gh_error(output.failure_message("gh")))
     }
   }
 }
 
 fn gh_error(message: String) -> PullRequestAvailability {
   PullRequestAvailability::Error { message }
-}
-
-fn read_pipe(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
-  std::thread::spawn(move || {
-    let mut buffer = Vec::new();
-    if let Some(mut pipe) = pipe {
-      let _ = pipe.read_to_end(&mut buffer);
-    }
-    buffer
-  })
 }
 
 // ---- gh JSON (`gh pr list --json`); GraphQL nulls and empty enums are both possible ----

@@ -1,9 +1,9 @@
 use crate::pull_requests::{GetPullRequestsParams, GitHubRepository, get_pull_requests_with, parse_github_repository, parse_pull_requests, parse_space_mirror, run_gh};
 use pretty_assertions::assert_eq;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
 use test_log::test;
+use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::TestRepo;
 
 /// `gh pr list --json …` output, trimmed to what the parser reads
@@ -292,15 +292,6 @@ fn rejects_remote_urls_outside_github() {
   }
 }
 
-/// A fake `gh`: a shell script in a temp dir
-fn fake_gh(dir: &Path, body: &str) -> PathBuf {
-  use std::os::unix::fs::PermissionsExt;
-  let path = dir.join("gh");
-  std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-  std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-  path
-}
-
 fn github_repo() -> TestRepo {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
@@ -325,8 +316,9 @@ fn lists_pull_requests_of_the_push_remote_repository() {
   std::fs::write(&fixture, FIXTURE).unwrap();
   let args_file = dir.path().join("args");
   let env_file = dir.path().join("env");
-  let gh = fake_gh(
+  let gh = fake_executable(
     dir.path(),
+    "gh",
     &format!(
       "printf '%s\\n' \"$@\" > '{}'\necho \"$GH_PROMPT_DISABLED $GH_NO_UPDATE_NOTIFIER $NO_COLOR\" > '{}'\ncat '{}'",
       args_file.display(),
@@ -373,7 +365,7 @@ fn a_remote_outside_github_does_not_run_gh() {
   repo.create_commit("Initial commit", "README.md", "# Test");
   let dir = tempfile::tempdir().unwrap();
   let marker = dir.path().join("ran");
-  let gh = fake_gh(dir.path(), &format!("touch '{}'", marker.display()));
+  let gh = fake_executable(dir.path(), "gh", &format!("touch '{}'", marker.display()));
 
   // no origin at all
   let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
@@ -396,7 +388,7 @@ fn mirrored_repo() -> TestRepo {
 fn list_with_fake_gh(repo: &TestRepo) -> (PullRequestAvailability, Option<String>) {
   let dir = tempfile::tempdir().unwrap();
   let args_file = dir.path().join("args");
-  let gh = fake_gh(dir.path(), &format!("printf '%s\\n' \"$@\" > '{}'\necho '[]'", args_file.display()));
+  let gh = fake_executable(dir.path(), "gh", &format!("printf '%s\\n' \"$@\" > '{}'\necho '[]'", args_file.display()));
   let result = get_pull_requests_with(repo.git_executor(), &params(repo), Some(&gh), Duration::from_secs(10)).unwrap();
   let asked = std::fs::read_to_string(&args_file).ok().and_then(|args| args.lines().nth(3).map(str::to_string));
   (result.availability, asked)
@@ -467,17 +459,19 @@ fn classifies_gh_failures() {
   let cwd = dir.path().to_str().unwrap();
   let timeout = Duration::from_secs(10);
 
-  let gh = fake_gh(dir.path(), "echo 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4");
+  let gh = fake_executable(dir.path(), "gh", "echo 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4");
   assert_eq!(run_gh(&gh, cwd, &[], timeout), Err(PullRequestAvailability::NotAuthenticated));
 
-  let gh = fake_gh(
+  let gh = fake_executable(
     dir.path(),
+    "gh",
     "echo 'HTTP 401: Bad credentials (https://api.github.com/graphql)' >&2\necho 'Try authenticating with:  gh auth login' >&2\nexit 1",
   );
   assert_eq!(run_gh(&gh, cwd, &[], timeout), Err(PullRequestAvailability::NotAuthenticated));
 
-  let gh = fake_gh(
+  let gh = fake_executable(
     dir.path(),
+    "gh",
     "echo >&2\necho 'error connecting to api.github.com' >&2\necho 'check your internet connection' >&2\nexit 1",
   );
   assert_eq!(
@@ -487,7 +481,7 @@ fn classifies_gh_failures() {
     })
   );
 
-  let gh = fake_gh(dir.path(), "exit 3");
+  let gh = fake_executable(dir.path(), "gh", "exit 3");
   assert_eq!(
     run_gh(&gh, cwd, &[], timeout),
     Err(PullRequestAvailability::Error {
@@ -499,7 +493,7 @@ fn classifies_gh_failures() {
 #[test]
 fn kills_gh_after_the_timeout() {
   let dir = tempfile::tempdir().unwrap();
-  let gh = fake_gh(dir.path(), "exec sleep 30");
+  let gh = fake_executable(dir.path(), "gh", "exec sleep 30");
   let started = std::time::Instant::now();
   let result = run_gh(&gh, dir.path().to_str().unwrap(), &[], Duration::from_millis(300));
   assert_eq!(
@@ -518,7 +512,7 @@ fn reads_large_output_while_waiting() {
   let big = format!("[{}]", vec![r#"{"x": "0123456789012345678901234567890123456789"}"#; 10_000].join(","));
   let fixture = dir.path().join("big.json");
   std::fs::write(&fixture, &big).unwrap();
-  let gh = fake_gh(dir.path(), &format!("cat '{}'", fixture.display()));
+  let gh = fake_executable(dir.path(), "gh", &format!("cat '{}'", fixture.display()));
   let output = run_gh(&gh, dir.path().to_str().unwrap(), &[], Duration::from_secs(10)).unwrap();
   assert_eq!(output.len(), big.len());
 }

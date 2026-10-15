@@ -1,0 +1,68 @@
+use crate::child_process::{ChildProcessError, find_executable, run_child};
+use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+use test_utils::fake_executable::fake_executable;
+
+const TIMEOUT: Duration = Duration::from_secs(10);
+
+#[test]
+fn writes_stdin_while_reading_stdout() {
+  // more than a pipe buffer in both directions: writing all input before reading would deadlock
+  let input = "0123456789abcdef\n".repeat(64 * 1024).into_bytes();
+  let output = run_child(&mut Command::new("cat"), Some(input.clone()), TIMEOUT, &|| false).unwrap();
+  assert!(output.status.success());
+  assert_eq!(output.stdout, input);
+}
+
+#[test]
+fn reports_a_missing_binary() {
+  let dir = tempfile::tempdir().unwrap();
+  let result = run_child(&mut Command::new(dir.path().join("missing")), None, TIMEOUT, &|| false);
+  assert!(matches!(result, Err(ChildProcessError::NotFound)), "{result:?}");
+}
+
+#[test]
+fn kills_the_child_after_the_timeout() {
+  let started = Instant::now();
+  let result = run_child(Command::new("sleep").arg("30"), None, Duration::from_millis(300), &|| false);
+  assert!(matches!(result, Err(ChildProcessError::TimedOut)), "{result:?}");
+  assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn kills_the_child_when_superseded() {
+  let superseded = Arc::new(AtomicBool::new(false));
+  let flag = superseded.clone();
+  std::thread::spawn(move || {
+    std::thread::sleep(Duration::from_millis(100));
+    flag.store(true, Ordering::SeqCst);
+  });
+  let started = Instant::now();
+  let result = run_child(Command::new("sleep").arg("30"), None, TIMEOUT, &|| superseded.load(Ordering::SeqCst));
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn the_failure_message_is_the_first_stderr_line_or_the_exit_code() {
+  let dir = tempfile::tempdir().unwrap();
+  let tool = fake_executable(dir.path(), "tool", "echo >&2\necho '  boom  ' >&2\necho second >&2\nexit 3");
+  let output = run_child(&mut Command::new(&tool), None, TIMEOUT, &|| false).unwrap();
+  assert_eq!(output.failure_message("tool"), "boom");
+
+  let tool = fake_executable(dir.path(), "tool", "exit 3");
+  let output = run_child(&mut Command::new(&tool), None, TIMEOUT, &|| false).unwrap();
+  assert_eq!(output.failure_message("tool"), "tool exited with code 3");
+}
+
+#[test]
+fn finds_the_first_executable_in_path() {
+  let first = tempfile::tempdir().unwrap();
+  let second = tempfile::tempdir().unwrap();
+  let expected = fake_executable(second.path(), "tool", "true");
+  let path = std::env::join_paths([first.path(), second.path()]).unwrap();
+  assert_eq!(find_executable("tool", &path), Some(expected));
+  assert_eq!(find_executable("other", &path), None);
+}

@@ -6486,6 +6486,9 @@ name = "sync-utils"
 version = "0.1.0"
 dependencies = [
  "memchr",
+ "tempfile",
+ "test-utils",
+ "tracing",
 ]
 
 [[package]]

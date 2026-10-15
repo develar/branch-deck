@@ -5,5 +5,11 @@ edition.workspace = true
 
 [dependencies]
 memchr = "2"
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+test-utils = { path = "../test-utils" }
+
 [lints]
 workspace = true
