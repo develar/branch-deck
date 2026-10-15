@@ -397,9 +397,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   must need `--yes`.
   [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
+- A stacked branch must take the branches it is built on along, parents first, in the same atomic push, when they
+  have commits for the remote, as the app's push button does ([Stacked Branches](../branch/stacked-branches.spec.md));
+  one on the remote as it is stays out, and one taken along brings no children with `--with-children`. `--alone`
+  (named branches only) and `--expect-remote` (the lease of one branch) push only the named branches.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children`)
 - It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
-  without `--force`, and a stacked branch whose parent is neither on the remote nor pushed with it.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
+  without `--force` (a parent taken along too, with `--alone` as the way out), and with `--alone` a stacked branch
+  whose parent is neither on the remote nor pushed with it.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`)
 - `--with-children` must add the branches stacked on the named ones, directly or further down, parents first, to the
   same atomic push, as the app's Push with Children does ([Stacked Branches](../branch/stacked-branches.spec.md)); a
   blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must
@@ -423,7 +429,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
   the head, the `bd describe` title and body, and a ready `gh pr create` command.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_needs_its_parent_on_the_remote`)
+  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`)
 
 ### `bd describe`
 

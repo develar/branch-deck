@@ -91,16 +91,19 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
 }
 
 #[test_log::test]
-fn parents_go_first_and_a_child_needs_its_parent_on_the_remote() {
+fn parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
 
-  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--alone"]);
   assert_error(&output, exit_code, (4, "push_refused"));
   assert!(output["error"]["message"].as_str().unwrap().contains("parent auth is not on the remote"), "{output}");
   assert_eq!(remote_tip(&remote, "test-user/virtual/login"), "");
+  let (exit_code, output) = run_in(&repo, &["push", "--alone"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
 
-  let (exit_code, output) = run_in(&repo, &["push", "login", "auth"]);
+  // the branch it is built on goes along, first
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
   assert_eq!(exit_code, 0, "{output}");
   let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
   assert_eq!(names, [&json!("auth"), &json!("login")]);
@@ -109,6 +112,20 @@ fn parents_go_first_and_a_child_needs_its_parent_on_the_remote() {
     branch(&output, "login")["pull_request"]["command"],
     json!(format!("gh pr create --base {AUTH} --head test-user/virtual/login --fill"))
   );
+}
+
+#[test_log::test]
+fn a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children() {
+  let (repo, _remote) = repo_with_remote(&["(auth) Add auth", "(auth/session) Add session", "(auth/login) Add login"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  // auth is on the remote as it is: login goes alone; session, a child of auth, is not taken along by --with-children of login
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("login")]);
 }
 
 #[test_log::test]

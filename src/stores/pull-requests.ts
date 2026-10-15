@@ -158,6 +158,42 @@ export async function refreshPullRequestsAfterPush(branchName: string, pushedTip
   }
 }
 
+/**
+ * Changes the base of the pull request of a branch on GitHub (`gh pr edit --base`), and in the store at once: the toast
+ * of the push that follows reads it before the next refresh. Throws what `gh` said.
+ */
+export async function retargetPullRequest(branchName: string, base: string): Promise<void> {
+  const key = currentKey()
+  const pullRequest = getPullRequest(branchName)
+  if (key === null || pullRequest === undefined) {
+    return
+  }
+  const result = await commands.retargetPullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, base })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
+}
+
+/** Closes the pull request of a branch on GitHub with `comment` (`gh pr close`), and in the store at once. Throws what `gh` said. */
+export async function closePullRequest(branchName: string, comment: string): Promise<void> {
+  const key = currentKey()
+  const pullRequest = getPullRequest(branchName)
+  if (key === null || pullRequest === undefined) {
+    return
+  }
+  const result = await commands.closePullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, comment })
+  if (result.status === "error") {
+    throw new Error(result.error.message)
+  }
+  setPullRequest(key, branchName, { ...pullRequest, state: "closed" })
+}
+
+function setPullRequest(key: string, branchName: string, pullRequest: PullRequest): void {
+  const pullRequests = pullRequestsStore.getState().repositories[key]?.pullRequests ?? {}
+  update(key, { pullRequests: { ...pullRequests, [branchName]: pullRequest } })
+}
+
 /** Forgets the gates and the data (tests) */
 export function resetPullRequests(): void {
   gates.reset()

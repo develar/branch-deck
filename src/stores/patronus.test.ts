@@ -65,12 +65,20 @@ const { notices } = vi.hoisted(() => ({
     fetches: [] as string[],
     opened: [] as string[],
     pullRequestRefreshes: [] as string[],
+    /** The pull requests GitHub lists, by branch */
+    pullRequests: {} as Record<string, { number: number, state: string, headRefOid: string }>,
+    /** "<branch> <comment>" of each `gh pr close` */
+    closed: [] as string[],
   },
 }))
 
 vi.mock("@/stores/pull-requests", () => ({
   refreshPullRequests: async (reason: string) => {
     notices.pullRequestRefreshes.push(reason)
+  },
+  getPullRequest: (name: string) => notices.pullRequests[name],
+  closePullRequest: async (name: string, comment: string) => {
+    notices.closed.push(`${name} ${comment}`)
   },
 }))
 
@@ -110,6 +118,7 @@ vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mock
 
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ branches: branches.current }) },
+  getBranch: (name: string) => branches.current[name],
   useBranchSync: () => undefined,
   useBranchTip: () => undefined,
   useBranchRemoteTip: () => null,
@@ -158,6 +167,8 @@ beforeEach(() => {
   notices.permissionRequests = 0
   notices.fetches = []
   notices.opened = []
+  notices.pullRequests = {}
+  notices.closed = []
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
   setBranches("auth")
@@ -314,6 +325,23 @@ describe("merges", () => {
 
     setPatronusWindowFocus(true)
     expect(notices.toasts.map(it => it.title)).toEqual(["auth merged into master"])
+  })
+
+  it("closes the pull requests of the ancestors a stacked branch landed, and says so", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") }
+    notices.pullRequests = {
+      auth: { number: 5, state: "open", headRefOid: "auth-tip" },
+      // pushed before a later commit of login: the merge doesn't have that pull request's head
+      login: { number: 6, state: "open", headRefOid: "older" },
+    }
+    const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
+    patronus.list = available(oauth)
+    await refreshPatronus("sync")
+    patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."])
+    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
   })
 
   it("does not tell a successful dry run or a robot first seen merged", async () => {

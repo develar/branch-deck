@@ -8,7 +8,7 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { getPatronusGitHubRepository } from "@/stores/patronus"
-import { getGitHubRepository, getPullRequest } from "@/stores/pull-requests"
+import { getGitHubRepository, getPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName } from "@/stores/repository"
 
 /**
@@ -29,17 +29,56 @@ function ghRepositoryOption(): string {
 }
 
 /**
- * The `gh` command that retargets the open pull request of a branch whose base is not the one it should have, e.g.
- * after its parent was integrated or pushed, or the branch was restacked; null if there is nothing to retarget. The app
- * writes nothing to GitHub but the `/patronus` comment: the user runs it.
+ * The open pull request of a branch whose base is not the one it should have (`getPullRequestBase`), e.g. after its
+ * parent was integrated or pushed, or the branch was restacked, with that base; null if there is nothing to retarget
  */
-export function getRetargetCommand(branch: Branch): string | null {
+function getPullRequestRetarget(branch: Branch): { pullRequest: PullRequest, base: string } | null {
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest === undefined || pullRequest.state !== "open" || !pullRequest.baseRefName) {
     return null
   }
   const base = getPullRequestBase(branch)
-  return pullRequest.baseRefName === base ? null : `gh pr edit ${pullRequest.number}${ghRepositoryOption()} --base ${base}`
+  return pullRequest.baseRefName === base ? null : { pullRequest, base }
+}
+
+/**
+ * The `gh` command that retargets the open pull request of a branch whose base is not the one it should have
+ * (`getPullRequestRetarget`); null if there is nothing to retarget. A push retargets it first (`retargetBeforePush`):
+ * the command is for a retarget that failed, and for the branch menu before a push.
+ */
+export function getRetargetCommand(branch: Branch): string | null {
+  const retarget = getPullRequestRetarget(branch)
+  return retarget === null ? null : `gh pr edit ${retarget.pullRequest.number}${ghRepositoryOption()} --base ${retarget.base}`
+}
+
+/** A pull request a push retargeted first */
+export interface Retargeted {
+  number: number
+  /** The short name for a toast: the parent's virtual branch name, or the baseline as the remote names it */
+  base: string
+}
+
+/**
+ * Retargets the open pull request of a branch to its base before the branch is pushed: pushed onto another base
+ * (a parent that merged, was pushed for the first time, or a restack), a pull request into the old one would show the
+ * wrong commits, all of the baseline since. Null when there was nothing to retarget, or the retarget failed (an error
+ * toast said why; the push still runs, its toast offers the command).
+ */
+export async function retargetBeforePush(branch: Branch): Promise<Retargeted | null> {
+  const retarget = getPullRequestRetarget(branch)
+  if (retarget === null) {
+    return null
+  }
+  const number = retarget.pullRequest.number
+  try {
+    await retargetPullRequest(branch.name, retarget.base)
+  }
+  catch (error) {
+    notifyError(`Cannot retarget pull request #${number}`, error)
+    return null
+  }
+  const parent = branch.stack?.effectiveBase ?? null
+  return { number, base: parent !== null && retarget.base === getFullBranchName(parent) ? parent : retarget.base }
 }
 
 /**

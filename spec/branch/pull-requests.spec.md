@@ -39,8 +39,10 @@ Reviews happen on GitHub pull requests of the pushed virtual branches. Branch De
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
 status is read through the `gh` CLI; opening a pull request opens the browser. A pushed branch without one gets "Create
 Pull Request", which opens GitHub's form of a new pull request into the branch's base. The branches may be pushed to
-Space, which mirrors them to GitHub: the committed Space settings name the GitHub repository then. Patronus merges a pull request from its `/patronus merge` comment ([Patronus](patronus.spec.md#pull-requests)),
-the one write of the app on GitHub.
+Space, which mirrors them to GitHub: the committed Space settings name the GitHub repository then. The app writes to
+GitHub in three places only: the `/patronus merge` comment Patronus merges a pull request from
+([Patronus](patronus.spec.md#pull-requests)), the retarget of a stacked branch's pull request before its push, and the
+close of the pull requests a Safe Push of a stacked branch landed ([Stacked Branches](stacked-branches.spec.md#pull-requests)).
 
 ## Goals
 

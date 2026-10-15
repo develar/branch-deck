@@ -19,6 +19,10 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
   stores: {
     /** The branch table, by name */
     branches: {} as Record<string, Branch>,
+    /** What `gh pr edit` answers: null = it retargets */
+    retargetError: null as string | null,
+    /** The stack pushes in flight: the branch a push started from -> the one it pushes */
+    stackPushes: {} as Record<string, string>,
     /** The pull requests GitHub lists, by branch */
     pullRequests: {} as Record<string, PullRequest>,
     /** The `expectedRemote` of each push */
@@ -76,7 +80,12 @@ vi.mock("@/stores/branch-sync", () => ({
   getBranch: (name: string) => stores.branches[name],
   getStackDescendants: () => [],
   isBranchPushing: () => false,
+  isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
   setBranchPushing: () => {},
+  setStackPushCurrent: (startedFrom: string, current: string | null) => {
+    const { [startedFrom]: _, ...others } = stores.stackPushes
+    stores.stackPushes = current === null ? others : { ...others, [startedFrom]: current }
+  },
   setBranchPushProgress: () => {},
   setBranchRemoteStatus: (name: string, status: RemoteStatus) => {
     stores.branches[name] = { ...stores.branches[name]!, remoteStatus: status }
@@ -112,6 +121,13 @@ vi.mock("@/stores/pull-requests", () => ({
   refreshPullRequestsAfterPush: async () => {},
   getPullRequest: (name: string) => stores.pullRequests[name],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
+  retargetPullRequest: async (name: string, base: string) => {
+    calls.push(`retarget ${name} ${base}`)
+    if (stores.retargetError !== null) {
+      throw new Error(stores.retargetError)
+    }
+    stores.pullRequests[name] = { ...stores.pullRequests[name]!, baseRefName: base }
+  },
 }))
 vi.mock("@/stores/activity", async () => ({
   ...(await import("@/stores/test-store-mocks")).activityMock,
@@ -169,6 +185,7 @@ beforeEach(() => {
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
+  stores.retargetError = null
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -225,11 +242,24 @@ describe("the toast of a push", () => {
     await vi.waitFor(() => expect(calls).toContain(`open ${COMPARE}/master...user/virtual/login?expand=1`))
   })
 
-  it("copies the command that retargets a pull request with another base", async () => {
+  it("retargets a pull request with another base before the push", async () => {
     addBranch("auth", null)
     addBranch("login", "auth")
     stores.pullRequests.login = { number: 8, state: "open", baseRefName: "master" } as PullRequest
     expect(await pushBranch("login")).toBe(true)
+    expect(calls.slice(0, 2)).toEqual(["retarget login user/virtual/auth", "push login"])
+    const toast = toasts.at(-1)!
+    expect(text(toast.description)).toBe("1 commit · retargeted pull request #8 to auth")
+    expect(toast.actionProps?.children).toBe("Open Pull Request")
+  })
+
+  it("pushes and copies the command that retargets a pull request when the retarget fails", async () => {
+    addBranch("auth", null)
+    addBranch("login", "auth")
+    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "master" } as PullRequest
+    stores.retargetError = "HTTP 403"
+    expect(await pushBranch("login")).toBe(true)
+    expect(toasts.some(toast => toast.title === "Cannot retarget pull request #8")).toBe(true)
     const toast = toasts.at(-1)!
     expect(text(toast.description)).toBe("1 commit · the pull request targets another base: retarget it to auth")
     expect(toast.actionProps?.children).toBe("Copy gh pr edit")
@@ -313,5 +343,19 @@ describe("the toast of a stack push", () => {
     expect(toast.actionProps?.children).toBe("Create Pull Request")
     toast.actionProps!.onClick()
     await vi.waitFor(() => expect(calls).toContain(`open ${COMPARE}/user/virtual/login...user/virtual/oauth?expand=1`))
+  })
+
+  it("pushes nothing more from a row whose stack push runs", async () => {
+    const first = pushStack("oauth")
+    expect(await pushStack("oauth")).toBe(false)
+    expect(await first).toBe(true)
+    expect(calls).toEqual(["push auth", "push login", "push oauth"])
+    expect(stores.stackPushes).toEqual({})
+  })
+
+  it("says nothing for a stack push that is a step of a Safe Push start", async () => {
+    expect(await pushStack("oauth", { announce: false })).toBe(true)
+    expect(calls).toEqual(["push auth", "push login", "push oauth"])
+    expect(toasts).toHaveLength(0)
   })
 })

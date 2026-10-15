@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { FlaskConicalIcon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { PatronusReviewBlock } from "@/components/branch/PatronusReviewBlock"
@@ -9,18 +10,26 @@ import type { PatronusPushMode, PatronusStartOptions } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
-import { pushBranch } from "@/lib/git/push"
+import { pushBranch, pushStack } from "@/lib/git/push"
 import { allowsPushMode, formatPushMode, getPullRequestStart, isStartBlocked } from "@/lib/patronus"
+import { describeStackStart } from "@/lib/patronus-stack"
 import { announceRobot } from "@/lib/patronus-actions"
-import { branchSyncStore, getBranch, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
-import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, usePatronusGitHubRepository } from "@/stores/patronus"
-import { usePullRequest } from "@/stores/pull-requests"
+import { stackAncestors, stackPushOrder } from "@/lib/stack"
+import { joinNames } from "@/lib/text"
+import { branchSyncStore, getBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
+import { closeInline, openInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
+import { getBranchRobot, patronusRequest, startPatronusFromPullRequest, startPatronusRobot, useBranchRobot, useLandingAncestor, usePatronusGitHubRepository } from "@/stores/patronus"
+import { getPullRequest, usePullRequest } from "@/stores/pull-requests"
 
 /** The Select value of "no profile": Patronus runs the default checks of the target branch */
 const NO_PROFILE = "\0none"
 
 type StartOptionsState = { status: "loading" } | { status: "loaded", options: PatronusStartOptions } | { status: "error", message: string }
+
+/** Names, one per line, as a selector returns them so the store notifies only when they change */
+function splitNames(names: string): string[] {
+  return names === "" ? [] : names.split("\n")
+}
 
 /** The target branch and the merge profiles, asked once when the form opens (Patronus caches nothing for the app) */
 function useStartOptions(branchName: string): StartOptionsState {
@@ -52,6 +61,12 @@ function useStartOptions(branchName: string): StartOptionsState {
  * robot by default), what will happen, and Start. A branch whose tip the remote lacks is pushed first. A branch with an
  * open pull request in the GitHub repository the branches are mirrored to starts from it, a `/patronus` comment: then
  * the approvals of the pull request count and Patronus closes it once merged; a comment can't choose a profile.
+ *
+ * A stacked branch carries the commits of the branches it is built on: its Safe Push lands them too. The form leads root
+ * first (a Safe Push of the root-most ancestor, whose merge moves the branch onto the target), and Start lands the stack
+ * in one robot: the ancestors with work for the remote are pushed first, and a pull request into the parent's branch
+ * isn't the start (Patronus merges a pull request into its base), the API is. A Safe Push of a parent says what its
+ * merge does to the branches stacked on it.
  */
 export function InlinePatronusStart({ branchName, mode }: { branchName: string, mode: Extract<PatronusPushMode, "rebaseAutosquash" | "dryRun"> }) {
   const state = useStartOptions(branchName)
@@ -61,18 +76,26 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
   const robot = useBranchRobot(branchName)
   const githubRepository = usePatronusGitHubRepository()
   const pullRequest = usePullRequest(branchName)
-  const fromPullRequest = getPullRequestStart(githubRepository, pullRequest, mode)
   const [chosenProfile, setChosenProfile] = useState<string | null>(null)
   const [isPushing, setPushing] = useState(false)
+  const ancestors = splitNames(useBranchSync(state => stackAncestors(branchName, name => state.branches[name]).map(it => it.name).join("\n")))
+  const children = splitNames(useBranchSync(state => stackDescendantsIn(state, branchName).join("\n")))
+  // the branches the start pushes, root first: the stack while an ancestor has work for the remote
+  const pushOrder = splitNames(useBranchSync(state => stackPushOrder(branchName, name => state.branches[name], { stopAtConfirm: true }).join("\n")))
+  const landingAncestor = useLandingAncestor(branchName)
 
   const modeName = formatPushMode(mode)
   const options = state.status === "loaded" ? state.options : null
+  const fromPullRequest = getPullRequestStart(githubRepository, pullRequest, mode, options?.targetBranch ?? null)
   const profiles = options?.profiles.filter(profile => allowsPushMode(profile, mode)) ?? []
   const defaultProfile = profiles.some(profile => profile.id === options?.defaultProfileId) ? options!.defaultProfileId! : NO_PROFILE
   const profile = chosenProfile ?? defaultProfile
-  const needsPush = remoteTip !== localTip
+  const pushesStack = pushOrder.length > 1
+  const needsPush = remoteTip !== localTip || pushesStack
   const blocked = isStartBlocked(robot, localTip)
-  const canStart = options !== null && options.supported && !blocked && !processing && !isPushing && localTip !== undefined && fromPullRequest?.blockedByDraft !== true
+  // a dry run pushes nothing into the target: it may run while an ancestor lands
+  const waitsForAncestor = mode === "rebaseAutosquash" ? landingAncestor : null
+  const canStart = options !== null && options.supported && !blocked && waitsForAncestor === null && !processing && !isPushing && localTip !== undefined && fromPullRequest?.blockedByDraft !== true
   // the code owners don't check a dry run
   const review = usePatronusReviewRequirement(branchName, mode === "rebaseAutosquash" && options?.supported === true)
   const mergeRequest = review.state.status === "loaded" ? review.state.requirement.mergeRequest : null
@@ -88,7 +111,10 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       return true
     }
     setPushing(true)
-    const pushed = await pushBranch(branchName, { startsRobot: mode === "rebaseAutosquash", announce: false })
+    const startsRobot = mode === "rebaseAutosquash"
+    const pushed = pushesStack
+      ? await pushStack(branchName, { stopAtConfirm: true, startsRobot, announce: false })
+      : await pushBranch(branchName, { startsRobot, announce: false })
     setPushing(false)
     return pushed
   }
@@ -145,7 +171,19 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     : `Comments ${fromPullRequest.command} on pull request #${fromPullRequest.number}: ${robotWork} It reports in the pull request${mode === "dryRun" ? "" : " and closes it once merged"}.`
   // a dry run doesn't push into the target, but Patronus starts from the remote branch: the local tip goes there first
   const unpushed = remoteTip === null ? branchName : `The last commit of ${branchName}`
-  const pushNote = `${unpushed} isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.`
+  const pushNote = pushesStack
+    ? `${joinNames(pushOrder)} have commits the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of ${branchName}.`
+    : `${unpushed} isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.`
+  const stackNotes = describeStackStart({
+    branchName,
+    mode,
+    target,
+    ancestors,
+    children,
+    // a pull request the start doesn't comment on: its approvals don't count
+    pullRequest: pullRequest?.state === "open" && fromPullRequest === null && githubRepository !== null ? pullRequest.number : null,
+    childrenHavePullRequests: children.some(child => getPullRequest(child)?.state === "open"),
+  })
   const items = [
     { value: NO_PROFILE, label: "No profile" },
     ...profiles.map(it => ({ value: it.id, label: it.name })),
@@ -157,12 +195,31 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       dataTestId="patronus-start-form"
       canSubmit={canStart}
       loading={processing || isPushing}
-      submitText={needsPush ? `Push and Start ${modeName}` : `Start ${modeName}`}
+      submitText={needsPush ? `${pushesStack ? "Push Stack" : "Push"} and Start ${modeName}` : `Start ${modeName}`}
       submitIcon={mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
-      focusSubmit
+      // a Safe Push of a stacked branch lands its ancestors too: Enter doesn't choose it, the lead is root first
+      focusSubmit={stackNotes.lead === null}
       onCancel={closeInline}
       onSubmit={() => void start()}
     >
+      {stackNotes.lead !== null && (
+        <div className="flex flex-col gap-2 text-sm" data-testid="patronus-start-stack-lead">
+          <p>{stackNotes.lead.text}</p>
+          <Button variant="outline" size="xs" className="self-start" onClick={() => openInline("safe-push", stackNotes.lead!.root)}>
+            <ShieldCheckIcon data-icon="inline-start" />
+            {`Safe Push ${stackNotes.lead.root}…`}
+          </Button>
+        </div>
+      )}
+      {stackNotes.note !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="patronus-start-stack-note">{stackNotes.note}</p>
+      )}
+      {waitsForAncestor !== null && (
+        <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-landing-ancestor">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+          {`A ${formatPushMode(waitsForAncestor.robot.pushMode)} of ${waitsForAncestor.branch} is running: it lands ${waitsForAncestor.branch}'s commits, which ${branchName} carries. Start once it merged.`}
+        </p>
+      )}
       {state.status === "loading" && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />

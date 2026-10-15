@@ -85,14 +85,16 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
   guard before a push into a branch whose Safe Push runs; a branch with a GitHub PR starts from it with a `/patronus merge`
-  comment (`gh api`, the app's one GitHub write), so the PR's approvals count (`spec/branch/patronus.spec.md`).
+  comment (`gh api`), so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
+  root first and closes the PRs of the ancestors it landed (`gh pr close`).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
 - **Move to a branch**: one operation behind drag and drop of commits and branch rows, the branch selection, the menus
   and the keyboard; the smallest regroup (`move_plan.rs`): a whole issue by the issue groups, a part by the prefix; a
   dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
-  sync, blocked children (`spec/branch/stacked-branches.spec.md`).
+  sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
+  onto its base (`gh pr edit`) (`spec/branch/stacked-branches.spec.md`).
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
   (`spec/repository/activity.spec.md`).

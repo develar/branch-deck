@@ -7,19 +7,20 @@ use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, Patronu
 use test_log::test;
 use test_utils::fake_executable::fake_executable;
 
-fn repository() -> GitHubRepository {
+pub(crate) fn repository() -> GitHubRepository {
   GitHubRepository {
     owner: "acme".to_string(),
     name: "monorepo".to_string(),
   }
 }
 
-/// A fake `gh` that records its arguments and answers by the endpoint
-fn fake_gh(dir: &Path, script: &str) -> PathBuf {
+/// A fake `gh` that records its arguments and answers by the endpoint (or as `script` says)
+pub(crate) fn fake_gh(dir: &Path, script: &str) -> PathBuf {
   fake_executable(dir, "gh", &format!("printf '%s\\n' \"$@\" >> '{}'\n{script}", dir.join("args").display()))
 }
 
-fn args(dir: &Path) -> Vec<String> {
+/// The arguments of every run of `fake_gh`, one per line
+pub(crate) fn args(dir: &Path) -> Vec<String> {
   std::fs::read_to_string(dir.join("args")).unwrap().lines().map(str::to_string).collect()
 }
 

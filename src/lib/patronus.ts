@@ -273,17 +273,41 @@ export type RobotStartCheck = { ok: true } | { ok: false, reason: string }
 /**
  * Whether a Safe Push or a Dry Run of the branch can start: not while a robot runs on the commit the branch is at
  * (Patronus would refuse it), nor for a blocked stacked branch (its build lacks its parent's state). `robot` is the robot
- * of the branch (`getBranchRobot`, `useBranchRobot`). Every entry point asks it: the row button, the branch menu, the
- * preview footer and the chip popover.
+ * of the branch (`getBranchRobot`, `useBranchRobot`). A Safe Push also waits for a robot that lands an ancestor of the
+ * branch (`landingAncestor`, `findLandingAncestor`): the branch carries the ancestor's commits, two robots would land
+ * them. Every entry point asks it: the row button, the branch menu, the preview footer and the chip popover.
  */
-export function canStartRobot(branch: Branch, robot: PatronusRobot | undefined): RobotStartCheck {
+export function canStartRobot(branch: Branch, robot: PatronusRobot | undefined, landingAncestor: LandingAncestor | null = null): RobotStartCheck {
   if (branch.status === "Blocked") {
     return { ok: false, reason: formatBlockedReason(branch) }
   }
   if (robot !== undefined && isStartBlocked(robot, branch.commits[0]?.hash)) {
     return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
   }
+  if (landingAncestor !== null) {
+    return { ok: false, reason: `A ${formatPushMode(landingAncestor.robot.pushMode)} of ${landingAncestor.branch} is running: wait until it merges` }
+  }
   return { ok: true }
+}
+
+/** An ancestor of a stacked branch whose robot pushes into the target: it lands the ancestor's commits */
+export interface LandingAncestor {
+  branch: string
+  robot: PatronusRobot
+}
+
+/**
+ * The nearest of `ancestors` (root first, `stackAncestors`) whose robot (`robotOf`) is active and pushes into the
+ * target (not a dry run); null when none is
+ */
+export function findLandingAncestor(ancestors: readonly string[], robotOf: (name: string) => PatronusRobot | undefined): LandingAncestor | null {
+  for (const name of [...ancestors].reverse()) {
+    const robot = robotOf(name)
+    if (robot !== undefined && isRobotActive(robot) && robot.pushMode !== "dryRun") {
+      return { branch: name, robot }
+    }
+  }
+  return null
 }
 
 /** The text of "Safe Push…" where it can start: what the form does before the robot runs */
@@ -297,13 +321,22 @@ export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode)
 /**
  * "Patronus starts it from pull request #760" or the Space alternative: a branch with an open pull request in the GitHub
  * repository the branches are mirrored to starts from it (a `/patronus` comment), a draft only for a dry run. null =
- * the start goes through the Patronus API.
+ * the start goes through the Patronus API: also for a pull request into another base than the target of Patronus
+ * (`isPullRequestIntoTarget`), the pull request of a stacked branch into its parent's branch.
  */
-export function getPullRequestStart(githubRepository: string | null, pullRequest: PullRequest | undefined, mode: PatronusPushMode): PullRequestStart | null {
-  if (githubRepository === null || pullRequest === undefined || pullRequest.state !== "open") {
+export function getPullRequestStart(githubRepository: string | null, pullRequest: PullRequest | undefined, mode: PatronusPushMode, targetBranch: string | null): PullRequestStart | null {
+  if (githubRepository === null || pullRequest === undefined || pullRequest.state !== "open" || !isPullRequestIntoTarget(pullRequest, targetBranch)) {
     return null
   }
   return { number: pullRequest.number, blockedByDraft: pullRequest.isDraft && mode !== "dryRun", command: mode === "dryRun" ? "/patronus dry-run" : "/patronus merge" }
+}
+
+/**
+ * Whether a pull request merges into the target branch of Patronus; true while either is unknown (no base read, the
+ * target not loaded yet)
+ */
+export function isPullRequestIntoTarget(pullRequest: PullRequest, targetBranch: string | null): boolean {
+  return targetBranch === null || !pullRequest.baseRefName || pullRequest.baseRefName === targetBranch
 }
 
 /** A start from a GitHub pull request (`getPullRequestStart`) */

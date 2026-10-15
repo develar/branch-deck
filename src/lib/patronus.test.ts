@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -170,13 +170,33 @@ describe("actions", () => {
 
   it("starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run", () => {
     const pullRequest = { number: 7, state: "open", isDraft: false } as PullRequest
-    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash")).toEqual({ number: 7, blockedByDraft: false, command: "/patronus merge" })
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "rebaseAutosquash")?.blockedByDraft).toBe(true)
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "dryRun")).toEqual({ number: 7, blockedByDraft: false, command: "/patronus dry-run" })
+    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", null)).toEqual({ number: 7, blockedByDraft: false, command: "/patronus merge" })
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "rebaseAutosquash", null)?.blockedByDraft).toBe(true)
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "dryRun", null)).toEqual({ number: 7, blockedByDraft: false, command: "/patronus dry-run" })
     // on Space, without a pull request, or with a closed one: the Patronus API starts it
-    expect(getPullRequestStart(null, pullRequest, "rebaseAutosquash")).toBeNull()
-    expect(getPullRequestStart("acme/monorepo", undefined, "rebaseAutosquash")).toBeNull()
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, state: "merged" }, "rebaseAutosquash")).toBeNull()
+    expect(getPullRequestStart(null, pullRequest, "rebaseAutosquash", null)).toBeNull()
+    expect(getPullRequestStart("acme/monorepo", undefined, "rebaseAutosquash", null)).toBeNull()
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, state: "merged" }, "rebaseAutosquash", null)).toBeNull()
+  })
+
+  it("never comments on a pull request into another base than the target: Patronus would merge it there", () => {
+    const pullRequest = { number: 8, state: "open", isDraft: false, baseRefName: "user/virtual/login" } as PullRequest
+    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", "master")).toBeNull()
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, baseRefName: "master" }, "rebaseAutosquash", "master")?.number).toBe(8)
+    // the target isn't loaded yet
+    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", null)?.number).toBe(8)
+  })
+
+  it("waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it", () => {
+    const robots: Record<string, PatronusRobot> = {
+      auth: robot({ status: "running", pushMode: "dryRun" }),
+      login: robot({ status: "running" }),
+    }
+    const landing = findLandingAncestor(["auth", "login"], name => robots[name])
+    expect(landing).toEqual({ branch: "login", robot: robots.login })
+    expect(findLandingAncestor(["auth"], name => robots[name])).toBeNull()
+    expect(findLandingAncestor(["login"], () => ({ ...robots.login!, status: "success" }))).toBeNull()
+    expect(canStartRobot(testBranch("oauth", "login"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of login is running: wait until it merges" })
   })
 
   it("cancels a running robot only", () => {

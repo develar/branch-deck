@@ -19,9 +19,11 @@ repositories: all operations run through the Git CLI.
   their target.
 - **Stacked branches** (opt-in, `git config branchdeck.stacks true`): `(auth/login) Add form` builds `login` on top of
   `auth`, and the branch table shows the stack as a tree. Stack a branch on another one, unstack it or rename a parent
-  from the branch menu; Move to… takes `auth/login`. Push Stack pushes a branch after its parents, Push with Children
-  a parent with the branches stacked on it. A branch whose parent has a conflict is blocked; one whose parent has no
-  commits is built on the nearest ancestor with commits or the baseline.
+  from the branch menu; Move to… takes `auth/login`. The push button of a branch pushes its parents first while they
+  have commits for the remote (Push Stack), Push with Children a parent with the branches stacked on it, and a push
+  retargets the branch's pull request onto its base. Safe Push leads root first; a Safe Push of a child lands its
+  parents with it and closes their pull requests. A branch whose parent has a conflict is blocked; one whose parent has
+  no commits is built on the nearest ancestor with commits or the baseline.
 - **Issue groups**: one branch for the commits of several issues, without a rewrite. `ABC-1 Parse lists` and
   `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
   name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and
@@ -84,8 +86,8 @@ repositories: all operations run through the Git CLI.
   already checked by a trial sync, with whole issue branches as issue groups that rewrite no subject. One
   `bd group --sync` call applies the plan (one validated rewrite of the commit messages that can be undone), writes
   the pull request texts of its `descriptions` and rebuilds the branches; `bd check` tries an edited plan first,
-  without writing refs. `bd push` pushes the branches with a lease, parents first (`--with-children` adds the
-  branches stacked on them); `bd update` updates the branch onto its baseline as Update Project does, with an undo,
+  without writing refs. `bd push` pushes the branches with a lease, parents first, a stacked branch with the
+  branches it is built on (`--with-children` adds the branches stacked on them, `--alone` pushes only the named ones); `bd update` updates the branch onto its baseline as Update Project does, with an undo,
   and resolves a conflict in a resolve session (`bd help update`), and `bd fold` folds the fixup commits;
   `bd help agent` prints the workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and

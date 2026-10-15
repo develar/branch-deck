@@ -31,7 +31,7 @@ use commands::patronus::{
   get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, poll_patronus_robots, post_patronus_command, read_patronus_command_reply, restart_patronus_robot,
   start_patronus_robot,
 };
-use commands::pull_requests::get_pull_requests;
+use commands::pull_requests::{close_pull_request, get_pull_requests, retarget_pull_request};
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::reword_commit::reword_commits;
@@ -63,6 +63,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
   Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
     get_pull_requests,
+    retarget_pull_request,
+    close_pull_request,
     get_patronus_robots,
     poll_patronus_robots,
     get_patronus_robot_details,

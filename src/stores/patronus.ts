@@ -1,12 +1,14 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
+import type { LandingAncestor } from "@/lib/patronus"
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import {
   REVIEW_APPROVAL_SUBSYSTEM,
   findBranchRobot,
+  findLandingAncestor,
   findMergedRobots,
   formatMergedRobotTitle,
   formatPushMode,
@@ -15,9 +17,11 @@ import {
   openRobot,
 } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
+import { closeLandedPullRequests } from "@/lib/landed-stack"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import { stackAncestors } from "@/lib/stack"
 import { recordRobot } from "@/stores/activity"
-import { branchSyncStore, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
+import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
 import { runFetchBaseline } from "@/stores/update-project"
@@ -101,6 +105,52 @@ export function useBranchRobot(branchName: string): PatronusRobot | undefined {
   const remoteTip = useBranchRemoteTip(branchName)
   return useStore(patronusStore, state => findBranchRobot(state.repositories[key]?.robots, branchName, localTip, remoteTip))
 }
+
+/**
+ * The nearest ancestor of a stacked branch whose robot lands it (`findLandingAncestor`): a Safe Push of the branch waits
+ * for it; null for a root and while none runs
+ */
+export function useLandingAncestor(branchName: string): LandingAncestor | null {
+  const key = useRepositoryKey()
+  // a string, so the store notifies only when the ancestors change
+  const ancestors = useBranchSync(state => stackAncestors(branchName, name => state.branches[name]).map(it => it.name).join("\n"))
+  return useStore(patronusStore, state => landingAncestorIn(state.repositories[key]?.robots, ancestors))
+}
+
+/** Non-hook variant of `useLandingAncestor`, for menus built on open */
+export function getLandingAncestor(branchName: string): LandingAncestor | null {
+  const key = currentKey()
+  if (key === null) {
+    return null
+  }
+  const branches = branchSyncStore.getState().branches
+  const ancestors = stackAncestors(branchName, name => branches[name]).map(it => it.name).join("\n")
+  return landingAncestorIn(patronusStore.getState().repositories[key]?.robots, ancestors)
+}
+
+/** The landing ancestor of `ancestors` (names, root first, one per line), the same object while its robot is the same */
+function landingAncestorIn(robots: Readonly<Record<string, PatronusRobot>> | undefined, ancestors: string): LandingAncestor | null {
+  if (ancestors === "" || robots === undefined) {
+    return null
+  }
+  const branches = branchSyncStore.getState().branches
+  const found = findLandingAncestor(ancestors.split("\n"), (name) => {
+    const branch = branches[name]
+    return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
+  })
+  if (found === null) {
+    return null
+  }
+  const cached = landingCache.get(found.robot)
+  if (cached?.branch === found.branch) {
+    return cached
+  }
+  landingCache.set(found.robot, found)
+  return found
+}
+
+/** Keeps `landingAncestorIn` stable for `useStore`: one result per robot object */
+const landingCache = new WeakMap<PatronusRobot, LandingAncestor>()
 
 /** The robot failed for missing code-owner approvals (its problems are read once, see `loadReviewProblems`) */
 export function useRobotNeedsReview(robotId: string | undefined): boolean {
@@ -205,13 +255,15 @@ function storeRobots(key: string, incoming: readonly PatronusRobot[], replace: b
 /** The merged robots already told about, once each */
 const announcedMerges = new Set<string>()
 /** Merges that happened while the window was not focused: their toasts show on focus */
-let pendingMergeToasts: { key: string, robot: PatronusRobot }[] = []
+let pendingMergeToasts: { key: string, robot: PatronusRobot, description: string }[] = []
 /** null until the first notification asks the OS */
 let notificationsAllowed: boolean | null = null
 
 /**
  * A robot merged a branch: a toast with Fetch, so the header learns that an update brings the branch in, and "Open in
  * Patronus". While the window is not focused, an OS notification says it at once, and the toast waits for the focus.
+ * A stacked branch landed its ancestors too: their open pull requests are closed (`closeLandedPullRequests`), and the
+ * toast says so.
  */
 function announceMerge(key: string, robot: PatronusRobot): void {
   if (announcedMerges.has(robot.id)) {
@@ -222,21 +274,23 @@ function announceMerge(key: string, robot: PatronusRobot): void {
     // Patronus closed the pull request with the label `merged`
     void refreshPullRequests("push")
   }
-  recordRobot(formatMergedRobotTitle(robot), formatPushMode(robot.pushMode), robot, key.split("\n")[0])
+  const closed = closeLandedPullRequests(robot)
+  const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
+  recordRobot(formatMergedRobotTitle(robot), description, robot, key.split("\n")[0])
   if (windowFocused) {
-    showMergeToast(key, robot)
+    showMergeToast(key, robot, description)
     return
   }
-  pendingMergeToasts.push({ key, robot })
+  pendingMergeToasts.push({ key, robot, description })
   void notifyOs(formatMergedRobotTitle(robot), `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up`)
 }
 
-function showMergeToast(key: string, robot: PatronusRobot): void {
+function showMergeToast(key: string, robot: PatronusRobot, description: string): void {
   const [repositoryPath] = key.split("\n") as [string, string]
   const id = toast.add({
     type: "success",
     title: formatMergedRobotTitle(robot),
-    description: formatPushMode(robot.pushMode),
+    description,
     timeout: 10_000,
     actionProps: {
       children: "Fetch",
@@ -632,8 +686,8 @@ export function setPatronusWindowFocus(focused: boolean): void {
   }
   const toasts = pendingMergeToasts
   pendingMergeToasts = []
-  for (const { key, robot } of toasts) {
-    showMergeToast(key, robot)
+  for (const { key, robot, description } of toasts) {
+    showMergeToast(key, robot, description)
   }
   clearTimeout(pollTimer)
   pollTimer = undefined

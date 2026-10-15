@@ -31,6 +31,17 @@ export async function holdCommand(page: Page, command: string): Promise<() => vo
   return release
 }
 
+/** Answers a command in the page instead of the test server, and records the parameters of each call */
+export async function routeCommand(page: Page, command: string, answer: (params: Record<string, unknown>) => unknown): Promise<Record<string, unknown>[]> {
+  const calls: Record<string, unknown>[] = []
+  await page.route(`**/invoke/${command}`, async (route) => {
+    const params = route.request().postDataJSON() as Record<string, unknown>
+    calls.push(params)
+    await route.fulfill({ json: answer(params) })
+  })
+  return calls
+}
+
 /**
  * Wait for a specific API response
  */

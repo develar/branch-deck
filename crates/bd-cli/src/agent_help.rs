@@ -61,9 +61,11 @@ Workflow:
    the issue groups back (pass the token as printed, with full ids: `<head>..<head>`, `groups:<id>..<id>`, or both
    joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.
 4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes; add
-   --with-children for the branches stacked on them): it syncs, pushes parents first with a lease per ref, and prints
-   a ready `gh pr create` per branch (pipe its `body` into it). `push_refused` (exit 4): a branch didn't sync, is
-   behind its remote branch, or its parent isn't on the remote. `lease_rejected` (exit 3): the remote changed,
+   --with-children for the branches stacked on them): it syncs, takes the branches a stacked branch is built on along
+   when they have commits for the remote (--alone does not), pushes parents first with a lease per ref, and prints a
+   ready `gh pr create` per branch (pipe its `body` into it); name every branch of `branches` to the user.
+   `push_refused` (exit 4): a branch didn't sync, is behind its remote branch, or, with --alone, its parent isn't on
+   the remote. `lease_rejected` (exit 3): the remote changed,
    nothing was pushed, and bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits`
    lists what a push drops: show it, and only after the user approves,
    `bd push <branch> --force --expect-remote <remote.head>`.

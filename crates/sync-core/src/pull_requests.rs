@@ -1,6 +1,7 @@
-//! GitHub pull request status of the virtual branches, through the `gh` CLI (one `gh pr list` per call). The only write
-//! is the Patronus command comment (`patronus_command.rs`). `gh` is not git: it never touches the repository, and every
-//! failure is an availability, not an error.
+//! GitHub pull request status of the virtual branches, through the `gh` CLI (one `gh pr list` per call). The writes are
+//! the Patronus command comment (`patronus_command.rs`) and the retarget and the close of the pull requests of a stack
+//! (`pull_request_writes.rs`). `gh` is not git: it never touches the repository, and every failure is an availability,
+//! not an error.
 
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use anyhow::Result;

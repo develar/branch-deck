@@ -22,9 +22,10 @@ export function StackBaseLabel({ name, className }: { name: string, className?: 
 }
 
 /**
- * The base in the Status cell of a stacked branch. "on login" while its push button offers Push Stack: the parent has
- * work for the remote, so a pull request of the branch alone would include the parent's commits. Else "on master" when
- * the declared parent has no commits, with why in its tooltip ("air-misc landed · IJAI-1184 is built on master").
+ * The base in the Status cell of a stacked branch. "on login" while its push button pushes the stack or offers it: an
+ * ancestor has work for the remote, so a pull request of the branch alone would include the ancestor's commits. Else
+ * "on master" when the declared parent has no commits, with why in its tooltip ("air-misc landed · IJAI-1184 is built
+ * on master").
  */
 export function UnpushedParentLabel({ branch }: { branch: Branch }) {
   const push = usePushButton(branch, false, false)

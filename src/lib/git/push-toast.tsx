@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { toast } from "@/components/ui/toast"
 import type { PatronusRobot } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
+import type { Retargeted } from "@/lib/git/new-pull-request"
 import { getPullRequestBase, getPullRequestToastAction, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import type { BranchPush, PushNews } from "@/lib/push-summary"
@@ -13,9 +14,13 @@ import type { Branch } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
 import { getFullBranchName } from "@/stores/repository"
 
-/** A push of a branch, and the robot it restarted on the pushed commit (a Safe Push the push had to cancel) */
+/**
+ * A push of a branch, the robot it restarted on the pushed commit (a Safe Push the push had to cancel), and the pull
+ * request it retargeted first
+ */
 export interface PushOutcome extends BranchPush {
   restarted?: PatronusRobot
+  retargeted?: Retargeted
 }
 
 /** A part of the description, " · " between them: the text, then a branch name in medium weight */
@@ -48,6 +53,11 @@ function getPushAction(branch: Branch, retargetCommand: string | null): ToastAct
   return retargetCommand === null ? getPullRequestToastAction(branch) : { children: "Copy gh pr edit", onClick: () => void copyText(retargetCommand) }
 }
 
+/** "retargeted pull request #8 to master" */
+function retargetedClause(retargeted: Retargeted): Clause {
+  return { text: `retargeted pull request #${retargeted.number} to `, name: retargeted.base }
+}
+
 function restartClause(robot: PatronusRobot, of?: string): Clause {
   return { text: `${formatPushMode(robot.pushMode)}${of === undefined ? "" : ` of ${of}`} restarted` }
 }
@@ -77,9 +87,10 @@ function addPushToast(title: string, clauses: readonly Clause[], action: ToastAc
 /**
  * The toast of a push of a branch (`news`, as Activity says it), read after the push: the remote branch it created can
  * have a pull request now. It names the base of a stacked branch, and offers the pull request: open it, create it, or
- * copy the `gh` command that retargets it. A push that restarted a robot says so and opens the robot.
+ * copy the `gh` command that retargets it (the push retargets it first, `retargeted`; the command is for a retarget that
+ * failed). A push that restarted a robot says so and opens the robot.
  */
-export function showPushToast(branchName: string, news: PushNews, restarted?: PatronusRobot): void {
+export function showPushToast(branchName: string, news: PushNews, restarted?: PatronusRobot, retargeted?: Retargeted): void {
   const branch = getBranch(branchName)
   const retargetCommand = branch === undefined ? null : getRetargetCommand(branch)
   const pullRequest = branch === undefined ? null : describePullRequest(branch, retargetCommand !== null)
@@ -87,7 +98,10 @@ export function showPushToast(branchName: string, news: PushNews, restarted?: Pa
   if (news.description !== undefined) {
     clauses.push({ text: news.description })
   }
-  if (pullRequest !== null) {
+  if (retargeted !== undefined) {
+    clauses.push(retargetedClause(retargeted))
+  }
+  else if (pullRequest !== null) {
     clauses.push(pullRequest)
   }
   if (restarted !== undefined) {
@@ -110,12 +124,17 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
     return
   }
   if (pushes.length === 1) {
-    showPushToast(first.name, describePush(first.name, first.before), first.restarted)
+    showPushToast(first.name, describePush(first.name, first.before), first.restarted, first.retargeted)
     return
   }
 
   const news = describeStackPush(pushes)
   const clauses: Clause[] = news.description === undefined ? [] : [{ text: news.description }]
+  for (const push of pushes) {
+    if (push.retargeted !== undefined) {
+      clauses.push({ ...retargetedClause(push.retargeted), text: `retargeted pull request #${push.retargeted.number} of ${push.name} to ` })
+    }
+  }
   let retargeted: { branch: Branch, command: string } | null = null
   for (const push of pushes) {
     const branch = getBranch(push.name)

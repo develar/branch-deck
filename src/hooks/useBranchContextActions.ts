@@ -19,7 +19,7 @@ import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
-import { cancelPatronusRobot, getBranchRobot, getPatronusGitHubRepository, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, getBranchRobot, getLandingAncestor, getPatronusGitHubRepository, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /** Branches listed in the "Move to Existing" submenu */
@@ -151,10 +151,12 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
  * the branch changed locally, as the chip offers it), the cancel and the page of the branch's robot
  */
 function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
-  const start = canStartRobot(branch, robot)
+  const start = canStartRobot(branch, robot, getLandingAncestor(branch.name))
+  // a dry run pushes nothing into the target: it may run while an ancestor lands
+  const dryRun = canStartRobot(branch, robot)
   const items: MenuItem[] = [
     { label: "Safe Push…", icon: ShieldCheckIcon, disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
-    { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !start.ok, ...(!start.ok && { description: start.reason }), onSelect: () => openInline("dry-run", branch.name) },
+    { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !dryRun.ok, ...(!dryRun.ok && { description: dryRun.reason }), onSelect: () => openInline("dry-run", branch.name) },
   ]
   if (getPatronusGitHubRepository() === null) {
     items.push(getCreateMergeRequestItem(branch))

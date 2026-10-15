@@ -106,6 +106,11 @@ export interface BranchSyncState {
    * Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a running push.
    */
   pushingBranches: Readonly<Record<string, TransferProgress | null>>
+  /**
+   * The stack pushes in flight: the branch a push of several branches started from (Push Stack, Push with Children) ->
+   * the branch it pushes now. Owned by push, as `pushingBranches`.
+   */
+  stackPushes: Readonly<Record<string, string>>
   unassignedCommits: Commit[]
   /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
   autosquashPlan: AutosquashPlan | null
@@ -126,6 +131,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   branchOrder: [],
   branches: {},
   pushingBranches: {},
+  stackPushes: {},
   unassignedCommits: [],
   autosquashPlan: null,
   baselineStatus: null,
@@ -397,6 +403,11 @@ export function useIsBranchPushing(name: string): boolean {
   return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, name))
 }
 
+/** The branch a stack push started from the branch pushes now; null when none runs */
+export function useStackPushCurrent(startedFrom: string): string | null {
+  return useStore(branchSyncStore, state => state.stackPushes[startedFrom] ?? null)
+}
+
 /** How far the running push of the branch is; null before git reports a stage and when no push runs */
 export function useBranchPushProgress(name: string): TransferProgress | null {
   return useStore(branchSyncStore, state => state.pushingBranches[name] ?? null)
@@ -508,6 +519,24 @@ export function setBranchPushing(name: string, isPushing: boolean): void {
     }
     const { [name]: _, ...pushingBranches } = state.pushingBranches
     return { pushingBranches }
+  })
+}
+
+export function isStackPushing(startedFrom: string): boolean {
+  return Object.hasOwn(branchSyncStore.getState().stackPushes, startedFrom)
+}
+
+/** The branch a stack push started from `startedFrom` pushes now; null when it ended */
+export function setStackPushCurrent(startedFrom: string, current: string | null): void {
+  branchSyncStore.setState((state) => {
+    if (current === null) {
+      if (!Object.hasOwn(state.stackPushes, startedFrom)) {
+        return state
+      }
+      const { [startedFrom]: _, ...stackPushes } = state.stackPushes
+      return { stackPushes }
+    }
+    return { stackPushes: { ...state.stackPushes, [startedFrom]: current } }
   })
 }
 

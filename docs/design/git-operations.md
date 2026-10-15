@@ -839,9 +839,11 @@ Code: `crates/object-cache/src/cache.rs`, `crates/bd-cli/src/diff_scan.rs`.
 
 1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), a
    branch whose remote branch has commits it lacks unless `--force`, and a stacked branch whose parent is neither on
-   the remote nor pushed with it. Branches go parents first. `--with-children` adds the branches stacked on the named
-   ones, directly or further down (by the effective base, or the declared parent of a blocked one), so a blocked
-   child refuses the push as any branch that didn't sync.
+   the remote nor pushed with it. Branches go parents first. A stacked branch takes the branches it is built on (the
+   effective base chain) along when the sync counted commits of theirs the remote lacks; `--alone` and
+   `--expect-remote` don't. `--with-children` adds the branches stacked on the named ones, directly or further down
+   (by the effective base, or the declared parent of a blocked one), so a blocked child refuses the push as any
+   branch that didn't sync.
 2. One `git push --porcelain --atomic <remote> --force-with-lease=refs/heads/<b>:<lease>… <tip>:refs/heads/<b>…`
    through `execute_remote_command_accepting` (exit 1, a rejected ref, still prints the porcelain report). Atomic: a
    stack is pushed whole or not at all, and a rejection is `lease_rejected`.

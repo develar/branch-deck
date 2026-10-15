@@ -1,5 +1,5 @@
 // @spec spec/branch/patronus.spec.md
-import type { Page, Route } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { test, expect } from "../fixtures/test-fixtures"
@@ -8,6 +8,7 @@ import { availableRobots, robot } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, pushOutcome, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
+import { routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -21,17 +22,6 @@ const START_OPTIONS: PatronusStartOptions = {
     { id: "dry-only", name: "Dry Only", description: null, allowedPushModes: ["dryRun"] },
   ],
   defaultProfileId: null,
-}
-
-/** Answers a Patronus command in the page and records the parameters of each call */
-async function routeCommand(page: Page, command: string, answer: (params: Record<string, unknown>) => unknown): Promise<Record<string, unknown>[]> {
-  const calls: Record<string, unknown>[] = []
-  await page.route(`**/invoke/${command}`, async (route: Route) => {
-    const params = route.request().postDataJSON() as Record<string, unknown>
-    calls.push(params)
-    await route.fulfill({ json: answer(params) })
-  })
-  return calls
 }
 
 /** The issue_links repository with these robots; the unassigned commits card renders after the branches and would move the rows away from the pointer */

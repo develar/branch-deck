@@ -50,7 +50,9 @@ The overview answers "what is my work waiting on" without scanning the branch ta
 
 ## Non-goals
 
-- There is no "Push all": a push stays deliberate and per branch.
+- There is no "Push all": a push stays deliberate and per branch, or per stack from a stacked branch whose ancestors
+  have work for the remote ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)); the description of
+  its button names each push.
 - The overview does not fetch: it shows the remote status of the last sync or push.
 - The indicator does not count the commits the remote has and the branch lacks; a force push drops them, and its row
   says how many.

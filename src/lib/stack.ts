@@ -130,22 +130,56 @@ export function needsPush(branch: Branch): boolean {
 }
 
 /**
- * The branches a "Push Stack" of `name` pushes, root first: its ancestors in the branch table that have work for the
- * remote, then the branch itself. `branchOf` looks a branch up.
+ * The branches a stacked branch is built on, root first: the chain of `effectiveBase` in the branch table (an ancestor
+ * without commits is not on it, the branch is built past it). `branchOf` looks a branch up.
  */
-export function stackPushOrder(name: string, branchOf: (name: string) => Branch | undefined): string[] {
-  const chain: string[] = []
-  const seen = new Set<string>()
-  let current = branchOf(name)
-  while (current !== undefined && !seen.has(current.name)) {
-    seen.add(current.name)
-    if (current.name === name || needsPush(current)) {
-      chain.push(current.name)
+export function stackAncestors(name: string, branchOf: (name: string) => Branch | undefined): Branch[] {
+  const ancestors: Branch[] = []
+  const seen = new Set<string>([name])
+  let parentName = branchOf(name)?.stack?.effectiveBase ?? null
+  while (parentName !== null && !seen.has(parentName)) {
+    seen.add(parentName)
+    const parent = branchOf(parentName)
+    if (parent === undefined) {
+      break
     }
-    const parent = current.stack?.effectiveBase ?? null
-    current = parent === null ? undefined : branchOf(parent)
+    ancestors.push(parent)
+    parentName = parent.stack?.effectiveBase ?? null
+  }
+  return ancestors.reverse()
+}
+
+/**
+ * The branches a "Push Stack" of `name` pushes, root first: its ancestors in the branch table that have work for the
+ * remote, then the branch itself. `branchOf` looks a branch up. With `stopAtConfirm` (the push button), the order starts
+ * above the nearest ancestor whose push drops remote commits: that one asks first in its own row, and a stack pushed
+ * around it would leave a stale branch in the middle.
+ */
+export function stackPushOrder(name: string, branchOf: (name: string) => Branch | undefined, { stopAtConfirm = false }: { stopAtConfirm?: boolean } = {}): string[] {
+  const chain = [name]
+  for (const ancestor of stackAncestors(name, branchOf).reverse()) {
+    if (stopAtConfirm && ancestor.remoteStatus != null && needsPush(ancestor) && dropsRemoteCommits(ancestor.remoteStatus)) {
+      break
+    }
+    if (needsPush(ancestor)) {
+      chain.push(ancestor.name)
+    }
   }
   return chain.reverse()
+}
+
+/**
+ * The branches the push button of `name` pushes when it pushes the stack, root first (`stackPushOrder` with
+ * `stopAtConfirm`): only while the branch has work for the remote, its own push asks nothing (a push that drops remote
+ * commits confirms the branch alone) and an ancestor has work too; else an empty list, the button pushes the branch alone
+ */
+export function buttonStackPushOrder(name: string, branchOf: (name: string) => Branch | undefined): string[] {
+  const branch = branchOf(name)
+  if (branch?.remoteStatus == null || !needsPush(branch) || dropsRemoteCommits(branch.remoteStatus)) {
+    return []
+  }
+  const order = stackPushOrder(name, branchOf, { stopAtConfirm: true })
+  return order.length > 1 ? order : []
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { PushButtonContext } from "@/hooks/usePushButton"
 import { getPushButtonState } from "@/hooks/usePushButton"
 import type { DroppedCommit } from "@/lib/bindings"
-import type { RemoteStatus } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 function commits(count: number): DroppedCommit[] {
@@ -13,9 +13,16 @@ function state(remote: Partial<RemoteStatus>, context: PushButtonContext = {}) {
   return getPushButtonState(testBranch("login", null, { stack: null, remoteStatus: testRemoteStatus(remote) }), context)
 }
 
+const oauth = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }) })
+
 /** oauth on login, not on the remote yet, with one commit of its own */
-function stacked(context: PushButtonContext) {
-  return getPushButtonState(testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }) }), context)
+function stacked(context: PushButtonContext, branch: Branch = oauth) {
+  return getPushButtonState(branch, context)
+}
+
+/** login with `remote`, the parent of oauth */
+function login(remote: Partial<RemoteStatus>): Branch {
+  return testBranch("login", "auth", { remoteStatus: testRemoteStatus(remote) })
 }
 
 describe("getPushButtonState", () => {
@@ -75,22 +82,46 @@ describe("getPushButtonState", () => {
     })
   })
 
-  it("offers Push Stack and says what a push of the branch alone does while the parent has work for the remote", () => {
-    const push = stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 3 } })
-    // the push alone stays as it is
+  it("pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone", () => {
+    const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })
+    const push = stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, oauth] } })
     expect(push).toMatchObject({
-      text: "Create Remote (1)",
+      text: "Push Stack (3)",
       color: "primary",
       disabled: false,
-      tooltip: "1 commit to push.\nThe branch isn't on the remote yet: the push creates it.",
+      confirm: false,
+      pushesStack: true,
+      tooltip: "Pushes 2 branches, parents first:\nlogin · 2 commits · creates the remote branch\noauth · 1 commit · creates the remote branch",
     })
     expect(push.action).toMatchObject({
       description: "login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed.",
-      label: "Push Stack (3 branches)",
+      label: "Push oauth Only",
     })
-    expect(stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2 } }).action?.description)
-      .toBe("login has commits the remote lacks. Pushing oauth alone works; a pull request includes them until login is pushed.")
+    const rebased = login({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false })
+    const onRemote = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [rebased, oauth] } })
+    expect(onRemote.tooltip).toBe("Pushes 2 branches, parents first:\nlogin · 1 commit · force push\noauth · 1 commit · creates the remote branch")
+    expect(onRemote.action?.description).toBe("login has commits the remote lacks. Pushing oauth alone works; a pull request includes them until login is pushed.")
     expect(stacked({}).action).toBeNull()
+    expect(stacked({}).pushesStack).toBe(false)
+  })
+
+  it("takes the colour of an ancestor when none of the branch's commits are the user's", () => {
+    const notMine = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 0 }) })
+    const parent = login({ exists: false, commitsAhead: 1, myCommitsAhead: 1 })
+    expect(stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, notMine] } }, notMine).color).toBe("primary")
+    expect(getPushButtonState(notMine).color).toBe("neutral")
+  })
+
+  it("offers Push Stack while the button pushes the branch alone: its push drops remote commits, or an ancestor's does", () => {
+    const dropping = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1) }) })
+    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } }, dropping)
+    expect(push).toMatchObject({ text: "Force Push (1)", confirm: true, pushesStack: false })
+    expect(push.action).toMatchObject({
+      description: "login has commits the remote lacks. Pushing oauth alone works; a pull request includes them until login is pushed.",
+      label: "Push Stack (2 branches)",
+    })
+    // login asks first in its own row: nothing above it to push with oauth
+    expect(stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } })).toMatchObject({ text: "Create Remote (1)", pushesStack: false })
   })
 
   it("offers Push with Children while branches stacked on it have work for the remote", () => {
@@ -107,9 +138,10 @@ describe("getPushButtonState", () => {
     expect(state({ commitsAhead: 1 }).childrenAction).toBeNull()
   })
 
-  it("offers Push Stack before Push with Children for a branch in the middle of a stack", () => {
-    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2 }, unpushedChildren: { names: ["device"], pushCount: 2 } })
-    expect(push.action?.label).toBe("Push Stack (2 branches)")
+  it("offers the push of the branch alone before Push with Children for a branch in the middle of a stack", () => {
+    const parent = login({ commitsAhead: 1, myCommitsAhead: 1 })
+    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [parent, oauth] }, unpushedChildren: { names: ["device"], pushCount: 2 } })
+    expect(push.action?.label).toBe("Push oauth Only")
     expect(push.childrenAction?.label).toBe("Push with Children (2 branches)")
   })
 })

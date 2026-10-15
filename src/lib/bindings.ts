@@ -17,6 +17,16 @@ export const commands = {
 	 */
 	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, CommandError>(__TAURI_INVOKE("get_pull_requests", { params })),
 	/**
+	 *  Changes the base of a pull request of the virtual branches (`gh pr edit --base`): the push of a stacked branch keeps
+	 *  its pull request on the branch it is built on
+	 */
+	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
+	/**
+	 *  Closes a pull request of the virtual branches with a comment (`gh pr close`): an ancestor a Safe Push of a stacked
+	 *  branch landed with it
+	 */
+	closePullRequest: (params: ClosePullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("close_pull_request", { params })),
+	/**
 	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
 	 *  `since`. When Patronus can't be asked, the availability says why.
 	 */
@@ -328,6 +338,13 @@ export type ChecksSummary = {
 	pending: number,
 	/**  The names of the failed checks, at most a few */
 	failedNames: string[],
+};
+
+export type ClosePullRequestParams = {
+	repositoryPath: string,
+	pullRequestNumber: number,
+	/**  Why it is closed, posted with the close */
+	comment: string,
 };
 
 /**  Error returned by Tauri commands, serialized as `{ message }`. */
@@ -1102,6 +1119,13 @@ export type RestoreBranchHeadParams = {
 	/**  HEAD the squash left; the undo is refused if the branch moved since */
 	expectedHead: string,
 	previousHead: string,
+};
+
+export type RetargetPullRequestParams = {
+	repositoryPath: string,
+	pullRequestNumber: number,
+	/**  The branch the pull request merges into from now on, as GitHub names it (`master`, `user/virtual/login`) */
+	base: string,
 };
 
 export type ReviewDecision = "approved" | "changesRequested" | "reviewRequired";

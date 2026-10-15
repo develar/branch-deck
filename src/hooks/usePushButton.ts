@@ -1,11 +1,13 @@
 import { useMemo } from "react"
+import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import type { DroppedCommit } from "@/lib/bindings"
-import { pushStack, pushWithChildren } from "@/lib/git/push"
+import { formatCommitCount } from "@/lib/commit"
+import { pushBranch, pushStack, pushWithChildren } from "@/lib/git/push"
 import { landedBranchDescription } from "@/lib/landed"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
@@ -22,7 +24,15 @@ export interface PushButtonState {
    * there pushes. Any other push runs on the click.
    */
   confirm: boolean
-  /** Another push the description offers after its text: Push Stack while the parent has work for the remote */
+  /**
+   * The button pushes the stack (`buttonStackPushOrder`): the ancestors that have work for the remote, root first, then
+   * the branch; `action` is the push of the branch alone then
+   */
+  pushesStack: boolean
+  /**
+   * Another push the description offers after its text, while an ancestor has work for the remote: the push of the
+   * branch alone when the button pushes the stack, else Push Stack
+   */
   action: PushButtonAction | null
   /** Push with Children, offered after `action`, while branches stacked on this one have work for the remote */
   childrenAction: PushButtonAction | null
@@ -42,13 +52,15 @@ export interface DroppedCommits {
   more: number
 }
 
-/** The branch a stacked branch is built on, while a push of it has work for the remote */
+/** The nearest branch a stacked branch is built on that has work for the remote */
 export interface UnpushedParent {
   name: string
   /** The parent has a remote branch, only without some of its commits */
   onRemote: boolean
   /** The branches a Push Stack of the branch pushes, the branch included */
   stackSize: number
+  /** The branches the push button pushes, root first (`buttonStackPushOrder`); empty when it pushes the branch alone */
+  buttonStack: readonly Branch[]
 }
 
 /** The branches stacked on a branch that have work for the remote */
@@ -70,12 +82,41 @@ export interface PushButtonContext {
   landedIn?: string | null
 }
 
-/** "login isn't on the remote yet. Pushing oauth alone works; …": the choice between this push and Push Stack */
+/** "login isn't on the remote yet. Pushing oauth alone works; …": the choice between a push of the branch and of the stack */
 function describeUnpushedParent(branchName: string, parent: UnpushedParent): string {
   const alone = `Pushing ${branchName} alone works; a pull request includes`
   return parent.onRemote
     ? `${parent.name} has commits the remote lacks. ${alone} them until ${parent.name} is pushed.`
     : `${parent.name} isn't on the remote yet. ${alone} ${parent.name}'s commits until ${parent.name} is pushed.`
+}
+
+/**
+ * One line per branch a stack push sends, root first, in the words of a push: "login · 2 commits · creates the remote
+ * branch", "auth · 1 commit · force push" for a rebased one
+ */
+function describeStackPush(branches: readonly Branch[]): string {
+  const lines = branches.map((branch) => {
+    const action = getPushAction(branch)
+    const parts = [branch.name]
+    const ahead = branch.remoteStatus?.commitsAhead ?? 0
+    if (ahead > 0) {
+      parts.push(formatCommitCount(ahead))
+    }
+    if (action === "create") {
+      parts.push("creates the remote branch")
+    }
+    else if (action === "force") {
+      parts.push("force push")
+    }
+    return parts.join(" · ")
+  })
+  return `Pushes ${branches.length} branches, parents first:\n${lines.join("\n")}`
+}
+
+/** The colour of a stack push: the branch's own, unless it is neutral (none of its commits are the user's) and an ancestor's isn't */
+function stackPushColor(branch: Branch, stack: readonly Branch[]): UIColor {
+  const own = getPushColor(branch) ?? "primary"
+  return own !== "neutral" ? own : stack.map(it => getPushColor(it)).find(color => color !== null && color !== "neutral") ?? own
 }
 
 /** "oauth and login are stacked on auth and have commits to push.": what a push of the branch alone leaves out */
@@ -94,7 +135,7 @@ export function getPushButtonState(
 ): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
-    return { text: "Push", color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, action: null, childrenAction: null }
+    return { text: "Push", color: "neutral", tooltip: formatBlockedReason(branch), dropped: null, disabled: true, confirm: false, pushesStack: false, action: null, childrenAction: null }
   }
   const remoteStatus = branch.remoteStatus
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus) : null
@@ -126,12 +167,28 @@ export function getPushButtonState(
 
   let action: PushButtonAction | null = null
   let childrenAction: PushButtonAction | null = null
+  let color = getPushColor(branch) ?? "primary"
+  let pushesStack = false
   if (landedIn !== null) {
     // the update archives the branch: a push is still possible, but there is nothing of the user's left to send
     tooltip = landedBranchDescription(landedIn)
+    color = "neutral"
   }
   else if (pushAction !== "upToDate") {
-    if (unpushedParent !== null) {
+    const stack = unpushedParent?.buttonStack ?? []
+    if (unpushedParent !== null && stack.length > 1) {
+      // the pull request of the branch is right only once its parents are on the remote: the button pushes them too
+      pushesStack = true
+      text = `Push Stack (${stack.reduce((sum, it) => sum + (it.remoteStatus?.commitsAhead ?? 0), 0)})`
+      tooltip = describeStackPush(stack)
+      color = stackPushColor(branch, stack)
+      action = {
+        description: describeUnpushedParent(branch.name, unpushedParent),
+        label: `Push ${branch.name} Only`,
+        run: () => void pushBranch(branch.name),
+      }
+    }
+    else if (unpushedParent !== null) {
       action = {
         description: describeUnpushedParent(branch.name, unpushedParent),
         label: formatPushStackLabel(unpushedParent.stackSize),
@@ -149,11 +206,12 @@ export function getPushButtonState(
 
   return {
     text,
-    color: landedIn === null ? getPushColor(branch) ?? "primary" : "neutral",
+    color,
     tooltip,
     dropped,
     disabled: isPushing || isSyncing || branch.status === "Syncing" || pushAction === "upToDate",
     confirm: remoteStatus != null && dropsRemoteCommits(remoteStatus),
+    pushesStack,
     action,
     childrenAction,
   }
@@ -170,18 +228,19 @@ export function usePushButton(branch: Branch, isSyncing: boolean, isPushing: boo
   )
 }
 
-/** The branch a stacked branch is built on, while a push of it has work for the remote */
+/** The nearest branch a stacked branch is built on that has work for the remote, and the stack pushes of the branch */
 export function useUnpushedParent(branch: Branch): UnpushedParent | null {
-  const parentName = branch.stack?.effectiveBase ?? null
-  // each selector returns a branch record or a number, so the store notifies only when they change
-  const parent = useBranchSync(state => parentName === null ? undefined : state.branches[parentName])
-  const stackSize = useBranchSync(state => parentName === null ? 1 : stackPushOrder(branch.name, name => state.branches[name]).length)
+  const name = branch.name
+  // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change
+  const parent = useBranchSync(state => stackAncestors(name, it => state.branches[it]).findLast(needsPush))
+  const stackSize = useBranchSync(state => parent === undefined ? 1 : stackPushOrder(name, it => state.branches[it]).length)
+  const buttonStack = useBranchSync(useShallow(state => buttonStackPushOrder(name, it => state.branches[it]).map(it => state.branches[it]!)))
   return useMemo(() => {
-    if (parent === undefined || !needsPush(parent)) {
+    if (parent === undefined) {
       return null
     }
-    return { name: parent.name, onRemote: parent.remoteStatus?.exists === true, stackSize }
-  }, [parent, stackSize])
+    return { name: parent.name, onRemote: parent.remoteStatus?.exists === true, stackSize, buttonStack }
+  }, [parent, stackSize, buttonStack])
 }
 
 /** The branches stacked on a branch, while a push of them has work for the remote */

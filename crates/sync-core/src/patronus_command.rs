@@ -1,7 +1,8 @@
 //! The `/patronus` command of a GitHub pull request. Patronus links a robot to a pull request only when a comment of
 //! the pull request started it: then the code-owner approvals of the pull request count, Patronus reports in it and
 //! closes it once merged. So a Safe Push of a branch with a pull request is this comment, and the bot answers with a
-//! reaction: 👍 started, 👎 not (with a `⚠️` comment saying why). The one write of the app on GitHub.
+//! reaction: 👍 started, 👎 not (with a `⚠️` comment saying why). The other writes of the app on GitHub keep the pull
+//! requests of a stack in line (`pull_request_writes.rs`).
 
 use crate::pull_requests::{GitHubRepository, run_gh};
 use serde::Deserialize;
@@ -93,7 +94,8 @@ pub fn rejection_reason(comments: &[GhComment], command_id: u64) -> Option<Strin
   })
 }
 
-fn gh_failure(availability: PullRequestAvailability) -> String {
+/// The message of a failed `gh` write
+pub fn gh_failure(availability: PullRequestAvailability) -> String {
   match availability {
     PullRequestAvailability::GhMissing => "The gh CLI is not installed".to_string(),
     PullRequestAvailability::NotAuthenticated => "gh is not logged in: run gh auth login".to_string(),

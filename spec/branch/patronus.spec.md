@@ -22,6 +22,9 @@ targets:
   - ../../src/components/branch/PatronusChip.tsx
   - ../../src/components/branch/ReviewCommitNotice.tsx
   - ../../src/components/branch/InlinePatronusStart.tsx
+  - ../../src/lib/patronus-stack.ts
+  - ../../src/lib/landed-stack.ts
+  - ../../crates/sync-core/src/pull_request_writes.rs
   - ../../src/components/branch/PushGuardDialog.tsx
   - ../../src/components/branch/PatronusReviewBlock.tsx
   - ../../src/hooks/usePatronusReviewRequirement.ts
@@ -210,14 +213,18 @@ reports in it and closes it once merged.
   section, the chip popover of its meta line), one helper (`openRowForm`) for both.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push form of its Patronus section`)
-- Every entry point asks one predicate, `canStartRobot(branch, robot)` (`src/lib/patronus.ts`): a start is not possible
-  while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last commit is
-  running") nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's words).
+- Every entry point asks one predicate, `canStartRobot(branch, robot, landingAncestor)` (`src/lib/patronus.ts`): a start
+  is not possible while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last
+  commit is running") nor for a blocked stacked branch ("Blocked by auth: fix it first, then sync", the push button's
+  words). A Safe Push of a stacked branch also waits while a robot that pushes into the target (not a dry run) runs on
+  an ancestor (`findLandingAncestor`): the branch carries the ancestor's commits, two robots would land them ("A Safe
+  Push of login is running: wait until it merges"); a dry run doesn't wait.
   Then the button and the menu items are disabled, and their hover says the reason; "Safe Push…" that can start says
   "Checks the code-owner review, then starts the robot." The row button is disabled while the
   row runs an inline action too.
-  [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`)
+  [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`, `waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should wait for the Safe Push of an ancestor, which lands its commits`)
 - The form below the row ("Safe Push of auth") says what happens: "Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass.", for a dry run "Patronus rebases auth onto master and runs the checks,
   without pushing into master.". It offers the merge profiles of the target branch that allow the mode (the emergency
@@ -252,6 +259,21 @@ reports in it and closes it once merged.
 - A start is never repeated by itself, not even right after the push: Patronus fetches the pushed branch while it
   handles the start.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_failed_start_is_never_repeated`)
+- A stacked branch carries the commits of the branches it is built on ([Stacked Branches](stacked-branches.spec.md)): a
+  child can't land without them, and its Safe Push lands them too. The form of a Safe Push of a branch built on
+  branches that aren't in the target yet leads root first, above the profiles: "oauth is built on auth and login,
+  which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches
+  built on it onto master." with a `Safe Push auth…` button (the form of the root-most ancestor). Its own start is the
+  explicit alternative, muted: "Or start oauth now: the Safe Push lands auth and login with it." Enter doesn't start it
+  (no focus on the submit). Before the start the branches of the stack that have work for the remote are pushed,
+  parents first, as the push button pushes them ("Push Stack and Start Safe Push"; "auth, login and oauth have commits
+  the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of oauth."),
+  without a toast of their own. A dry run says "It checks the commits of auth and login too: oauth is built on them."
+  A Safe Push of a parent says what its merge does: "login and oauth are built on auth: after the merge, the next sync
+  moves them onto master; their pull requests are retargeted to master when they are pushed." (the clause about the
+  pull requests only while one of them has an open one).
+  [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`, `says that a dry run checks the ancestors' commits too`, `says what the merge of a parent does to the branches built on it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should lead a stacked branch root first, and land the stack in one Safe Push when told to`, `should open the Safe Push of the root from the lead, and say what its merge does to its children`)
 
 ### Pull requests
 
@@ -269,6 +291,13 @@ reports in it and closes it once merged.
   [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_merge_keeps_the_source_branch_and_a_dry_run_is_plain`)
   [@test] ../../crates/sync-core/src/patronus_command_test.rs (`posts_the_command_as_a_regular_comment_of_the_pull_request`)
   [@test] ../../src/lib/patronus.test.ts (`starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run`)
+- Patronus merges a pull request into its base: a pull request into another base than the target, the one of a
+  stacked branch into its parent's branch, is never commented on (`isPullRequestIntoTarget`). Such a branch starts
+  through the API, and the form says that the approvals of the pull request don't count: "The approvals of pull
+  request #8 don't count: it compares oauth with login, and Patronus merges a pull request into its base." Root
+  first, the child's pull request is retargeted to the target once its parent merged, and then starts from its comment.
+  [@test] ../../src/lib/patronus.test.ts (`never comments on a pull request into another base than the target: Patronus would merge it there`)
+  [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`)
 - The form says it: "Comments /patronus merge on pull request #7: Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass. It reports in the pull request and closes it once merged." A comment can't
   choose a merge profile: instead of the profiles the form says "A pull request comment starts the default checks of
@@ -311,6 +340,14 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
   [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Fetch and the robot page when a running robot of a branch merged`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and fetch the baseline on request`)
+- A robot of a stacked branch that merged landed the branches it is built on too: the open pull requests of those
+  ancestors are closed (`gh pr close <n> --comment "Landed in master with #7, the Safe Push of
+  user/virtual/oauth, which is built on this branch."`), and the toast and Activity say it ("Safe Push · closes the
+  pull request of auth: it landed with oauth"). Only while the robot ran on the branch's tip as the table has it, and
+  only a pull request whose head is the ancestor's tip: then the merge has all of it. A failed close is an error
+  toast "Cannot close pull request #5".
+  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`)
+  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`)
 - In the background, an OS notification says it at once ("auth merged into master", "Safe Push · Fetch and update to
   pick it up"); the toast shows on the next focus. The permission is asked on the first notification, never at start;
   without it, or without the plugin, nothing is said but the toast.

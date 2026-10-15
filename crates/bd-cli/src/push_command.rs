@@ -1,5 +1,7 @@
 //! `bd push`: sync, then push the virtual branches in one atomic `git push --porcelain` with an explicit lease per ref,
-//! parents first, and print a ready `gh pr create` per branch.
+//! parents first, and print a ready `gh pr create` per branch. A stacked branch takes the branches it is built on that
+//! have commits for the remote along, as the app's push button does: its pull request is right only once they are on
+//! the remote.
 //!
 //! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
 //! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
@@ -26,7 +28,7 @@ use sync_core::remote_status::compute_remote_status_for_branch;
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
 pub struct PushArgs {
-  /// The branches to push; their parents must be on the remote or pushed with them
+  /// The branches to push, with the branches they are built on that have commits for the remote
   pub branches: Vec<String>,
   /// Push every branch that syncs cleanly; needs --yes
   #[arg(long, conflicts_with = "branches")]
@@ -37,6 +39,9 @@ pub struct PushArgs {
   /// Push the branches stacked on the named ones too, directly or further down
   #[arg(long, requires = "branches", conflicts_with = "expect_remote")]
   pub with_children: bool,
+  /// Push only the named branches, not the branches they are built on; a parent must be on the remote then
+  #[arg(long, requires = "branches")]
+  pub alone: bool,
   /// Push branches the remote has commits for that they don't (behind > 0): the push drops the commits the sync
   /// counted, nothing pushed since
   #[arg(long)]
@@ -140,6 +145,8 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     |forest| forest.order.iter().map(String::as_str).collect(),
   );
 
+  // the ancestors of the named branches that go along; one with nothing for the remote is left out
+  let mut implicit: HashSet<String> = HashSet::new();
   let selected: Vec<&str> = if args.all {
     order.clone()
   } else {
@@ -148,12 +155,29 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
         return Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")));
       }
     }
+    // the branches the named ones are built on go along, unless --alone; --expect-remote is the lease of one branch
+    if !args.alone && args.expect_remote.is_none() {
+      for name in &args.branches {
+        let mut parent = parent_of(name);
+        while let Some(ancestor) = parent {
+          if !implicit.insert(ancestor.clone()) {
+            break;
+          }
+          parent = parent_of(&ancestor);
+        }
+      }
+      implicit.retain(|name| !args.branches.contains(name));
+    }
     let mut selected: Vec<&str> = Vec::new();
     for name in &order {
       // a blocked child has no effective base: its declared parent places it, and the push refuses it as not synced
       let parent = placement(name).and_then(|stack| stack.effective_base.as_deref().or(stack.declared_parent.as_deref()));
       // the order is parents first: a child comes after its parent was selected
-      if args.branches.iter().any(|named| named == name) || (args.with_children && parent.is_some_and(|parent| selected.contains(&parent))) {
+      if args.branches.iter().any(|named| named == name)
+        || implicit.contains(*name)
+        // a branch taken along brings no children: only the named ones do
+        || (args.with_children && parent.is_some_and(|parent| selected.contains(&parent) && !implicit.contains(parent)))
+      {
         selected.push(name);
       }
     }
@@ -188,12 +212,18 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     let parent = parent_of(name);
     let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
     let remote_state = remote_status(context, &remote, &synced.baseline, branch, &full_name, parent_ref.as_deref())?;
+    let along = implicit.contains(*name);
+    if along && remote_state.as_ref().is_some_and(|remote| remote.exists && remote.unpushed == 0 && remote.behind == 0) {
+      // on the remote as it is: nothing to take along
+      continue;
+    }
     if let Some(remote_state) = &remote_state
       && remote_state.behind > 0
       && !args.force
     {
+      let alone = if along { ", or --alone to push the named branches without it" } else { "" };
       refusals.push(format!(
-        "{name}: the remote branch has {} commits the branch doesn't; pass --force to replace them",
+        "{name}: the remote branch has {} commits the branch doesn't; pass --force to replace them{alone}",
         remote_state.behind
       ));
       behind.push(ErrorBranch {

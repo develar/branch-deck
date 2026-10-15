@@ -9,11 +9,11 @@ import { Spinner } from "@/components/ui/spinner"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
-import { pushBranch } from "@/lib/git/push"
+import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useBranchSync, useIsBranchPushing } from "@/stores/branch-sync"
+import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -29,17 +29,21 @@ export interface BranchPushButtonProps {
 }
 
 /**
- * Push button of an active branch ("Push (2)", "Create Remote", "Force Push (1)"); the full description is shown on
- * hover, also while the button is disabled ("Everything is pushed.", why it is blocked), with the remote commits a force
- * push drops and the Push Stack of a branch whose parent has work for the remote. A push that drops remote commits asks
- * first: the click opens the description with a destructive Force Push, which pushes. While the push runs, the label has
- * its percent ("Pushing 45%") and the hover the last progress line of git, with the amount and the rate when that line
- * lacks them.
+ * Push button of an active branch ("Push (2)", "Create Remote", "Force Push (1)", "Push Stack (3)" for a stacked branch
+ * whose ancestors have work for the remote); the full description is shown on hover, also while the button is disabled
+ * ("Everything is pushed.", why it is blocked), with the remote commits a force push drops and the other push of a
+ * stacked branch (the branch alone, or Push Stack). A push that drops remote commits asks first: the click opens the
+ * description with a destructive Force Push, which pushes. While the push runs, the label has its percent ("Pushing
+ * 45%", "Pushing login 45%" for an ancestor of a stack push) and the hover the last progress line of git, with the
+ * amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget }: BranchPushButtonProps) {
   const isSyncing = useBranchSync(state => state.isSyncing)
-  const isPushing = useIsBranchPushing(branch.name)
-  const progress = useBranchPushProgress(branch.name)
+  // a stack push from this row shows the branch it pushes now
+  const stackCurrent = useStackPushCurrent(branch.name)
+  const pushingName = stackCurrent ?? branch.name
+  const isPushing = useIsBranchPushing(branch.name) || stackCurrent !== null
+  const progress = useBranchPushProgress(pushingName)
   const processing = useIsRowProcessing(branch.name)
   const push = usePushButton(branch, isSyncing, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
@@ -122,14 +126,14 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
                 setOpen(true)
               }
               else {
-                void pushBranch(branch.name)
+                pushFromButton(branch.name)
               }
             }}
           />
         )}
       >
         {isPushing ? <Spinner data-icon="inline-start" /> : hint ?? <UploadIcon data-icon="inline-start" />}
-        {isPushing ? transferLabel("Pushing", progress) : push.text}
+        {isPushing ? transferLabel(pushingName === branch.name ? "Pushing" : `Pushing ${pushingName}`, progress) : push.text}
       </PopoverTrigger>
       <PopoverContent
         data-testid="push-description"
@@ -138,7 +142,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
         onClick={event => event.stopPropagation()}
       >
         {isPushing
-          ? <PushProgressDescription branchName={branch.name} progress={progress} />
+          ? <PushProgressDescription branchName={pushingName} progress={progress} />
           : (
               <>
                 <div className="break-words whitespace-pre-line">{push.tooltip}</div>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { describeParentState, describePrefixChange, passedParentOf, pullRequestBaseOf, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, describeParentState, describePrefixChange, passedParentOf, pullRequestBaseOf, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -99,6 +99,43 @@ describe("pull request bases of stacked branches", () => {
   it("pushes the ancestors that have work for the remote first, root first", () => {
     expect(stackPushOrder("oauth", name => branches[name])).toEqual(["auth", "oauth"])
     expect(stackPushOrder("auth", name => branches[name])).toEqual(["auth"])
+  })
+
+  it("lists the branches a branch is built on, root first", () => {
+    expect(stackAncestors("oauth", name => branches[name]).map(branch => branch.name)).toEqual(["auth", "login"])
+    expect(stackAncestors("auth", name => branches[name])).toEqual([])
+  })
+
+  it("starts the stack push of the button above an ancestor whose push drops remote commits", () => {
+    const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false }
+    const tree: Record<string, Branch> = {
+      auth: testBranch("auth", null, { remoteStatus: unpushed }),
+      login: testBranch("login", "auth", { remoteStatus: dropping }),
+      oauth: testBranch("oauth", "login", { remoteStatus: unpushed }),
+      device: testBranch("device", "oauth", { remoteStatus: unpushed }),
+    }
+    const branchOf = (name: string) => tree[name]
+    // the menu's Push Stack pushes every ancestor, the push of login asks first through its row
+    expect(stackPushOrder("device", branchOf)).toEqual(["auth", "login", "oauth", "device"])
+    // the button leaves no stale login between auth and oauth: it pushes what is above login
+    expect(stackPushOrder("device", branchOf, { stopAtConfirm: true })).toEqual(["oauth", "device"])
+    expect(buttonStackPushOrder("device", branchOf)).toEqual(["oauth", "device"])
+    // right above login there is nothing else to push: the button pushes oauth alone
+    expect(buttonStackPushOrder("oauth", branchOf)).toEqual([])
+  })
+
+  it("pushes the stack from the button only while the branch's own push asks nothing", () => {
+    const branchOf = (name: string) => branches[name]
+    expect(buttonStackPushOrder("oauth", branchOf)).toEqual(["auth", "oauth"])
+    // a root, and a branch whose ancestors have nothing to push
+    expect(buttonStackPushOrder("auth", branchOf)).toEqual([])
+    const pushedAuth: Record<string, Branch> = { ...branches, auth: testBranch("auth", null, { remoteStatus: pushed }) }
+    expect(buttonStackPushOrder("oauth", name => pushedAuth[name])).toEqual([])
+    // nothing of its own to push, or a push that drops remote commits: the button is about the branch
+    const upToDate: Record<string, Branch> = { ...branches, oauth: testBranch("oauth", "login", { remoteStatus: pushed }) }
+    expect(buttonStackPushOrder("oauth", name => upToDate[name])).toEqual([])
+    const dropping: Record<string, Branch> = { ...branches, oauth: testBranch("oauth", "login", { remoteStatus: { ...unpushed, commitsBehind: 1, fastForward: false } }) }
+    expect(buttonStackPushOrder("oauth", name => dropping[name])).toEqual([])
   })
 
   it("pushes the branch and its children that have work for the remote, parents first", () => {
