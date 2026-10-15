@@ -39,6 +39,9 @@ futures = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 axum = "0.8.9"
 
+# Error types
+thiserror = "2.0.21"
+
 # Caching
 moka = { version = "0.12", features = ["sync"] }
 

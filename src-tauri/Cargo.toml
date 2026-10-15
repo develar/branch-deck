@@ -49,6 +49,7 @@ tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
 anyhow.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
 log = "0.4"
 
 # Development dependencies (feature-gated)

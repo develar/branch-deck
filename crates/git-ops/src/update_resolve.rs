@@ -1508,10 +1508,7 @@ pub fn is_valid_tree_path(path: &str) -> bool {
     protect_hfs: true,
     protect_ntfs: true,
   };
-  !path.contains('\0')
-    && path
-      .split('/')
-      .all(|component| gix_validate::path::component(BStr::new(component), None, options).is_ok())
+  !path.contains('\0') && path.split('/').all(|component| gix_validate::path::component(BStr::new(component), None, options).is_ok())
 }
 
 /// Write the state commit of `state` on a temporary ref, by the session's committer: `state.json`, the round's merge

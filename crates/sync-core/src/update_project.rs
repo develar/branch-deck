@@ -231,34 +231,20 @@ pub struct UpdateOptions {
 }
 
 /// The fetch of an update failed; nothing was changed
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Failed to fetch {upstream}: {message}")]
 pub struct FetchFailed {
   /// The baseline, e.g. `origin/master`
   pub upstream: String,
   pub message: String,
 }
 
-impl std::fmt::Display for FetchFailed {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Failed to fetch {}: {}", self.upstream, self.message)
-  }
-}
-
-impl std::error::Error for FetchFailed {}
-
 /// The baseline is a local branch: there is no upstream to update from
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("The baseline {baseline} is a local branch: there is no upstream to update from")]
 pub struct NoUpstream {
   pub baseline: String,
 }
-
-impl std::fmt::Display for NoUpstream {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "The baseline {} is a local branch: there is no upstream to update from", self.baseline)
-  }
-}
-
-impl std::error::Error for NoUpstream {}
 
 /// The app's words for a held repository lock: the lock file is an internal detail
 pub const LOCKED_MESSAGE: &str = "Branch Deck or bd is changing this repository. Try again when it is done.";
@@ -484,18 +470,11 @@ impl std::fmt::Display for UpdateUndoToken {
 }
 
 /// Local changes sit on paths the undo of an update would write; nothing was changed
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Uncommitted, staged or untracked files sit on paths the undo would write: {}", .paths.join(", "))]
 pub struct UndoBlocked {
   pub paths: Vec<String>,
 }
-
-impl std::fmt::Display for UndoBlocked {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Uncommitted, staged or untracked files sit on paths the undo would write: {}", self.paths.join(", "))
-  }
-}
-
-impl std::error::Error for UndoBlocked {}
 
 /// What an undone update left
 #[derive(Debug, Clone, PartialEq, Eq)]

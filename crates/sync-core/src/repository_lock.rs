@@ -14,24 +14,12 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const LOCK_FILE_NAME: &str = "branch-deck.lock";
 
 /// Another process (or another operation of this one) held the lock for the whole timeout
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Another Branch Deck operation holds {} (waited {:.1} s); retry when it is done", .path.display(), .waited.as_secs_f64())]
 pub struct RepositoryLocked {
   pub path: PathBuf,
   pub waited: Duration,
 }
-
-impl std::fmt::Display for RepositoryLocked {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "Another Branch Deck operation holds {} (waited {:.1} s); retry when it is done",
-      self.path.display(),
-      self.waited.as_secs_f64()
-    )
-  }
-}
-
-impl std::error::Error for RepositoryLocked {}
 
 /// An exclusive lock on `$GIT_COMMON_DIR/branch-deck.lock`, released when dropped
 #[derive(Debug)]

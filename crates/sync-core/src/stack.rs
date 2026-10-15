@@ -27,20 +27,13 @@ pub fn stacks_enabled(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
 }
 
 /// A prefix with an empty stack level, as in `(a//b)`, or no branch name at all, as in `(/)`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("({prefix}) has an empty stack level")]
 pub struct StackSyntaxError {
   pub prefix: String,
   /// The last non-empty level, sanitized: the branch the commit is grouped into anyway; `None` if there is none
   pub leaf: Option<String>,
 }
-
-impl std::fmt::Display for StackSyntaxError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "({}) has an empty stack level", self.prefix)
-  }
-}
-
-impl std::error::Error for StackSyntaxError {}
 
 /// The levels of a stack prefix, root first and the leaf last, each sanitized like a flat branch name. Empty levels at
 /// the ends are dropped (`(auth/)` is `auth`, `(/login)` is `login`); one in the middle (`(a//b)`) is an error.

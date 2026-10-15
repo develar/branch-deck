@@ -79,27 +79,18 @@ pub fn is_unborn_head(git_executor: &GitCommandExecutor, repository_path: &str) 
 }
 
 /// Why `detect_baseline_branch` found no baseline
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NoBaseline {
   /// HEAD has no commit yet
+  #[error("The repository has no commits yet: commit to the main branch, then sync")]
   NoCommits,
   /// The repository has no remote, and none of the `tried` local branches
+  #[error("Cannot find the baseline branch: the repository has no remote and no {} branch", either(.tried))]
   NoLocalBranch { tried: Vec<String> },
   /// The current branch has no upstream, and the first remote none of the `tried` branches
+  #[error("Cannot find the baseline branch: no {}, and no upstream", either(.tried))]
   NoRemoteBranch { tried: Vec<String> },
 }
-
-impl std::fmt::Display for NoBaseline {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      Self::NoCommits => write!(f, "The repository has no commits yet: commit to the main branch, then sync"),
-      Self::NoLocalBranch { tried } => write!(f, "Cannot find the baseline branch: the repository has no remote and no {} branch", either(tried)),
-      Self::NoRemoteBranch { tried } => write!(f, "Cannot find the baseline branch: no {}, and no upstream", either(tried)),
-    }
-  }
-}
-
-impl std::error::Error for NoBaseline {}
 
 /// "a", "a or b", "a, b or c"
 fn either(names: &[String]) -> String {

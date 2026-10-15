@@ -85,26 +85,13 @@ pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_p
 }
 
 /// HEAD is not the commit a rewrite was computed for: read the history again and retry
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Branch {branch} moved: HEAD is {}, not {}; read it again and retry", crate::rewrite_plan::short_id(.actual), crate::rewrite_plan::short_id(.expected))]
 pub struct HeadMoved {
   pub branch: String,
   pub expected: String,
   pub actual: String,
 }
-
-impl std::fmt::Display for HeadMoved {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "Branch {} moved: HEAD is {}, not {}; read it again and retry",
-      self.branch,
-      crate::rewrite_plan::short_id(&self.actual),
-      crate::rewrite_plan::short_id(&self.expected)
-    )
-  }
-}
-
-impl std::error::Error for HeadMoved {}
 
 /// Short name of the checked out branch; fails in the detached HEAD state
 pub fn get_current_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {

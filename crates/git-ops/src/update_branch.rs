@@ -617,18 +617,11 @@ pub enum UndoCheck {
 }
 
 /// The update of a token is not the last move of the branch
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct NotAnUpdate {
   pub message: String,
 }
-
-impl std::fmt::Display for NotAnUpdate {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_str(&self.message)
-  }
-}
-
-impl std::error::Error for NotAnUpdate {}
 
 /// Check the undo of an update that moved the checked out branch from `previous_head` to `new_head`: the move back,
 /// with the old and the new tree swapped, so the dry run refuses every path changed since the update and an ignored
@@ -698,23 +691,15 @@ pub fn apply_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, und
 }
 
 /// A guard of an update or its undo refused before anything was read or written
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GuardRefusal {
   /// A rebase, merge, cherry-pick or revert is in progress
+  #[error("{0}")]
   OperationInProgress(String),
   /// HEAD is detached
+  #[error("{0}")]
   DetachedHead(String),
 }
-
-impl std::fmt::Display for GuardRefusal {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      Self::OperationInProgress(message) | Self::DetachedHead(message) => f.write_str(message),
-    }
-  }
-}
-
-impl std::error::Error for GuardRefusal {}
 
 /// The guards of an update and of its undo: no operation in progress, HEAD on a branch. Returns the branch; a refusal
 /// is a `GuardRefusal`
@@ -724,23 +709,13 @@ pub fn check_update_guards(git_executor: &GitCommandExecutor, repo_path: &str) -
 }
 
 /// HEAD is no longer on the branch the move was checked for: a `git switch` since the check; nothing was changed
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("HEAD is {} now, not on {expected}; nothing was changed", .actual.as_deref().map_or_else(|| "detached".to_string(), |actual| format!("on {actual}")))]
 pub struct BranchSwitched {
   pub expected: String,
   /// The branch HEAD is on now; `None` for a detached HEAD
   pub actual: Option<String>,
 }
-
-impl std::fmt::Display for BranchSwitched {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match &self.actual {
-      Some(actual) => write!(f, "HEAD is on {actual} now, not on {}; nothing was changed", self.expected),
-      None => write!(f, "HEAD is detached now, not on {}; nothing was changed", self.expected),
-    }
-  }
-}
-
-impl std::error::Error for BranchSwitched {}
 
 /// `BranchSwitched` unless HEAD is on `branch`
 pub(crate) fn ensure_head_on(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Result<()> {
@@ -817,18 +792,11 @@ pub fn pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
 }
 
 /// The files of an interrupted update can't be finished here: the branch moved on since; nothing was changed
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct PendingUpdate {
   pub message: String,
 }
-
-impl std::fmt::Display for PendingUpdate {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_str(&self.message)
-  }
-}
-
-impl std::error::Error for PendingUpdate {}
 
 /// Finish an update (or its undo) that a crash stopped between the move of the branch and its files: when the last
 /// move of the branch is that update, from the mark's commit to HEAD, the files follow now through the guarded update
@@ -944,23 +912,14 @@ pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo
 
 /// A lock file of git is in the way of a ref move: another git process holds it, or a killed one left it; nothing was
 /// changed
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+  "{path} exists: another git process changes the branch, or a killed one left the lock; nothing was changed. Retry; if it stays, \
+   remove the file once no git runs"
+)]
 pub struct RefLocked {
   pub path: String,
 }
-
-impl std::fmt::Display for RefLocked {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "{} exists: another git process changes the branch, or a killed one left the lock; nothing was changed. Retry; if it stays, \
-       remove the file once no git runs",
-      self.path
-    )
-  }
-}
-
-impl std::error::Error for RefLocked {}
 
 /// The lock file of HEAD or of `branch` that exists now, if any: why a move that did not move HEAD failed. The files are
 /// checked, not git's translated message
@@ -994,18 +953,11 @@ fn roll_back(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, h
 }
 
 /// Local changes sit on paths the files of a moved branch must take; the branch moved back, nothing else changed
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Uncommitted, staged or untracked files sit on paths the update writes: {}", .paths.join(", "))]
 pub struct FilesBlocked {
   pub paths: Vec<String>,
 }
-
-impl std::fmt::Display for FilesBlocked {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Uncommitted, staged or untracked files sit on paths the update writes: {}", self.paths.join(", "))
-  }
-}
-
-impl std::error::Error for FilesBlocked {}
 
 /// Let the files follow a move of `branch` from `head` to `new_head` that a crash interrupted before the files followed
 /// (the finish of a resolve session, `update_resolve`): the exact check of `changed` first, then the guarded update.

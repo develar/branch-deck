@@ -13,6 +13,7 @@ object-cache = { path = "../object-cache" }
 anyhow.workspace = true
 indexmap.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 specta = { workspace = true, optional = true }

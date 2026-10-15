@@ -209,23 +209,26 @@ impl std::fmt::Display for UndoToken {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RegroupError {
   /// The plan is malformed, or its result has a problem the plan introduced
-  InvalidPlan {
-    message: String,
-    commits: Vec<String>,
-  },
+  #[error("{message}")]
+  InvalidPlan { message: String, commits: Vec<String> },
   /// Ids that are not commits ahead of the baseline
-  NotAheadOfBaseline {
-    commits: Vec<String>,
-  },
+  #[error("Not commits ahead of the baseline: {}", .commits.join(", "))]
+  NotAheadOfBaseline { commits: Vec<String> },
+  #[error(transparent)]
   HeadMoved(HeadMoved),
   /// The issue groups changed since they were read
+  #[error(transparent)]
   GroupsMoved(IssueGroupsMoved),
+  #[error(transparent)]
   Locked(RepositoryLocked),
+  #[error("{0}")]
   OperationInProgress(String),
+  #[error("{0}")]
   DetachedHead(String),
+  #[error("{0:#}")]
   Other(anyhow::Error),
 }
 
@@ -242,21 +245,6 @@ impl RegroupError {
     }
   }
 }
-
-impl std::fmt::Display for RegroupError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      Self::InvalidPlan { message, .. } | Self::OperationInProgress(message) | Self::DetachedHead(message) => f.write_str(message),
-      Self::NotAheadOfBaseline { commits } => write!(f, "Not commits ahead of the baseline: {}", commits.join(", ")),
-      Self::HeadMoved(error) => error.fmt(f),
-      Self::GroupsMoved(error) => error.fmt(f),
-      Self::Locked(error) => error.fmt(f),
-      Self::Other(error) => write!(f, "{error:#}"),
-    }
-  }
-}
-
-impl std::error::Error for RegroupError {}
 
 impl From<anyhow::Error> for RegroupError {
   fn from(error: anyhow::Error) -> Self {

@@ -42,26 +42,18 @@ pub struct IssueGroupProblem {
 }
 
 /// The ref of the store moved since it was read: another regroup or `git update-ref` changed it
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("The issue groups ({ISSUE_GROUPS_REF}) moved: expected {}, found {}", short_or_nothing(.expected.as_deref()), short_or_nothing(.actual.as_deref()))]
 pub struct IssueGroupsMoved {
   /// `None`: the ref did not exist
   pub expected: Option<String>,
   pub actual: Option<String>,
 }
 
-impl std::fmt::Display for IssueGroupsMoved {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let show = |id: &Option<String>| id.as_deref().map_or_else(|| "nothing".to_string(), |id| id.get(..8).unwrap_or(id).to_string());
-    write!(
-      f,
-      "The issue groups ({ISSUE_GROUPS_REF}) moved: expected {}, found {}",
-      show(&self.expected),
-      show(&self.actual)
-    )
-  }
+/// The first 8 characters of an object id, or "nothing" for a ref that did not exist
+fn short_or_nothing(id: Option<&str>) -> String {
+  id.map_or_else(|| "nothing".to_string(), |id| id.get(..8).unwrap_or(id).to_string())
 }
-
-impl std::error::Error for IssueGroupsMoved {}
 
 /// The stack setting and the issue groups: what decides the groups besides the subjects. Two git processes
 #[instrument(skip(git_executor))]

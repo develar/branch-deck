@@ -26,18 +26,11 @@ use sync_types::landed::LandedBranch;
 use tracing::{instrument, warn};
 
 /// No resolve session for this worktree
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("No resolve session for the worktree {worktree}; `bd update` starts one when the update conflicts")]
 pub struct NoSession {
   pub worktree: String,
 }
-
-impl std::fmt::Display for NoSession {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "No resolve session for the worktree {}; `bd update` starts one when the update conflicts", self.worktree)
-  }
-}
-
-impl std::error::Error for NoSession {}
 
 /// The commit of the open round
 #[derive(Debug, Clone)]
