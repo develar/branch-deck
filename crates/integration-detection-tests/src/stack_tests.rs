@@ -85,10 +85,10 @@ async fn an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_or
     "{:?}",
     info.status
   );
-  // cached with the baseline it was checked against; its one own commit is all of its side, so `u` is implied
+  // cached with the baseline it was checked against and its one own commit, not its parent's
   let check = detection_note(&local_repo, &login).check.expect("a NotIntegrated note records its baseline");
   assert_eq!(check.baseline, local_repo.rev_parse("origin/master").unwrap());
-  assert_eq!(check.orphaned, None);
+  assert_eq!(check.orphaned, vec![login.clone()]);
 }
 
 /// Upstream takes auth's change and the update drops auth's commit, so only login's is left; syncs, checks that login

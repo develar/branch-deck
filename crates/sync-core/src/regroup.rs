@@ -106,8 +106,8 @@ pub struct RegroupOutcome {
   pub forest: Option<StackForest>,
   /// Problems of the result that already existed before it: reported, not refused. `(branch, problem)`
   pub kept_problems: Vec<(String, StackProblem)>,
-  /// With stacked branches on, the branches whose declared parent had commits before and has none afterwards: they are
-  /// blocked until it has commits again
+  /// With stacked branches on, the branches whose declared parent had commits before and has none afterwards: they stay
+  /// stacked on it and are built on the nearest ancestor with commits, or the baseline, until it has commits again
   pub orphaned_children: Vec<String>,
 }
 

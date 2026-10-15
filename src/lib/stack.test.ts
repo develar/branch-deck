@@ -12,7 +12,7 @@ const table: Record<string, StackBranchInfo> = {
 }
 
 function change(before: string, after: string, stacks = true) {
-  return describePrefixChange(before, after, "Saving", stacks, "origin/master", name => table[name])
+  return describePrefixChange(before, after, "Saving", stacks, "master", name => table[name])
 }
 
 describe("describePrefixChange", () => {

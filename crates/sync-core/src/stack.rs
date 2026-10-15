@@ -4,7 +4,7 @@
 
 use anyhow::{Result, anyhow};
 use branch_integration::cache::{CachedDetection, NOTES_REF, deserialize_from_cache};
-use branch_integration::detector::{PendingBranch, detect_pending_branches, resolve_baseline};
+use branch_integration::detector::{BaselineAncestry, CachePlan, PendingBranch, archived_within_retention, detect_pending_branches, resolve_baseline};
 use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, sanitize_branch_name, strip_branch_namespace};
@@ -359,11 +359,12 @@ pub fn read_only_detection(baseline_branch: &str) -> PendingDetection<'_> {
 
 /// How the declared ancestors without commits stand: `Unapplied` with an unapplied branch of that name, `Integrated`
 /// when its branch is integrated, else `Missing`. The branch is the virtual branch of that name, which this sync
-/// archives, else the newest archived one; it is integrated by its detection note, and a virtual branch without a note
-/// that holds for the current baseline (a `NotIntegrated` one checked against another baseline) is detected now
-/// (`detection`). An archived branch keeps its note: the archive step of the sync checks it again. `branch_refs` maps
-/// the full names of the branches under the prefix to their tips. At most one git process for the notes, only for
-/// ancestors with such a branch, plus the detection of a virtual branch without a usable note.
+/// archives, else the newest archived one; it is integrated by its detection note when that holds for the current
+/// baseline, else it is detected now (`detection`) by the rule of the archive step (`BaselineAncestry::plan`: a
+/// `NotIntegrated` note the baseline moved on from incrementally, a note without a usable baseline in full, the latter
+/// for an archived branch only within the retention period). `branch_refs` maps the full names of the branches under
+/// the prefix to their tips. At most one git process for the notes, only for ancestors with such a branch, plus the
+/// detection.
 pub fn empty_parent_states(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -400,19 +401,21 @@ pub fn empty_parent_states(
       newest_archived.insert(parent, (date, full_name, tip));
     }
   }
-  // the virtual branch is newer than any archived one of the name
-  let tips: HashMap<&str, &str> = newest_archived
+  // the virtual branch is newer than any archived one of the name. `(parent, full name, tip, within the retention
+  // period)`: a virtual branch always is, an archived one by its date
+  let candidates: Vec<(&str, &str, &str, bool)> = newest_archived
     .into_iter()
-    .map(|(parent, (_, _, tip))| (parent, tip))
-    .chain(pending.iter().map(|(parent, (_, tip))| (*parent, *tip)))
-    .filter(|(parent, _)| !states.contains_key(*parent))
+    .filter(|(parent, _)| !pending.contains_key(parent))
+    .map(|(parent, (date, full_name, tip))| (parent, full_name, tip, archived_within_retention(date)))
+    .chain(pending.iter().map(|(parent, (full_name, tip))| (*parent, *full_name, *tip, true)))
+    .filter(|(parent, ..)| !states.contains_key(*parent))
     .collect();
-  if tips.is_empty() {
+  if candidates.is_empty() {
     return Ok(states);
   }
 
-  let mut input = String::with_capacity(tips.len() * 41);
-  for tip in tips.values() {
+  let mut input = String::with_capacity(candidates.len() * 41);
+  for (_, _, tip, _) in &candidates {
     input.push_str(tip);
     input.push('\n');
   }
@@ -427,33 +430,30 @@ pub fn empty_parent_states(
     }
   }
 
-  let baseline = if pending.is_empty() {
-    String::new()
-  } else {
-    resolve_baseline(git_executor, repo_path, detection.baseline_branch)?
-  };
-  // a `NotIntegrated` result holds only for the baseline it was checked against
-  let holds = |cached: &CachedDetection| match &cached.info.status {
-    BranchIntegrationStatus::NotIntegrated { .. } => cached.check.as_ref().is_some_and(|check| check.baseline == baseline),
-    _ => true,
-  };
-  let undetected: Vec<PendingBranch<'_>> = pending
-    .values()
-    .filter_map(|(full_name, tip)| match noted.get(tip) {
-      Some((_, Some(cached))) if holds(cached) => None,
-      noted => Some(PendingBranch {
+  // a note holds, or the branch is detected now, by the rule of the archive step (`BaselineAncestry::plan`): a
+  // `NotIntegrated` note holds only for the baseline it was checked against
+  let baseline = resolve_baseline(git_executor, repo_path, detection.baseline_branch)?;
+  let mut ancestry = BaselineAncestry::new(git_executor, repo_path, &baseline);
+  let mut held: HashMap<&str, &BranchIntegrationStatus> = HashMap::new();
+  let mut undetected: Vec<PendingBranch<'_>> = Vec::new();
+  for (_, full_name, tip, within_retention) in &candidates {
+    let (subject, cached) = noted.get(tip).map_or(("", None), |(subject, cached)| (*subject, cached.as_ref()));
+    match ancestry.plan(cached, *within_retention) {
+      CachePlan::Holds(cached) => {
+        held.insert(tip, &cached.info.status);
+      }
+      CachePlan::Detect(previous) => undetected.push(PendingBranch {
         branch: full_name,
         tip,
-        subject: noted.map_or("", |(subject, _)| subject),
+        subject,
+        previous,
       }),
-    })
-    .collect();
+    }
+  }
   let detected = detect_pending_branches(git_executor, repo_path, &baseline, detection.strategy, &undetected, detection.cache)?;
 
-  for (parent, tip) in tips {
-    let status = detected
-      .get(tip)
-      .or_else(|| noted.get(tip).and_then(|(_, cached)| cached.as_ref()).map(|cached| &cached.info.status));
+  for (parent, _, tip, _) in candidates {
+    let status = detected.get(tip).or_else(|| held.get(tip).copied());
     if matches!(status, Some(BranchIntegrationStatus::Integrated { .. })) {
       states.insert(parent.to_string(), ParentState::Integrated);
     }

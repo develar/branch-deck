@@ -296,7 +296,7 @@ fn not_integrated(total_commit_count: u32, orphaned_count: u32) -> BranchIntegra
 fn a_not_integrated_note_records_its_baseline_and_orphaned_commits() {
   let check = Recheck {
     baseline: "b".repeat(40),
-    orphaned: Some(vec!["1".repeat(40)]),
+    orphaned: vec!["1".repeat(40)],
   };
   let json = serialize_for_cache(&not_integrated(2, 1), Some(&check)).unwrap();
   assert!(json.contains(&format!(r#""b":"{}""#, "b".repeat(40))), "{json}");
@@ -305,13 +305,13 @@ fn a_not_integrated_note_records_its_baseline_and_orphaned_commits() {
   assert_eq!(parsed.check, Some(check));
   assert!(matches!(parsed.info.status, BranchIntegrationStatus::NotIntegrated { orphaned_count: 1, .. }));
 
-  // nothing integrated yet: the orphaned commits are the whole branch side, not listed
+  // nothing integrated yet: the orphaned commits are listed all the same, so a recheck compares exactly these
   let check = Recheck {
     baseline: "b".repeat(40),
-    orphaned: None,
+    orphaned: vec!["1".repeat(40), "2".repeat(40)],
   };
   let json = serialize_for_cache(&not_integrated(2, 2), Some(&check)).unwrap();
-  assert!(!json.contains(r#""u":"#), "{json}");
+  assert!(json.contains(&format!(r#""u":["{}","{}"]"#, "1".repeat(40), "2".repeat(40))), "{json}");
   assert_eq!(deserialize_from_cache(&json).unwrap().check, Some(check));
 }
 
@@ -320,7 +320,7 @@ fn a_not_integrated_note_records_its_baseline_and_orphaned_commits() {
 fn a_final_result_records_no_baseline() {
   let check = Recheck {
     baseline: "b".repeat(40),
-    orphaned: None,
+    orphaned: Vec::new(),
   };
   let info = BranchIntegrationInfo {
     name: "test-branch".to_string(),
@@ -332,7 +332,8 @@ fn a_final_result_records_no_baseline() {
   assert_eq!(deserialize_from_cache(&json).unwrap().check, None);
 }
 
-/// A note of version 1 parses without a baseline, as does one with an unreadable `u`, so both are detected again
+/// A note of version 1 parses without a baseline, as does one with an unreadable or missing `u`, so all are detected
+/// again
 #[test]
 fn a_version_1_note_has_no_check_data() {
   let parsed = deserialize_from_cache(r#"{"v":1,"s":{"k":"n","tc":2,"oc":2}}"#).unwrap();
@@ -346,5 +347,7 @@ fn a_version_1_note_has_no_check_data() {
     }
   ));
   let parsed = deserialize_from_cache(r#"{"v":2,"s":{"k":"n","tc":2,"oc":1,"b":"abc","u":[1]}}"#).unwrap();
+  assert_eq!(parsed.check, None);
+  let parsed = deserialize_from_cache(r#"{"v":2,"s":{"k":"n","tc":2,"oc":2,"b":"abc"}}"#).unwrap();
   assert_eq!(parsed.check, None);
 }

@@ -82,7 +82,8 @@ pub struct MoveCommitsResult {
   pub target: Option<String>,
   /// HEAD afterwards
   pub head: String,
-  /// With stacked branches on, the branches whose parent the operation emptied: blocked until it has commits again
+  /// With stacked branches on, the branches whose parent the operation emptied: they stay stacked on it and are built on
+  /// the nearest ancestor with commits, or the baseline, until it has commits again
   pub orphaned_children: Vec<String>,
   /// What `undo_regroup` moves back; `None` for a dry run and when nothing changed
   #[cfg_attr(feature = "specta", specta(optional))]

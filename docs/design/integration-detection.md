@@ -75,10 +75,14 @@ flowchart TB
    - `Integrated` or `Partial`, or `NotIntegrated` with `b` equal to the baseline: reported from the note;
    - `NotIntegrated` with a `b` the baseline descends from (`merge-base --is-ancestor`, one process per distinct `b`):
      the incremental recheck (`rebase::recheck_rebase_status`). The scan keeps the branch side as it is and shrinks
-     the baseline side to the new commits: a commit still orphaned is one of `u` (all of the branch side when `u` is
-     omitted) marked `>` again; one that left the branch side is reachable from the baseline now. None left:
-     `Integrated` with the commit count of the note; else `NotIntegrated` with the new counts and the newer of the
-     integration times. Merge and squash checks run as for a fresh detection;
+     the baseline side to the new commits: a commit still orphaned is one of `u` marked `>` again; other commits of
+     the branch side (integrated before, or a parent's once the stack base of an archived child is gone) are left
+     alone; one that left the branch side is reachable from the baseline now. None left: `Integrated` with the
+     commit count of the note and the newest equivalent since the last check as the commit, or the tip itself when
+     the commits left the branch side (a fast-forward: the tip is the baseline commit that brought the branch in);
+     else `NotIntegrated` with the new counts and the newer of the integration times. The merge check runs as for
+     a fresh detection; the squash check compares the whole branch with the baseline, so a recheck runs it only
+     for a branch archived within the retention period;
    - `NotIntegrated` without `b` (written by version 1, before the baseline was recorded) or with a `b` the baseline
      doesn't descend from (rewound, renamed, a commit gone in a gc): detected in full once, but only within the
      retention period of the archive (`retention_days`, `ARCHIVE_RETENTION_DAYS` by default, against the date in its name). An older such note is
@@ -155,14 +159,17 @@ flowchart TB
 - **Cache Management**:
   - Stored at branch tip SHA, auto-invalidates on new commits
   - Versioned format (`"v": 2`): `{"v":2,"s":{"k":"n","tc":2,"ic":1,"oc":1,"ia":1760000000,"b":"<baseline id>","u":["<id>"]},"sum":"…"}`.
-    `b` and `u` are written only for `NotIntegrated`; `u` is omitted while nothing is integrated (`oc == tc`), when it
-    is the whole branch side. `CachedDetection { info, check: Option<Recheck { baseline, orphaned }> }` is what a note
-    parses to (`check` is `None` for a final result and for a note without `b`); `BranchIntegrationStatus`, sent to
-    the UI, has neither field
+    `b` and `u` are written only for `NotIntegrated`, always both: `u` lists exactly the commits a recheck compares, so
+    the branch side may grow (the parent's commits of an archived child whose stack base was pruned) without them ever
+    counting as orphaned. `CachedDetection { info, check: Option<Recheck { baseline, orphaned }> }` is what a note
+    parses to (`check` is `None` for a final result and for a note without `b` or `u`); `BranchIntegrationStatus`,
+    sent to the UI, has neither field
   - Compact encoding with field omission for defaults
-  - `empty_parent_states` (stacked branches) treats a `NotIntegrated` note on a virtual tip whose `b` isn't the current
-    baseline as no note and detects the branch in full before the placement (a virtual branch's merge base is recent,
-    so that is cheap); an archived tip keeps its note, the archive step of the same sync checks it again
+  - `empty_parent_states` (stacked branches) applies the same rule (`BaselineAncestry::plan`) to the virtual or newest
+    archived branch of a parent without commits before the placement: a note that holds labels the parent, a
+    `NotIntegrated` note the baseline moved on from is rechecked incrementally, a note without a usable `b` is detected
+    in full (an archived parent only within the retention period). So the parent is "landed" on the first sync after
+    its merge, and in `bd status`, which writes no notes
 
 - **Performance Optimizations**:
   - Batch fetch all branch data (tips and subjects in one `for-each-ref`, notes in one `log --no-walk --stdin`)

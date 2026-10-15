@@ -697,7 +697,10 @@ export type MoveCommitsResult = {
 	target?: string | null,
 	/**  HEAD afterwards */
 	head: string,
-	/**  With stacked branches on, the branches whose parent the operation emptied: blocked until it has commits again */
+	/**
+	 *  With stacked branches on, the branches whose parent the operation emptied: they stay stacked on it and are built on
+	 *  the nearest ancestor with commits, or the baseline, until it has commits again
+	 */
 	orphanedChildren: string[],
 	/**  What `undo_regroup` moves back; `None` for a dry run and when nothing changed */
 	undoToken?: string | null,

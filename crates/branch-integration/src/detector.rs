@@ -1,3 +1,4 @@
+use super::archive::ARCHIVE_RETENTION_DAYS;
 use super::cache::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF};
 use super::{common, merge, rebase, squash, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
@@ -32,26 +33,82 @@ struct DetectionJob {
   /// The cached `NotIntegrated` result and its baseline, an ancestor of the current one: only the baseline commits since
   /// then are compared; `None` for a full detection
   previous: Option<(BranchIntegrationStatus, Recheck)>,
+  /// The branch was archived within the retention period (a virtual branch always is): the slow checks of a recheck,
+  /// the squash fallback, run only for such a branch
+  within_retention: bool,
 }
 
-impl DetectionJob {
-  fn new(branch: String, tip: String, is_merged: bool, previous: Option<(BranchIntegrationStatus, Recheck)>) -> Self {
+/// What to do with the cached result of a tip for the current baseline
+pub enum CachePlan<'a> {
+  /// The cached result still holds
+  Holds(&'a CachedDetection),
+  /// Detect it, incrementally with the cached `NotIntegrated` result and its baseline, or in full with `None`
+  Detect(Option<(BranchIntegrationStatus, Recheck)>),
+}
+
+/// Whether the baseline moved on from the baselines recorded in `NotIntegrated` notes: one `merge-base --is-ancestor`
+/// per distinct recorded baseline
+pub struct BaselineAncestry<'a> {
+  git: &'a GitCommandExecutor,
+  repo: &'a str,
+  baseline: &'a str,
+  known: HashMap<String, bool>,
+}
+
+impl<'a> BaselineAncestry<'a> {
+  /// `baseline` is a commit id (`resolve_baseline`)
+  pub fn new(git: &'a GitCommandExecutor, repo: &'a str, baseline: &'a str) -> Self {
     Self {
-      branches: vec![branch],
-      tip,
-      is_merged,
-      stack_base: None,
-      previous,
+      git,
+      repo,
+      baseline,
+      known: HashMap::new(),
+    }
+  }
+
+  /// Whether the baseline descends from `since`, so a recheck against the commits since then is complete
+  fn moved_on_from(&mut self, since: &str) -> bool {
+    if !self.known.contains_key(since) {
+      let descends = is_ancestor(self.git, self.repo, since, self.baseline);
+      self.known.insert(since.to_string(), descends);
+    }
+    self.known[since]
+  }
+
+  /// What to do with the note `cached` of a tip. An `Integrated` or `Partial` result holds. A `NotIntegrated` one holds
+  /// for the baseline it was checked against, is checked again incrementally when the baseline moved on from it, and
+  /// otherwise (a note of version 1, a rewound or renamed baseline, one gone in a gc) is detected in full once, but only
+  /// `within_retention`, because a full scan of an old archive is slow; an older such note holds as it is.
+  pub fn plan<'c>(&mut self, cached: Option<&'c CachedDetection>, within_retention: bool) -> CachePlan<'c> {
+    let Some(cached) = cached else {
+      return CachePlan::Detect(None);
+    };
+    match (&cached.info.status, &cached.check) {
+      (BranchIntegrationStatus::NotIntegrated { .. }, Some(check)) if check.baseline == self.baseline => CachePlan::Holds(cached),
+      (BranchIntegrationStatus::NotIntegrated { .. }, Some(check)) if self.moved_on_from(&check.baseline) => CachePlan::Detect(Some((cached.info.status.clone(), check.clone()))),
+      (BranchIntegrationStatus::NotIntegrated { .. }, _) if within_retention => CachePlan::Detect(None),
+      _ => CachePlan::Holds(cached),
     }
   }
 }
 
-/// What step 4 does with the tip of an archived branch
-enum Next<'a> {
-  /// The cached result still holds
-  Report(&'a CachedDetection),
-  /// Detect it, incrementally with the cached `NotIntegrated` result and its baseline
-  Detect(Option<(BranchIntegrationStatus, Recheck)>),
+/// Whether a branch archived on `date` (`YYYY-MM-DD` of `<prefix>/archived/<date>/<name>`) is within the archive
+/// retention period (`ARCHIVE_RETENTION_DAYS`)
+pub fn archived_within_retention(date: &str) -> bool {
+  let Some(archived) = archive_day(date) else {
+    return false;
+  };
+  let retention = chrono::Duration::try_days(i64::try_from(ARCHIVE_RETENTION_DAYS).unwrap_or(i64::MAX));
+  let cutoff = retention
+    .and_then(|retention| chrono::Utc::now().checked_sub_signed(retention))
+    .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC);
+  archived >= cutoff
+}
+
+/// The start of the day `YYYY-MM-DD`
+fn archive_day(date: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+  let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
+  date.and_hms_opt(0, 0, 0)?.and_local_timezone(chrono::Utc).single()
 }
 
 /// The commit `baseline` names now: detection compares with it and records it in a `NotIntegrated` note, so the scanned
@@ -75,9 +132,7 @@ fn is_ancestor(git: &GitCommandExecutor, repo: &str, ancestor: &str, baseline: &
 
 /// The day an archived branch was archived, from `<prefix>/archived/YYYY-MM-DD/<name>`
 fn archive_date(branch: &str, archive_prefix: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-  let date_part = branch.strip_prefix(archive_prefix)?.split('/').next()?;
-  let date = chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()?;
-  date.and_hms_opt(0, 0, 0)?.and_local_timezone(chrono::Utc).single()
+  archive_day(branch.strip_prefix(archive_prefix)?.split('/').next()?)
 }
 
 /// The stack bases of the tips that have a stack note and whose base still exists: one `log` for the notes and one
@@ -288,50 +343,38 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
     HashSet::new()
   };
 
-  // Step 4: Report the results that still hold; queue the rest, one job per tip
-  let mut jobs: IndexMap<String, DetectionJob> = IndexMap::new();
-  // the baseline of a note -> whether the current baseline descends from it, one process per distinct baseline
-  let mut moved_on_from: HashMap<String, bool> = HashMap::new();
-  let mut moved_on = |since: &str| {
-    *moved_on_from
-      .entry(since.to_string())
-      .or_insert_with(|| is_ancestor(git_executor, repo_path, since, &baseline))
-  };
+  // Step 4: Report the results that still hold; queue the rest, one job per tip (two archived names can share one)
+  let mut names_by_tip: IndexMap<String, Vec<String>> = IndexMap::new();
   for branch in all_archived_branches {
     let Some(tip) = all_branch_commits.remove(&branch) else {
       warn!(branch = %branch, "Could not resolve branch tip");
       continue;
     };
-    let is_merged = merged_branches.contains(&branch);
-    if let Some(job) = jobs.get_mut(&tip) {
-      job.branches.push(branch);
-      job.is_merged |= is_merged;
-      continue;
-    }
-    let within_retention = archive_date(&branch, &archive_prefix).is_some_and(|date| date >= cutoff_date);
-    let next = match branch_notes.get(&tip) {
-      None => Next::Detect(None),
-      Some(cached) => match (&cached.info.status, &cached.check) {
-        (BranchIntegrationStatus::NotIntegrated { .. }, Some(check)) if check.baseline == baseline => Next::Report(cached),
-        (BranchIntegrationStatus::NotIntegrated { .. }, Some(check)) if moved_on(&check.baseline) => Next::Detect(Some((cached.info.status.clone(), check.clone()))),
-        // a note without a baseline (version 1), or a rewound or renamed baseline, or one gone in a gc: detected in full
-        // once, but only within the retention period, because a full scan of an old archive is slow
-        (BranchIntegrationStatus::NotIntegrated { .. }, _) if within_retention => Next::Detect(None),
-        _ => Next::Report(cached),
-      },
-    };
-    match next {
-      Next::Report(cached) => {
-        let mut info = cached.info.clone();
-        info.name = branch;
-        config.progress.send(SyncEvent::BranchIntegrationDetected { info })?;
+    names_by_tip.entry(tip).or_default().push(branch);
+  }
+  let mut ancestry = BaselineAncestry::new(git_executor, repo_path, &baseline);
+  let mut jobs: Vec<DetectionJob> = Vec::new();
+  for (tip, branches) in names_by_tip {
+    // one name within the retention period is enough: the names of one tip get one result
+    let within_retention = branches.iter().any(|branch| archive_date(branch, &archive_prefix).is_some_and(|date| date >= cutoff_date));
+    match ancestry.plan(branch_notes.get(&tip), within_retention) {
+      CachePlan::Holds(cached) => {
+        for branch in branches {
+          let mut info = cached.info.clone();
+          info.name = branch;
+          config.progress.send(SyncEvent::BranchIntegrationDetected { info })?;
+        }
       }
-      Next::Detect(previous) => {
-        jobs.insert(tip.clone(), DetectionJob::new(branch, tip, is_merged, previous));
-      }
+      CachePlan::Detect(previous) => jobs.push(DetectionJob {
+        is_merged: branches.iter().any(|branch| merged_branches.contains(branch)),
+        branches,
+        tip,
+        stack_base: None,
+        previous,
+        within_retention,
+      }),
     }
   }
-  let mut jobs: Vec<DetectionJob> = jobs.into_values().collect();
   if !jobs.is_empty() {
     let tips: Vec<&str> = jobs.iter().map(|job| job.tip.as_str()).collect();
     let mut stack_bases = read_stack_bases(git_executor, repo_path, &tips);
@@ -346,20 +389,23 @@ pub fn detect_integrated_branches(git_executor: &GitCommandExecutor, repo_path: 
   write_caches(git_executor, repo_path, detected)
 }
 
-/// A branch to detect before a sync archives it: the virtual branch of a stacked parent whose commits left HEAD
+/// A branch of a stacked parent without commits to detect before the branches are placed: its virtual branch, which
+/// the sync archives right after, or its newest archived branch
 pub struct PendingBranch<'a> {
   /// The branch name without `refs/heads/`
   pub branch: &'a str,
   pub tip: &'a str,
   /// The subject of the tip, for the summary of an issue-named branch
   pub subject: &'a str,
+  /// The cached `NotIntegrated` result the baseline moved on from (`CachePlan::Detect`); `None` for a full detection
+  pub previous: Option<(BranchIntegrationStatus, Recheck)>,
 }
 
-/// Detect `branches` now, in full, as the archiving of the sync would right after: a stacked branch is labelled by
-/// whether its parent is integrated, before the parent is archived (spec/branch/stacked-branches.spec.md). Sends no
-/// events. `baseline` is a commit id (`resolve_baseline`), recorded in a `NotIntegrated` note. With `cache`, the results
-/// are written as detection notes, so the archived branch is reported from its note; without, nothing is written.
-/// Returns the status per tip; a branch whose detection fails is left out.
+/// Detect `branches` now, as the archive step of the sync would: a stacked branch is labelled by whether its parent is
+/// integrated, before the parent is archived (spec/branch/stacked-branches.spec.md). Sends no events. `baseline` is a
+/// commit id (`resolve_baseline`), recorded in a `NotIntegrated` note. With `cache`, the results are written as
+/// detection notes, so the archived branch is reported from its note; without, nothing is written. Returns the status
+/// per tip; a branch whose detection fails is left out.
 #[instrument(skip(git, branches), fields(count = branches.len()))]
 pub fn detect_pending_branches(
   git: &GitCommandExecutor,
@@ -385,8 +431,13 @@ pub fn detect_pending_branches(
   let jobs = branches
     .iter()
     .map(|branch| DetectionJob {
+      branches: vec![branch.branch.to_string()],
+      tip: branch.tip.to_string(),
+      is_merged: merged.contains(branch.branch),
       stack_base: stack_bases.remove(branch.tip),
-      ..DetectionJob::new(branch.branch.to_string(), branch.tip.to_string(), merged.contains(branch.branch), None)
+      previous: branch.previous.clone(),
+      // a virtual branch is current, and an archived parent is detected only within the retention period
+      within_retention: true,
     })
     .collect();
   let subjects: HashMap<String, String> = branches.iter().map(|branch| (branch.tip.to_string(), branch.subject.to_string())).collect();
@@ -496,8 +547,12 @@ fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, b
     Some((previous, check)) => rebase::recheck_rebase_status(git, repo, branch_name, baseline, stack_base, previous, check)?,
   };
 
-  // 3) Squash detection fallback for branches with no integrated commits
-  if matches!(status, BranchIntegrationStatus::NotIntegrated { integrated_count: 0, .. }) && (strategy == DetectionStrategy::Squash || strategy == DetectionStrategy::All) {
+  // 3) Squash detection fallback for branches with no integrated commits. It compares the whole branch with the baseline,
+  //    so a recheck runs it only for a branch archived within the retention period
+  if matches!(status, BranchIntegrationStatus::NotIntegrated { integrated_count: 0, .. })
+    && (strategy == DetectionStrategy::Squash || strategy == DetectionStrategy::All)
+    && (job.previous.is_none() || job.within_retention)
+  {
     let right_count = orphaned.len();
     if let Some(squash_integrated) = squash::detect_squash_status(git, repo, branch_name, baseline, stack_base, right_count)? {
       status = squash_integrated;
@@ -505,14 +560,9 @@ fn perform_detection(git: &GitCommandExecutor, repo: &str, job: &DetectionJob, b
   }
 
   let check = match &status {
-    BranchIntegrationStatus::NotIntegrated {
-      total_commit_count,
-      orphaned_count,
-      ..
-    } => Some(Recheck {
+    BranchIntegrationStatus::NotIntegrated { .. } => Some(Recheck {
       baseline: baseline.to_string(),
-      // nothing integrated yet: implicitly the whole branch side
-      orphaned: (orphaned_count != total_commit_count).then_some(orphaned),
+      orphaned,
     }),
     _ => None,
   };

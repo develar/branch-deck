@@ -1,5 +1,5 @@
 use crate::cache::Recheck;
-use crate::common::{UPSTREAM_COMMIT_FORMAT, parse_upstream_commit};
+use crate::common::{UPSTREAM_COMMIT_FORMAT, oldest_logged_commit, parse_upstream_commit};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
@@ -63,6 +63,12 @@ fn find_integration_commit(git: &GitCommandExecutor, repo: &str, baseline: &str,
   lines.iter().find_map(|line| line.strip_prefix('=').and_then(parse_upstream_commit))
 }
 
+/// The tip of a branch whose branch side is empty: the tip itself is reachable from the baseline (the branch was
+/// fast-forwarded or merged in), so it is the baseline commit that brought the branch in
+fn tip_commit(git: &GitCommandExecutor, repo: &str, branch_name: &str) -> Option<UpstreamCommit> {
+  oldest_logged_commit(git, repo, &["-1", branch_name])
+}
+
 /// Detect integration via rebase/cherry-pick using single-pass marker scan counts
 pub fn detect_rebase_status_with_marks(
   git: &GitCommandExecutor,
@@ -80,7 +86,7 @@ pub fn detect_rebase_status_with_marks(
     let commit = if integrated_right > 0 {
       find_integration_commit(git, repo, baseline, branch_name, stack_base, None)
     } else {
-      None
+      tip_commit(git, repo, branch_name)
     };
     info!(name = %branch_name, method = "cherry-pick", "Branch fully integrated");
     return Ok(BranchIntegrationStatus::Integrated {
@@ -115,8 +121,9 @@ pub fn detect_rebase_status_with_marks(
 }
 
 /// Checks a `NotIntegrated` result again, against the baseline commits since `check.baseline` only (an ancestor of
-/// `baseline`): a commit still orphaned is one of `check.orphaned` (all of the branch side when `None`) without an
-/// equivalent among them. Returns the status and the commits still orphaned, newest first.
+/// `baseline`): a commit still orphaned is one of `check.orphaned` without an equivalent among them. Other commits of
+/// the branch side (integrated before, or a parent's once the stack base is gone) are left alone. Returns the status
+/// and the commits still orphaned, newest first.
 pub fn recheck_rebase_status(
   git: &GitCommandExecutor,
   repo: &str,
@@ -138,18 +145,14 @@ pub fn recheck_rebase_status(
   let since = Some(check.baseline.as_str());
   let marks = scan_right_side_marks(git, repo, baseline, branch_name, stack_base, since)?;
   // a commit that left the branch side is reachable from the baseline now (merged): integrated
-  let orphaned: Vec<String> = match &check.orphaned {
-    None => marks.orphaned,
-    Some(before) => {
-      let unmatched: HashSet<&str> = marks.orphaned.iter().map(String::as_str).collect();
-      before.iter().filter(|id| unmatched.contains(id.as_str())).cloned().collect()
-    }
-  };
+  let unmatched: HashSet<&str> = marks.orphaned.iter().map(String::as_str).collect();
+  let orphaned: Vec<String> = check.orphaned.iter().filter(|id| unmatched.contains(id.as_str())).cloned().collect();
   let orphaned_count = u32::try_from(orphaned.len()).unwrap_or(u32::MAX);
   let total = previous_total.max(orphaned_count);
   let newly_integrated = orphaned_count < previous_orphaned;
+  // the newest equivalent since the last check; without one, the commits left the branch side: the tip is in the baseline
   let commit = if newly_integrated {
-    find_integration_commit(git, repo, baseline, branch_name, stack_base, since)
+    find_integration_commit(git, repo, baseline, branch_name, stack_base, since).or_else(|| orphaned.is_empty().then(|| tip_commit(git, repo, branch_name)).flatten())
   } else {
     None
   };

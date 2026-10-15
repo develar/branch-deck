@@ -7,16 +7,18 @@ import type { Branch } from "@/stores/branch-sync"
 import { useBranch } from "@/stores/branch-sync"
 
 /**
- * "on auth" for a stacked branch, where the tree of the branch table isn't visible: the branch it is built on, or "on
- * master" when its declared parent has no commits; nothing for a root
+ * "on auth" for a stacked branch, where the tree of the branch table isn't visible: the branch it is built on, "on
+ * master" when its declared parent has no commits, and the declared parent of a branch that isn't built (blocked, or
+ * with a stack problem); nothing for a root
  */
 export function StackBaseLabel({ name, className }: { name: string, className?: string }) {
   const stack = useBranch(name)?.stack
   const baseline = useBaselineOnRemote()
-  if (stack == null || (stack.effectiveBase === null && stack.declaredParent === null)) {
+  const base = stack?.effectiveBase ?? (stack?.prBaseChanged === true ? baseline : stack?.declaredParent ?? null)
+  if (base === null) {
     return null
   }
-  return <span className={cn("shrink-0 text-xs text-muted-foreground", className)} data-testid="stack-base">{`on ${stack.effectiveBase ?? baseline}`}</span>
+  return <span className={cn("shrink-0 text-xs text-muted-foreground", className)} data-testid="stack-base">{`on ${base}`}</span>
 }
 
 /**

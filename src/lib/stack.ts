@@ -33,16 +33,16 @@ export interface PrefixChange {
 
 /**
  * What saving `after` instead of `before` does to the commit's place: same branch, another branch, another parent.
- * With `stacks`, it also warns about a parent that has no commits (the branch is built on `baselineBranch` then, likely a
- * typo) and about a parent that differs from the one the other commits of the branch declare. `branchOf` looks a branch
- * up in the branch table; `issueGroups` are the issue groups of the last grouping.
+ * With `stacks`, it also warns about a parent that has no commits (the branch is built on `baseline` then, the baseline
+ * as the remote names it, likely a typo) and about a parent that differs from the one the other commits of the branch
+ * declare. `branchOf` looks a branch up in the branch table; `issueGroups` are the issue groups of the last grouping.
  */
 export function describePrefixChange(
   before: string,
   after: string,
   action: string,
   stacks: boolean,
-  baselineBranch: string,
+  baseline: string,
   branchOf: (name: string) => StackBranchInfo | undefined,
   issueGroups: Readonly<Record<string, string>> = {},
 ): PrefixChange {
@@ -68,7 +68,7 @@ export function describePrefixChange(
     return { text: `The other commits of ${to.branch} ${declared === null ? "declare no parent" : `declare ${declared}`}: its parents would conflict`, warning: true }
   }
   if (stacks && parent !== null && branchOf(parent) === undefined) {
-    return { text: `${parent} has no commits: ${to.branch} is built on ${baselineOnRemote(baselineBranch)} until it has`, warning: true }
+    return { text: `${parent} has no commits: ${to.branch} is built on ${baseline} until it has`, warning: true }
   }
   const onParent = stacks && parent !== null ? ` on ${parent}` : ""
   if (sameBranch) {

@@ -113,13 +113,15 @@ renames branches.
   archived branch; a detection note says whether it is integrated. The state is a label (the row, `bd status`); the
   placement doesn't depend on it.
   [@test] ../../crates/sync-core/src/stack_test.rs (`reads_the_state_of_parents_without_commits_from_their_branches`)
-- A virtual branch of a parent without commits must be detected before the branches are placed when it has no note,
-  or a `NotIntegrated` note checked against another baseline, so the first sync after the parent's merge already labels
-  the parent landed. The sync writes the note, and its archiving reports the parent from it; `bd status` and
+- The branch of a parent without commits (its virtual branch, else its newest archived one) must be detected before the
+  branches are placed by the rule of the archive step: when it has no note, a `NotIntegrated` note the baseline moved on
+  from (incrementally), or a note without a usable baseline (in full; an archived branch only within the retention
+  period), so the first sync after the parent's merge already labels the parent landed, also when the parent was
+  archived a sync before. The sync writes the note, and its archiving reports the parent from it; `bd status` and
   `bd check` detect without writing.
   [@test] ../../crates/sync-core/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
-  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`)
+  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
   [@test] ../../crates/bd-cli/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
 - A parent without commits, whatever its state, must move the child to its nearest active ancestor, or the baseline,
   with `prBaseChanged`: the local history is linear on the baseline, so the child's commits can be picked there like
@@ -157,7 +159,7 @@ renames branches.
   checked against and the commits without an equivalent, and is checked again against the baseline commits since then
   when the baseline moves ([Integration Detection](../../docs/design/integration-detection.md)).
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_orphaned_commits`)
-  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`)
+  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`, `a_fast_forwarded_branch_names_its_tip_as_the_integration_commit`)
   [@test] ../../crates/integration-detection-tests/src/cache_tests.rs (`a_not_integrated_note_records_its_baseline_and_orphaned_commits`, `a_final_result_records_no_baseline`, `a_version_1_note_has_no_check_data`)
 
 ### Pull requests

@@ -7,6 +7,7 @@ use super::test_helpers::{detected_branch_info, detection_note, setup_test_repos
 use branch_integration::cache::{CacheOps, CachedDetection, Recheck};
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
+use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
 use sync_test_utils::TestReporter;
@@ -48,6 +49,23 @@ fn write_not_integrated(repo: &TestRepo, tip: &str, total: u32, orphaned: u32, c
     check,
   };
   CacheOps::new(repo.git_executor(), path(repo)).write(tip, &detection).unwrap();
+}
+
+/// Writes the `NotIntegrated` note of a one-commit branch at `tip`, checked against `baseline` with the tip orphaned
+fn write_checked_against(repo: &TestRepo, tip: &str, baseline: &str) {
+  let check = Recheck {
+    baseline: baseline.to_string(),
+    orphaned: vec![tip.to_string()],
+  };
+  write_not_integrated(repo, tip, 1, 1, Some(check));
+}
+
+/// The parent `auth` of a stacked clone has a `NotIntegrated` note checked against the current baseline; then upstream
+/// takes it: the baseline moved on from the note, so the parent is checked again before the placement and is landed
+async fn stale_parent_lands(upstream_repo: &TestRepo, local_repo: &TestRepo, git_executor: &GitCommandExecutor, auth: &str) {
+  write_checked_against(local_repo, auth, &local_repo.rev_parse("origin/master").unwrap());
+  land_auth_and_sync_login(upstream_repo, local_repo, git_executor).await;
+  assert!(matches!(detection_note(local_repo, auth).info.status, BranchIntegrationStatus::Integrated { .. }));
 }
 
 /// Detects the archived branches against `origin/master` as a sync does; returns the events and the cherry-mark scans
@@ -112,15 +130,70 @@ async fn a_not_integrated_note_is_rechecked_when_the_baseline_moves() {
 async fn a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent() {
   let (upstream_repo, local_repo, git_executor) = setup_test_repos();
   let (auth, _) = stacked_clone(&local_repo, &git_executor).await;
-  let check = Recheck {
-    baseline: local_repo.rev_parse("origin/master").unwrap(),
-    orphaned: None,
-  };
-  write_not_integrated(&local_repo, &auth, 1, 1, Some(check));
 
-  // the stale note counts as none: the parent is detected again before the placement
-  land_auth_and_sync_login(&upstream_repo, &local_repo, &git_executor).await;
-  assert!(matches!(detection_note(&local_repo, &auth).info.status, BranchIntegrationStatus::Integrated { .. }));
+  stale_parent_lands(&upstream_repo, &local_repo, &git_executor, &auth).await;
+}
+
+/// The parent was archived a sync ago, with a note that is stale now: the archived branch is checked again before the
+/// placement too, so the parent is "landed" on the first sync after its merge, also in `bd status`
+#[test(tokio::test)]
+async fn a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent() {
+  let (upstream_repo, local_repo, git_executor) = setup_test_repos();
+  let (auth, _) = stacked_clone(&local_repo, &git_executor).await;
+  let archived = archive_name(0, "auth");
+  local_repo.create_branch_at(&archived, &auth).unwrap();
+  local_repo
+    .git_executor()
+    .execute_command(&["update-ref", "-d", "refs/heads/user/virtual/auth"], path(&local_repo))
+    .unwrap();
+
+  stale_parent_lands(&upstream_repo, &local_repo, &git_executor, &auth).await;
+}
+
+/// A branch fast-forwarded into the baseline has no equivalent commit, its commits are the baseline's: the tip is the
+/// commit that brought it in
+#[test]
+fn a_fast_forwarded_branch_names_its_tip_as_the_integration_commit() {
+  let (_upstream_repo, local_repo, _) = setup_test_repos();
+  let base = local_repo.head();
+  let tip = local_repo.create_commit("Add feature", "feature.rs", "// feature");
+  let archived = archive_name(0, "feature");
+  local_repo.create_branch_at(&archived, &tip).unwrap();
+  local_repo.reset_hard(&base).unwrap();
+  write_checked_against(&local_repo, &tip, &base);
+  // the baseline takes the very commit
+  local_repo
+    .git_executor()
+    .execute_command(&["update-ref", "refs/remotes/origin/master", &tip], path(&local_repo))
+    .unwrap();
+
+  let (events, _) = detect(&local_repo);
+
+  let integrated = status(&events, &archived);
+  let BranchIntegrationStatus::Integrated {
+    commit_count: 1,
+    commit: Some(commit),
+    ..
+  } = integrated
+  else {
+    panic!("{integrated:?}");
+  };
+  assert_eq!(commit.id, tip);
+
+  // a full detection of such a branch names the tip too
+  let other = local_repo.create_commit("Add other", "other.rs", "// other");
+  let archived_other = archive_name(0, "other");
+  local_repo.create_branch_at(&archived_other, &other).unwrap();
+  local_repo
+    .git_executor()
+    .execute_command(&["update-ref", "refs/remotes/origin/master", &other], path(&local_repo))
+    .unwrap();
+  let (events, _) = detect(&local_repo);
+  let integrated = status(&events, &archived_other);
+  let BranchIntegrationStatus::Integrated { commit: Some(commit), .. } = integrated else {
+    panic!("{integrated:?}");
+  };
+  assert_eq!(commit.id, other);
 }
 
 #[test(tokio::test)]
@@ -136,8 +209,9 @@ async fn partial_integration_is_tracked_incrementally() {
 
   let events = sync().await;
   assert!(matches!(status(&events, &archived), BranchIntegrationStatus::NotIntegrated { orphaned_count: 2, .. }));
-  // nothing integrated yet: the orphaned commits are the whole branch side, not listed
-  assert_eq!(detection_note(&local_repo, &tip).check.unwrap().orphaned, None);
+  // both commits of the branch side are listed, newest first
+  let one = local_repo.rev_parse(&format!("{tip}^")).unwrap();
+  assert_eq!(detection_note(&local_repo, &tip).check.unwrap().orphaned, vec![tip.clone(), one]);
 
   upstream_repo.create_commit("Add one", "one.rs", "// one");
   local_repo.fetch_prune("origin").unwrap();
@@ -156,7 +230,7 @@ async fn partial_integration_is_tracked_incrementally() {
     "{partial:?}"
   );
   // `two`, the tip, is left
-  assert_eq!(detection_note(&local_repo, &tip).check.unwrap().orphaned, Some(vec![tip.clone()]));
+  assert_eq!(detection_note(&local_repo, &tip).check.unwrap().orphaned, vec![tip.clone()]);
 
   upstream_repo.create_commit("Add two", "two.rs", "// two");
   local_repo.fetch_prune("origin").unwrap();
@@ -177,7 +251,7 @@ fn a_recheck_compares_only_the_baseline_commits_since_the_note() {
   // the note says `one` had an equivalent in `base`: a full detection would find none, the recheck keeps it
   let check = Recheck {
     baseline: base.clone(),
-    orphaned: Some(vec![two.clone()]),
+    orphaned: vec![two.clone()],
   };
   write_not_integrated(&local_repo, &two, 2, 1, Some(check));
   upstream_repo.create_commit("Add other", "other.rs", "// other");
@@ -205,7 +279,7 @@ fn a_recheck_compares_only_the_baseline_commits_since_the_note() {
     detection_note(&local_repo, &two).check,
     Some(Recheck {
       baseline,
-      orphaned: Some(vec![two.clone()]),
+      orphaned: vec![two.clone()],
     })
   );
 
@@ -258,11 +332,7 @@ fn a_rewound_baseline_falls_back_to_a_full_detection() {
   let later = upstream_repo.create_commit("Add other", "other.rs", "// other");
   local_repo.fetch_prune("origin").unwrap();
   // checked against `later`; a recheck from there would leave out the equivalent, which is older
-  let check = Recheck {
-    baseline: later.clone(),
-    orphaned: None,
-  };
-  write_not_integrated(&local_repo, &tip, 1, 1, Some(check));
+  write_checked_against(&local_repo, &tip, &later);
   // the baseline is rewound to before `later`
   local_repo
     .git_executor()
@@ -289,11 +359,7 @@ fn two_archived_names_with_one_tip_are_rechecked_once() {
     local_repo.create_branch_at(name, &tip).unwrap();
   }
   local_repo.reset_hard(&base).unwrap();
-  let check = Recheck {
-    baseline: base.clone(),
-    orphaned: None,
-  };
-  write_not_integrated(&local_repo, &tip, 1, 1, Some(check));
+  write_checked_against(&local_repo, &tip, &base);
   upstream_repo.create_commit("Add feature", "feature.rs", "// feature");
   local_repo.fetch_prune("origin").unwrap();
 

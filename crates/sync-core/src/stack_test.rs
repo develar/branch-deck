@@ -136,7 +136,7 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
   };
   // checked against the current baseline, else the virtual tip of `old` would be detected again
   let head = test_repo.head();
-  let info = |name: &str, integrated: bool| CachedDetection {
+  let info = |tip: &str, name: &str, integrated: bool| CachedDetection {
     info: BranchIntegrationInfo {
       name: name.to_string(),
       summary: String::new(),
@@ -144,14 +144,14 @@ fn reads_the_state_of_parents_without_commits_from_their_branches() {
     },
     check: (!integrated).then(|| Recheck {
       baseline: head.clone(),
-      orphaned: None,
+      orphaned: vec![tip.to_string()],
     }),
   };
   let cache = CacheOps::new(git_executor, repo_path);
   // only the newest archive of a name counts
-  cache.write(&base, &info("cache", false)).unwrap();
-  cache.write(&cache_tip, &info("cache", true)).unwrap();
-  cache.write(&docs_tip, &info("docs", false)).unwrap();
+  cache.write(&base, &info(&base, "cache", false)).unwrap();
+  cache.write(&cache_tip, &info(&cache_tip, "cache", true)).unwrap();
+  cache.write(&docs_tip, &info(&docs_tip, "docs", false)).unwrap();
 
   let lines = git_executor
     .execute_command_lines(&["for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/test/"], repo_path)

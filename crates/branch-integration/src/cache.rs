@@ -21,8 +21,8 @@ pub const DETECTION_CACHE_VERSION: u8 = 2;
 #[derive(Debug, Clone)]
 pub struct CachedDetection {
   pub info: BranchIntegrationInfo,
-  /// `None` for a final result (`Integrated`, `Partial`) and for a `NotIntegrated` note without a baseline (written by
-  /// version 1)
+  /// `None` for a final result (`Integrated`, `Partial`) and for a `NotIntegrated` note without a baseline or without its
+  /// orphaned commits (written by version 1)
   pub check: Option<Recheck>,
 }
 
@@ -32,8 +32,9 @@ pub struct CachedDetection {
 pub struct Recheck {
   /// The baseline commit the result was checked against
   pub baseline: String,
-  /// The commits of the branch without an equivalent in that baseline; `None` when it is all of them
-  pub orphaned: Option<Vec<String>>,
+  /// The commits of the branch without an equivalent in that baseline (full ids). Always listed, so a recheck compares
+  /// exactly these: the branch side of a stacked archive grows by its parent's commits once the stack base is gone
+  pub orphaned: Vec<String>,
 }
 
 /// Serialize a detection result to compact JSON for git notes storage; `check` is written only with a `NotIntegrated`
@@ -86,9 +87,7 @@ pub fn serialize_for_cache(info: &BranchIntegrationInfo, check: Option<&Recheck>
       }
       if let Some(check) = check {
         status.as_object_mut().unwrap().insert("b".to_string(), json!(check.baseline));
-        if let Some(orphaned) = &check.orphaned {
-          status.as_object_mut().unwrap().insert("u".to_string(), json!(orphaned));
-        }
+        status.as_object_mut().unwrap().insert("u".to_string(), json!(check.orphaned));
       }
       status
     }
@@ -134,13 +133,15 @@ fn read_upstream_commit(value: &serde_json::Value, time: u32) -> Option<Upstream
   })
 }
 
-/// The recheck data of a `NotIntegrated` status: `None` without a baseline or with an unreadable `u`
+/// The recheck data of a `NotIntegrated` status: `None` without a baseline or without a readable `u`
 fn read_recheck(value: &serde_json::Value) -> Option<Recheck> {
   let baseline = value.get("b")?.as_str().filter(|baseline| !baseline.is_empty())?.to_string();
-  let orphaned = match value.get("u") {
-    None => None,
-    Some(ids) => Some(ids.as_array()?.iter().map(|id| id.as_str().map(str::to_string)).collect::<Option<Vec<String>>>()?),
-  };
+  let orphaned = value
+    .get("u")?
+    .as_array()?
+    .iter()
+    .map(|id| id.as_str().map(str::to_string))
+    .collect::<Option<Vec<String>>>()?;
   Some(Recheck { baseline, orphaned })
 }
 

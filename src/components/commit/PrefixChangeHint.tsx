@@ -1,5 +1,6 @@
+import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { describePrefixChange } from "@/lib/stack"
-import { getBranch, useBranchSync, useIssueGroups, useStacksEnabled } from "@/stores/branch-sync"
+import { getBranch, useIssueGroups, useStacksEnabled } from "@/stores/branch-sync"
 
 export interface PrefixChangeHintProps {
   before: string
@@ -15,8 +16,8 @@ export interface PrefixChangeHintProps {
 export function PrefixChangeHint({ before, after, action }: PrefixChangeHintProps) {
   const stacks = useStacksEnabled()
   const issueGroups = useIssueGroups()
-  const baselineBranch = useBranchSync(state => state.baselineBranch) ?? "the baseline"
-  const change = describePrefixChange(before, after, action, stacks, baselineBranch, (name) => {
+  const baseline = useBaselineOnRemote()
+  const change = describePrefixChange(before, after, action, stacks, baseline, (name) => {
     const branch = getBranch(name)
     return branch === undefined ? undefined : { declaredParent: branch.stack?.declaredParent ?? null, commitCount: branch.commitCount }
   }, issueGroups)
