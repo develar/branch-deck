@@ -597,8 +597,9 @@ decides nothing).
 
 - Blocks: bd knows the labels it passed to `merge-tree`, so a block starts with a run of 7 or more `<` and the new
   parent's id, has the base section (`|` and `<commit>^`), the separator of `=` of the same length, and ends with `>`
-  and the commit's id. So the longer markers of `conflict-marker-size` count, and any other marker-like line, e.g. the
-  `=======` under a Markdown setext heading, is text.
+  and the commit's id. With a rename (on either side, or of a directory), merge-ort adds `:<path>` to each label, the
+  path as it is, and the block still counts. So the longer markers of `conflict-marker-size` count, and any other
+  marker-like line, e.g. the `=======` under a Markdown setext heading, is text.
 - Hard: outside the conflict blocks, an edited content file must be byte for byte the `edit` copy that bd wrote (read
   again from the merge tree, not from disk). The plain runs between the blocks are matched in order, leftmost, and the
   regions between them replace the blocks. A changed plain line is `resolution_outside_conflict`; when only the line
@@ -610,8 +611,10 @@ decides nothing).
   one `diff --name-only -z HEAD -- <paths>` also names the paths that changed in the working tree, where bd never
   reads: the commonest mistake of an agent.
 - Report only: per file the lines of a side's change (`before` to `onto` for `dropped_upstream_lines`, `before` to
-  `commit` for `dropped_commit_lines`) that the result has neither as they are nor rewritten (a result line that shares
-  at least half of their words), at most 20 per side; also for `--take` and `--delete`. The agent shows them to the
+  `commit` for `dropped_commit_lines`) that the result lost, at most 20 per side; also for `--take` and `--delete`. A
+  line counts as kept when one result line has every word that the side added to its nearest `before` line (the one
+  with the most words in common), so a lost change of one value (`APP_MODE=test`, a version, a flag) is reported, and a
+  rewrite that combines both sides in one line is not. A rule by the share of words in common hid such losses. The agent shows them to the
   user. An earlier gate that merged the result with the upstream again fired on nearly every correct resolution, and
   is cut.
 

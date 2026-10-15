@@ -176,10 +176,11 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`)
 - A block must be recognised only by the labels bd passed to the merge (`<<<<<<< <onto>`, `||||||| <commit>^`,
   `>>>>>>> <commit>`), at any marker length (`conflict-marker-size`), with the separator of the same length only
-  between the base section and the end. Any other marker-like line, e.g. the `=======` of a Markdown setext heading, is
-  text.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_are_found_by_their_labels`)
-  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_setext_heading_is_text`, `longer_markers_are_found_by_their_labels`)
+  between the base section and the end. With a rename, merge-ort adds `:<path>` after a label, and the block counts
+  too: a renamed file with a conflict resolves as any other. Any other marker-like line, e.g. the `=======` of a
+  Markdown setext heading, is text.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_are_found_by_their_labels`, `a_renamed_file_with_a_conflict_resolves_with_an_edit`)
+  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_setext_heading_is_text`, `longer_markers_are_found_by_their_labels`, `markers_of_a_renamed_file_carry_the_path`)
 - An edited content file must equal bd's `edit` copy outside the conflict blocks (`resolution_outside_conflict`), and
   have no marker line of bd's labels where a block was (`unresolved_markers`). When only the line ends differ (CRLF and
   LF, or the newline at the end), the message says so. All three refusals are exit 2 with `paths`.
@@ -190,10 +191,12 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   change outside the blocks must say that such a change goes into a `fixup! <subject>` commit after the update, then
   `bd fold`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`an_edit_in_the_working_tree_is_pointed_to_the_copy`)
-- The lines of a side's change (`before` to `onto`, `before` to `commit`) that the result has neither as they are nor
-  rewritten (a result line that shares at least half of their words) must be reported per file as
-  `dropped_upstream_lines` and `dropped_commit_lines`, also for `--take` and `--delete`, never refused.
-  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`dropped_lines_are_the_lines_of_a_side_that_the_result_lost`)
+- The lines of a side's change (`before` to `onto`, `before` to `commit`) that the result lost must be reported per
+  file as `dropped_upstream_lines` and `dropped_commit_lines`, also for `--take` and `--delete`, never refused. A line
+  counts as kept when one result line has every word that the side added to its nearest `before` line, so a lost
+  change of one value (a mode, a version, a flag) is reported, and a rewrite that keeps the change is not.
+  [@test] ../../crates/git-ops/src/resolve_check_test.rs (`dropped_lines_are_the_lines_of_a_side_that_the_result_lost`, `a_lost_change_of_one_value_is_reported`)
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_take_reports_the_lines_of_the_other_side_it_drops`)
 - A resolution that leaves the commit without changes must be `empty_resolution` (exit 2), nothing written.
   `--allow-empty` keeps it as an empty commit (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at
   least 4 characters of its id) drops it (`empty: "dropped"`, no `resolved` id, no note). The finish counts a dropped

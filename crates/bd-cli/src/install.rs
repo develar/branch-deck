@@ -150,7 +150,9 @@ pub fn bd_command(environment: &Environment) -> Result<BdCommand, CliError> {
       return Ok(BdCommand { program: link, subcommand: None });
     }
   }
-  let subcommand = (!cfg!(windows)).then_some("cli");
+  // the app binary needs `cli`; a binary named bd (a cargo build, `bd.exe` on Windows) is the CLI itself
+  let is_bd = target.file_stem().is_some_and(|stem| stem == "bd");
+  let subcommand = (!cfg!(windows) && !is_bd).then_some("cli");
   Ok(BdCommand { program: target, subcommand })
 }
 

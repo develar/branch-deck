@@ -65,6 +65,17 @@ fn longer_markers_are_found_by_their_labels() {
   assert_eq!(block_count(b"<<<<<< ae71478\nx\n", LABELS), 0);
 }
 
+/// With a rename, merge-ort writes `<label>:<path>` after each marker, the path as it is
+#[test]
+fn markers_of_a_renamed_file_carry_the_path() {
+  let merged = "a\n<<<<<<< ae71478:d é\".txt\nU\n||||||| af45219^:a b.txt\nb\n=======\nL\n>>>>>>> af45219:a b.txt\nc\n".as_bytes();
+  assert_eq!((block_count(merged, LABELS), count_markers(merged, LABELS)), (1, 1));
+  assert_eq!(check_resolution(merged, merged, LABELS), Err(CheckFailure::UnresolvedMarkers));
+  assert_eq!(check_resolution(merged, b"a\nU L\nc\n", LABELS), Ok(()));
+  // another label that only starts with this one is not this merge's
+  assert_eq!(block_count(b"<<<<<<< ae71478x\n||||||| af45219^\n=======\n>>>>>>> af45219\n", LABELS), 0);
+}
+
 #[test]
 fn dropped_lines_are_the_lines_of_a_side_that_the_result_lost() {
   let before = b"fn parse(path) {\n  read(path)\n}\n";
@@ -77,4 +88,30 @@ fn dropped_lines_are_the_lines_of_a_side_that_the_result_lost() {
   assert_eq!(dropped_lines(b"a\n", b"a\nupstream only line\n", b"a\ncompletely different\n"), ["upstream only line"]);
   // a deleted file drops every line the side added
   assert_eq!(dropped_lines(b"", b"x = 1\n}\n", b""), ["x = 1"]);
+}
+
+/// The cases of the dogfood review: a lost change of one value is reported, a rewrite that keeps the change is not
+#[test]
+fn a_lost_change_of_one_value_is_reported() {
+  assert_eq!(dropped_lines(b"set APP_MODE=dev\n", b"set APP_MODE=test\n", b"set APP_MODE=prod\n"), ["set APP_MODE=test"]);
+  let lock = b"name = \"app\"\nversion = \"1.0.149\"\nchecksum = \"aaaa\"\n";
+  let upstream = b"name = \"app\"\nversion = \"1.0.150\"\nchecksum = \"cccc\"\n";
+  assert_eq!(dropped_lines(lock, upstream, lock), ["version = \"1.0.150\"", "checksum = \"cccc\""]);
+  // `--take commit:` loses the upstream version, `--take onto:` the commit's flag
+  assert_eq!(
+    dropped_lines(b"cargo install app@1\n", b"cargo install app@2\n", b"cargo install app@1 --force\n"),
+    ["cargo install app@2"]
+  );
+  assert_eq!(
+    dropped_lines(b"cargo build\n", b"cargo build --locked\n", b"cargo build --release\n"),
+    ["cargo build --locked"]
+  );
+  // the result keeps the word the side added
+  assert_eq!(dropped_lines(b"Setup\n", b"Setup steps\n", b"Set up steps\n"), Vec::<String>::new());
+  // the merge of the first round: both changes in one line, and in the comment above it
+  let before = b"/// Reads the config file at `path`.\npub fn parse_config(path: &str) -> Config {\n";
+  let onto = b"/// Reads the config file at `path`; `strict` fails on a missing file.\npub fn parse_config(path: &str, strict: bool) -> Config {\n";
+  let commit = b"/// Loads the config file at `path`.\npub fn load_config(path: &str) -> Config {\n";
+  let result = b"/// Loads the config file at `path`; `strict` fails on a missing file.\npub fn load_config(path: &str, strict: bool) -> Config {\n";
+  assert_eq!((dropped_lines(before, onto, result), dropped_lines(before, commit, result)), (Vec::new(), Vec::new()));
 }

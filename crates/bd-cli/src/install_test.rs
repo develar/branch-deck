@@ -147,6 +147,13 @@ fn the_bd_command_is_the_link_to_this_app_or_the_app_with_cli() {
     subcommand: Some("cli"),
   };
   assert_eq!(spaced.for_shell(), r"'/Applications/Branch Deck.app/Contents/MacOS/it'\''s' cli");
+
+  // a binary named bd, e.g. a cargo build, is the CLI itself: no `cli`
+  let cargo_bd = home.join("target/debug/bd");
+  std::fs::create_dir_all(cargo_bd.parent().unwrap()).unwrap();
+  std::fs::write(&cargo_bd, "bd").unwrap();
+  environment.executable = Some(cargo_bd.clone());
+  assert_eq!(bd_command(&environment).unwrap().for_shell(), cargo_bd.display().to_string());
 }
 
 /// An `.AppImage` runs its binary from a mount under `/tmp` that goes when the app quits: the link goes to the `.AppImage` file

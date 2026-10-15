@@ -71,10 +71,7 @@ fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--round", "1"]);
   assert_eq!(exit_code, 0, "{done}");
   assert_eq!(done["state"], json!("rebase"));
-  assert_eq!(
-    done["resolutions"][0]["files"][0],
-    json!({ "path": "shared.txt", "how": "edited", "dropped_upstream_lines": ["theirs"], "dropped_commit_lines": ["mine"] })
-  );
+  assert_eq!(done["resolutions"][0]["files"][0], json!({ "path": "shared.txt", "how": "edited" }));
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
   assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\ntheirs and mine\nthree\n");
   assert_eq!(worktree_status(&clone), "");
@@ -822,4 +819,58 @@ fn stale_temporary_refs_are_swept_when_a_session_starts() {
     git(&clone, &["for-each-ref", "--format=%(refname)", "refs/branch-deck/tmp/"]),
     format!("refs/branch-deck/tmp/1-{now}-0")
   );
+}
+
+/// A rename on either side, or of the whole directory, with a change of the same line on the other side: merge-ort
+/// writes `<label>:<path>` after the markers, and the round resolves with an edit
+#[test_log::test]
+fn a_renamed_file_with_a_conflict_resolves_with_an_edit() {
+  // (upstream, local): each a commit as `(message, rename, file)`, a rename `(from, to)` done with `git mv`
+  type Change = (&'static str, Option<(&'static str, &'static str)>, &'static str);
+  let cases: [(&str, Change, Change); 3] = [
+    (
+      "upstream rename",
+      ("Rename c upstream", Some(("c.txt", "d.txt")), "d.txt"),
+      ("(auth) Change c", None, "c.txt"),
+    ),
+    ("local rename", ("Change c upstream", None, "c.txt"), ("(auth) Rename c", Some(("c.txt", "d.txt")), "d.txt")),
+    (
+      "directory rename",
+      ("Move src to lib", Some(("src", "lib")), "lib/c.txt"),
+      ("(auth) Change src/c", None, "src/c.txt"),
+    ),
+  ];
+  for (name, (up_message, up_rename, up_file), (local_message, local_rename, local_file)) in cases {
+    let base_file = if name == "directory rename" { "src/c.txt" } else { "c.txt" };
+    let (upstream, clone) = TestRepo::upstream_and_clone(&[(base_file, SHARED), ("other.txt", "other\n")]);
+    let change = |repo: &TestRepo, message: &str, rename: Option<(&str, &str)>, file: &str, line: &str| {
+      if let Some((from, to)) = rename {
+        git(repo, &["mv", from, to]);
+      }
+      repo.create_commit(message, file, &format!("one\n{line}\nthree\n"));
+    };
+    change(&upstream, up_message, up_rename, up_file, "theirs");
+    change(&clone, local_message, local_rename, local_file, "mine");
+    let (exit_code, round) = run_in(&clone, &["update"]);
+    assert_eq!(exit_code, 1, "{name}: {round}");
+    let file = &round["session"]["files"][0];
+    assert_eq!((&file["kind"], &file["markers"]), (&json!("content"), &json!(1)), "{name}: {round}");
+    let path = file["path"].as_str().unwrap().to_string();
+    std::fs::write(file["edit"].as_str().unwrap(), "one\ntheirs mine\nthree\n").unwrap();
+    let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+    assert_eq!(exit_code, 0, "{name}: {done}");
+    assert_eq!(std::fs::read_to_string(clone.path().join(&path)).unwrap(), "one\ntheirs mine\nthree\n", "{name}");
+    assert_eq!(worktree_status(&clone), "", "{name}");
+  }
+}
+
+/// A take reports what it drops of the other side
+#[test_log::test]
+fn a_take_reports_the_lines_of_the_other_side_it_drops() {
+  let (_upstream, clone) = conflicting_clone();
+  run_in(&clone, &["update"]);
+  let (exit_code, checked) = run_in(&clone, &["update", "--continue", "--take", "commit:shared.txt", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{checked}");
+  assert_eq!(checked["resolutions"][0]["files"][0]["dropped_upstream_lines"], json!(["theirs"]), "{checked}");
+  assert_eq!(checked["resolutions"][0]["files"][0].get("dropped_commit_lines"), None, "{checked}");
 }

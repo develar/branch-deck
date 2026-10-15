@@ -40,11 +40,13 @@ fn content_of(line: &[u8]) -> &[u8] {
   line.strip_suffix(b"\r").unwrap_or(line)
 }
 
-/// The length of the marker run of `marker` that starts `line` when the line is that run, a space and `label`
+/// The length of the marker run of `marker` that starts `line` when the line is that run, a space and `label`; with a
+/// rename, merge-ort adds `:<path>` (as it is, not quoted) after the label
 fn labelled_marker(line: &[u8], marker: u8, label: &str) -> Option<usize> {
   let line = content_of(line);
   let run = line.iter().take_while(|&&b| b == marker).count();
-  (run >= MIN_MARKER && line[run..].strip_prefix(b" ") == Some(label.as_bytes())).then_some(run)
+  let rest = line[run..].strip_prefix(b" ")?.strip_prefix(label.as_bytes())?;
+  (run >= MIN_MARKER && (rest.is_empty() || rest.starts_with(b":"))).then_some(run)
 }
 
 /// Whether `line` is exactly `size` `=` characters
@@ -200,15 +202,15 @@ fn words(line: &[u8]) -> HashSet<&[u8]> {
     .collect()
 }
 
-/// A line counts as kept when the result has it, or a line that shares at least half of their words (a line that the
-/// resolution rewrote, e.g. both sides' changes combined)
-const SIMILAR: f64 = 0.5;
-
-/// The lines that `side` added to `before` (the side's change) and that `result` has neither as they are nor
-/// rewritten, at most `MAX_REPORTED_LINES`: the report of what a resolution of one file dropped of that side. Lines
-/// without a word (a lone `}`) are not reported
+/// The lines that `side` added to `before` (the side's change) that `result` lost, at most `MAX_REPORTED_LINES`: the
+/// report of what a resolution of one file dropped of that side. A changed line counts as kept when one line of the
+/// result has every word that the side added to its nearest line of `before` (the one with the most words in common),
+/// so a lost change of one value (`APP_MODE=test`, a version) is reported, and a rewrite that keeps the change (both
+/// sides combined in one line) is not. Lines without a word (a lone `}`) are not reported
 pub fn dropped_lines(before: &[u8], side: &[u8], result: &[u8]) -> Vec<String> {
-  let before: HashSet<&[u8]> = trimmed_lines(before).into_iter().collect();
+  let before_lines = trimmed_lines(before);
+  let before_set: HashSet<&[u8]> = before_lines.iter().copied().collect();
+  let before_words: Vec<HashSet<&[u8]>> = before_lines.iter().map(|line| words(line)).collect();
   let result_lines = trimmed_lines(result);
   let result_set: HashSet<&[u8]> = result_lines.iter().copied().collect();
   let result_words: Vec<HashSet<&[u8]>> = result_lines.iter().map(|line| words(line)).collect();
@@ -218,20 +220,20 @@ pub fn dropped_lines(before: &[u8], side: &[u8], result: &[u8]) -> Vec<String> {
     if dropped.len() >= MAX_REPORTED_LINES {
       break;
     }
-    if before.contains(line) || result_set.contains(line) || !seen.insert(line) {
+    if before_set.contains(line) || result_set.contains(line) || !seen.insert(line) {
       continue;
     }
     let line_words = words(line);
     if line_words.is_empty() {
       continue;
     }
-    let rewritten = result_words.iter().any(|other| {
-      let shared = line_words.intersection(other).count();
-      #[expect(clippy::cast_precision_loss, reason = "word counts of one line")]
-      let similarity = shared as f64 / line_words.union(other).count().max(1) as f64;
-      similarity >= SIMILAR
-    });
-    if !rewritten {
+    let nearest = before_words
+      .iter()
+      .max_by_key(|before| before.intersection(&line_words).count())
+      .filter(|before| !before.is_disjoint(&line_words));
+    let added: Vec<&[u8]> = line_words.iter().copied().filter(|word| nearest.is_none_or(|nearest| !nearest.contains(word))).collect();
+    let kept = result_words.iter().any(|result| added.iter().all(|word| result.contains(word)));
+    if !kept {
       dropped.push(String::from_utf8_lossy(line).into_owned());
     }
   }

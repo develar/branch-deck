@@ -439,6 +439,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   which starts the app, quoted for the shell and to be run as written. The app's `agent_cli_command(repository)` must
   return the same command with `-C <repository>` without writing anything, quoted for the shell (POSIX quotes; on
   Windows PowerShell's `& '<bd.exe>'` with single quotes, and `powershell: true`): the symlink when it points at the running app, else
-  the app binary with `cli` (`bd.exe` on Windows).
+  the app binary with `cli` (`bd.exe` on Windows). A binary named `bd` (a cargo build) is the CLI itself and gets no
+  `cli`. `bd update` names its next command (`session.next`) the same way.
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

@@ -445,8 +445,9 @@ session open prints the open round again, fetches nothing and writes the missing
   `patch` the whole commit. Edit only the files at `edit`, never the same path in the working tree. A change that the
   commit needs outside the blocks, or in another file, goes into a `fixup! <subject>` commit after the update, folded
   with `bd fold`.
-- bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids), at any marker length
-  (`conflict-marker-size`); a `=======` outside the blocks, e.g. under a Markdown heading, is text.
+- bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids, followed by `:<path>` for a
+  renamed file), at any marker length (`conflict-marker-size`); a `=======` outside the blocks, e.g. under a Markdown
+  heading, is text.
 - `blocked_paths` lists local changes on paths the update likely writes: they block the finish, so ask the user about
   them before you resolve. `next` is the command that continues, with this binary and `-C <repository>`.
 - `kind` is `content` or `modify_delete`; a `hint` says how to resolve it. `commit.hint` "likely landed" says the
@@ -716,7 +717,8 @@ and to be run as written: the bare app binary starts the app.
 
 The app's prompts name bd the same way without an install: the Tauri command `agent_cli_command(repository)`
 (`bd_command` and `for_shell_in` in `install.rs`) returns `<bd> -C <repository>`, with the `bd` symlink when it points
-at the running app, else the app binary with `cli` (on Windows `bd.exe` next to the app). It is quoted for a POSIX
+at the running app, else the app binary with `cli` (on Windows `bd.exe` next to the app; a binary named `bd`, such as
+a cargo build, needs no `cli`). It is quoted for a POSIX
 shell, or for PowerShell on Windows (`& '<bd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the
 bd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `bd.exe`), the
 blocked prompt names no command: the user updates in the app.
