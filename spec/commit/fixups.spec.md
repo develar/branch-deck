@@ -20,7 +20,7 @@ targets:
 # Squash Fixups
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
@@ -77,8 +77,12 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 - The scope is a branch (the groups whose target is grouped into it), the unassigned commits (targets without a
   branch), or one fixup. A scope with nothing to squash is refused.
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`squashes_only_the_fixups_of_one_branch_or_one_fixup`)
-- The plan is computed again and the squash is refused if HEAD is not the one the user confirmed.
+- The plan is computed again and the squash is refused if HEAD is not the one the user confirmed. HEAD, the newest
+  commit of the planned range and the history the squash rewrites must all be that head, so a commit made between
+  these reads never gives a plan for one head and a rewrite of another.
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
+- `bd fold` runs the same squash under the repository lock ([Agent CLI](../cli/agent-cli.spec.md)).
+  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`)
 
 ### UI
 

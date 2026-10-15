@@ -27,6 +27,10 @@ targets:
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/bd-cli/src/update_command.rs
+  - ../../crates/bd-cli/src/fold_command.rs
+  - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/sync-core/src/autosquash.rs
   - ../../crates/bd-cli/src/suggest.rs
   - ../../crates/bd-cli/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
@@ -53,7 +57,7 @@ targets:
 # Agent CLI
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
@@ -69,7 +73,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Give an agent everything it needs to cluster commits, in a few compact calls.
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
-- Reading changes nothing; a regroup changes commit messages only, never trees, the index or the working tree.
+- Reading changes nothing; a regroup or a fold changes commit messages only, never trees, the index or the working
+  tree. Only `bd update` and its undo write the working tree, and only the files the update changes.
 
 ## Non-goals
 
@@ -94,14 +99,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
 - `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
-  `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `version` and `error` outputs, and the real outputs must use
-  only the properties it declares.
+  `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `update`, `fold`, `version` and `error` outputs,
+  and the real outputs must use only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
-- `status`, `commits`, `suggest`, `check`, `schema` and `version` must write no ref, config, index or working tree:
-  at most git objects and the object cache (none with `--no-cache`), and HEAD must stay; `bd --help` and
-  `bd help agent` must say so in one sentence.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
+  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+- `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run` and `fold --dry-run` must write no
+  ref, config, index or working tree: at most git objects (`update --dry-run` replays) and the object cache (none with
+  `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so in one sentence.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
-- A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
+- A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
+  and `paths` (the local files) for `uncommitted_overlap`.
   A rewrite whose step after the rewrite failed must print its output with that `error` in it, so that the undo
   token stays.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
@@ -252,6 +261,46 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
+### `bd update`
+
+- `bd update` must do what the app's Update Project does ([Update Project](../repository/update-project.spec.md)):
+  fetch the baseline, then, under the repository lock, check again and apply a clean update (`up_to_date`,
+  `fast_forward`, `rebase`), the files following through the guarded working-tree update. It must print the state,
+  the previous and the new HEAD, the `replayed` and `dropped_already_upstream` counts, the landed commits (`landed`)
+  and the undo token `update:<previous head>..<new head>` with full ids.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`update_fast_forwards_and_the_undo_moves_the_files_back`, `update_rebases_the_local_commits_and_keeps_unrelated_local_changes`)
+- The fetch must run before the lock and through the remote command policy; a failed fetch is `network_error`
+  (exit 5, retryable). A held lock is `locked` (exit 3) after the fetch.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_failed_fetch_is_a_network_error`, `the_update_waits_for_the_repository_lock_after_its_fetch`)
+- `--no-fetch` must update onto the last fetched baseline. `--dry-run` must imply `--no-fetch`, take no lock and
+  print what the update would do, writing at most git objects.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
+- A conflict must print `state: "conflict"` with the likely conflicting files, the local commits and the upstream
+  commits that change them, change nothing, and exit with 1.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_conflict_reports_the_files_and_commits_and_changes_nothing`)
+- Uncommitted, staged or untracked files on paths the update writes must be `uncommitted_overlap` (exit 4, not
+  retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`)
+- `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
+  following, under the lock; it must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
+  `head_moved` when the branch moved since, and `invalid_arguments` when the token is not the last update of the
+  branch. It must print whether the landed report is the one from before the update again (`landed_restored`).
+  [@test] ../../crates/bd-cli/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
+
+### `bd fold`
+
+- `bd fold` must fold the `fixup!`, `squash!` and `amend!` commits into their targets as the app's Squash Fixups does
+  ([Squash Fixups](../commit/fixups.spec.md)), under the repository lock, keeping HEAD's tree, the index and the working
+  tree, and print per target the fixups folded, the orphans, and an undo token `<previous head>..<new head>` for
+  `bd undo`. `--branch` must fold only the fixups whose target is in that branch; `--dry-run` must write nothing;
+  nothing to fold is no rewrite and no token.
+  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
+- `--expect-head` must refuse with `head_moved` on another HEAD, and the fold must check that HEAD, the planned
+  commits and the history it rewrites all end at the planned head; a held lock is `locked`.
+  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+  [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
+
 ### `bd check`
 
 - `bd check` must apply a plan (stdin or `--plan`; the current grouping without one) in memory, validate it like a
@@ -374,7 +423,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd help agent`
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
-  --sync` with descriptions for the branches that have none, and `bd push` after the user approves. It must name
+  --sync` with descriptions for the branches that have none, and `bd push` after the user approves; one line names
+  `bd update` and `bd fold`, and the rules say that only `bd update` and its undo write the working tree. It must name
   every command and, per command, every long option except a listed few, and name no command, and no option for a
   command, that doesn't exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)

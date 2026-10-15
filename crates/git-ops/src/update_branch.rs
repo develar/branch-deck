@@ -1,10 +1,12 @@
 //! Update Project: bring the checked out branch onto its upstream, as `git pull --rebase` would, without touching
 //! unrelated local changes (docs/design/git-operations.md, "Update project"). The local commits are replayed in memory
 //! with `git replay`, a dry run on a copy of the index proves the working tree can follow, and only then does the branch
-//! move; the files follow through `worktree_update`, the one exemption from "never write the working tree".
+//! move; the files follow through `worktree_update`, the one exemption from "never write the working tree". This module
+//! is the only caller of `worktree_update`: the update (`apply_update`, `apply_replayed_update`) and its undo
+//! (`check_update_undo`).
 
-use crate::ref_transaction::RefTransaction;
-use crate::rewrite_guard::{ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
+use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
+use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::{merge_trees, replay_range_with_env};
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
@@ -517,6 +519,9 @@ fn preview_cache() -> &'static PreviewCache {
   CACHE.get_or_init(PreviewCache::default)
 }
 
+/// The reflog message of an update, without `REFLOG_PREFIX`; `check_update_undo` looks for it
+pub const UPDATE_OPERATION: &str = "update project";
+
 /// Move the branch to the checked update, then let the index and the working tree follow. If the files can't follow
 /// (a file changed since the check), the branch moves back and nothing is changed.
 #[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
@@ -528,27 +533,7 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     bail!("A preview check can't be applied");
   }
   let check = &plan.check;
-  let full_ref = format!("refs/heads/{}", check.branch);
-  let mut transaction = RefTransaction::new();
-  transaction.update(&full_ref, new_head, Some(&check.head));
-  transaction
-    .commit(git_executor, repo_path, "update project")
-    .map_err(|e| anyhow!("{} changed during the update, nothing was changed: {e:#}", check.branch))?;
-
-  if plan.files_change
-    && let Err(e) = apply_worktree_update(git_executor, repo_path, &check.head, new_head)
-  {
-    let mut rollback = RefTransaction::new();
-    rollback.update(&full_ref, &check.head, Some(new_head));
-    if let Err(rollback_error) = rollback.commit(git_executor, repo_path, "update project rolled back") {
-      bail!(
-        "Files changed during the update, and {} could not be moved back to {}: {rollback_error:#}; {e:#}",
-        check.branch,
-        check.head
-      );
-    }
-    bail!("Files changed during the update; nothing was changed: {e:#}");
-  }
+  move_branch_and_files(git_executor, repo_path, &check.branch, &check.head, new_head, plan.files_change, UPDATE_OPERATION)?;
 
   let (replayed, dropped_already_upstream) = match kind {
     UpdateKind::FastForward => (0, 0),
@@ -567,6 +552,143 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     replayed,
     dropped_already_upstream,
   })
+}
+
+/// A checked move of the checked out branch from `head` to `new_head` with the index and the working tree following:
+/// an update whose commits were replayed elsewhere, or the undo of an update. `apply_replayed_update` applies it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayedUpdate {
+  /// The checked out branch, short name
+  pub branch: String,
+  pub head: String,
+  pub new_head: String,
+  /// The local paths that stop the files from following, as `UpdateState::Blocked` lists them; empty if they can
+  pub blocked: Vec<String>,
+  /// The move changes HEAD's tree
+  files_change: bool,
+}
+
+/// Check, without writing anything, that the checked out branch can move from `head` to `new_head` with the files
+/// following: the guards of `check_update`, HEAD still at `head` (`HeadMoved` otherwise), and the exact check of the
+/// update (the dry run on a copy of the index and the ignored files in the way)
+#[instrument(skip(git_executor))]
+pub fn check_replayed_update(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, new_head: &str) -> Result<ReplayedUpdate> {
+  let branch = guarded_branch_at(git_executor, repo_path, head)?;
+  plan_move(git_executor, repo_path, branch, head, new_head)
+}
+
+/// The update of a token is not the last move of the branch
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotAnUpdate {
+  pub message: String,
+}
+
+impl std::fmt::Display for NotAnUpdate {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.message)
+  }
+}
+
+impl std::error::Error for NotAnUpdate {}
+
+/// Check the undo of an update that moved the checked out branch from `previous_head` to `new_head`: the move back, as
+/// `check_replayed_update` checks it, with the old and the new tree swapped, so the dry run refuses every path changed
+/// since the update and an ignored file in the way of a file that comes back. The last entry of the branch's reflog
+/// must be that update (`NotAnUpdate` otherwise), so a token can't move the branch to any other commit
+#[instrument(skip(git_executor))]
+pub fn check_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, previous_head: &str, new_head: &str) -> Result<ReplayedUpdate> {
+  let branch = guarded_branch_at(git_executor, repo_path, new_head)?;
+  // `<new id>\0<message>` per entry, newest first
+  let (output, exit_code) = git_executor.execute_command_with_status(&["log", "-g", "-n2", "--format=%H%x00%gs", &format!("refs/heads/{branch}"), "--"], repo_path)?;
+  let entries: Vec<(&str, &str)> = if exit_code == 0 {
+    output.lines().filter_map(|line| line.split_once('\0')).collect()
+  } else {
+    Vec::new()
+  };
+  let update_message = format!("{REFLOG_PREFIX}{UPDATE_OPERATION}");
+  let is_update = matches!(entries.as_slice(), [(to, message), (from, _)] if *to == new_head && *message == update_message && *from == previous_head);
+  if !is_update {
+    return Err(anyhow::Error::new(NotAnUpdate {
+      message: format!(
+        "The last move of {branch} is not an update from {} to {}; only the last update can be undone",
+        crate::rewrite_plan::short_id(previous_head),
+        crate::rewrite_plan::short_id(new_head)
+      ),
+    }));
+  }
+  plan_move(git_executor, repo_path, branch, new_head, previous_head)
+}
+
+/// Move the branch as checked, then let the index and the working tree follow; refused while local changes block it.
+/// If the files can't follow (a file changed since the check), the branch moves back and nothing is changed
+#[instrument(skip(git_executor))]
+pub fn apply_replayed_update(git_executor: &GitCommandExecutor, repo_path: &str, update: &ReplayedUpdate, operation: &str) -> Result<()> {
+  if !update.blocked.is_empty() {
+    bail!("Local changes block the update: {}", update.blocked.join(", "));
+  }
+  move_branch_and_files(git_executor, repo_path, &update.branch, &update.head, &update.new_head, update.files_change, operation)
+}
+
+/// The checked out branch after the guards of `check_update`, with HEAD at `head`
+fn guarded_branch_at(git_executor: &GitCommandExecutor, repo_path: &str, head: &str) -> Result<String> {
+  ensure_no_operation_in_progress(git_executor, repo_path)?;
+  let branch = get_current_branch(git_executor, repo_path)?;
+  let actual = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
+  if actual != head {
+    return Err(anyhow::Error::new(HeadMoved {
+      branch,
+      expected: head.to_string(),
+      actual,
+    }));
+  }
+  Ok(branch)
+}
+
+fn plan_move(git_executor: &GitCommandExecutor, repo_path: &str, branch: String, head: &str, new_head: &str) -> Result<ReplayedUpdate> {
+  let changed = changed_paths(git_executor, repo_path, head, new_head)?;
+  let blocked = if changed.is_empty() {
+    Vec::new()
+  } else {
+    blocking_paths(git_executor, repo_path, head, new_head, &changed)?
+  };
+  Ok(ReplayedUpdate {
+    branch,
+    head: head.to_string(),
+    new_head: new_head.to_string(),
+    blocked,
+    files_change: !changed.is_empty(),
+  })
+}
+
+/// Move HEAD from `head` to `new_head` in one CAS transaction, then let the index and the working tree follow. The
+/// transaction updates `HEAD` itself, not `refs/heads/<branch>`: git then locks HEAD and the branch it points at
+/// together, so the branch of this worktree moves, never one that another `git switch` left behind. (A
+/// `symref-verify HEAD` can't share a transaction with an update of HEAD's branch: git refuses two updates of HEAD.)
+/// If the files can't follow, the branch moves back and the error says that nothing was changed
+fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, head: &str, new_head: &str, files_change: bool, operation: &str) -> Result<()> {
+  let mut transaction = RefTransaction::new();
+  transaction.update("HEAD", new_head, Some(head));
+  if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
+    let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
+    if !actual.is_empty() && actual != head {
+      return Err(anyhow::Error::new(HeadMoved {
+        branch: branch.to_string(),
+        expected: head.to_string(),
+        actual,
+      }));
+    }
+    bail!("{branch} changed during the update, nothing was changed: {e:#}");
+  }
+
+  if files_change && let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head) {
+    let mut rollback = RefTransaction::new();
+    rollback.update("HEAD", head, Some(new_head));
+    if let Err(rollback_error) = rollback.commit(git_executor, repo_path, &format!("{operation} rolled back")) {
+      bail!("Files changed during the update, and {branch} could not be moved back to {head}: {rollback_error:#}; {e:#}");
+    }
+    bail!("Files changed during the update; nothing was changed: {e:#}");
+  }
+  Ok(())
 }
 
 /// The previous upstream tips to exclude from the local commits: the tip before a forced fetch, and the fork point of

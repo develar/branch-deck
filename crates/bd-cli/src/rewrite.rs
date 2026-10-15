@@ -9,6 +9,7 @@ use crate::group_plan::{DescriptionChange, changed_descriptions, check_descripti
 use crate::output::SchemaVersion;
 use crate::status::read_head;
 use crate::sync_command::{SyncOutput, lock, sync_locked};
+use crate::update_command::undo_update;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -73,7 +74,8 @@ pub struct UnstackArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
-  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>` or both joined by `+`
+  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>` or both joined by `+`;
+  /// or the `update:<previous head>..<new head>` of `bd update`, which moves the files back too
   pub token: String,
 }
 
@@ -186,6 +188,9 @@ pub struct UndoOutput {
   /// The commit of the issue groups that was undone; omitted for a token without them
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub undone_issue_groups: Option<String>,
+  /// For an `update:` token: whether the report of the landed commits is the one from before the update again
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub landed_restored: Option<bool>,
 }
 
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
@@ -265,6 +270,19 @@ fn set_described(output: &mut RewriteOutput, changes: &[DescriptionChange]) {
 }
 
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
+  if let Some(result) = undo_update(context, &args.token) {
+    let undone = result?;
+    let short = context.short_ids([undone.head.as_str(), undone.undone.as_str()]);
+    return Ok(UndoOutput {
+      schema: SchemaVersion,
+      repository: context.repository.clone(),
+      prefix: context.prefix.clone(),
+      head: short.get(&undone.head).to_string(),
+      undone: Some(short.get(&undone.undone).to_string()),
+      undone_issue_groups: None,
+      landed_restored: Some(undone.landed_restored),
+    });
+  }
   let Some(token) = UndoToken::parse(&args.token) else {
     return Err(CliError::new(
       ErrorCode::InvalidArguments,
@@ -296,6 +314,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     head: short.get(&head).to_string(),
     undone: undone.map(|id| short.get(id).to_string()),
     undone_issue_groups: undone_issue_groups.map(|id| short.get(id).to_string()),
+    landed_restored: None,
   })
 }
 
@@ -318,6 +337,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     message,
     commits: error.commits().to_vec(),
     branches: Vec::new(),
+    paths: Vec::new(),
   }
 }
 

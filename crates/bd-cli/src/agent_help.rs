@@ -1,8 +1,9 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: status, commits, suggest, check, schema and version write no ref, config, index or working tree; at
-most git objects (the trial sync of check and suggest) and the object cache (none with --no-cache)."
+    "Read only: status, commits, suggest, check, schema, version and the dry runs of update and fold write no ref,
+config, index or working tree; at most git objects (the trial sync of check and suggest, the replay of update) and
+the object cache (none with --no-cache)."
   };
 }
 
@@ -65,8 +66,13 @@ Workflow:
    or rejected, `error.branches[].remote.dropped_commits` lists what a push drops: show it, and only after the user
    approves, `bd push <branch> --force --expect-remote <remote.head>`.
 
-Rules: never reorder, squash or drop commits; never touch the working tree; a plan only moves commits between
-branches. Exit 2 (invalid_plan, not_ahead_of_baseline): change the plan.
+`bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project:
+exit 1 on a conflict, `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the
+user); `bd undo update:<id>..<id>` takes it back. `bd fold` (--branch, --expect-head, --dry-run) folds fixup! commits.
+
+Rules: never reorder, squash or drop commits; only `bd update` and its undo write the working tree, only the files
+the update changes; a plan only moves commits between branches. Exit 2 (invalid_plan, not_ahead_of_baseline):
+change the plan.
 
 `bd install` puts `bd` into ~/.local/bin and a skill into ~/.claude/skills and ~/.agents/skills; `bd help skill`
 prints the skill.
@@ -92,7 +98,7 @@ bd is `{command}` (quote the path in a shell); below, `bd` stands for it.
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
-virtual branches and pushes them. It never touches the working tree.
+virtual branches and pushes them. Only `bd update` (the branch onto its baseline) and its undo write the working tree.
 
 Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
 version.

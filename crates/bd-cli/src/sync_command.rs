@@ -191,7 +191,7 @@ pub struct LandedCommitSummary {
   pub upstream: Option<String>,
 }
 
-fn landed_summary(branches: Vec<LandedBranch>, short: &ShortIds) -> Vec<LandedSummary> {
+pub fn landed_summary(branches: Vec<LandedBranch>, short: &ShortIds) -> Vec<LandedSummary> {
   branches
     .into_iter()
     .map(|branch| LandedSummary {
@@ -211,7 +211,7 @@ fn landed_summary(branches: Vec<LandedBranch>, short: &ShortIds) -> Vec<LandedSu
 }
 
 /// The ids a landed report names
-fn landed_ids(branches: &[LandedBranch]) -> impl Iterator<Item = &str> {
+pub fn landed_ids(branches: &[LandedBranch]) -> impl Iterator<Item = &str> {
   branches
     .iter()
     .flat_map(|branch| &branch.commits)

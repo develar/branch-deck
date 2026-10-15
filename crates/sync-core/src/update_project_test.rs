@@ -1,10 +1,18 @@
+use crate::repository_lock::{RepositoryLocked, lock_repository};
 use crate::sync::{SyncOptions, sync_branches};
-use crate::update_project::{UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, check_baseline_update, previous_tip_of_forced_update, update_project_core};
-use git_ops::update_branch::{CheckPurpose, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update, no_landed_candidates};
+use crate::update_project::{
+  FetchFailed, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, check_baseline_update,
+  previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
+};
+use git_ops::rewrite_guard::HeadMoved;
+use git_ops::update_branch::{
+  CheckPurpose, NotAnUpdate, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_replayed_update, apply_update, check_replayed_update, check_update, no_landed_candidates,
+};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
 use std::fs;
+use std::time::Duration;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_log::test;
@@ -687,4 +695,200 @@ fn fetch_reports_progress_until_the_last_stage_ends() {
   assert!(last_stage_ended, "{fetch:?}");
   assert!(last.percent >= 95, "{fetch:?}");
   assert!(last.transferred.as_deref().is_some_and(|it| it.ends_with("MiB")), "{fetch:?}");
+}
+
+/// An update of `clone` from a local commit onto an upstream that changes `shared.txt`, adds `new.txt` and deletes
+/// `other.txt`; returns its undo token
+fn applied_update(setup: &Setup) -> UpdateUndoToken {
+  let Setup { upstream, clone } = setup;
+  clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  upstream.create_commit("Add new", "new.txt", "new\n");
+  git(upstream, &["rm", "-q", "other.txt"]);
+  git(upstream, &["commit", "-q", "-m", "Remove other"]);
+  let result = update(clone).unwrap();
+  UpdateUndoToken {
+    previous_head: result.check.head,
+    new_head: result.applied.unwrap().new_head,
+  }
+}
+
+fn undo(repo: &TestRepo, token: &UpdateUndoToken) -> anyhow::Result<UndoneUpdate> {
+  undo_update_core(repo.git_executor(), path(repo), token, Duration::from_millis(200))
+}
+
+#[test]
+fn undo_moves_the_branch_and_the_files_back() {
+  let setup = setup();
+  let token = applied_update(&setup);
+  let clone = &setup.clone;
+  write(clone, "login.txt", "dirty login\n");
+  write(clone, "untracked.txt", "untracked\n");
+
+  let undone = undo(clone, &token).unwrap();
+  assert_eq!(undone.branch, "master");
+  assert_eq!(clone.head(), token.previous_head);
+  assert_eq!(read(clone, "shared.txt"), SHARED);
+  assert_eq!(read(clone, "other.txt"), "other\n");
+  assert!(!clone.path().join("new.txt").exists());
+  // local changes on paths the undo doesn't write stay
+  assert_eq!(read(clone, "login.txt"), "dirty login\n");
+  assert_eq!(status(clone), " M login.txt\n?? untracked.txt");
+  assert!(reflog(clone).starts_with("branch-deck: undo update\nbranch-deck: update project\n"), "{}", reflog(clone));
+
+  // the token named the last update, which is gone now
+  let error = undo(clone, &token).unwrap_err();
+  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+}
+
+#[test]
+fn undo_is_refused_when_local_changes_overlap() {
+  let setup = setup();
+  let token = applied_update(&setup);
+  let clone = &setup.clone;
+  write(clone, "shared.txt", "edited after the update\n");
+  // an ignored file where the undo brings back a file the update deleted: `read-tree -u` would overwrite it silently
+  fs::write(clone.path().join(".git/info/exclude"), "other.txt\n").unwrap();
+  write(clone, "other.txt", "ignored\n");
+  let reflog_before = reflog(clone);
+
+  let error = undo(clone, &token).unwrap_err();
+  let blocked = error.downcast_ref::<UndoBlocked>().unwrap_or_else(|| panic!("not UndoBlocked: {error:#}"));
+  assert_eq!(blocked.paths, vec!["shared.txt".to_string()]);
+  assert_eq!(clone.head(), token.new_head);
+  assert_eq!(reflog(clone), reflog_before);
+
+  // the dry run passes once the edit is gone; the ignored file still blocks
+  write(clone, "shared.txt", "one\nTWO\nthree\n");
+  let error = undo(clone, &token).unwrap_err();
+  assert_eq!(
+    error.downcast_ref::<UndoBlocked>().map(|it| it.paths.clone()),
+    Some(vec!["other.txt".to_string()]),
+    "{error:#}"
+  );
+  assert_eq!(read(clone, "other.txt"), "ignored\n");
+  assert_eq!(clone.head(), token.new_head);
+}
+
+#[test]
+fn undo_is_refused_after_the_branch_moved() {
+  let setup = setup();
+  let token = applied_update(&setup);
+  let clone = &setup.clone;
+  let later = clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+
+  let error = undo(clone, &token).unwrap_err();
+  let moved = error.downcast_ref::<HeadMoved>().unwrap_or_else(|| panic!("not HeadMoved: {error:#}"));
+  assert_eq!((moved.expected.as_str(), moved.actual.as_str()), (token.new_head.as_str(), later.as_str()));
+  assert_eq!(clone.head(), later);
+}
+
+#[test]
+fn undo_needs_the_token_of_the_last_update() {
+  let setup = setup();
+  let token = applied_update(&setup);
+  let clone = &setup.clone;
+  // any other commit: the reflog says the branch came from `previous_head`
+  let other = UpdateUndoToken {
+    previous_head: setup.upstream.head(),
+    new_head: token.new_head.clone(),
+  };
+  let error = undo(clone, &other).unwrap_err();
+  assert!(error.downcast_ref::<NotAnUpdate>().is_some(), "{error:#}");
+  assert_eq!(clone.head(), token.new_head);
+}
+
+#[test]
+fn undo_tokens_are_strict() {
+  let a = "a".repeat(40);
+  let b = "b".repeat(40);
+  let token = UpdateUndoToken::parse(&format!("update:{a}..{b}")).unwrap();
+  assert_eq!((token.previous_head.as_str(), token.new_head.as_str()), (a.as_str(), b.as_str()));
+  assert_eq!(token.to_string(), format!("update:{a}..{b}"));
+  for text in [
+    format!("{a}..{b}"),
+    format!("update:{}..{b}", &a[..12]),
+    format!("update:{a}..{a}"),
+    format!("update:{a}..{}", "b".repeat(64)),
+    format!("update:{}..{b}", "A".repeat(40)),
+    format!("update:{a}...{b}"),
+  ] {
+    assert_eq!(UpdateUndoToken::parse(&text), None, "{text}");
+  }
+  assert!(UpdateUndoToken::is_update_token(&format!("update:{a}")));
+}
+
+#[test]
+fn update_takes_the_repository_lock_after_the_fetch() {
+  let Setup { upstream, clone } = setup();
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  let head = clone.head();
+  // another Branch Deck process (bd) holds the lock for the whole wait
+  let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
+  let options = UpdateOptions {
+    fetch: true,
+    lock_timeout: Duration::from_millis(200),
+  };
+
+  let error = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap_err();
+  assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
+  assert!(format!("{error:#}").contains("retry when it is done"), "{error:#}");
+  // the fetch ran before the lock; nothing else changed
+  assert_eq!(git(&clone, &["rev-parse", "origin/master"]), upstream.head());
+  assert_eq!(clone.head(), head);
+
+  drop(held);
+  let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  assert_eq!(clone.head(), upstream.head());
+}
+
+#[test]
+fn update_without_a_fetch_goes_onto_the_last_fetched_state() {
+  let Setup { upstream, clone } = fetched_rebase();
+  let fetched = git(&clone, &["rev-parse", "origin/master"]);
+  upstream.create_commit("Not fetched", "later.txt", "later\n");
+  let options = UpdateOptions {
+    fetch: false,
+    lock_timeout: Duration::from_millis(200),
+  };
+
+  let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(result.check.upstream_head, fetched);
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), fetched);
+  assert_eq!(git(&clone, &["rev-parse", "origin/master"]), fetched);
+}
+
+#[test]
+fn a_failed_fetch_is_fetch_failed() {
+  let Setup { upstream, clone } = setup();
+  git(&clone, &["remote", "set-url", "origin", &format!("{}-gone", path(&upstream))]);
+  let error = update(&clone).unwrap_err();
+  let failed = error.downcast_ref::<FetchFailed>().unwrap_or_else(|| panic!("not FetchFailed: {error:#}"));
+  assert_eq!(failed.upstream, "origin/master");
+}
+
+#[test]
+fn a_tip_replayed_elsewhere_is_checked_and_applied_as_an_update() {
+  let Setup { upstream, clone } = fetched_rebase();
+  let head = clone.head();
+  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Preview, &no_landed_candidates).unwrap();
+  let replayed = plan.replayed_head().unwrap().to_string();
+
+  write(&clone, "shared.txt", "local edit\n");
+  let update = check_replayed_update(clone.git_executor(), path(&clone), &head, &replayed).unwrap();
+  assert_eq!(update.blocked, vec!["shared.txt".to_string()]);
+  assert!(apply_replayed_update(clone.git_executor(), path(&clone), &update, "update project").is_err());
+  assert_eq!(clone.head(), head);
+
+  write(&clone, "shared.txt", SHARED);
+  let error = check_replayed_update(clone.git_executor(), path(&clone), &replayed, &head).unwrap_err();
+  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+  let update = check_replayed_update(clone.git_executor(), path(&clone), &head, &replayed).unwrap();
+  apply_replayed_update(clone.git_executor(), path(&clone), &update, "update project").unwrap();
+  assert_eq!(clone.head(), replayed);
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+  assert_eq!(read(&clone, "shared.txt"), "one\nTWO\nthree\n");
+  assert_eq!(status(&clone), "");
 }

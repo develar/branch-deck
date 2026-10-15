@@ -12,6 +12,7 @@ pub mod dependencies;
 pub mod describe;
 pub mod diff_scan;
 pub mod error;
+pub mod fold_command;
 pub mod generated;
 pub mod group_plan;
 pub mod install;
@@ -23,6 +24,7 @@ pub mod schema;
 pub mod status;
 pub mod suggest;
 pub mod sync_command;
+pub mod update_command;
 pub mod version;
 
 use crate::agent_help::{AGENT_HELP, READ_ONLY, skill_text};
@@ -31,6 +33,7 @@ use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
 use crate::error::{CliError, ErrorCode};
+use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install, skill_command};
 use crate::output::write_json;
 use crate::push_command::{PushArgs, push};
@@ -39,6 +42,7 @@ use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use crate::sync_command::sync;
+use crate::update_command::{UpdateArgs, UpdateOutput, update};
 use crate::version::{VERSION, version};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
@@ -90,8 +94,14 @@ enum Command {
   Restack(RestackArgs),
   /// Make a stacked branch a root again
   Unstack(UnstackArgs),
-  /// Undo a rewrite with the `undo_token` it printed
+  /// Undo a rewrite or an update with the `undo_token` it printed
   Undo(UndoArgs),
+  /// Bring the checked out branch onto its baseline, as the app's Update Project: fetch, then a fast-forward or a replay
+  /// of the local commits, and the files follow. Exit 1 on a conflict; `uncommitted_overlap` (exit 4) when local changes
+  /// sit on files it writes. Nothing changes then
+  Update(UpdateArgs),
+  /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets: one rewrite that keeps HEAD's tree
+  Fold(FoldArgs),
   /// Suggest a grouping of the commits into branches: a plan for `bd group`, checked by a trial sync; exit code 1 when a
   /// branch of it still conflicts
   Suggest(SuggestArgs),
@@ -183,6 +193,8 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Restack(args) => return print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
     Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
+    Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateOutput::exit_code),
+    Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
     // the summary is the output either way; a conflict or a block only changes the exit code
     Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),
     Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
@@ -255,6 +267,8 @@ mod diff_scan_test;
 #[cfg(test)]
 mod fixture_test;
 #[cfg(test)]
+mod fold_test;
+#[cfg(test)]
 mod install_test;
 #[cfg(test)]
 mod push_test;
@@ -268,5 +282,7 @@ mod status_test;
 mod suggest_test;
 #[cfg(test)]
 mod sync_test;
+#[cfg(test)]
+mod update_test;
 #[cfg(test)]
 mod version_test;

@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-14  
+**Updated:** 2026-10-15  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -11,7 +11,8 @@ together), regroup the commits and sync them. It reads with `status`, `commits`,
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
 writing refs with `check` and pushes with `push`. `group --sync` applies a plan, its pull request texts and a sync in
-one call.
+one call. `update` brings the checked out branch onto its baseline as the app's Update Project does, and `fold` folds
+the fixup commits.
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -53,15 +54,24 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   subject when it is exactly the `group`.
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
-- Read only: `status`, `commits`, `suggest`, `check`, `schema` and `version` write no ref, config, index or working
-  tree. They write at most git objects (the trial sync of `check` and `suggest`) and the object cache (none with
-  `--no-cache`). `bd --help` and `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and
-  `agent_help_test.rs` checks the refs, the config, the index and the working tree around each of them.
+- Read only: `status`, `commits`, `suggest`, `check`, `schema`, `version`, `update --dry-run` and `fold --dry-run`
+  write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `suggest`, the replay of `update --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
+  `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
+  config, the index and the working tree around each of them.
+- The working tree: only `bd update` and `bd undo update:` write it, and only the files the update changes, through
+  the guarded update of the app's Update Project.
 
 An error looks like this:
 
 ```json
 {"schema":1,"error":{"code":"no_branch_prefix","message":"No branch prefix: ...","commits":[],"retryable":false}}
+```
+
+`uncommitted_overlap` also has `paths`, the local files that block an update or its undo:
+
+```json
+{"schema":1,"error":{"code":"uncommitted_overlap","message":"…","commits":[],"paths":["src/app.txt"],"retryable":false}}
 ```
 
 | Exit | Meaning | Codes |
@@ -70,7 +80,7 @@ An error looks like this:
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `push_refused`, `no_remote`, `install_refused` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `push_refused`, `no_remote`, `install_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
@@ -367,6 +377,54 @@ was printed: a token with abbreviated ids, or whose map commit is not a write on
 `{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>"}`; `undone` is left out for
 a `groups:` token, `undone_issue_groups` for a token without one.
 
+An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`).
+
+### `bd update [--no-fetch] [--dry-run]`
+
+The app's Update Project (`sync_core::update_project::update_project_with`, "Update project" in
+[Git Operations](../design/git-operations.md)): it fetches the baseline's remote branch, then takes the repository
+lock, checks again and applies a clean update. The fetch runs before the lock, so a slow fetch blocks no other writer.
+
+```json
+{"schema":1,…,"branch":"master","upstream":"origin/master","state":"rebase","dry_run":false,"fetched_at":1760500000,
+ "previous_head":"77e01aa4","head":"c0ffee12","upstream_head":"5f6a7b8c","replayed":2,"dropped_already_upstream":1,
+ "undo_token":"update:<full previous>..<full new>",
+ "landed":[{"branch":"auth","commits":[{"commit":"1b2c3d4e","subject":"Add login","upstream":"9d0e1f2a"}],"remaining":0}]}
+```
+
+- `state` is `up_to_date`, `fast_forward` or `rebase`; `replayed`, `dropped_already_upstream` and `undo_token` come
+  only with a change. `landed` lists the local commits the baseline has, which the update dropped.
+- `conflict` (exit 1): nothing changed. `conflict` lists the likely conflicting `files`, the local `commits` and the
+  `upstream_commits` that change them (`commit`, `subject`, `author`, `files`).
+- `uncommitted_overlap` (exit 4): uncommitted, staged or untracked files sit on paths the update writes; `paths`
+  lists them. bd never stashes, resets or commits them: the agent asks the user, then runs `bd update` again.
+- `--no-fetch` updates onto the last fetched baseline. `--dry-run` implies it, takes no lock and prints what the
+  update would do; it writes at most git objects (the replay).
+- A failed fetch is `network_error` (exit 5), a held lock `locked` (exit 3), and `operation_in_progress`,
+  `detached_head` and `no_baseline` (a local baseline) refuse (exit 4).
+- `bd undo <undo_token>` takes the update back: the branch moves back, and the files follow through the same
+  guarded update with the trees swapped, under the lock. Only the last update of the branch can be undone (its
+  reflog entry proves it), with full ids. Local changes on a path it writes are `uncommitted_overlap`, a branch moved
+  since is `head_moved`; the landed report is the one from before the update again (`landed_restored`).
+
+### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
+
+Folds the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
+(`sync_core::autosquash`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the working
+tree stay as they are.
+
+```json
+{"schema":1,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
+ "folded":[{"target":"1b2c3d4e","subject":"(auth) Add login","new_id":"2c3d4e5f","fixups":["9d0e1f2a"]}],
+ "orphans":["5f6a7b8c"],"undo_token":"<full previous>..<full new>"}
+```
+
+- `--branch` folds only the fixups whose target is in that branch. `orphans` are fixups without an older target:
+  they stay. Nothing to fold prints `folded: []` without a token.
+- `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
+  commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
+- `bd undo <undo_token>` restores the previous head.
+
 ### `bd check [--plan FILE | < plan.json]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
@@ -601,6 +659,10 @@ Finder has a minimal one. `--uninstall` removes the skills and the symlink if it
    rewrite and the issue groups, not the descriptions; run `bd sync` after it.
 4. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
    lines it prints, piping each `body` into its command.
+
+To update the branch onto its baseline, run `bd update`. On `uncommitted_overlap`, show the `paths` to the user and
+ask what to do with each file; never stash, reset, check out or commit them. After a failed build, commit the fix as
+`fixup! <subject>` and run `bd fold`, or `bd undo` the update with its token.
 
 The agent never reorders, squashes or drops commits: a plan only moves commits between branches. The Update Project
 hand-off prompt (`src/lib/agent-prompt.ts`) states the same rule for an agent that rebases; it also forbids a push,

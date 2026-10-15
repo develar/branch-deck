@@ -56,6 +56,7 @@ fn schema_lists_every_output() {
       "commits_brief",
       "describe",
       "error",
+      "fold",
       "install",
       "push",
       "rewrite",
@@ -64,6 +65,7 @@ fn schema_lists_every_output() {
       "suggest",
       "sync",
       "undo",
+      "update",
       "version"
     ]
   );
@@ -78,7 +80,15 @@ fn schema_lists_every_output() {
     .map(|variants| variants.iter().filter_map(|variant| variant["const"].as_str()).collect())
     .or_else(|| codes["enum"].as_array().map(|variants| variants.iter().filter_map(Value::as_str).collect()))
     .unwrap();
-  for code in ["invalid_arguments", "not_a_repository", "no_branch_prefix", "conflict", "head_moved", "git_error"] {
+  for code in [
+    "invalid_arguments",
+    "not_a_repository",
+    "no_branch_prefix",
+    "conflict",
+    "head_moved",
+    "uncommitted_overlap",
+    "git_error",
+  ] {
     assert!(codes.contains(code), "{code} in {codes:?}");
   }
 }

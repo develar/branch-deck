@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-14  
+**Updated:** 2026-10-15  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import]
 
 ## Problem
@@ -60,18 +60,24 @@ written, except by Update Project (its own section below).
    `crates/git-executor/src/worktree_safety_test.rs` scans the production sources and fails on such an argument list.
 
    **The one exception is Update Project** (see "Update project" below), which must bring the upstream's files into
-   the working tree. It does that with a single two-way `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes
-   only the paths whose content differs between the two trees. Three guards come first: a dry run of the same command
-   on a copy of the index, a check for ignored files where the update adds a file, and the CAS ref move. Uncommitted
-   and staged changes on the other paths survive byte for byte; any overlap refuses the whole update before anything
-   moves. The exemption lives in `crates/git-ops/src/worktree_update.rs` only; the safety scan allows `-u` there and
-   asserts the number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
+   the working tree, **and its undo**, which takes them out again. Both use a single two-way
+   `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
+   trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index, a
+   check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes on the
+   other paths survive byte for byte; any overlap refuses the whole move before anything moves. The exemption lives in
+   `crates/git-ops/src/worktree_update.rs` only. Its functions are `pub(crate)`, and only `update_branch.rs` calls them:
+   for the app's Update Project, `bd update` and `bd undo update:`. The safety scan allows `-u` there and asserts the
+   number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
    error is returned, never ignored.
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
-   the unapply rename together with the branch move, and the deletion of temporary refs.
+   the unapply rename together with the branch move, and the deletion of temporary refs. A move that the files follow
+   (an update and its undo) updates `HEAD`, not `refs/heads/<b>`: git locks HEAD and the branch it points at in the
+   same transaction, so the branch of this worktree moves, never one that a `git switch` left. A
+   `symref-verify HEAD refs/heads/<b>` next to `update refs/heads/<b>` would say the same, but git 2.56 refuses that
+   pair ("multiple updates for 'HEAD' (including one via its referent) are not allowed").
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
    - HEAD is not detached;
@@ -195,8 +201,10 @@ a message rewrite keeps HEAD's tree.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
-the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync` and `bd push` take it; the
-app's sync doesn't take it yet.
+the app and parallel `bd` processes. A dry run reads only and takes no lock. `bd sync`, `bd push`, `bd fold` and
+`bd undo` take it, and so does Update Project (the app's and `bd update`) after its fetch; the app's sync doesn't take
+it yet. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
+`locked`.
 
 **One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and
 passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no lock of its own and the lock has no gap:
@@ -309,9 +317,11 @@ Messages: a group of fixups only keeps the target's message and encoding (`Squas
 its body, an `amend!` replaces the message with its body, as UTF-8 text; if an involved commit has another encoding
 (one `cat-file --batch` for those), the squash is refused.
 
-`squash_fixup_commits_core` plans again, refuses if HEAD is not the confirmed one, and takes the groups of the scope:
-the target's branch (grouper rules), the unassigned targets, or one fixup. The branch moves with
-`branch-deck: squash fixups`; Undo is the squash undo.
+`squash_fixup_commits_core` plans again and takes the groups of the scope: the target's branch (grouper rules), the
+unassigned targets, or one fixup. It refuses with `HeadMoved` unless HEAD, the newest commit of the planned range and
+the history the squash replays all are the confirmed head; these are three reads, and a commit between them would
+otherwise give a plan for one head and a rewrite of another. The branch moves with `branch-deck: squash fixups` and a
+CAS on that head; Undo is the squash undo. `bd fold` runs it under the repository lock, with the head it planned for.
 
 Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
 `GroupingInputs::branch_of`).
@@ -327,18 +337,23 @@ final steps, runs inside every sync, so the header can say whether the update wo
 |---|---|---|
 | 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
-| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>` | error, nothing changed |
+| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` | error (`FetchFailed`), nothing changed |
+| 2b. Lock | `$GIT_COMMON_DIR/branch-deck.lock`, held to the end | `locked` after 10 s, nothing changed |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U` |
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none: the merge base suffices |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
-| 9. Move | `update-ref --stdin`: `update refs/heads/<b> N H`, `branch-deck: update project` | error: the branch moved meanwhile, nothing changed |
-| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh` | roll back: `update refs/heads/<b> H N`, `branch-deck: update project rolled back` |
+| 9. Move | `update-ref --stdin`: `update HEAD N H`, `branch-deck: update project` | `HeadMoved`: the branch moved meanwhile, nothing changed |
+| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh` | roll back: `update HEAD H N`, `branch-deck: update project rolled back` |
 
 Details:
 
+- **Lock.** The fetch runs before the repository lock, so a slow network never blocks another writer; the check and
+  the move run under it, so the app's Update Project, `bd update` and every rewrite of the app or of bd never
+  interleave. The check runs again under the lock, so an update never applies a check made before another writer
+  moved the branch. `bd update --dry-run` is the check inside sync (below): no fetch, no lock, no move.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
@@ -429,14 +444,33 @@ Details:
     by a file, or the reverse, is checked by the update's dry run only. The update always runs the exact check
     (`CheckPurpose::Apply`) after its fetch.
 
+**Undo of an update** (`bd undo update:<H>..<N>`, `undo_update_core`). The move back from N to H, with the files
+following, under the repository lock:
+
+1. The guards of step 0, and HEAD must be N (`HeadMoved` otherwise: a commit on top can't be undone this way).
+2. The last entry of the branch's reflog must be `branch-deck: update project` to N, after an entry at H
+   (`log -g -n2 --format=%H%x00%gs refs/heads/<b>`). So a token can't move the branch to any other commit, and only
+   the last update can be undone.
+3. Steps 7 and 8 with the trees swapped (`check_update_undo`, the same `blocking_paths`): the dry run of
+   `read-tree -m -u N^{tree} H^{tree}` on a copy of the index refuses every path changed since the update, and an
+   ignored file where the undo brings a file back (one that the update deleted) blocks it too. A block is
+   `UndoBlocked{paths}`, `uncommitted_overlap` in bd.
+4. Steps 9 and 10 with `update HEAD H N`, `branch-deck: undo update`, and the same rollback.
+5. The landed report goes back to the one from before the update: `record_update` keeps it as `previous` in
+   `branch-deck/landed.json`, and a sync drops it when it finds the branch elsewhere.
+
+`check_replayed_update(H, N)` and `apply_replayed_update` are the same check and move for a tip that was replayed
+elsewhere, e.g. the replayed head of a preview check; the undo is `check_update_undo` and `apply_replayed_update`.
+
 **Residual risk.** `read-tree -u` validates every path before it writes the first file, but writing can still fail
 midway, e.g. when a smudge filter (Git LFS) fails or the disk fills up. The branch then moves back to H, and the files
 already written show up as uncommitted changes that bring in the upstream's version; `git status` and the reflog
 (`branch-deck: update project`) show what happened. Submodules are not updated (`--no-recurse-submodules`); a changed
 gitlink shows as a modified submodule until the user updates it.
 
-Code: `crates/git-ops/src/update_branch.rs` (check and apply), `crates/git-ops/src/worktree_update.rs` (the exempt
-`read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, the check inside sync).
+Code: `crates/git-ops/src/update_branch.rs` (check, apply and the undo check), `crates/git-ops/src/worktree_update.rs`
+(the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside
+sync), `crates/bd-cli/src/update_command.rs` (`bd update`, `bd undo update:`).
 
 #### Virtual branch sync
 
@@ -656,14 +690,17 @@ recovery hint (`git reset -q`).
    single parent. The previous `rebase --autosquash` fallback touched the working tree and flattened the merges.
 
 4. **Decision**: Update Project writes the working tree with a guarded two-way `read-tree -m -u`, the only exception to
-   invariant 1.
+   invariant 1. Its undo runs the same command and guards in the other direction (N to H), not a second mechanism.
    **Rationale**:
    - `pull --rebase`, `rebase --autostash` and `stash` + `checkout` write every file of the rebase, stop halfway on a
      conflict and leave the user in a rebase, or a stash pop conflict, that the app can't finish;
    - replaying in memory first turns a conflict into a result with nothing changed, and the dry run on an index copy
      proves the files can follow before the branch moves;
    - two-way `read-tree` touches only the paths that differ between the old and the new HEAD, so unrelated local
-     changes survive without being stashed.
+     changes survive without being stashed;
+   - two-way `read-tree` is symmetric: from N back to H, the dry run refuses every path the user edited after the
+     update, so the undo is as safe as the update. Only the ignored-files check must run on the swapped trees, because
+     files that the update deleted come back.
 
 5. **Decision**: do not use `git history` (2.54+, experimental).
    **Rationale**:

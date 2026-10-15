@@ -69,10 +69,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Integration Status**: Auto-detection and archiving of merged, rebased, or squashed branches.
 - **AI Branch Naming**: On-device ML model to generate branch names from unassigned commits.
 - **Context Menus**: Right-click operations (shadcn `ContextMenu`) for common actions on branches and commits.
-- **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits, with undo
+- **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits (also `bd fold`), with undo
   (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
-- **Update Project**: fetch and replay onto the baseline; the only working-tree write
-  (`spec/repository/update-project.spec.md`).
+- **Update Project**: fetch and replay onto the baseline, in the app and as `bd update`, with `bd undo update:`; the
+  only working-tree write (`spec/repository/update-project.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
 - **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
@@ -125,18 +125,25 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
-  `GIT_INDEX_FILE` is fine. The single exception is Update Project's guarded two-way `read-tree -m -u` in
-  `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure);
-  the scan counts its `-u` argument lists. Don't add another one; see "Update project" in the design doc.
+  `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
+  `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure).
+  Its functions are `pub(crate)` and only `update_branch.rs` calls them, for Update Project (the app and `bd update`)
+  and its undo (`bd undo update:`, the trees swapped). The scan counts its `-u` argument lists. Don't add another
+  caller or another argument list; see "Update project" in the design doc.
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
-  message; related refs (unapply rename, temp refs) go into the same transaction.
+  message; related refs (unapply rename, temp refs) go into the same transaction. A move that the files follow (an
+  update and its undo) updates `HEAD` itself, not `refs/heads/<b>`: git then locks HEAD and its branch together, so
+  the branch of this worktree moves. `symref-verify HEAD` can't do this: git refuses it next to an update of HEAD's
+  branch.
 - **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
   lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
-- **Repository lock**: rewrites that regroup commits (`regroup.rs`) hold `$GIT_COMMON_DIR/branch-deck.lock`
+- **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd fold`, `bd undo`, and
+  Update Project (the app and `bd update`, after the fetch) hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
+  A fetch never runs under it.
 - **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
   HEAD not detached, no merges in the range (refuse, no rebase fallback).
 - **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:

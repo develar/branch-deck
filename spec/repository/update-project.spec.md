@@ -31,7 +31,7 @@ targets:
 # Update Project
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
@@ -108,8 +108,17 @@ The header shows whether an update would apply cleanly, from a check that every 
 ### Update
 
 - The update must fetch only the baseline's remote branch, so the push lease of the virtual branches still compares
-  against what the last push saw, then check again and apply a clean result.
+  against what the last push saw, then check again and apply a clean result. A failed fetch changes nothing.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
+- After the fetch, the update must take the repository lock and hold it through the check and the move, so the app,
+  `bd update` and the rewrites of either never interleave; the fetch never runs under the lock. A lock held for the
+  whole wait (10 s in the app) is the error "Another Branch Deck operation holds … retry when it is done", with only
+  the fetch done; the app shows it as "Cannot update the project".
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch`)
+  [@test] ../../crates/bd-cli/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
+- `bd update --no-fetch` must update onto the last fetched baseline ([Agent CLI](../cli/agent-cli.spec.md)).
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
 - A fast-forward must move the branch and update the files.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`fast_forward_updates_the_working_tree`)
 - A rebase must keep the author of every local commit; the committer is the current user.
@@ -126,12 +135,33 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`up_to_date_writes_no_reflog_entry`)
 - The branch moves with a CAS ref transaction (`branch-deck: update project`) before the files; if the files can't
   follow (one changed since the check), the branch moves back (`branch-deck: update project rolled back`) and the update
-  reports that nothing was changed.
+  reports that nothing was changed. The transaction updates HEAD, so the branch of this worktree moves.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
-- The working tree is written by `crates/git-ops/src/worktree_update.rs` only; the safety scan fails on any other
-  `read-tree -u`, `--reset` or `checkout-index`, and on a change of the number of exempt argument lists.
+- A tip replayed elsewhere must pass the same check and move (`check_replayed_update`, `apply_replayed_update`):
+  blocked by local changes on the paths it writes, refused when HEAD moved.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_tip_replayed_elsewhere_is_checked_and_applied_as_an_update`)
+- The working tree is written by `crates/git-ops/src/worktree_update.rs` only, called only from `update_branch.rs`
+  (the update and its undo); the safety scan fails on any other `read-tree -u`, `--reset` or `checkout-index`, and on
+  a change of the number of exempt argument lists.
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`scanner_finds_read_tree_updates`)
+
+### Undo
+
+- `bd undo update:<previous head>..<new head>` must move the branch back and let the files follow through the same
+  guarded two-way update with the trees swapped, under the repository lock (`branch-deck: undo update`); local changes
+  on the other paths stay.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
+- It must refuse, changing nothing, when local changes sit on a path it writes, an ignored file where a file that the
+  update deleted comes back included, and when the branch moved since the update.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_when_local_changes_overlap`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_after_the_branch_moved`)
+- Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move
+  the branch to another commit. A token takes full ids only.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`)
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_tokens_are_strict`)
+- The landed report must be the one from before the update again ([Landed Commits](landed-commits.spec.md)).
+  [@test] ../../crates/sync-core/src/landed_test.rs (`undo_of_an_update_restores_the_report_from_before_it`)
 
 ### Header
 

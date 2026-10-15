@@ -6,11 +6,12 @@ use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use crate::issue_groups::read_grouping_inputs;
 use crate::stack::leaf_of;
-use anyhow::{Result, anyhow, bail, ensure};
+use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
 use git_ops::rewrite_plan::History;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
@@ -307,12 +308,23 @@ pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_pa
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
-/// the working tree are not touched. The plan is computed again and must be for `expected_head`.
+/// the working tree are not touched. The plan is computed again and must be for `expected_head`: HEAD, the commits the
+/// plan is made of and the history the rewrite replays must all end at it, else the error is `HeadMoved`. The rewrite
+/// itself moves the branch only from that head (compare-and-swap).
 #[instrument(skip(git_executor))]
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
   let (head, commits, grouping) = read_range(git_executor, repo_path)?;
-  ensure!(head == params.expected_head, "The branch changed since the fixups were listed, sync and try again");
+  // the history first: each read below must still end at the expected head
+  let history = History::read(git_executor, repo_path)?;
+  let read_heads = [Some(head.as_str()), commits.last().map(|commit| commit.id.as_str()), history.head()];
+  if let Some(actual) = read_heads.into_iter().flatten().find(|actual| *actual != params.expected_head) {
+    return Err(anyhow::Error::new(HeadMoved {
+      branch: get_current_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
+      expected: params.expected_head.clone(),
+      actual: actual.to_string(),
+    }));
+  }
   let plan = plan_autosquash(head, &commits, &grouping);
   let (groups, orphans) = select_scope(plan, &params.scope)?;
 
@@ -345,7 +357,6 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
     }
   }
 
-  let history = History::read(git_executor, repo_path)?;
   let prepared = prepare_squash(git_executor, repo_path, &history, &squash_groups)?;
   prepared.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
 

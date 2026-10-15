@@ -5,15 +5,17 @@
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::GroupingInputs;
 use crate::issue_groups::read_grouping_inputs;
-use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs};
+use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
+use crate::regroup::is_full_id;
 use crate::remote_command::execute_remote_command_with_progress;
+use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::{ensure_no_operation_in_progress, get_current_branch};
-use git_ops::update_branch::{AppliedUpdate, CheckPurpose, UpdateCheck, UpdateState, UpstreamRef, apply_update, check_update};
+use git_ops::update_branch::{AppliedUpdate, CheckPurpose, UpdateCheck, UpdateState, UpstreamRef, apply_replayed_update, apply_update, check_update, check_update_undo};
 use serde::{Deserialize, Serialize};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 use sync_types::landed::LandedBranch;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument, warn};
@@ -211,11 +213,47 @@ pub struct UpdateProjectResult {
   pub landed: Vec<LandedBranch>,
 }
 
+/// How an update runs
+#[derive(Debug, Clone, Copy)]
+pub struct UpdateOptions {
+  /// Fetch the baseline first; without, the update goes onto the last fetched state
+  pub fetch: bool,
+  /// How long the update waits for the repository lock, which it takes after the fetch
+  pub lock_timeout: Duration,
+}
+
+/// The fetch of an update failed; nothing was changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchFailed {
+  /// The baseline, e.g. `origin/master`
+  pub upstream: String,
+  pub message: String,
+}
+
+impl std::fmt::Display for FetchFailed {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "Failed to fetch {}: {}", self.upstream, self.message)
+  }
+}
+
+impl std::error::Error for FetchFailed {}
+
 /// Fetch the baseline, check the update and apply it if it is clean. A conflict or a block is a result, not an error:
 /// nothing is changed, and the check says why.
 #[instrument(skip(git_executor, params, on_progress), fields(repository_path = %params.repository_path))]
 pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdateProjectParams, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
-  let repo_path = &params.repository_path;
+  let options = UpdateOptions {
+    fetch: true,
+    lock_timeout: DEFAULT_LOCK_TIMEOUT,
+  };
+  update_project_with(git_executor, &params.repository_path, options, on_progress)
+}
+
+/// `update_project_core` with options (`bd update`). The fetch runs first, without the repository lock, so a slow
+/// network never blocks another writer; the check and the update then run under the lock, so the app, `bd` and their
+/// rewrites never interleave with an update. A held lock is a `RepositoryLocked` error, a failed fetch `FetchFailed`
+#[instrument(skip(git_executor, on_progress))]
+pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
   let baseline_branch = detect_baseline_branch(git_executor, repo_path, "master")?;
   let upstream = resolve_baseline_upstream(git_executor, repo_path, &baseline_branch)?
     .ok_or_else(|| anyhow!("The baseline {baseline_branch} is a local branch: there is no upstream to update from"))?;
@@ -223,17 +261,27 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
   ensure_no_operation_in_progress(git_executor, repo_path)?;
   get_current_branch(git_executor, repo_path)?;
 
-  on_progress(UpdatePhase::Fetching.into());
-  let mut on_fetch_progress = |fetch| {
-    on_progress(UpdateProgress {
-      phase: UpdatePhase::Fetching,
-      fetch: Some(fetch),
-    });
+  let (previous, fetched_at) = if options.fetch {
+    on_progress(UpdatePhase::Fetching.into());
+    let mut on_fetch_progress = |fetch| {
+      on_progress(UpdateProgress {
+        phase: UpdatePhase::Fetching,
+        fetch: Some(fetch),
+      });
+    };
+    let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress).map_err(|e| {
+      anyhow::Error::new(FetchFailed {
+        upstream: upstream.name.clone(),
+        message: format!("{e:#}"),
+      })
+    })?;
+    (previous, Some(unix_now()))
+  } else {
+    (None, last_fetch_time(git_executor, repo_path))
   };
-  let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
-  let fetched_at = unix_now();
 
   on_progress(UpdatePhase::Checking.into());
+  let _lock = lock_repository(git_executor, repo_path, options.lock_timeout)?;
   let grouping = read_grouping_inputs(git_executor, repo_path)?;
   let mut plan = check_update(
     git_executor,
@@ -246,7 +294,7 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
     CheckPurpose::Apply,
     &|scope| landed_candidates(git_executor, repo_path, scope, &grouping),
   )?;
-  plan.check.fetched_at = Some(fetched_at);
+  plan.check.fetched_at = fetched_at;
 
   let mut landed = Vec::new();
   let applied = match &plan.check.state {
@@ -299,6 +347,85 @@ fn record_landed_update(
   result.unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't record the landed commits");
     Vec::new()
+  })
+}
+
+/// The undo token of an applied update: `update:<previous head>..<new head>`, with full ids
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateUndoToken {
+  pub previous_head: String,
+  pub new_head: String,
+}
+
+const UPDATE_TOKEN: &str = "update:";
+
+impl UpdateUndoToken {
+  /// A token as `Display` prints it; anything else, abbreviated ids included, is `None`
+  pub fn parse(text: &str) -> Option<Self> {
+    let (previous_head, new_head) = text.strip_prefix(UPDATE_TOKEN)?.split_once("..")?;
+    let valid = is_full_id(previous_head) && is_full_id(new_head) && previous_head.len() == new_head.len() && previous_head != new_head;
+    valid.then(|| Self {
+      previous_head: previous_head.to_string(),
+      new_head: new_head.to_string(),
+    })
+  }
+
+  /// Whether `text` claims to be an update token, valid or not
+  pub fn is_update_token(text: &str) -> bool {
+    text.starts_with(UPDATE_TOKEN)
+  }
+}
+
+impl std::fmt::Display for UpdateUndoToken {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{UPDATE_TOKEN}{}..{}", self.previous_head, self.new_head)
+  }
+}
+
+/// Local changes sit on paths the undo of an update would write; nothing was changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoBlocked {
+  pub paths: Vec<String>,
+}
+
+impl std::fmt::Display for UndoBlocked {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "Uncommitted, staged or untracked files sit on paths the undo would write: {}", self.paths.join(", "))
+  }
+}
+
+impl std::error::Error for UndoBlocked {}
+
+/// What an undone update left
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoneUpdate {
+  pub branch: String,
+  /// The landed report is the one from before the update again
+  pub landed_restored: bool,
+}
+
+/// Undo an applied update, under the repository lock: the branch moves back from the token's new head to its previous
+/// head, and the files follow through the same guarded update, with the trees swapped (`check_update_undo`). Refused
+/// with `HeadMoved` when the branch moved, `NotAnUpdate` when the last move of the branch is not this update, and
+/// `UndoBlocked` when local changes sit on a path the undo writes. The landed report goes back to the one before the
+/// update
+#[instrument(skip(git_executor))]
+pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UpdateUndoToken, lock_timeout: Duration) -> Result<UndoneUpdate> {
+  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  let update = check_update_undo(git_executor, repo_path, &token.previous_head, &token.new_head)?;
+  if !update.blocked.is_empty() {
+    return Err(anyhow::Error::new(UndoBlocked { paths: update.blocked }));
+  }
+  apply_replayed_update(git_executor, repo_path, &update, "undo update")?;
+  // the undo is done: a failure here is logged, not returned
+  let landed_restored = restore_before_update(git_executor, repo_path, &update.branch, &token.new_head).unwrap_or_else(|e| {
+    warn!(error = %format!("{e:#}"), "can't restore the landed report");
+    false
+  });
+  info!(branch = %update.branch, landed_restored, "undid the update");
+  Ok(UndoneUpdate {
+    branch: update.branch,
+    landed_restored,
   })
 }
 

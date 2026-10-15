@@ -5,6 +5,7 @@ use crate::autosquash::{
 use crate::commit_grouper::GroupingInputs;
 use crate::test_commit::commit;
 use git_ops::commit_list::Commit;
+use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -287,7 +288,8 @@ fn refuses_when_the_branch_moved_since_the_plan() {
   let (test_repo, head) = interleaved_repo();
   let later = test_repo.create_commit("Later", "later.txt", "later");
   let error = squash_fixups(&test_repo, &head, AutosquashScope::All).expect_err("the branch moved");
-  assert!(format!("{error:#}").contains("changed since"), "{error:#}");
+  let moved = error.downcast_ref::<HeadMoved>().unwrap_or_else(|| panic!("not HeadMoved: {error:#}"));
+  assert_eq!((moved.expected.as_str(), moved.actual.as_str()), (head.as_str(), later.as_str()));
   assert_eq!(test_repo.head(), later);
 }
 

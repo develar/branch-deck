@@ -99,6 +99,12 @@ impl History {
     Ok(Self { commits, positions })
   }
 
+  /// The tip the history was read from; `None` for an unborn branch
+  #[must_use]
+  pub fn head(&self) -> Option<&str> {
+    self.commits.first().map(String::as_str)
+  }
+
   /// Position of the commit, 0 for HEAD
   pub fn position(&self, commit_id: &str) -> Result<usize, CopyCommitError> {
     self

@@ -182,7 +182,7 @@ impl UndoToken {
 }
 
 /// A full object id: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits
-fn is_full_id(id: &str) -> bool {
+pub(crate) fn is_full_id(id: &str) -> bool {
   matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 

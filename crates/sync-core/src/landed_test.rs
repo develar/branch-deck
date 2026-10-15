@@ -1,11 +1,12 @@
 use crate::commit_grouper::GroupingInputs;
 use crate::landed::{dismiss_landed, read_report, record_sync};
 use crate::sync::{SyncOptions, sync_branches};
-use crate::update_project::check_baseline_update;
 use crate::update_project::update_project_test::{Setup, git, path, setup, update};
+use crate::update_project::{UpdateUndoToken, check_baseline_update, undo_update_core};
 use git_ops::update_branch::{UpdateKind, UpdateState};
 use pretty_assertions::assert_eq;
 use std::fs;
+use std::time::Duration;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use sync_types::landed::LandedBranch;
@@ -80,6 +81,32 @@ fn whole_branch_landed_by_a_rebase_upstream() {
   assert_eq!(landing(&clone), Vec::<String>::new(), "nothing is incoming any more");
   assert_eq!(describe(&read_report(clone.git_executor(), path(&clone)).unwrap()), expected);
   assert_eq!(record(&clone), expected, "the sync after the update doesn't report it again");
+}
+
+#[test]
+fn undo_of_an_update_restores_the_report_from_before_it() {
+  let Setup { upstream, clone } = setup();
+  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  clone.create_commit("(ui) Add button", "button.txt", "button\n");
+  assert_eq!(record(&clone), Vec::<String>::new());
+  let landed = land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
+
+  let result = update(&clone).unwrap();
+  let expected = vec![format!("auth: Add login -> {landed} | 0 stay")];
+  assert_eq!(describe(&result.landed), expected);
+  assert_eq!(record(&clone), expected, "a sync on the updated branch keeps the record of the update");
+  let token = UpdateUndoToken {
+    previous_head: result.check.head.clone(),
+    new_head: result.applied.unwrap().new_head,
+  };
+
+  let undone = undo_update_core(clone.git_executor(), path(&clone), &token, Duration::from_millis(200)).unwrap();
+  assert!(undone.landed_restored);
+  assert_eq!(clone.head(), token.previous_head);
+  assert_eq!(describe(&read_report(clone.git_executor(), path(&clone)).unwrap()), Vec::<String>::new());
+  // the commits are local again, and they are incoming as before the update
+  assert_eq!(landing(&clone), expected);
+  assert_eq!(record(&clone), Vec::<String>::new(), "the next sync reports nothing that landed");
 }
 
 #[test]

@@ -38,6 +38,9 @@ pub enum ErrorCode {
   DetachedHead,
   /// Staged changes overlap the files the operation rewrites
   StagedOverlap,
+  /// Uncommitted, staged or untracked files sit on paths `bd update` (or its undo) writes; `paths` lists them. Nothing
+  /// was changed; never stash them, ask the user
+  UncommittedOverlap,
   /// A branch can't be pushed: not synced, behind its remote branch without --force, or its parent is not on the remote
   PushRefused,
   /// No remote to push to
@@ -59,7 +62,14 @@ impl ErrorCode {
       Self::Conflict => 1,
       Self::InvalidArguments | Self::NotARepository | Self::NoBranchPrefix | Self::UnknownBranch | Self::InvalidPlan | Self::NotAheadOfBaseline => 2,
       Self::HeadMoved | Self::GroupsMoved | Self::LeaseRejected | Self::Locked => 3,
-      Self::NoBaseline | Self::OperationInProgress | Self::DetachedHead | Self::StagedOverlap | Self::PushRefused | Self::NoRemote | Self::InstallRefused => 4,
+      Self::NoBaseline
+      | Self::OperationInProgress
+      | Self::DetachedHead
+      | Self::StagedOverlap
+      | Self::UncommittedOverlap
+      | Self::PushRefused
+      | Self::NoRemote
+      | Self::InstallRefused => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError => 5,
     }
   }
@@ -79,6 +89,8 @@ pub struct CliError {
   pub commits: Vec<String>,
   /// The branches the error is about, with their remote status, if any
   pub branches: Vec<ErrorBranch>,
+  /// The files the error is about, if any
+  pub paths: Vec<String>,
 }
 
 impl CliError {
@@ -88,6 +100,7 @@ impl CliError {
       message: message.into(),
       commits: Vec::new(),
       branches: Vec::new(),
+      paths: Vec::new(),
     }
   }
 
@@ -99,6 +112,7 @@ impl CliError {
         message: self.message.clone(),
         commits: self.commits.clone(),
         branches: self.branches.clone(),
+        paths: self.paths.clone(),
         retryable: self.code.retryable(),
       },
     }
@@ -135,6 +149,9 @@ pub struct ErrorBody {
   /// `lease_rejected` as bd fetched them, the ones behind of `push_refused`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub branches: Vec<ErrorBranch>,
+  /// The local files of `uncommitted_overlap`, relative to the repository
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub paths: Vec<String>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
 }

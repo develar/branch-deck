@@ -378,6 +378,10 @@ struct LandedState {
   upstream_head: String,
   base: String,
   landed: Vec<LandedBranch>,
+  /// The state before the update that left the branch at `head`, for its undo (`restore_before_update`); dropped when
+  /// a sync finds the branch elsewhere
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  previous: Option<Box<LandedState>>,
 }
 
 fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {
@@ -455,6 +459,10 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &U
       Err(e) => warn!(error = %format!("{e:#}"), "can't compare with the previous sync"),
     }
   }
+  if state.head != check.head {
+    // the branch moved since the update: it can't be undone any more
+    state.previous = None;
+  }
   check.branch.clone_into(&mut state.branch);
   check.upstream.clone_into(&mut state.upstream);
   check.head.clone_into(&mut state.head);
@@ -468,10 +476,13 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, check: &U
 }
 
 /// For Update Project: add what this update landed to the report and remember the branch after it, so the next sync
-/// doesn't report it again
+/// doesn't report it again. The state before is kept as `previous` for the undo of the update
 pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, new_head: &str, found: Vec<LandedBranch>) -> Result<()> {
   let path = state_path(git_executor, repo_path)?;
   let mut state = load_state(&path).unwrap_or_default();
+  let mut before = state.clone();
+  before.previous = None;
+  state.previous = Some(Box::new(before));
   if state.branch != check.branch || state.upstream != check.upstream {
     state.landed.clear();
   }
@@ -484,6 +495,20 @@ pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: 
   // HEAD is on the upstream now
   check.upstream_head.clone_into(&mut state.base);
   save_state(&path, &state)
+}
+
+/// For the undo of an update that left `branch` at `new_head`: the state as it was before that update, when the state
+/// still names it. Returns whether it was restored; without a record of the update (another
+/// update or a sync since, or no state at all) the state stays, and the next sync compares from there
+#[instrument(skip(git_executor))]
+pub fn restore_before_update(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, new_head: &str) -> Result<bool> {
+  let path = state_path(git_executor, repo_path)?;
+  let Some(state) = load_state(&path) else { return Ok(false) };
+  let Some(previous) = state.previous.filter(|_| state.branch == branch && state.head == new_head) else {
+    return Ok(false);
+  };
+  save_state(&path, &previous)?;
+  Ok(true)
 }
 
 /// The undismissed report, for `bd`

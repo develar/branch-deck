@@ -3,7 +3,8 @@
 //! a two-way `read-tree -m -u`. It updates only the paths whose content differs between the two trees, keeps local
 //! changes on every other path, and refuses as a whole, before writing anything, if a path it would update has
 //! uncommitted or staged changes or is untracked. `crates/git-executor/src/worktree_safety_test.rs` allows `-u` in this
-//! file only, and counts the occurrences.
+//! file only, and counts the occurrences. The functions are `pub(crate)`: only `update_branch.rs` calls them, for
+//! Update Project (the app and `bd update`) and its undo (`bd undo update:`).
 
 use crate::rewrite_guard::IndexCopy;
 use anyhow::{Result, anyhow, bail};
@@ -14,7 +15,7 @@ use tracing::{debug, instrument};
 /// the working tree is written. Returns git's message if the update is refused.
 /// The copy is refreshed first: a file that was only touched (same content, new stat data) must not count as changed.
 #[instrument(skip(git_executor))]
-pub fn dry_run_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str) -> Result<Option<String>> {
+pub(crate) fn dry_run_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str) -> Result<Option<String>> {
   let copy = IndexCopy::new(git_executor, repo_path)?;
   let env = [("GIT_INDEX_FILE", copy.path())];
 
@@ -31,10 +32,10 @@ pub fn dry_run_worktree_update(git_executor: &GitCommandExecutor, repo_path: &st
 }
 
 /// Update the user's index and working tree from `old_tree` (the tree of the commit HEAD pointed at) to `new_tree`
-/// (HEAD's tree now). Must follow a passed `dry_run_worktree_update` and the branch move: git checks every path again
+/// (HEAD's tree now; for an undo, the tree before the update). Must follow a passed `dry_run_worktree_update` and the branch move: git checks every path again
 /// before it writes any file, so a file changed since the dry run fails the update with nothing written.
 #[instrument(skip(git_executor))]
-pub fn apply_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str) -> Result<()> {
+pub(crate) fn apply_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str) -> Result<()> {
   refresh_index(git_executor, repo_path)?;
   let (output, exit_code) = git_executor.execute_command_with_status(&["read-tree", "-m", "-u", "--no-recurse-submodules", old_tree, new_tree], repo_path)?;
   if exit_code != 0 {

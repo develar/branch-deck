@@ -2,6 +2,7 @@ use crate::check_command::CheckOutput;
 use crate::commits::{CommitsBrief, CommitsOutput};
 use crate::describe::DescribeOutput;
 use crate::error::ErrorOutput;
+use crate::fold_command::FoldOutput;
 use crate::install::InstallOutput;
 use crate::output::SchemaVersion;
 use crate::push_command::PushOutput;
@@ -9,6 +10,7 @@ use crate::rewrite::{RewriteOutput, UndoOutput};
 use crate::status::{StatusBrief, StatusOutput};
 use crate::suggest::SuggestOutput;
 use crate::sync_command::SyncOutput;
+use crate::update_command::UpdateOutput;
 use crate::version::VersionOutput;
 use schemars::{Schema, schema_for};
 use serde::Serialize;
@@ -32,6 +34,7 @@ pub fn schema_output() -> SchemaOutput {
       ("commits_brief".to_string(), schema_for!(CommitsBrief)),
       ("describe".to_string(), schema_for!(DescribeOutput)),
       ("error".to_string(), schema_for!(ErrorOutput)),
+      ("fold".to_string(), schema_for!(FoldOutput)),
       ("install".to_string(), schema_for!(InstallOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
@@ -40,6 +43,7 @@ pub fn schema_output() -> SchemaOutput {
       ("suggest".to_string(), schema_for!(SuggestOutput)),
       ("sync".to_string(), schema_for!(SyncOutput)),
       ("undo".to_string(), schema_for!(UndoOutput)),
+      ("update".to_string(), schema_for!(UpdateOutput)),
       ("version".to_string(), schema_for!(VersionOutput)),
     ]),
   }

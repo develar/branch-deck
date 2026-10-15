@@ -173,6 +173,8 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["check", "--plan", plan.path().to_str().unwrap()],
     &["schema"],
     &["version"],
+    &["update", "--dry-run"],
+    &["fold", "--dry-run"],
   ];
   // with --no-cache first: no cache appears either
   for no_cache in [true, false] {
