@@ -60,6 +60,16 @@ pnpm tauri build
 pnpm build
 ```
 
+#### Install scripts
+
+`install.sh` (macOS, Linux) and `install.ps1` (Windows) at the repository root are the one-line install of the README,
+served from `master` by raw.githubusercontent.com. They read the asset URLs from the release's `latest.json`, so a
+renamed asset needs no change in them. Downloaded by `curl` or PowerShell, the unsigned builds carry no quarantine or
+Mark of the Web, so neither Gatekeeper nor SmartScreen blocks them. They call the Agent CLI (`cli version`,
+`cli install`) only for releases from 0.12.0 (`CLI_SINCE`, `$CliSince`): an older binary ignores `cli` and starts the
+app. `BRANCH_DECK_MANIFEST` (`-Manifest`) points them at a local `latest.json` whose URLs may be `file://`, to try a
+local build. `.github/workflows/install-script.yml` runs both against the latest release when they change.
+
 #### Windows on ARM (e.g. a Parallels VM on Apple Silicon)
 
 Releases are built for Windows x86_64 only. A native `aarch64-pc-windows-msvc` build for a quick check needs LLVM

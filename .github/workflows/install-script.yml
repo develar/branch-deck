@@ -1,0 +1,78 @@
+name: 'Install Scripts'
+
+# Runs install.sh and install.ps1 against the latest release, as a user would
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/install-script.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/install-script.yml'
+  workflow_dispatch:
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+          - platform: 'ubuntu-24.04'
+            format: 'deb'
+          - platform: 'ubuntu-24.04'
+            format: 'appimage'
+          - platform: 'windows-latest'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Shellcheck
+        if: runner.os == 'Linux' && matrix.format == 'deb'
+        run: shellcheck install.sh
+
+      - name: Latest release
+        id: release
+        shell: bash
+        run: echo "version=$(curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/latest.json | jq -r .version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install (macOS)
+        if: runner.os == 'macOS'
+        env:
+          BRANCH_DECK_INSTALL_DIR: ${{ runner.temp }}/apps
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          sh install.sh --with-cli
+          app="$BRANCH_DECK_INSTALL_DIR/BranchDeck.app"
+          test "$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString)" = "$VERSION"
+          test -z "$(xattr -p com.apple.quarantine "$app" 2>/dev/null)"
+
+      - name: Install (Linux)
+        if: runner.os == 'Linux'
+        env:
+          BRANCH_DECK_FORMAT: ${{ matrix.format }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          sh install.sh --with-cli
+          if [ "$BRANCH_DECK_FORMAT" = deb ]; then
+            test "$(dpkg-query -W -f '${Version}' "$(dpkg-query -S /usr/bin/branch-deck | cut -d: -f1)")" = "$VERSION"
+          else
+            test -x "$HOME/.local/bin/branch-deck"
+            test -f "$HOME/.local/share/applications/branch-deck.desktop"
+          fi
+
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          # the way users run it: the script text through Invoke-Expression, in Windows PowerShell
+          & ([scriptblock]::Create((Get-Content -Raw install.ps1))) -WithCli
+          $installed = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\BranchDeck').DisplayVersion
+          if ($installed -ne $env:VERSION) { throw "installed $installed, expected $env:VERSION" }

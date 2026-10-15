@@ -118,10 +118,44 @@ See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout an
 
 ## Installation
 
-[Download the latest release](https://github.com/develar/branch-deck/releases/latest) for macOS (Apple silicon), Windows
-or Linux (AppImage, `.deb`, `.rpm`).
+One command, which is also the upgrade:
 
-The builds are not signed yet:
+```sh
+# macOS (Apple silicon), Linux (x86_64)
+curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.sh | sh
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1 | iex
+```
+
+The builds are not signed yet, and these scripts are the way around it: a browser marks a download as quarantined
+(macOS) or as from the internet (Windows), and then Gatekeeper or SmartScreen blocks the unsigned app; a download by
+`curl` or PowerShell has no such mark, the same as the app's own updates. The scripts take the release from its
+`latest.json`, the file the updater reads, and install:
+
+- **macOS**: `BranchDeck.app` into `/Applications` (`~/Applications` when that is not writable), quitting and
+  restarting a running Branch Deck.
+- **Linux**: the `.deb` with `apt-get`, the `.rpm` with `dnf` or `zypper` (both through `sudo`), else the AppImage into
+  `~/.local/bin` with a menu entry; `BRANCH_DECK_FORMAT=appimage` picks the AppImage anyway.
+- **Windows**: the per-user installer, silently, no administrator rights.
+
+Add `--with-cli` (`-WithCli` on Windows) to also install the [Agent CLI](#features) for coding agents, `--version 0.11.0`
+(`-Version`) for an older release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.sh | sh -s -- --with-cli
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1))) -WithCli
+```
+
+Read [install.sh](install.sh) and [install.ps1](install.ps1) before you pipe them into a shell.
+
+Or [download the release](https://github.com/develar/branch-deck/releases/latest) yourself (`.dmg`, `.exe`, `.msi`,
+AppImage, `.deb`, `.rpm`):
 
 - **macOS**: move `BranchDeck.app` to Applications, then run `xattr -dr com.apple.quarantine /Applications/BranchDeck.app`
   once, or open it and allow it in System Settings → Privacy & Security → Open Anyway.
@@ -148,7 +182,7 @@ Requirements:
    and the checked-out branch stay as they are.
 5. Push a branch from its row, and open its pull request from the toast.
 
-Help → Install Agent CLI… puts `bd` on `PATH` for coding agents (see Features).
+Help → Install Agent CLI… (or the installer's `--with-cli`) puts `bd` on `PATH` for coding agents (see Features).
 
 History rewrites (reword, move, squash, amend, unapply) never touch your working tree or your staged changes. Update
 Project is the one operation that writes files, and only files that upstream changed and you didn't. See
