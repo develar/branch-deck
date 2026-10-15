@@ -139,6 +139,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   follow (one changed since the check), the branch moves back (`branch-deck: update project rolled back`) and the update
   reports that nothing was changed. The transaction updates HEAD, so the branch of this worktree moves.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
+- HEAD switched to another branch since the check, even one at the same commit, must refuse the move with nothing
+  changed; the result names the branch that moved.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
 - A tip replayed elsewhere must pass the same check and move (`check_replayed_update`, `apply_replayed_update`):
   blocked by local changes on the paths it writes, refused when HEAD moved.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`a_tip_replayed_elsewhere_is_checked_and_applied_as_an_update`)

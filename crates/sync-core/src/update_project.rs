@@ -399,6 +399,7 @@ impl std::error::Error for UndoBlocked {}
 /// What an undone update left
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UndoneUpdate {
+  /// The branch that moved back
   pub branch: String,
   /// The landed report is the one from before the update again
   pub landed_restored: bool,
@@ -416,17 +417,14 @@ pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, toke
   if !update.blocked.is_empty() {
     return Err(anyhow::Error::new(UndoBlocked { paths: update.blocked }));
   }
-  apply_replayed_update(git_executor, repo_path, &update, "undo update")?;
+  let branch = apply_replayed_update(git_executor, repo_path, &update, "undo update")?;
   // the undo is done: a failure here is logged, not returned
-  let landed_restored = restore_before_update(git_executor, repo_path, &update.branch, &token.new_head).unwrap_or_else(|e| {
+  let landed_restored = restore_before_update(git_executor, repo_path, &branch, &token.new_head).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't restore the landed report");
     false
   });
-  info!(branch = %update.branch, landed_restored, "undid the update");
-  Ok(UndoneUpdate {
-    branch: update.branch,
-    landed_restored,
-  })
+  info!(branch = %branch, landed_restored, "undid the update");
+  Ok(UndoneUpdate { branch, landed_restored })
 }
 
 #[cfg(test)]

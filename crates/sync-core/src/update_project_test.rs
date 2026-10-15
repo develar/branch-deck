@@ -6,7 +6,8 @@ use crate::update_project::{
 };
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
-  CheckPurpose, NotAnUpdate, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_replayed_update, apply_update, check_replayed_update, check_update, no_landed_candidates,
+  BranchSwitched, CheckPurpose, NotAnUpdate, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_replayed_update, apply_update, check_replayed_update, check_update,
+  no_landed_candidates,
 };
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -888,4 +889,37 @@ fn a_tip_replayed_elsewhere_is_checked_and_applied_as_an_update() {
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
   assert_eq!(read(&clone, "shared.txt"), "one\nTWO\nthree\n");
   assert_eq!(status(&clone), "");
+}
+
+/// Two branches at the same commit: a `git switch` to the other one after the check must not move it
+#[test]
+fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
+  let Setup { upstream: _upstream, clone } = fetched_rebase();
+  let head = clone.head();
+  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  git(&clone, &["switch", "-q", "-c", "other"]);
+  let reflog_before = reflog(&clone);
+
+  let error = apply_update(clone.git_executor(), path(&clone), &plan).unwrap_err();
+  let switched = error.downcast_ref::<BranchSwitched>().unwrap_or_else(|| panic!("not BranchSwitched: {error:#}"));
+  assert_eq!((switched.expected.as_str(), switched.actual.as_deref()), ("master", Some("other")));
+  assert_eq!(git(&clone, &["rev-parse", "master", "other"]), format!("{head}\n{head}"));
+  assert_eq!(reflog(&clone), reflog_before);
+  assert_eq!(read(&clone, "shared.txt"), SHARED);
+  assert_eq!(status(&clone), "");
+
+  // the same for a tip replayed elsewhere and for an undo
+  let replayed = plan.replayed_head().unwrap().to_string();
+  git(&clone, &["switch", "-q", "master"]);
+  let update = check_replayed_update(clone.git_executor(), path(&clone), &head, &replayed).unwrap();
+  git(&clone, &["switch", "-q", "other"]);
+  let error = apply_replayed_update(clone.git_executor(), path(&clone), &update, "update project").unwrap_err();
+  assert!(error.downcast_ref::<BranchSwitched>().is_some(), "{error:#}");
+
+  // on the checked branch the update applies and names it
+  git(&clone, &["switch", "-q", "master"]);
+  let applied = apply_update(clone.git_executor(), path(&clone), &plan).unwrap();
+  assert_eq!(applied.branch, "master");
+  assert_eq!(git(&clone, &["rev-parse", "other"]), head);
 }

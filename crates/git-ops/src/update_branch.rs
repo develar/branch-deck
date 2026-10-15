@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 /// How the branch reaches the upstream
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -94,6 +94,10 @@ pub struct UpdateCheck {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct AppliedUpdate {
+  /// The branch that moved: the branch of the worktree's HEAD when the ref moved (`move_branch_and_files`); for the
+  /// output of `bd update`, not the app
+  #[serde(skip)]
+  pub branch: String,
   pub kind: UpdateKind,
   pub new_head: String,
   /// Local commits replayed onto the upstream
@@ -533,7 +537,7 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     bail!("A preview check can't be applied");
   }
   let check = &plan.check;
-  move_branch_and_files(git_executor, repo_path, &check.branch, &check.head, new_head, plan.files_change, UPDATE_OPERATION)?;
+  let branch = move_branch_and_files(git_executor, repo_path, &check.branch, &check.head, new_head, plan.files_change, UPDATE_OPERATION)?;
 
   let (replayed, dropped_already_upstream) = match kind {
     UpdateKind::FastForward => (0, 0),
@@ -547,6 +551,7 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
   };
   info!(?kind, replayed, dropped_already_upstream, %new_head, "updated the branch");
   Ok(AppliedUpdate {
+    branch,
     kind: *kind,
     new_head: new_head.clone(),
     replayed,
@@ -620,9 +625,10 @@ pub fn check_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, pre
 }
 
 /// Move the branch as checked, then let the index and the working tree follow; refused while local changes block it.
-/// If the files can't follow (a file changed since the check), the branch moves back and nothing is changed
+/// If the files can't follow (a file changed since the check), the branch moves back and nothing is changed. Returns
+/// the branch that moved
 #[instrument(skip(git_executor))]
-pub fn apply_replayed_update(git_executor: &GitCommandExecutor, repo_path: &str, update: &ReplayedUpdate, operation: &str) -> Result<()> {
+pub fn apply_replayed_update(git_executor: &GitCommandExecutor, repo_path: &str, update: &ReplayedUpdate, operation: &str) -> Result<String> {
   if !update.blocked.is_empty() {
     bail!("Local changes block the update: {}", update.blocked.join(", "));
   }
@@ -660,12 +666,47 @@ fn plan_move(git_executor: &GitCommandExecutor, repo_path: &str, branch: String,
   })
 }
 
-/// Move HEAD from `head` to `new_head` in one CAS transaction, then let the index and the working tree follow. The
-/// transaction updates `HEAD` itself, not `refs/heads/<branch>`: git then locks HEAD and the branch it points at
-/// together, so the branch of this worktree moves, never one that another `git switch` left behind. (A
-/// `symref-verify HEAD` can't share a transaction with an update of HEAD's branch: git refuses two updates of HEAD.)
+/// HEAD is no longer on the branch the update was checked for: a `git switch` since the check; nothing was changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchSwitched {
+  pub expected: String,
+  /// The branch HEAD is on now; `None` for a detached HEAD
+  pub actual: Option<String>,
+}
+
+impl std::fmt::Display for BranchSwitched {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.actual {
+      Some(actual) => write!(f, "HEAD is on {actual} now, not on {}; nothing was changed, check again", self.expected),
+      None => write!(f, "HEAD is detached now, not on {}; nothing was changed", self.expected),
+    }
+  }
+}
+
+impl std::error::Error for BranchSwitched {}
+
+/// The short name of the branch HEAD is on; `None` for a detached HEAD
+fn head_branch(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<String>> {
+  let (output, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "--short", "HEAD"], repo_path)?;
+  Ok((exit_code == 0).then_some(output))
+}
+
+/// Move HEAD from `head` to `new_head` in one CAS transaction, then let the index and the working tree follow; returns
+/// the branch that moved. The transaction updates `HEAD` itself (deref), not `refs/heads/<branch>`: git locks HEAD and
+/// the branch it points at together, so the branch of this worktree moves, the one whose files the update writes.
+/// git refuses `symref-verify HEAD` next to an update of HEAD's branch (two updates of HEAD), and in deref mode at all.
+/// So HEAD must still be on `branch` right before the transaction (`BranchSwitched` otherwise), and the branch is read
+/// again after it: a `git switch` in between, to another branch at the same commit, moves that branch, and the result
+/// names it.
 /// If the files can't follow, the branch moves back and the error says that nothing was changed
-fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, head: &str, new_head: &str, files_change: bool, operation: &str) -> Result<()> {
+fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, head: &str, new_head: &str, files_change: bool, operation: &str) -> Result<String> {
+  let current = head_branch(git_executor, repo_path)?;
+  if current.as_deref() != Some(branch) {
+    return Err(anyhow::Error::new(BranchSwitched {
+      expected: branch.to_string(),
+      actual: current,
+    }));
+  }
   let mut transaction = RefTransaction::new();
   transaction.update("HEAD", new_head, Some(head));
   if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
@@ -679,6 +720,11 @@ fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, bra
     }
     bail!("{branch} changed during the update, nothing was changed: {e:#}");
   }
+  let moved = head_branch(git_executor, repo_path)?.unwrap_or_else(|| branch.to_string());
+  if moved != branch {
+    warn!(checked = branch, moved = %moved, "HEAD switched to another branch at the same commit during the update");
+  }
+  let branch = moved.as_str();
 
   if files_change && let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head) {
     let mut rollback = RefTransaction::new();
@@ -688,7 +734,7 @@ fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, bra
     }
     bail!("Files changed during the update; nothing was changed: {e:#}");
   }
-  Ok(())
+  Ok(moved)
 }
 
 /// The previous upstream tips to exclude from the local commits: the tip before a forced fetch, and the fork point of

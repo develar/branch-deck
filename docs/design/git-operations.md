@@ -74,10 +74,14 @@ written, except by Update Project (its own section below).
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
    the unapply rename together with the branch move, and the deletion of temporary refs. A move that the files follow
-   (an update and its undo) updates `HEAD`, not `refs/heads/<b>`: git locks HEAD and the branch it points at in the
-   same transaction, so the branch of this worktree moves, never one that a `git switch` left. A
-   `symref-verify HEAD refs/heads/<b>` next to `update refs/heads/<b>` would say the same, but git 2.56 refuses that
-   pair ("multiple updates for 'HEAD' (including one via its referent) are not allowed").
+   (an update and its undo) updates `HEAD` (deref), not `refs/heads/<b>`: git locks HEAD and the branch it points at
+   in the same transaction. git 2.56 refuses `symref-verify HEAD refs/heads/<b>` next to `update refs/heads/<b>`
+   ("multiple updates for 'HEAD' (including one via its referent) are not allowed") and next to `update HEAD` ("cannot
+   operate with deref mode"). So `symbolic-ref HEAD` must still name the checked branch right before the transaction
+   (`BranchSwitched` otherwise), and it is read again after it. One case remains: a `git switch` between that read
+   and the transaction, to another branch at the same commit, passes the CAS and moves that branch. The move follows
+   the worktree's HEAD, which is consistent with the files the guarded update writes, and the result names the branch
+   that moved.
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
    - HEAD is not detached;
@@ -345,7 +349,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
-| 9. Move | `update-ref --stdin`: `update HEAD N H`, `branch-deck: update project` | `HeadMoved`: the branch moved meanwhile, nothing changed |
+| 9. Move | `symbolic-ref --quiet --short HEAD` (still `<b>`), `update-ref --stdin`: `update HEAD N H`, `branch-deck: update project`, `symbolic-ref` again (the branch that moved) | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile, nothing changed |
 | 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh` | roll back: `update HEAD H N`, `branch-deck: update project rolled back` |
 
 Details:

@@ -155,9 +155,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction. A move that the files follow (an
-  update and its undo) updates `HEAD` itself, not `refs/heads/<b>`: git then locks HEAD and its branch together, so
-  the branch of this worktree moves. `symref-verify HEAD` can't do this: git refuses it next to an update of HEAD's
-  branch.
+  update and its undo) updates `HEAD` itself (deref), not `refs/heads/<b>`: git then locks HEAD and its branch
+  together, and `symbolic-ref HEAD` is checked right before and read after it (`BranchSwitched`); git refuses
+  `symref-verify HEAD` next to either form of the update.
 - **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
   lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
 - **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd fold`, `bd undo`, and

@@ -7,7 +7,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, landed_ids, landed_summary};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
-use git_ops::update_branch::{NotAnUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateState};
+use git_ops::update_branch::{BranchSwitched, NotAnUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateState};
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::baseline::detect_baseline_branch;
@@ -118,17 +118,17 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateOutput, 
       CliError::new(ErrorCode::Locked, locked.to_string())
     } else if let Some(failed) = e.downcast_ref::<FetchFailed>() {
       CliError::new(ErrorCode::NetworkError, failed.to_string())
-    } else if let Some(moved) = e.downcast_ref::<HeadMoved>() {
-      CliError::new(ErrorCode::HeadMoved, moved.to_string())
     } else {
-      CliError::from(e)
+      moved_error(&e).unwrap_or_else(|| CliError::from(e))
     }
   })?;
-  let applied = result
-    .applied
-    .as_ref()
-    .map(|applied| (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream));
-  output(context, &result.check, applied, result.landed, false)
+  let mut check = result.check;
+  let applied = result.applied.as_ref().map(|applied| {
+    // a `git switch` to another branch at the same commit during the move: that branch moved with the files
+    applied.branch.clone_into(&mut check.branch);
+    (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream)
+  });
+  output(context, &check, applied, result.landed, false)
 }
 
 /// The output of a check, with what an update applied (`(new head, replayed, dropped)`); `uncommitted_overlap` when local
@@ -194,6 +194,16 @@ fn conflict_commits(commits: &[UpdateCommit], short: &ShortIds) -> Vec<UpdateCon
     .collect()
 }
 
+/// `head_moved` for a branch that moved, or a HEAD switched to another branch, since the check: read again and retry
+fn moved_error(error: &anyhow::Error) -> Option<CliError> {
+  if let Some(moved) = error.downcast_ref::<HeadMoved>() {
+    return Some(CliError::new(ErrorCode::HeadMoved, moved.to_string()));
+  }
+  error
+    .downcast_ref::<BranchSwitched>()
+    .map(|switched| CliError::new(ErrorCode::HeadMoved, switched.to_string()))
+}
+
 /// `uncommitted_overlap` with the paths: bd never stashes them, the user decides
 fn uncommitted_overlap(paths: Vec<String>, operation: &str) -> CliError {
   let mut error = CliError::new(
@@ -244,6 +254,8 @@ fn undo_update_token(context: &RepoContext, text: &str) -> Result<UndoneUpdateOu
       CliError::new(ErrorCode::Locked, locked.to_string())
     } else if let Some(moved) = e.downcast_ref::<HeadMoved>() {
       CliError::new(ErrorCode::HeadMoved, format!("{moved}: the update can't be undone any more"))
+    } else if let Some(switched) = e.downcast_ref::<BranchSwitched>() {
+      CliError::new(ErrorCode::HeadMoved, switched.to_string())
     } else if let Some(not_an_update) = e.downcast_ref::<NotAnUpdate>() {
       CliError::new(ErrorCode::InvalidArguments, not_an_update.to_string())
     } else {
