@@ -124,11 +124,19 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   pairs and one `git patch-id --stable` of its output: without context lines, and with the line numbers and
   whitespace a patch id ignores, equal ids are the same changes, a rebased copy; different ones are amended. The
   approach of `update_resolve.rs`, which pairs landed commits by patch id.
+- **Stacked branch**: the walk of the commits ahead (with or without a remote branch) also excludes the parent,
+  `^<parent>` (`StackParent::base`): the commits up to it are the parent's. In the sync that is the parent's new head the child was built on, never the parent's ref:
+  the sync finishes the branches in parallel, so a child can compute its status before its parent's `finish_branch`
+  moves the parent's ref, which is then absent (a new stack: the walk failed) or at the old head (the parent's new
+  commits counted as the child's). The app's push and `bd push` pass the parent's ref, which is current there.
 - **Stack ancestors**: the sync passes their identities, built once per sync (`ancestor_keys` in `sync.rs`) from the
   commits of every branch along the chain of effective bases (`AncestorCommits::Known`, no process). The app's push and
   `bd push` outside the sync read them only while a behind commit matches nothing of the branch: one `git rev-list
-  --format=%ae%x00%at%x00%s ^baseline <parent ref>` (`AncestorCommits::ReadWhenNeeded`); the parent's virtual branch
+  --format=%ae%x00%at%x00%s ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`); the parent's virtual branch
   contains the commits of every ancestor.
+- **A failed status**: the sync logs it as a warning with the branch and the error, and sends nothing for the branch,
+  which keeps the status it had (the store keeps the last remote status across syncs, so a push label doesn't
+  flicker); the next sync computes it again.
 - **Fast-forward**: `git merge-base --is-ancestor <remote tip> local`, when nothing is behind (amended and restacked
   included: the remote tip is no ancestor then).
 - **Branch not on the remote**: the same walk without the remote, `git rev-list ^baseline local`.

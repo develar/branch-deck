@@ -12,7 +12,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::Commit;
 use git_ops::merge_memo::{MemoizedMerge, MergeMemo, MergeTrees};
-use git_ops::model::{BranchError, BranchKind, strip_branch_namespace, to_final_branch_name};
+use git_ops::model::{BranchError, BranchKind, strip_branch_namespace};
 use object_cache::cache::ObjectCache;
 use object_cache::merge_result::{MergeKey, MergeResult};
 use std::collections::HashMap;
@@ -189,7 +189,7 @@ impl CheckSession {
         }
       } else {
         match (parent_outcome, &built_on) {
-          (Some(CheckOutcome::Ok { head }), Some(parent)) => build(&context, &progress, name, commits, branch_idx, head, to_final_branch_name(branch_prefix, parent).ok()),
+          (Some(CheckOutcome::Ok { head }), Some(_)) => build(&context, &progress, name, commits, branch_idx, head, true),
           (Some(outcome), Some(parent)) => CheckOutcome::Blocked {
             parent: parent.clone(),
             reason: match outcome {
@@ -199,7 +199,7 @@ impl CheckSession {
             },
           },
           _ => match &base {
-            Some(base) => build(&context, &progress, name, commits, branch_idx, base, None),
+            Some(base) => build(&context, &progress, name, commits, branch_idx, base, false),
             None => CheckOutcome::Error {
               message: "The oldest commit ahead of the baseline has no parent".to_string(),
             },
@@ -234,8 +234,8 @@ fn apply_message(commit: &mut Commit, message: &str) {
   message.clone_into(&mut commit.message);
 }
 
-/// Build one branch on `base_commit`, objects only. `parent_ref` is the parent's virtual branch when `base_commit` is its
-/// head, as in a sync; it only drives the stack note and the unpushed count of `finish_branch`, which a check never runs
+/// Build one branch on `base_commit`, objects only. `on_parent`: `base_commit` is the parent's head, as in a sync; it only
+/// drives the stack note and the remote status of `finish_branch`, which a check never runs
 fn build(
   context: &BranchSyncContext<CollectingReporter>,
   progress: &CollectingReporter,
@@ -243,7 +243,7 @@ fn build(
   commits: &[Commit],
   branch_idx: usize,
   base_commit: &str,
-  parent_ref: Option<String>,
+  on_parent: bool,
 ) -> CheckOutcome {
   progress.clear();
   let job = BranchJob {
@@ -252,7 +252,7 @@ fn build(
     my_email: None,
     branch_idx,
     base_commit: base_commit.to_string(),
-    parent_ref,
+    on_parent,
   };
   match build_branch(context, job) {
     Ok(BuildOutcome::Built(built)) => CheckOutcome::Ok { head: built.head },

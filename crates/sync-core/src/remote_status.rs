@@ -32,9 +32,10 @@ fn get_last_push_time(git_executor: &GitCommandExecutor, repository_path: &str, 
 /// The branch a stacked branch is built on, for the remote status of the stacked branch
 #[derive(Clone, Copy)]
 pub struct StackParent<'a> {
-  /// The virtual branch of the parent (`{prefix}/virtual/{name}`): its commits are the parent's, not unpushed commits
-  /// of the stacked branch
-  pub virtual_ref: &'a str,
+  /// What the stacked branch is built on: the parent's new head the sync built it on, or outside the sync the parent's
+  /// virtual branch (`{prefix}/virtual/{name}`). The commits up to it are the parent's, not unpushed commits of the
+  /// stacked branch
+  pub base: &'a str,
   /// The commits of the parent and of the branches it is built on: a remote commit with the identity of one of them is
   /// restacked, an older version of an ancestor's commit
   pub ancestors: AncestorCommits<'a>,
@@ -45,7 +46,8 @@ pub struct StackParent<'a> {
 pub enum AncestorCommits<'a> {
   /// Known to the caller: the sync has the commits of every branch
   Known(&'a HashSet<CommitKey>),
-  /// Read from the parent's virtual branch with one `rev-list`, only when a remote commit matches no commit of the branch
+  /// Read from the commits up to `StackParent::base` with one `rev-list`, only when a remote commit matches no commit of
+  /// the branch
   ReadWhenNeeded,
 }
 
@@ -125,13 +127,10 @@ fn walk_behind(git_executor: &GitCommandExecutor, repository_path: &str, range: 
   )
 }
 
-/// The identities of the commits of `virtual_ref` above the baseline: the parent's and those of the branches it is
-/// built on, which its virtual branch contains
-fn read_ancestor_keys(git_executor: &GitCommandExecutor, repository_path: &str, baseline_exclusion: &str, virtual_ref: &str) -> Result<HashSet<CommitKey>> {
-  let lines = git_executor.execute_command_lines(
-    &["rev-list", "--no-commit-header", "--format=%ae%x00%at%x00%s", baseline_exclusion, virtual_ref],
-    repository_path,
-  )?;
+/// The identities of the commits up to `base` above the baseline: the parent's and those of the branches it is built on,
+/// which its virtual branch contains
+fn read_ancestor_keys(git_executor: &GitCommandExecutor, repository_path: &str, baseline_exclusion: &str, base: &str) -> Result<HashSet<CommitKey>> {
+  let lines = git_executor.execute_command_lines(&["rev-list", "--no-commit-header", "--format=%ae%x00%at%x00%s", baseline_exclusion, base], repository_path)?;
   Ok(
     lines
       .iter()
@@ -179,7 +178,7 @@ fn classify_behind(
     let ancestors = match parent.ancestors {
       AncestorCommits::Known(keys) => keys,
       AncestorCommits::ReadWhenNeeded => {
-        read = read_ancestor_keys(git_executor, repository_path, baseline_exclusion, parent.virtual_ref)?;
+        read = read_ancestor_keys(git_executor, repository_path, baseline_exclusion, parent.base)?;
         &read
       }
     };
@@ -241,7 +240,7 @@ fn count(n: usize) -> u32 {
     remote = %remote,
     branch_name = %branch_name,
     local_ref = %local_ref,
-    parent = parent.map(|parent| parent.virtual_ref)
+    parent = parent.map(|parent| parent.base)
   )
 )]
 #[expect(clippy::too_many_arguments, reason = "the refs and names of one branch status")]
@@ -257,7 +256,7 @@ pub fn compute_remote_status_for_branch(
 ) -> Result<RemoteStatusUpdate> {
   let remote_ref = format!("{remote}/{local_ref}");
   let baseline_exclusion = format!("^{baseline_branch}");
-  let parent_exclusion = parent.map(|parent| format!("^{}", parent.virtual_ref));
+  let parent_exclusion = parent.map(|parent| format!("^{}", parent.base));
 
   // one process for both: whether the remote branch exists, and its tip. The walks below use this commit, not the ref
   // name, so a fetch meanwhile can't make the counts disagree with `remote_tip`

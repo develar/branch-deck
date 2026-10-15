@@ -1,4 +1,4 @@
-use crate::branch_processor::{BranchJob, BranchSyncContext, process_single_branch};
+use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch, process_single_branch};
 use crate::commit_grouper::CommitGrouper;
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
@@ -53,29 +53,92 @@ fn grouped_commits(test_repo: &TestRepo, branch: &str) -> Vec<Commit> {
   grouper.finish().branches.swap_remove(branch).unwrap()
 }
 
-/// Rebuilds the virtual branch `branch` on `base`, as a sync does
-fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
-  let context = BranchSyncContext {
+/// The context of a sync of the `test` branches against `master`, with the virtual branches as they are now
+fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncContext<TestReporter> {
+  BranchSyncContext {
     repository_path: repo_path(test_repo).to_string(),
     branch_prefix: "test".to_string(),
     baseline_branch: "master".to_string(),
     total_branches: 1,
-    progress: TestReporter::new(),
+    progress,
     git_executor: GitCommandExecutor::new(),
     tree_id_cache: TreeIdCache::new(),
     existing_tips: existing_tips(test_repo),
     ancestor_keys: HashMap::new(),
-  };
-  let job = BranchJob {
+  }
+}
+
+/// The job that builds `branch` on `base`; `on_parent`: `base` is the new head of its parent
+fn job(test_repo: &TestRepo, branch: &str, base: &str, on_parent: bool) -> BranchJob {
+  BranchJob {
     branch_name: branch.to_string(),
     commits: grouped_commits(test_repo, branch),
     my_email: None,
     branch_idx: 0,
     base_commit: base.to_string(),
-    parent_ref: None,
-  };
-  let notes = process_single_branch(&context, job).unwrap();
+    on_parent,
+  }
+}
+
+/// Rebuilds the virtual branch `branch` on `base`, as a sync does
+fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
+  let context = sync_context(test_repo, TestReporter::new());
+  let notes = process_single_branch(&context, job(test_repo, branch, base, false)).unwrap();
   write_commit_notes(test_repo.git_executor(), repo_path(test_repo), &notes).unwrap();
+}
+
+/// Builds `branch` without moving its ref, as the first step of a sync does
+fn build(context: &BranchSyncContext<TestReporter>, job: BranchJob) -> BuiltBranch {
+  match build_branch(context, job).unwrap() {
+    BuildOutcome::Built(built) => built,
+    BuildOutcome::Failed(reason) => panic!("the build failed: {reason:?}"),
+  }
+}
+
+/// The unpushed commits of the remote status `progress` got for `branch`
+fn unpushed_of(progress: &TestReporter, branch: &str) -> Vec<String> {
+  progress
+    .get_events()
+    .into_iter()
+    .find_map(|event| match event {
+      SyncEvent::RemoteStatusUpdate(update) if update.branch_name == branch => Some(update.unpushed_commits),
+      _ => None,
+    })
+    .unwrap_or_else(|| panic!("{branch} has a remote status"))
+}
+
+/// Builds auth on `base` and login on auth's new head, finishes login while auth isn't finished, and returns login's
+/// unpushed commits with auth, built
+fn finish_login_first(test_repo: &TestRepo, base: &str) -> (Vec<String>, BuiltBranch) {
+  let progress = TestReporter::new();
+  let context = sync_context(test_repo, progress.clone());
+  let auth = build(&context, job(test_repo, "auth", base, false));
+  let login = build(&context, job(test_repo, "login", &auth.head, true));
+  finish_branch(&context, login).unwrap();
+  (unpushed_of(&progress, "login"), auth)
+}
+
+/// A child can finish before its parent: the sync builds it on the parent's new head in memory, and the parent's
+/// `finish_branch` moves the parent's ref later. The remote status of the child excludes the parent's commits by the head
+/// it was built on, so it is right while the parent's ref is absent (a new stack) or at the old head (an existing one)
+#[test]
+fn a_child_finished_before_its_parent_excludes_the_parent_by_the_head_it_was_built_on() {
+  let test_repo = TestRepo::new();
+  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(login) Add form", "login.rs", "// login");
+
+  // a new stack: auth has no ref yet
+  let (unpushed, auth) = finish_login_first(&test_repo, &initial);
+  assert!(!test_repo.branch_exists("test/virtual/auth"));
+  assert_eq!(unpushed, [test_repo.rev_parse("test/virtual/login").unwrap()]);
+  finish_branch(&sync_context(&test_repo, TestReporter::new()), auth).unwrap();
+
+  // auth gets a commit: its ref is at the old head while login finishes, and the session commit is still auth's
+  test_repo.create_commit("(auth) Add session", "session.rs", "// session");
+  let (unpushed, auth) = finish_login_first(&test_repo, &initial);
+  assert_ne!(test_repo.rev_parse("test/virtual/auth").unwrap(), auth.head, "the parent's ref is stale");
+  assert_eq!(unpushed, [test_repo.rev_parse("test/virtual/login").unwrap()]);
 }
 
 /// The virtual branches and their tips, as a sync lists them

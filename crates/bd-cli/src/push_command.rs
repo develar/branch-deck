@@ -386,8 +386,8 @@ fn remote_status(context: &RepoContext, remote: &str, baseline: &str, branch: &S
 /// The parent of a stacked branch for a remote status computed outside the sync: its ancestors' commits are read only
 /// when a remote commit matches none of the branch's
 fn stack_parent(parent_ref: Option<&str>) -> Option<StackParent<'_>> {
-  parent_ref.map(|virtual_ref| StackParent {
-    virtual_ref,
+  parent_ref.map(|base| StackParent {
+    base,
     ancestors: AncestorCommits::ReadWhenNeeded,
   })
 }

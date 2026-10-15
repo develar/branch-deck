@@ -145,9 +145,13 @@ menu stacks, unstacks and renames branches.
 
 ### Remote status
 
-- The unpushed commits of a child must exclude its parent's commits (`^<parent ref>` next to the baseline exclusion),
-  after a sync and after a push of the child.
+- The unpushed commits of a child must exclude its parent's commits (`^<parent>` next to the baseline exclusion),
+  after a sync and after a push of the child. In the sync the parent is the new head the child was built on, not the
+  parent's ref: a child can finish before its parent, whose ref is then absent (a new stack) or at its old head. After
+  a push the parent's ref is current. A remote status that can't be computed is logged as a warning, and the branch
+  keeps the status it had.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`the_unpushed_commits_of_a_child_exclude_its_parent`)
+  [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_child_finished_before_its_parent_excludes_the_parent_by_the_head_it_was_built_on`)
 - A child whose parent (or any branch below it) was amended or rebuilt since the child was pushed has the parent's
   commits as they were on its remote branch. Those must be restacked, not dropped: their identity (author email,
   author time, subject without the prefix) is that of a commit of a branch it is built on. The status reads

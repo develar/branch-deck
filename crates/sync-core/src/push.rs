@@ -64,8 +64,9 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
       branch_name,
       params.my_email.as_deref(),
       &params.baseline_branch,
-      parent_ref.as_deref().map(|virtual_ref| StackParent {
-        virtual_ref,
+      // outside the sync the parent's ref is its current head
+      parent_ref.as_deref().map(|base| StackParent {
+        base,
         ancestors: AncestorCommits::ReadWhenNeeded,
       }),
     )

@@ -649,7 +649,7 @@ async fn a_child_of_an_amended_parent_is_restacked() {
     Some(&scenario.user_email),
     "origin/main",
     Some(StackParent {
-      virtual_ref: "user/virtual/auth",
+      base: "user/virtual/auth",
       ancestors: AncestorCommits::ReadWhenNeeded,
     }),
   )
