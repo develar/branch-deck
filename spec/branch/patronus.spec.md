@@ -24,7 +24,6 @@ targets:
   - ../../src/components/branch/SafePushSlot.tsx
   - ../../src/components/branch/RobotProgress.tsx
   - ../../src/components/branch/LandingSpanLabel.tsx
-  - ../../src/lib/landing-lanes.ts
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/lib/robot-eta.ts
   - ../../src/lib/patronus-icons.ts

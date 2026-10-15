@@ -167,7 +167,7 @@ export function useLandingSpan(branchName: string): LandingDescendant | null {
 
 /**
  * Every landing span of the selected repository, ancestor → the branch whose running robot lands it, for the stack
- * graph (`landingLanes`); renders again only when a span changes, not on every sync event
+ * graph (`landingSegments`); renders again only when a span changes, not on every sync event
  */
 export function useLandingSpans(): ReadonlyMap<string, string> {
   const robots = useRepositoryRobots()

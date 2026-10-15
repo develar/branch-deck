@@ -11,10 +11,8 @@ import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveLis
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { restackBranch } from "@/hooks/useStackActions"
 import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
-import type { LaneHighlight } from "@/lib/landing-lanes"
-import { highlightedLanesBelow } from "@/lib/landing-lanes"
-import type { StackLanes } from "@/lib/stack-lanes"
-import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
+import type { LandingSegments, StackLanes } from "@/lib/stack-lanes"
+import { landingLanesBelow, laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
@@ -28,8 +26,8 @@ export interface ActiveBranchExpandedProps {
   familyBelow?: boolean
   /** The place of the branch in the stack graph: the commits sit on its lane; null in a table without stacks */
   lanes?: StackLanes | null
-  /** The segments of a landing span in the row (`landingLanes`): the lanes of the span run on beside the commits */
-  landing?: LaneHighlight | null
+  /** The segments of a landing span in the row (`landingSegments`): the lanes of the span run on beside the commits */
+  landing?: LandingSegments | null
 }
 
 export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes = null, landing = null }: ActiveBranchExpandedProps) {
@@ -55,7 +53,7 @@ interface CommitRailProps {
   familyIndent: 0 | 1
   familyBelow: boolean
   lanes: StackLanes | null
-  landing: LaneHighlight | null
+  landing: LandingSegments | null
   children: ReactNode
 }
 
@@ -69,7 +67,7 @@ function CommitRail({ familyIndent, familyBelow, lanes, landing, children }: Com
   if (lanes !== null) {
     return (
       <>
-        <LaneLines lanes={lanesBelow(lanes, false)} highlighted={highlightedLanesBelow(lanes, landing)} />
+        <LaneLines lanes={lanesBelow(lanes, false)} highlighted={landingLanesBelow(lanes, landing)} />
         {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
         <div
           className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}

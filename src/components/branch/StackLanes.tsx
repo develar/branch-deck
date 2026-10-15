@@ -2,8 +2,7 @@ import type { CSSProperties } from "react"
 import { cn } from "cn"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { useLaneNode } from "@/hooks/useStatusBadge"
-import type { LaneHighlight } from "@/lib/landing-lanes"
-import type { StackLanes } from "@/lib/stack-lanes"
+import type { LandingSegments, StackLanes } from "@/lib/stack-lanes"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -44,8 +43,8 @@ export interface LaneCellProps {
   lineDown: boolean
   /** The rotating ring around the node: a robot runs on the branch */
   ring?: boolean
-  /** The segments of a landing span (`landingLanes`), drawn over the lines in the colour of the robot */
-  highlight?: LaneHighlight | null
+  /** The segments of a landing span (`landingSegments`), drawn over the lines in the colour of the robot */
+  highlight?: LandingSegments | null
 }
 
 /**

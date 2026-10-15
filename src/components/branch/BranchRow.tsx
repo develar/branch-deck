@@ -22,11 +22,9 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
-import type { LaneHighlight } from "@/lib/landing-lanes"
-import { highlightedLanesBelow } from "@/lib/landing-lanes"
 import { isRobotActive } from "@/lib/patronus"
-import type { StackLanes } from "@/lib/stack-lanes"
-import { laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
+import type { LandingSegments, StackLanes } from "@/lib/stack-lanes"
+import { landingLanesBelow, laneContentInsetClass, lanesBelow } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
 import { getShownBranches } from "@/stores/branch-filter"
 import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
@@ -54,8 +52,8 @@ export interface BranchRowProps {
   familyIndent?: 0 | 1
   /** Its place in the stack graph; null in a table without stacks */
   lanes?: StackLanes | null
-  /** The segments of a landing span in the row (`landingLanes`), in the colour of the robot; null outside one */
-  landing?: LaneHighlight | null
+  /** The segments of a landing span in the row (`landingSegments`), in the colour of the robot; null outside one */
+  landing?: LandingSegments | null
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
   showIssueKey?: boolean
   /** Not a match of the filter, shown because a match stacks on it: faded, still interactive (`data-dimmed`) */
@@ -135,7 +133,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, familyIndent
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them
   const commitsOnLane = expanded && branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
   // the lines beside the inline form and the amend conflict, and where their content starts
-  const gutter = lanes === null ? null : <LaneGutter lanes={lanesBelow(lanes, commitsOnLane)} familyIndent={familyIndent} highlighted={highlightedLanesBelow(lanes, landing)} />
+  const gutter = lanes === null ? null : <LaneGutter lanes={lanesBelow(lanes, commitsOnLane)} familyIndent={familyIndent} highlighted={landingLanesBelow(lanes, landing)} />
   const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
 
   return (

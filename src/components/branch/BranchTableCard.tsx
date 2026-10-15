@@ -18,9 +18,8 @@ import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { pruneSelection } from "@/lib/branch-selection"
-import { landingLanes } from "@/lib/landing-lanes"
 import { hasKeyModifier } from "@/lib/preview-keys"
-import { laneCountOf } from "@/lib/stack-lanes"
+import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { syncBranches, useBranchSync, useFoundCommits, useVisibleBranchTableRows } from "@/stores/branch-sync"
 import { useLandingSpans } from "@/stores/patronus"
@@ -44,7 +43,7 @@ export function BranchTableCard() {
   const branchCount = useBranchSync(state => state.branchOrder.length)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
-  const landing = useMemo(() => landingLanes(rows.flatMap(row => row.kind === "branch" ? [row] : []), spans), [rows, spans])
+  const landing = useMemo(() => landingSegments(rows.flatMap(row => row.kind === "branch" ? [row] : []), spans), [rows, spans])
   const { expandedKeys, toggleExpanded: toggleRowExpanded, setExpanded } = useRowExpansion()
 
   // the fallback of Space while the table has the focus: the row last toggled or focused with the arrows
