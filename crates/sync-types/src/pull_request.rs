@@ -9,6 +9,7 @@ pub struct PullRequest {
   pub number: u32,
   pub title: String,
   pub url: String,
+  /// Merged also for a pull request Patronus merged: it closes it with the label `merged`
   pub state: PullRequestState,
   pub is_draft: bool,
   /// null when the repository requires no review
@@ -96,13 +97,13 @@ pub enum ReviewerState {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum PullRequestAvailability {
-  /// The github.com repository that `origin` pushes to, e.g. `JetBrains/ultimate`
+  /// The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to
   Available { owner: String, name: String },
   /// The `gh` CLI is not installed
   GhMissing,
   /// `gh` is not logged in (`gh auth login`)
   NotAuthenticated,
-  /// The push remote is not on github.com
+  /// The branches are not on GitHub: `origin` is not on github.com and `branchdeck.githubRepository` is not set
   NotGitHub,
   /// `gh` failed, e.g. offline or timed out
   Error { message: String },

@@ -45,12 +45,15 @@ repositories: all operations run through the Git CLI.
   can be undone.
 - **GitHub pull requests**: the PR number, review state and checks of each branch, read with the
   [`gh`](https://cli.github.com) CLI. After a push, "Create Pull Request" opens GitHub's form with the base already set
-  (the parent branch of a stacked one).
+  (the parent branch of a stacked one). Branches pushed to a remote that mirrors them to GitHub work too:
+  `git config branchdeck.githubRepository <owner>/<name>`.
 - **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
   merged, and whether the branch changed since it started (a sync that only rebuilt the branch on a newer baseline did
   not). Start a Safe Push (a button in the row) or a Dry Run with a merge profile, restart (pushing first) or cancel it
   from the branch; a push that would make a running Safe Push fail asks first. Before a Safe Push, the code-owner
-  approvals it needs, with the merge request to create (also from the branch menu) or to open. When a Safe Push merged,
+  approvals it needs, with the merge request to create (also from the branch menu) or to open. A branch reviewed in a
+  GitHub pull request starts from it: Branch Deck comments `/patronus merge`, so the approvals of the pull request
+  count and Patronus closes it once merged. When a Safe Push merged,
   a toast (or an OS notification in the background) says so and fetches the baseline on request. Uses the token of the
   Safe Push CLI.
 - **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a

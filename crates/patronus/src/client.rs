@@ -79,6 +79,10 @@ pub struct RobotDto {
   /// Only in `GET /robots/{id}` and `fetch-updates`; holds the merge profile
   #[serde(default)]
   pub options: std::collections::HashMap<String, String>,
+  /// The pull request whose `/patronus` comment started the robot, `https://github.com/{owner}/{name}/pull/{number}`;
+  /// a robot started otherwise has none (Patronus links a robot to a pull request only from its comment)
+  #[serde(default)]
+  pub github_pr_url: Option<String>,
 }
 
 /// The option of a robot that names its merge profile

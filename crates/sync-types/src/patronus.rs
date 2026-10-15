@@ -26,6 +26,20 @@ pub struct PatronusRobot {
   pub cancellation_reason: Option<String>,
   /// The robot page in the Patronus web UI
   pub url: String,
+  /// The GitHub pull request whose `/patronus` comment started the robot: Patronus reports in it and closes it once
+  /// merged. A robot started otherwise has none.
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub pull_request: Option<PatronusPullRequestLink>,
+}
+
+/// A GitHub pull request a robot belongs to
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusPullRequestLink {
+  pub number: u32,
+  pub url: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,12 +83,22 @@ pub struct PatronusRobotsResult {
   pub availability: PatronusAvailability,
   /// The robots of the user in the repository, newest first; empty unless available
   pub robots: Vec<PatronusRobot>,
+  /// `owner/name` of the GitHub repository the branches are mirrored to (`branchdeck.githubRepository`): their pull
+  /// requests are reviewed there, and Patronus merges one from its `/patronus merge` comment. Only in the list of a
+  /// repository, not in a poll.
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub github_repository: Option<String>,
 }
 
 /// No robots, and why
 impl From<PatronusAvailability> for PatronusRobotsResult {
   fn from(availability: PatronusAvailability) -> Self {
-    Self { availability, robots: Vec::new() }
+    Self {
+      availability,
+      robots: Vec::new(),
+      github_repository: None,
+    }
   }
 }
 
@@ -287,4 +311,51 @@ pub struct PatronusBranchParams {
   /// Ask Patronus again instead of the cached answer (the user waits for approvals)
   #[serde(default)]
   pub recheck: bool,
+}
+
+/// Starts a robot from a GitHub pull request: the `/patronus` comment
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PostPatronusCommandParams {
+  pub repository_path: String,
+  pub pull_request_number: u32,
+  /// `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`)
+  pub mode: PatronusPushMode,
+}
+
+/// The posted command comment
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusCommandComment {
+  /// The GitHub comment id; a string, as it outgrows 32 bits
+  pub id: String,
+  pub url: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReadPatronusCommandReplyParams {
+  pub repository_path: String,
+  pub pull_request_number: u32,
+  pub comment_id: String,
+}
+
+/// How Patronus answered a command comment
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum PatronusCommandReply {
+  /// No answer yet
+  Pending,
+  /// 👍: the robot started; it is in the list of robots, linked to the pull request
+  Accepted,
+  /// 👎: the command was not understood or the robot did not start, e.g. a draft pull request or a robot already
+  /// running for the branch
+  Rejected {
+    /// The text of the bot's `⚠️` comment, null if it is not there yet
+    reason: Option<String>,
+  },
 }

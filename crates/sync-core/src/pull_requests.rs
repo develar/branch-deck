@@ -1,5 +1,6 @@
-//! Read-only GitHub pull request status of the virtual branches, through the `gh` CLI (one `gh pr list` per call).
-//! `gh` is not git: it never touches the repository, and every failure is an availability, not an error.
+//! GitHub pull request status of the virtual branches, through the `gh` CLI (one `gh pr list` per call). The only write
+//! is the Patronus command comment (`patronus_command.rs`). `gh` is not git: it never touches the repository, and every
+//! failure is an availability, not an error.
 
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use anyhow::Result;
@@ -29,13 +30,20 @@ pub const GH_TIMEOUT: Duration = Duration::from_secs(30);
 /// The user's recent pull requests: the virtual branches under review are among them
 const PR_LIST_LIMIT: &str = "50";
 
-const PR_FIELDS: &str =
-  "number,title,url,state,isDraft,reviewDecision,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository,updatedAt,statusCheckRollup,latestReviews,reviewRequests";
+const PR_FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository,updatedAt,statusCheckRollup,latestReviews,reviewRequests,labels";
+
+/// The label Patronus puts on a pull request it merged: it rebases, so GitHub closes the pull request instead of
+/// marking it merged
+pub const MERGED_LABEL: &str = "merged";
+
+/// `owner/name` of the GitHub repository of the branches, for a remote that mirrors pushed branches to GitHub (e.g. a
+/// Space repository); it wins over a github.com `origin`
+pub const GITHUB_REPOSITORY_CONFIG: &str = "branchdeck.githubRepository";
 
 /// Failed check names kept for the popover
 const MAX_FAILED_NAMES: usize = 3;
 
-/// The pull requests of the user's virtual branches in the repository that `origin` pushes to.
+/// The pull requests of the user's virtual branches in the GitHub repository of `origin` (`resolve_github_repository`).
 #[instrument(skip(git_executor), fields(repository_path = %params.repository_path))]
 pub fn get_pull_requests(git_executor: &GitCommandExecutor, params: &GetPullRequestsParams) -> Result<PullRequestsResult> {
   get_pull_requests_with(git_executor, params, find_gh().as_deref(), GH_TIMEOUT)
@@ -43,9 +51,7 @@ pub fn get_pull_requests(git_executor: &GitCommandExecutor, params: &GetPullRequ
 
 /// `get_pull_requests` with the `gh` binary (None = not installed) and the timeout given
 pub fn get_pull_requests_with(git_executor: &GitCommandExecutor, params: &GetPullRequestsParams, gh: Option<&Path>, timeout: Duration) -> Result<PullRequestsResult> {
-  // the push URL: the pull requests are on the repository the branches are pushed to (`push_branch` pushes to origin)
-  let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], &params.repository_path)?;
-  let Some(repository) = (exit_code == 0).then(|| parse_github_repository(&url)).flatten() else {
+  let Some(repository) = resolve_github_repository(git_executor, &params.repository_path)? else {
     return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
   };
   let Some(gh) = gh else {
@@ -94,6 +100,26 @@ pub fn get_pull_requests_with(git_executor: &GitCommandExecutor, params: &GetPul
 pub struct GitHubRepository {
   pub owner: String,
   pub name: String,
+}
+
+/// The GitHub repository the virtual branches end up in: `branchdeck.githubRepository` (`owner/name`), else the
+/// repository `origin` pushes to (`push_branch` pushes to origin) when it is on github.com. None: the pull requests of
+/// the branches are not on GitHub.
+pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<GitHubRepository>> {
+  let (configured, exit_code) = git_executor.execute_command_with_status(&["config", GITHUB_REPOSITORY_CONFIG], repository_path)?;
+  if exit_code == 0
+    && let Some((owner, name)) = split_owner_and_name(configured.trim())
+  {
+    return Ok(Some(GitHubRepository {
+      owner: owner.to_string(),
+      name: name.to_string(),
+    }));
+  }
+  let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
+  if exit_code != 0 {
+    return Ok(None);
+  }
+  Ok(parse_github_repository(&url))
 }
 
 /// The github.com repository of a remote URL: `git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`,
@@ -175,7 +201,7 @@ pub fn run_gh(gh: &Path, repository_path: &str, args: &[&str], timeout: Duration
     Some(4) => Err(PullRequestAvailability::NotAuthenticated),
     _ if stderr.contains("HTTP 401") => Err(PullRequestAvailability::NotAuthenticated),
     code => {
-      warn!(?code, %stderr, "gh pr list failed");
+      warn!(?code, %stderr, command = args.first().copied().unwrap_or_default(), "gh failed");
       let message = stderr.lines().find(|line| !line.trim().is_empty()).map_or_else(
         || format!("gh exited with {}", code.map_or_else(|| "a signal".to_string(), |code| format!("code {code}"))),
         |line| line.trim().to_string(),
@@ -222,6 +248,12 @@ struct GhPullRequest {
   status_check_rollup: Option<Vec<GhCheck>>,
   latest_reviews: Option<Vec<GhReview>>,
   review_requests: Option<Vec<GhReviewRequest>>,
+  labels: Option<Vec<GhLabel>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhLabel {
+  name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,8 +328,15 @@ fn preference(pull_request: &PullRequest) -> (u8, u32) {
 }
 
 fn to_pull_request(gh: GhPullRequest) -> PullRequest {
+  let merged_by_patronus = || {
+    gh.labels
+      .iter()
+      .flatten()
+      .any(|label| label.name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case(MERGED_LABEL)))
+  };
   let state = match gh.state.as_str() {
     "MERGED" => PullRequestState::Merged,
+    "CLOSED" if merged_by_patronus() => PullRequestState::Merged,
     "CLOSED" => PullRequestState::Closed,
     _ => PullRequestState::Open,
   };

@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot } from "@/lib/bindings"
+import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { ReviewCommitState } from "@/lib/review-commit"
@@ -182,11 +182,12 @@ export function isRobotOnBranch(robot: PatronusRobot, branchName: string): boole
 /**
  * Patronus restarts a failed or canceled robot of a branch on its newest commit, a canceling one too; a successful dry
  * run only when the branch has a newer commit on the remote. A merged robot or a running one is never restarted, nor
- * one that failed for missing approvals.
+ * one that failed for missing approvals in a Space merge request. A robot of a pull request that failed for them is:
+ * the restart counts the approvals the pull request has by then.
  */
 export function canRestartRobot(robot: PatronusRobot, branchName: string, remoteTip: string | null, needsReview = false): boolean {
   // a restart keeps the merge request of the robot, which has no approvals: a new Safe Push with one is the way
-  if (!isRobotOnBranch(robot, branchName) || needsReview) {
+  if (!isRobotOnBranch(robot, branchName) || (needsReview && robot.pullRequest == null)) {
     return false
   }
   switch (robot.status) {
@@ -286,11 +287,32 @@ export function canStartRobot(branch: Branch, robot: PatronusRobot | undefined):
 }
 
 /** The text of "Safe Push…" where it can start: what the form does before the robot runs */
-export const SAFE_PUSH_DESCRIPTION = "Checks the code-owner review, offers a merge request, then starts the robot."
+export const SAFE_PUSH_DESCRIPTION = "Checks the code-owner review, then starts the robot."
 
 /** The profile allows the mode; no modes listed = any */
 export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {
   return profile.allowedPushModes.length === 0 || profile.allowedPushModes.includes(mode)
+}
+
+/**
+ * "Patronus starts it from pull request #760" or the Space alternative: a branch with an open pull request in the GitHub
+ * repository the branches are mirrored to starts from it (a `/patronus` comment), a draft only for a dry run. null =
+ * the start goes through the Patronus API.
+ */
+export function getPullRequestStart(githubRepository: string | null, pullRequest: PullRequest | undefined, mode: PatronusPushMode): PullRequestStart | null {
+  if (githubRepository === null || pullRequest === undefined || pullRequest.state !== "open") {
+    return null
+  }
+  return { number: pullRequest.number, blockedByDraft: pullRequest.isDraft && mode !== "dryRun", command: mode === "dryRun" ? "/patronus dry-run" : "/patronus merge" }
+}
+
+/** A start from a GitHub pull request (`getPullRequestStart`) */
+export interface PullRequestStart {
+  readonly number: number
+  /** Patronus doesn't merge a draft pull request */
+  readonly blockedByDraft: boolean
+  /** The comment, as the form says it */
+  readonly command: string
 }
 
 /** "Air Plugin Release Team (suggested: Alice, Bob)" */

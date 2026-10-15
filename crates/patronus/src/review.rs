@@ -1,6 +1,8 @@
 //! The code-owner review a Safe Push needs (PAT-A-109), asked before the start in the cheap order: the check without a
 //! merge request first (no Space call); only when approvals are missing, the merge request of the branch, then the check
-//! with it. The pre-check is the heaviest call of the Patronus API, so its answer is cached by the commits it checked.
+//! with it. A branch reviewed in a GitHub pull request has no merge request to count: the pre-check can't take a pull
+//! request, the robot started from it counts its approvals. The pre-check is the heaviest call of the Patronus API, so
+//! its answer is cached by the commits it checked.
 
 use crate::actions::{ActionError, availability_message};
 use crate::client::{MergeRequestDto, PatronusError, PreMergeCheckRequest, PreMergeCheckResponse, PreMergeCommitDto};
@@ -27,6 +29,8 @@ pub struct ReviewSubject<'a> {
   pub commits: &'a [PreMergeCommitDto],
   /// The parent of the oldest commit: with the tip it names the commits checked
   pub base: &'a str,
+  /// The branches are reviewed in GitHub pull requests: a Space merge request is neither looked up nor counted
+  pub reviewed_on_github: bool,
 }
 
 impl PatronusService {
@@ -44,7 +48,7 @@ impl PatronusService {
 
     let token = self.action_token()?;
     let without_review = self.check(&token, subject, None).await?;
-    let requirement = if without_review.approval_required {
+    let requirement = if without_review.approval_required && !subject.reviewed_on_github {
       match self.merge_request(subject, recheck).await? {
         Some(merge_request) => {
           let with_review = self.check(&token, subject, Some(&merge_request.review_key)).await?;

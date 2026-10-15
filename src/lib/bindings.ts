@@ -44,6 +44,14 @@ export const commands = {
 	getPatronusReviewRequirement: (params: PatronusBranchParams) => typedError<PatronusReviewRequirement, CommandError>(__TAURI_INVOKE("get_patronus_review_requirement", { params })),
 	/**  Opens the merge request of the branch on Space, by Patronus for the user */
 	createPatronusMergeRequest: (params: PatronusBranchParams) => typedError<PatronusMergeRequest, CommandError>(__TAURI_INVOKE("create_patronus_merge_request", { params })),
+	/**
+	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
+	 *  branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers
+	 *  with a reaction (`read_patronus_command_reply`).
+	 */
+	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, CommandError>(__TAURI_INVOKE("post_patronus_command", { params })),
+	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
+	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, CommandError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
@@ -752,6 +760,27 @@ export type PatronusChecks = {
 	canceled: number,
 };
 
+/**  The posted command comment */
+export type PatronusCommandComment = {
+	/**  The GitHub comment id; a string, as it outgrows 32 bits */
+	id: string,
+	url: string,
+};
+
+/**  How Patronus answered a command comment */
+export type PatronusCommandReply = 
+/**  No answer yet */
+{ status: "pending" } | 
+/**  👍: the robot started; it is in the list of robots, linked to the pull request */
+{ status: "accepted" } | 
+/**
+ *  👎: the command was not understood or the robot did not start, e.g. a draft pull request or a robot already
+ *  running for the branch
+ */
+{ status: "rejected"; 
+/**  The text of the bot's `⚠️` comment, null if it is not there yet */
+reason: string | null };
+
 export type PatronusMergeRequest = {
 	/**  e.g. `IJ` */
 	projectKey: string,
@@ -773,6 +802,12 @@ export type PatronusProfile = {
 	description: string | null,
 	/**  Empty: any mode */
 	allowedPushModes: PatronusPushMode[],
+};
+
+/**  A GitHub pull request a robot belongs to */
+export type PatronusPullRequestLink = {
+	number: number,
+	url: string,
 };
 
 export type PatronusPushMode = 
@@ -829,6 +864,11 @@ export type PatronusRobot = {
 	cancellationReason: string | null,
 	/**  The robot page in the Patronus web UI */
 	url: string,
+	/**
+	 *  The GitHub pull request whose `/patronus` comment started the robot: Patronus reports in it and closes it once
+	 *  merged. A robot started otherwise has none.
+	 */
+	pullRequest?: PatronusPullRequestLink | null,
 };
 
 /**  What the chip popover shows beyond the list: the merge profile, the CI checks and the problems */
@@ -863,6 +903,12 @@ export type PatronusRobotsResult = {
 	availability: PatronusAvailability,
 	/**  The robots of the user in the repository, newest first; empty unless available */
 	robots: PatronusRobot[],
+	/**
+	 *  `owner/name` of the GitHub repository the branches are mirrored to (`branchdeck.githubRepository`): their pull
+	 *  requests are reviewed there, and Patronus merges one from its `/patronus merge` comment. Only in the list of a
+	 *  repository, not in a poll.
+	 */
+	githubRepository?: string | null,
 };
 
 /**  What a start offers for a branch */
@@ -899,11 +945,20 @@ export type PollPatronusRobotsParams = {
 	robots: KnownRobotStatus[],
 };
 
+/**  Starts a robot from a GitHub pull request: the `/patronus` comment */
+export type PostPatronusCommandParams = {
+	repositoryPath: string,
+	pullRequestNumber: number,
+	/**  `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`) */
+	mode: PatronusPushMode,
+};
+
 /**  A GitHub pull request of a virtual branch, as `gh pr list` reports it */
 export type PullRequest = {
 	number: number,
 	title: string,
 	url: string,
+	/**  Merged also for a pull request Patronus merged: it closes it with the label `merged` */
 	state: PullRequestState,
 	isDraft: boolean,
 	/**  null when the repository requires no review */
@@ -927,13 +982,13 @@ export type PullRequest = {
 
 /**  Whether pull requests can be listed for the repository */
 export type PullRequestAvailability = 
-/**  The github.com repository that `origin` pushes to, e.g. `JetBrains/ultimate` */
+/**  The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to */
 { status: "available"; owner: string; name: string } | 
 /**  The `gh` CLI is not installed */
 { status: "ghMissing" } | 
 /**  `gh` is not logged in (`gh auth login`) */
 { status: "notAuthenticated" } | 
-/**  The push remote is not on github.com */
+/**  The branches are not on GitHub: `origin` is not on github.com and `branchdeck.githubRepository` is not set */
 { status: "notGitHub" } | 
 /**  `gh` failed, e.g. offline or timed out */
 { status: "error"; message: string };
@@ -973,6 +1028,12 @@ export type PushOutcome =
  *  and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
  */
 { type: "remoteMoved"; remoteStatus: RemoteStatusUpdate };
+
+export type ReadPatronusCommandReplyParams = {
+	repositoryPath: string,
+	pullRequestNumber: number,
+	commentId: string,
+};
 
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
 export type RemoteStatusUpdate = {

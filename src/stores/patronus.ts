@@ -18,6 +18,7 @@ import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import { recordRobot } from "@/stores/activity"
 import { branchSyncStore, useBranchRemoteTip, useBranchTip } from "@/stores/branch-sync"
+import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
 import { runFetchBaseline } from "@/stores/update-project"
 
@@ -35,6 +36,10 @@ export const BACKGROUND_POLL_INTERVAL_MS = 5 * 60_000
 export const MIN_POLL_GAP_MS = 50_000
 /** An incremental list starts this long before the previous list started, so a robot started meanwhile is not missed */
 export const LIST_OVERLAP_MS = 120_000
+/** After a `/patronus` comment, how often the bot's reaction and the robot are asked for */
+export const COMMAND_REPLY_INTERVAL_MS = 3_000
+/** How long a `/patronus` comment waits for the bot to start the robot */
+export const COMMAND_REPLY_TIMEOUT_MS = 60_000
 
 /** The robots of one repository and branch prefix */
 export interface RepositoryPatronus {
@@ -49,6 +54,12 @@ export interface RepositoryPatronus {
   readonly isRefreshing: boolean
   /** By robot id, of the failed robots of the branches: failed for missing code-owner approvals */
   readonly needsReview: Readonly<Record<string, boolean>>
+  /**
+   * `owner/name` of the GitHub repository the branches are mirrored to (`branchdeck.githubRepository`), null without
+   * one: the branches are reviewed in its pull requests, and a Safe Push of a branch with a pull request is a
+   * `/patronus` comment of it
+   */
+  readonly githubRepository: string | null
 }
 
 export interface PatronusState {
@@ -58,7 +69,7 @@ export interface PatronusState {
 
 export const patronusStore = createStore<PatronusState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {} }
+const EMPTY: RepositoryPatronus = { availability: null, robots: {}, listedFrom: 0, fetchedAt: 0, isRefreshing: false, needsReview: {}, githubRepository: null }
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -108,6 +119,18 @@ export function useRepositoryRobots(): Readonly<Record<string, PatronusRobot>> |
   return useStore(patronusStore, state => state.repositories[key]?.robots)
 }
 
+/** The GitHub repository the branches are reviewed in (see `RepositoryPatronus.githubRepository`) */
+export function usePatronusGitHubRepository(): string | null {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => state.repositories[key]?.githubRepository ?? null)
+}
+
+/** Non-hook variant of `usePatronusGitHubRepository`, for menus built on open */
+export function getPatronusGitHubRepository(): string | null {
+  const key = currentKey()
+  return key === null ? null : patronusStore.getState().repositories[key]?.githubRepository ?? null
+}
+
 /** Non-hook variant of `useBranchRobot`, for menus built on open */
 export function getBranchRobot(branchName: string): PatronusRobot | undefined {
   const key = currentKey()
@@ -137,6 +160,7 @@ function sameRobot(a: PatronusRobot, b: PatronusRobot): boolean {
     && a.pushMode === b.pushMode
     && a.targetBranch === b.targetBranch
     && a.startTime === b.startTime
+    && a.pullRequest?.number === b.pullRequest?.number
 }
 
 /**
@@ -193,6 +217,10 @@ function announceMerge(key: string, robot: PatronusRobot): void {
     return
   }
   announcedMerges.add(robot.id)
+  if (robot.pullRequest != null) {
+    // Patronus closed the pull request with the label `merged`
+    void refreshPullRequests("push")
+  }
   recordRobot(formatMergedRobotTitle(robot), formatPushMode(robot.pushMode), robot, key.split("\n")[0])
   if (windowFocused) {
     showMergeToast(key, robot)
@@ -269,16 +297,21 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined
 let windowFocused = typeof document === "undefined" || document.hasFocus()
 
 /**
- * Stores an answer of Patronus: its robots (a full list replaces them) and its availability. A failure keeps the robots
- * shown: a failed refresh does not make them go away. Never throws; true when Patronus answered with robots.
+ * Stores an answer of Patronus: its robots (a full list replaces them), its availability and, for a list (not a poll),
+ * the GitHub repository. A failure keeps the robots shown: a failed refresh does not make them go away. Never throws;
+ * true when Patronus answered with robots.
  */
-async function applyAnswer(key: string, request: ReturnType<typeof commands.getPatronusRobots>, replace: boolean): Promise<boolean> {
+async function applyAnswer(key: string, request: ReturnType<typeof commands.getPatronusRobots>, replace: boolean, isList: boolean): Promise<boolean> {
   let availability: PatronusAvailability
   try {
     const result = await request
     if (result.status === "ok" && result.data.availability.status === "available") {
       const robots = result.data.robots
-      storeRobots(key, robots, replace, { availability: result.data.availability, fetchedAt: Date.now() })
+      storeRobots(key, robots, replace, {
+        availability: result.data.availability,
+        fetchedAt: Date.now(),
+        ...(isList && { githubRepository: result.data.githubRepository ?? null }),
+      })
       return true
     }
     availability = result.status === "ok" ? result.data.availability : { status: "error", message: result.error.message }
@@ -313,7 +346,7 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
     update(key, () => ({ isRefreshing: true }))
     try {
       const since = full ? null : Math.floor((listedFrom - LIST_OVERLAP_MS) / 1000)
-      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: current !== "manual" }), full)
+      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: current !== "manual" }), full, true)
       if (answered) {
         update(key, () => ({ listedFrom: startedAt }))
       }
@@ -413,7 +446,7 @@ export function pollPatronus(): Promise<void> {
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
   return pollGates.refresh(key, "poll", 0, async () => {
     try {
-      await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, branchPrefix, robots: known }), false)
+      await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, branchPrefix, robots: known }), false, false)
     }
     finally {
       schedulePoll(true)
@@ -484,6 +517,58 @@ export async function startPatronusRobot(
   }
   upsertPatronusRobot(result.data)
   return result.data
+}
+
+/**
+ * Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of the pushed branch from its GitHub pull
+ * request: Patronus links the robot to the pull request only from its comment, so the approvals of the pull request
+ * count and Patronus closes it once merged. Posts the comment, then waits up to a minute for the bot: 👎 throws its
+ * reason; after 👍, the new robot of the pull request is listed, stored and returned (polled while it runs).
+ */
+export async function startPatronusFromPullRequest(pullRequestNumber: number, mode: PatronusPushMode): Promise<PatronusRobot> {
+  const key = currentKey()
+  if (key === null) {
+    throw new Error("No repository is selected")
+  }
+  const { repositoryPath, branchPrefix } = patronusRequest()
+  const postedAt = Date.now()
+  const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode })
+  if (posted.status === "error") {
+    throw new Error(posted.error.message)
+  }
+  const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id }
+  let accepted = false
+  let rejectedOnce = false
+  while (Date.now() - postedAt < COMMAND_REPLY_TIMEOUT_MS) {
+    await new Promise(resolve => setTimeout(resolve, COMMAND_REPLY_INTERVAL_MS))
+    if (!accepted) {
+      const reply = await commands.readPatronusCommandReply(replyParams)
+      if (reply.status === "error") {
+        throw new Error(reply.error.message)
+      }
+      if (reply.data.status === "rejected") {
+        // the bot reacts first and comments right after: one more look for the reason
+        if (reply.data.reason !== null || rejectedOnce) {
+          throw new Error(reply.data.reason ?? "Patronus did not start the robot")
+        }
+        rejectedOnce = true
+        continue
+      }
+      accepted = reply.data.status === "accepted"
+      if (!accepted) {
+        continue
+      }
+    }
+    const since = Math.floor((postedAt - LIST_OVERLAP_MS) / 1000)
+    await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: false }), false, false)
+    const robot = Object.values(patronusStore.getState().repositories[key]?.robots ?? {})
+      .find(it => it.pullRequest?.number === pullRequestNumber && it.startTime * 1000 >= postedAt - LIST_OVERLAP_MS)
+    if (robot !== undefined) {
+      schedulePoll(false)
+      return robot
+    }
+  }
+  throw new Error(`Patronus did not start a robot within a minute: see pull request #${pullRequestNumber}`)
 }
 
 /**

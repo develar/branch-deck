@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { PatronusRobot } from "@/lib/bindings"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -164,6 +164,19 @@ describe("actions", () => {
     expect(canRestartRobot(robot({ status: "failure", branchName: null }), "IJPL-1", null)).toBe(false)
     // a restart would check the same merge request without approvals
     expect(canRestartRobot(robot({ status: "failure" }), "IJPL-1", null, true)).toBe(false)
+    // a robot of a pull request counts the approvals the pull request has at the restart
+    expect(canRestartRobot(robot({ status: "failure", pullRequest: { number: 7, url: "u" } }), "IJPL-1", null, true)).toBe(true)
+  })
+
+  it("starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run", () => {
+    const pullRequest = { number: 7, state: "open", isDraft: false } as PullRequest
+    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash")).toEqual({ number: 7, blockedByDraft: false, command: "/patronus merge" })
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "rebaseAutosquash")?.blockedByDraft).toBe(true)
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "dryRun")).toEqual({ number: 7, blockedByDraft: false, command: "/patronus dry-run" })
+    // on Space, without a pull request, or with a closed one: the Patronus API starts it
+    expect(getPullRequestStart(null, pullRequest, "rebaseAutosquash")).toBeNull()
+    expect(getPullRequestStart("acme/monorepo", undefined, "rebaseAutosquash")).toBeNull()
+    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, state: "merged" }, "rebaseAutosquash")).toBeNull()
   })
 
   it("cancels a running robot only", () => {

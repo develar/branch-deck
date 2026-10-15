@@ -8,7 +8,7 @@ use git_ops::model::{BranchKind, strip_branch_namespace};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
+use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tracing::{info, instrument};
 
@@ -104,6 +104,7 @@ impl PatronusService {
       return PatronusRobotsResult {
         availability: PatronusAvailability::Available,
         robots: Vec::new(),
+        github_repository: None,
       };
     }
     let token = match self.token(true) {
@@ -182,6 +183,7 @@ impl PatronusService {
     PatronusRobotsResult {
       availability: PatronusAvailability::Available,
       robots,
+      github_repository: None,
     }
   }
 
@@ -209,7 +211,17 @@ pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient) 
     finish_time: robot.finish_date_time.as_deref().and_then(parse_rfc3339_timestamp),
     cancellation_reason: robot.cancellation_reason.clone().filter(|reason| !reason.is_empty()),
     url: client.robot_url(&robot.id),
+    pull_request: robot.github_pr_url.as_deref().and_then(parse_pull_request_link),
   }
+}
+
+/// `https://github.com/{owner}/{name}/pull/{number}`
+fn parse_pull_request_link(url: &str) -> Option<PatronusPullRequestLink> {
+  let (_, number) = url.trim_end_matches('/').rsplit_once("/pull/")?;
+  Some(PatronusPullRequestLink {
+    number: number.parse().ok()?,
+    url: url.to_string(),
+  })
 }
 
 pub(crate) fn parse_status(status: &str) -> PatronusRobotStatus {

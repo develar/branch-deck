@@ -1,6 +1,6 @@
 import { useState } from "react"
 import type { ComponentType } from "react"
-import { CircleXIcon, ExternalLinkIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, UploadIcon } from "lucide-react"
+import { CircleXIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldEllipsisIcon, ShieldIcon, ShieldOffIcon, ShieldXIcon, UploadIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
@@ -14,6 +14,7 @@ import { formatCheckCounts } from "@/lib/check-counts"
 import { pushBranch } from "@/lib/git/push"
 import { canCancelRobot, formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
+import { openPullRequestUrl } from "@/lib/pull-request"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
@@ -163,14 +164,15 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
 
       {needsReview && (
         <p className="text-xs text-warning" data-testid="patronus-needs-review">
-          The code owners did not approve the changes. Get the approvals in a merge request, then start a new Safe Push: a
-          restart would check the same merge request.
+          {robot.pullRequest == null
+            ? "The code owners did not approve the changes. Get the approvals in a merge request, then start a new Safe Push: a restart would check the same merge request."
+            : `The code owners did not approve the changes in pull request #${robot.pullRequest.number}. Restart once they approve: the restart counts the approvals the pull request has by then.`}
         </p>
       )}
 
       <div className="flex flex-wrap gap-2">
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
-        {needsReview && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
+        {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
         {restart === "restart" && (
           <Button variant="outline" size="xs" onClick={() => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)}>
@@ -195,6 +197,12 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
           <ExternalLinkIcon data-icon="inline-start" />
           Open in Patronus
         </Button>
+        {robot.pullRequest != null && (
+          <Button variant="outline" size="xs" onClick={() => openPullRequestUrl(robot.pullRequest!.url)} data-testid="patronus-open-pull-request">
+            <GitPullRequestIcon data-icon="inline-start" />
+            {`Open Pull Request #${robot.pullRequest.number}`}
+          </Button>
+        )}
       </div>
     </div>
   )

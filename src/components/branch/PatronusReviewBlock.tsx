@@ -1,24 +1,35 @@
+import { useState } from "react"
 import { CircleCheckIcon, ExternalLinkIcon, GitPullRequestCreateIcon, RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
+import type { PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatReviewerGroup } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
+import { openPullRequest } from "@/lib/pull-request"
 
 export interface PatronusReviewBlockProps {
   review: ReviewRequirement
-  /** Pushes the branch if needed and opens its merge request; resolves to its URL, or null when the push failed */
+  /**
+   * The branches are reviewed on GitHub (`RepositoryPatronus.githubRepository`), with the pull request of the branch if
+   * it has one: Patronus counts the approvals of the pull request, not of a Space merge request. null = on Space.
+   */
+  github: { pullRequest: PullRequest | undefined } | null
+  /** Space: pushes the branch if needed and opens its merge request; resolves to its URL, or null when the push failed */
   onCreateMergeRequest: () => Promise<string | null>
+  /** GitHub: pushes the branch if needed and opens the GitHub form of its pull request */
+  onCreatePullRequest: () => Promise<void>
 }
 
 /**
  * The code-owner review of a Safe Push: nothing needed; approved in the merge request; or the groups that still have to
- * approve, with the Space merge request to open or to create (the one place Patronus counts the approvals), and Recheck. A Safe Push without the approvals fails, but the
- * start stays possible: approvals may arrive while it runs up to its review check.
+ * approve, with the place Patronus counts the approvals (the pull request on GitHub, else the Space merge request) to
+ * open or to create, and Recheck. A Safe Push without the approvals fails, but the start stays possible: approvals may
+ * arrive while it runs up to its review check.
  */
-export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusReviewBlockProps) {
+export function PatronusReviewBlock({ review, github, onCreateMergeRequest, onCreatePullRequest }: PatronusReviewBlockProps) {
   const { state } = review
   if (state.status === "loading") {
     return (
@@ -44,6 +55,10 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
         {mergeRequest === null ? "No code-owner review needed." : `Approved in ${mergeRequest.reviewKey}.`}
       </p>
     )
+  }
+
+  if (github !== null) {
+    return <GitHubReviewCallout review={review} pullRequest={github.pullRequest} onCreatePullRequest={onCreatePullRequest} />
   }
 
   return (
@@ -84,11 +99,73 @@ export function PatronusReviewBlock({ review, onCreateMergeRequest }: PatronusRe
                 {`Open ${mergeRequest.reviewKey}`}
               </Button>
             )}
-        <Button variant="ghost" size="xs" onClick={review.recheck}>
-          <RefreshCwIcon data-icon="inline-start" />
-          Recheck
-        </Button>
+        <RecheckButton review={review} />
       </div>
     </Callout>
+  )
+}
+
+/**
+ * The approvals missing on GitHub: the check before the start can't take a pull request (it never sees its approvals),
+ * so the approvals the pull request already has are named, and the Safe Push from the pull request counts them
+ */
+function GitHubReviewCallout({ review, pullRequest, onCreatePullRequest }: {
+  review: ReviewRequirement
+  pullRequest: PullRequest | undefined
+  onCreatePullRequest: () => Promise<void>
+}) {
+  const [isCreating, setCreating] = useState(false)
+  const groups = review.state.status === "loaded" ? review.state.requirement.groups : []
+  const open = pullRequest?.state === "open" ? pullRequest : undefined
+  const approvers = open?.reviewers.filter(reviewer => reviewer.state === "approved").map(reviewer => reviewer.login) ?? []
+  return (
+    <Callout tone="warning" title="Needs review by the code owners" data-testid="patronus-review" data-status="required">
+      <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
+        {groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}
+      </ul>
+      {approvers.length > 0 && (
+        <p data-testid="patronus-review-github-approvals">{`Approved on GitHub by ${approvers.join(", ")}; the Safe Push counts them, the check before it can't.`}</p>
+      )}
+      <p>A Safe Push fails without these approvals.</p>
+      <p>
+        {open === undefined
+          ? "Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts from it."
+          : `Patronus counts code-owner approvals in pull request #${open.number}.`}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {open === undefined
+          ? (
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={isCreating}
+                onClick={() => {
+                  setCreating(true)
+                  void onCreatePullRequest().finally(() => setCreating(false))
+                }}
+              >
+                {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
+                Create Pull Request
+              </Button>
+            )
+          : (
+              <Button variant="outline" size="xs" onClick={() => openPullRequest(open)}>
+                <ExternalLinkIcon data-icon="inline-start" />
+                {`Open Pull Request #${open.number}`}
+              </Button>
+            )}
+        <RecheckButton review={review} />
+      </div>
+    </Callout>
+  )
+}
+
+/** Asks Patronus again instead of the cached answer: approvals may have arrived */
+function RecheckButton({ review }: { review: ReviewRequirement }) {
+  return (
+    <Button variant="ghost" size="xs" onClick={review.recheck}>
+      <RefreshCwIcon data-icon="inline-start" />
+      Recheck
+    </Button>
   )
 }

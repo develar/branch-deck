@@ -30,6 +30,7 @@ fn subject(commits: &[PreMergeCommitDto]) -> ReviewSubject<'_> {
     source_branch: "me/virtual/AIR-1",
     commits,
     base: "base",
+    reviewed_on_github: false,
   }
 }
 
@@ -75,6 +76,20 @@ async fn names_the_missing_approvals_and_checks_again_with_the_merge_request() {
   assert_eq!(*fake.checked_review_keys.lock().unwrap(), [None, None, Some("IJ-CR-2".to_string())]);
   // the created merge request was remembered: no lookup
   assert_eq!(fake.merge_request_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_branch_reviewed_on_github_looks_up_no_merge_request() {
+  let (fake, service, commits) = approvals_required().await;
+  let subject = ReviewSubject {
+    reviewed_on_github: true,
+    ..subject(&commits)
+  };
+  let requirement = service.review_requirement(&subject, false).await.unwrap();
+  assert!(requirement.required);
+  assert_eq!(requirement.merge_request, None);
+  assert_eq!(requirement.groups[0].name, "Air Plugin Release Team");
+  assert_eq!((fake.check_calls.load(Ordering::SeqCst), fake.merge_request_calls.load(Ordering::SeqCst)), (1, 0));
 }
 
 #[tokio::test]

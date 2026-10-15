@@ -18,6 +18,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashSet;
 use sync_core::grouping::branch_tips;
+use sync_core::pull_requests::GITHUB_REPOSITORY_CONFIG;
 use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use sync_core::remote_command::execute_remote_command_accepting;
 use sync_core::remote_status::compute_remote_status_for_branch;
@@ -244,6 +245,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
   }
 
   let descriptions = read_descriptions(context)?;
+  let repository_option = github_repository_option(context)?;
   let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
   let branches = candidates
     .iter()
@@ -258,12 +260,16 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
       let description = descriptions.get(&format!("refs/heads/{}", candidate.full_name));
       let command = match description {
         Some(description) => format!(
-          "gh pr create --base {} --head {} --title {} --body-file -",
+          "gh pr create{repository_option} --base {} --head {} --title {} --body-file -",
           shell_quote(&base),
           shell_quote(&candidate.full_name),
           shell_quote(&description.title)
         ),
-        None => format!("gh pr create --base {} --head {} --fill", shell_quote(&base), shell_quote(&candidate.full_name)),
+        None => format!(
+          "gh pr create{repository_option} --base {} --head {} --fill",
+          shell_quote(&base),
+          shell_quote(&candidate.full_name)
+        ),
       };
       PushedBranch {
         name: candidate.synced.name.clone(),
@@ -403,6 +409,18 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
     })
     .collect();
   error
+}
+
+/// ` --repo owner/name` when the branches are mirrored to GitHub from another remote (`branchdeck.githubRepository`):
+/// `gh` finds no GitHub repository among the remotes; empty otherwise
+fn github_repository_option(context: &RepoContext) -> Result<String, CliError> {
+  let (configured, exit_code) = context.git.execute_command_with_status(&["config", GITHUB_REPOSITORY_CONFIG], &context.repository)?;
+  let configured = configured.trim();
+  Ok(if exit_code == 0 && !configured.is_empty() {
+    format!(" --repo {}", shell_quote(configured))
+  } else {
+    String::new()
+  })
 }
 
 /// A word for a POSIX shell: single-quoted unless it is plain

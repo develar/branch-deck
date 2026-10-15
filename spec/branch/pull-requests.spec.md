@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the read-only GitHub pull request status of the virtual branches, read through the gh CLI and shown as a chip in the branch row, the branch preview and the outgoing overview; and "Create Pull Request" in the branch menu and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the gh CLI (also for branches mirrored to GitHub from another remote, branchdeck.githubRepository) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -25,6 +25,7 @@ targets:
   - ../../src/lib/git/push.ts
   - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/git/stacked-push-toast.tsx
+  - ../../crates/bd-cli/src/push_command.rs
 ---
 
 # Pull Requests
@@ -36,8 +37,11 @@ Date: 2026-10-14
 
 Reviews happen on GitHub pull requests of the pushed virtual branches. Branch Deck shows, per branch, the pull request
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
-status is read through the `gh` CLI, never written; opening a pull request opens the browser. A pushed branch without
-one gets "Create Pull Request", which opens GitHub's form of a new pull request into the branch's base.
+status is read through the `gh` CLI; opening a pull request opens the browser. A pushed branch without one gets "Create
+Pull Request", which opens GitHub's form of a new pull request into the branch's base. The branches may be pushed to
+another remote that mirrors them to GitHub (a Space repository): `branchdeck.githubRepository` names the GitHub
+repository then. Patronus merges a pull request from its `/patronus merge` comment ([Patronus](patronus.spec.md#pull-requests)),
+the one write of the app on GitHub.
 
 ## Goals
 
@@ -50,8 +54,8 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
 
 ## Non-goals
 
-- Creating pull requests itself, updating, merging or commenting on them. Approvals are final and a bot merges; the app
-  reads, and leaves the creation to GitHub's form.
+- Creating pull requests itself, updating or merging them. Approvals are final and Patronus merges; the app reads,
+  leaves the creation to GitHub's form, and its one comment is the Patronus command ([Patronus](patronus.spec.md#pull-requests)).
 - Pull requests of others, of forks, and of branches that are not virtual branches of the user.
 - GitHub Enterprise and other hosts: only github.com.
 - Polling: GitHub is asked after a sync, a push, a focus and a manual refresh only.
@@ -60,12 +64,16 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
 
 ### Reading pull requests
 
-- The repository must be the one `origin` pushes to (`git remote get-url --push origin`), as `push_branch` pushes to
-  `origin`. SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`), HTTPS (with or without
-  `.git` and credentials) and `git://` URLs name a github.com repository.
+- The repository is `git config branchdeck.githubRepository` (`owner/name`), for branches pushed to a remote that
+  mirrors them to GitHub (a Space repository); else the one `origin` pushes to (`git remote get-url --push origin`), as
+  `push_branch` pushes to `origin`. SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`),
+  HTTPS (with or without `.git` and credentials) and `git://` URLs name a github.com repository. No repository host or
+  name is built into the app.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`parses_github_remote_urls`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
-- A remote on another host, a local path or no `origin` must report "not on GitHub" without running `gh`.
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_configured_github_repository_wins_over_origin`)
+- Without the setting, a remote on another host, a local path or no `origin` must report "not on GitHub" without
+  running `gh`.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_remote_urls_outside_github`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_remote_outside_github_does_not_run_gh`)
 - One `gh pr list --repo github.com/<owner>/<name> --author @me --state all --limit 50 --json …` per refresh, run in the
@@ -102,6 +110,9 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
 - Of several pull requests of one branch, an open one wins over a merged one over a closed one, then the most recently
   updated.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none`)
+- A closed pull request with the label `merged` is merged: Patronus rebases, so GitHub can't mark the pull request it
+  merged as merged; it closes it and adds the label. The labels are read in the same `gh pr list` (`--json …,labels`).
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_pull_request_patronus_closed_with_the_merged_label_is_merged`)
 - The checks of the head commit are summarized from `statusCheckRollup`:
   - a check run that is not completed, or a status context `PENDING`/`EXPECTED`, is running;
   - a completed check run concluding `FAILURE`, `TIMED_OUT`, `CANCELLED`, `ACTION_REQUIRED` or `STARTUP_FAILURE`, or a
@@ -135,6 +146,9 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
   pushed commit yet, it is asked once more 5 s later.
   [@test] ../../src/stores/pull-requests.test.ts (`looks again a little later while GitHub still shows the old head`)
   [@test] ../../src/stores/pull-requests.test.ts (`does not look again when the pull request shows the pushed commit`)
+- A robot linked to a pull request that merged ([Patronus](patronus.spec.md#pull-requests)) asks again right away: the
+  pull request is closed with the label `merged` now.
+  [@test] ../../src/stores/patronus.test.ts (`keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged`)
 - A failed refresh must keep the pull requests shown and only change the availability.
   [@test] ../../src/stores/pull-requests.test.ts (`keeps the shown pull requests when a refresh fails`)
 
@@ -181,7 +195,8 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
 
 - "Create Pull Request" opens GitHub's form of a new pull request in the browser (the opener plugin, as "Open Pull
   Request"): `https://github.com/<owner>/<name>/compare/<base>...<prefix>/virtual/<branch>?expand=1`. The repository is
-  the one `gh` lists the pull requests of (`getGitHubRepository()`); the base is the pull request base of the branch
+  the one `gh` lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows the branches are
+  mirrored to (`branchdeck.githubRepository`, no `gh` needed for a link); the base is the pull request base of the branch
   ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed branch, else the baseline as the
   remote names it, `master`). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
   GitHub creates nothing until the form is submitted.
@@ -193,6 +208,9 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
   isn't stacked has the action "Open Pull Request" when the branch has a pull request, else "Create Pull Request" under
   the same conditions as the menu, and stays 10 s; off GitHub it has no action. The toast of a stacked branch keeps
   naming the base with "Copy gh pr create" ([Stacked Branches](stacked-branches.spec.md#pull-requests)).
+- A copied or printed `gh` command (`gh pr create`, `gh pr edit` of the stacked toast and menu, `bd push`) gets
+  `--repo <owner>/<name>` when `branchdeck.githubRepository` is set: `gh` finds no GitHub repository among the remotes of
+  a mirrored checkout.
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
 
@@ -254,6 +272,8 @@ one gets "Create Pull Request", which opens GitHub's form of a new pull request 
 - `--author @me` uses the GitHub search, which can lag a few seconds behind a newly opened pull request.
 - Only the 50 most recent pull requests of the user are read; an old pull request of a long-lived branch may be missed.
 - A branch pushed to a fork as `origin`, with the pull request on the upstream repository, is not matched.
+- A mirrored checkout needs `branchdeck.githubRepository` once; nothing tells the app which GitHub repository a Space
+  repository is mirrored to.
 
 ## References
 

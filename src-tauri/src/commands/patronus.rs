@@ -9,9 +9,11 @@ use patronus::service::PatronusService;
 use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{ReviewCommit, SpaceRepository, find_space_repository, find_target_branch, read_review_commits};
+use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, resolve_github_repository};
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusMergeRequest, PatronusProblem, PatronusReviewRequirement,
-  PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, StartPatronusRobotParams,
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply, PatronusMergeRequest,
+  PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use sync_utils::timestamp::{format_utc_timestamp, parse_rfc3339_timestamp};
 use tauri::State;
@@ -20,8 +22,17 @@ use tauri::State;
 /// Space repository of each repository, so a poll starts no git process
 pub struct PatronusState {
   service: PatronusService,
-  /// By repository path; None = not on Space. Re-read now and then: the remote can change.
-  repositories: Cache<String, Option<SpaceRepository>>,
+  /// By repository path. Re-read now and then: the remote can change.
+  repositories: Cache<String, RepositoryHosts>,
+}
+
+/// Where a repository lives for Patronus
+#[derive(Clone)]
+struct RepositoryHosts {
+  /// None = not on Space
+  space: Option<SpaceRepository>,
+  /// The GitHub repository of the branches (a mirror of the Space one): their pull requests are reviewed there
+  github: Option<GitHubRepository>,
 }
 
 impl PatronusState {
@@ -35,24 +46,34 @@ impl PatronusState {
     }
   }
 
-  async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, CommandError> {
-    if let Some(repository) = self.repositories.get(repository_path) {
-      return Ok(repository);
+  async fn hosts(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryHosts, CommandError> {
+    if let Some(hosts) = self.repositories.get(repository_path) {
+      return Ok(hosts);
     }
     let git = git_executor.clone();
     let path = repository_path.to_string();
-    let repository = run_blocking(move || find_space_repository(&git, &path)).await?;
-    self.repositories.insert(repository_path.to_string(), repository.clone());
-    Ok(repository)
+    let hosts = run_blocking(move || {
+      let space = find_space_repository(&git, &path)?;
+      let github = if space.is_some() { resolve_github_repository(&git, &path)? } else { None };
+      anyhow::Ok(RepositoryHosts { space, github })
+    })
+    .await?;
+    self.repositories.insert(repository_path.to_string(), hosts.clone());
+    Ok(hosts)
+  }
+
+  async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, CommandError> {
+    Ok(self.hosts(git_executor, repository_path).await?.space)
   }
 
   /// The Space repository, for an action: not on Space is an error
   async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, CommandError> {
-    self
-      .space_repository(git_executor, repository_path)
-      .await?
-      .ok_or_else(|| CommandError::new("The repository is not on Space: Patronus can't push it"))
+    self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
   }
+}
+
+fn not_on_space() -> CommandError {
+  CommandError::new("The repository is not on Space: Patronus can't push it")
 }
 
 /// The branch a robot pushes to, from the baseline: the branch of `origin` it tracks
@@ -74,10 +95,13 @@ pub async fn get_patronus_robots(
   patronus: State<'_, PatronusState>,
   params: GetPatronusRobotsParams,
 ) -> Result<PatronusRobotsResult, CommandError> {
-  let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
+  let hosts = patronus.hosts(&git_executor, &params.repository_path).await?;
+  let Some(repository) = hosts.space else {
     return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
   };
-  Ok(patronus.service.robots(&repository.name, &params.branch_prefix, params.since, params.background).await)
+  let mut result = patronus.service.robots(&repository.name, &params.branch_prefix, params.since, params.background).await;
+  result.github_repository = hosts.github.map(|github| format!("{}/{}", github.owner, github.name));
+  Ok(result)
 }
 
 /// The robots of `params.robots` whose status changed since the app saw it; the others are not in the result
@@ -174,7 +198,8 @@ pub async fn get_patronus_review_requirement(
   patronus: State<'_, PatronusState>,
   params: PatronusBranchParams,
 ) -> Result<PatronusReviewRequirement, CommandError> {
-  let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
+  let hosts = patronus.hosts(&git_executor, &params.repository_path).await?;
+  let repository = hosts.space.ok_or_else(not_on_space)?;
   let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
   let source_branch = to_final_branch_name(&params.branch_prefix, &params.branch_name)?;
   let git = (*git_executor).clone();
@@ -197,6 +222,7 @@ pub async fn get_patronus_review_requirement(
     source_branch: &source_branch,
     base: commits.last().map_or("", |commit| commit.hash.as_str()),
     commits: &commits,
+    reviewed_on_github: hosts.github.is_some(),
   };
   patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)
 }
@@ -217,6 +243,49 @@ pub async fn create_patronus_merge_request(
     .create_merge_request(&repository.project_key, &repository.name, &source_branch, &target)
     .await
     .map_err(CommandError::new)
+}
+
+/// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
+/// branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers
+/// with a reaction (`read_patronus_command_reply`).
+#[tauri::command]
+#[specta::specta]
+pub async fn post_patronus_command(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  params: PostPatronusCommandParams,
+) -> Result<PatronusCommandComment, CommandError> {
+  let github = required_github_repository(&patronus, &git_executor, &params.repository_path).await?;
+  let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;
+  run_blocking(move || {
+    sync_core::patronus_command::post_patronus_command(&gh, &params.repository_path, &github, params.pull_request_number, params.mode, GH_TIMEOUT).map_err(CommandError::new)
+  })
+  .await
+}
+
+/// How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason
+#[tauri::command]
+#[specta::specta]
+pub async fn read_patronus_command_reply(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  params: ReadPatronusCommandReplyParams,
+) -> Result<PatronusCommandReply, CommandError> {
+  let github = required_github_repository(&patronus, &git_executor, &params.repository_path).await?;
+  let gh = find_gh().ok_or_else(|| CommandError::new("The gh CLI is not installed"))?;
+  run_blocking(move || {
+    sync_core::patronus_command::read_patronus_command_reply(&gh, &params.repository_path, &github, params.pull_request_number, &params.comment_id, GH_TIMEOUT)
+      .map_err(CommandError::new)
+  })
+  .await
+}
+
+async fn required_github_repository(patronus: &PatronusState, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GitHubRepository, CommandError> {
+  patronus
+    .hosts(git_executor, repository_path)
+    .await?
+    .github
+    .ok_or_else(|| CommandError::new("The GitHub repository of the branches is unknown: run git config branchdeck.githubRepository <owner>/<name>"))
 }
 
 /// The commit as the pre-check reads it: the dates in UTC

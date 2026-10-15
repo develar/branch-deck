@@ -23,7 +23,8 @@ use commands::menu_commands::update_menu_checkbox;
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, create_patronus_merge_request, get_patronus_review_requirement, get_patronus_robot_details, get_patronus_robot_problems,
-  get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, poll_patronus_robots, restart_patronus_robot, start_patronus_robot,
+  get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, poll_patronus_robots, post_patronus_command, read_patronus_command_reply, restart_patronus_robot,
+  start_patronus_robot,
 };
 use commands::pull_requests::get_pull_requests;
 use commands::push::push_branch;
@@ -67,6 +68,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_patronus_robot_problems,
     get_patronus_review_requirement,
     create_patronus_merge_request,
+    post_patronus_command,
+    read_patronus_command_reply,
     sync_branches,
     get_branch_prefix_from_git_config,
     browse_repository,

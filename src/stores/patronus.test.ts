@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { GetPatronusRobotsParams, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams } from "@/lib/bindings"
+import type { GetPatronusRobotsParams, PatronusCommandReply, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams, PostPatronusCommandParams } from "@/lib/bindings"
 import {
   BACKGROUND_POLL_INTERVAL_MS,
+  COMMAND_REPLY_INTERVAL_MS,
+  COMMAND_REPLY_TIMEOUT_MS,
   FOCUS_REFRESH_AGE_MS,
   LIST_OVERLAP_MS,
   MIN_FOCUS_GAP_MS,
@@ -13,6 +15,7 @@ import {
   refreshPatronus,
   resetPatronus,
   setPatronusWindowFocus,
+  startPatronusFromPullRequest,
 } from "@/stores/patronus"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -22,6 +25,9 @@ const { patronus, branches } = vi.hoisted(() => ({
     list: null as PatronusRobotsResult | null,
     poll: null as PatronusRobotsResult | null,
     problemCalls: [] as string[],
+    commands: [] as PostPatronusCommandParams[],
+    replies: [] as PatronusCommandReply[],
+    replyCalls: 0,
   },
   branches: { current: {} as Record<string, unknown> },
 }))
@@ -35,6 +41,14 @@ vi.mock("@/lib/bindings", () => ({
     pollPatronusRobots: async (params: PollPatronusRobotsParams) => {
       patronus.polls.push(params)
       return { status: "ok", data: patronus.poll }
+    },
+    postPatronusCommand: async (params: PostPatronusCommandParams) => {
+      patronus.commands.push(params)
+      return { status: "ok", data: { id: "4402154133", url: "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133" } }
+    },
+    readPatronusCommandReply: async () => {
+      patronus.replyCalls++
+      return { status: "ok", data: patronus.replies.shift() ?? { status: "pending" } }
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
@@ -50,6 +64,13 @@ const { notices } = vi.hoisted(() => ({
     permissionRequests: 0,
     fetches: [] as string[],
     opened: [] as string[],
+    pullRequestRefreshes: [] as string[],
+  },
+}))
+
+vi.mock("@/stores/pull-requests", () => ({
+  refreshPullRequests: async (reason: string) => {
+    notices.pullRequestRefreshes.push(reason)
   },
 }))
 
@@ -128,6 +149,10 @@ beforeEach(() => {
   patronus.lists = []
   patronus.polls = []
   patronus.problemCalls = []
+  patronus.commands = []
+  patronus.replies = []
+  patronus.replyCalls = 0
+  notices.pullRequestRefreshes = []
   notices.toasts = []
   notices.notifications = []
   notices.permissionRequests = 0
@@ -299,6 +324,49 @@ describe("merges", () => {
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(getBranchRobot("auth")?.status).toBe("success")
     expect(notices.toasts).toEqual([])
+  })
+})
+
+describe("pull request start", () => {
+  const ofPullRequest = robot({ id: "pr", startTime: START / 1000, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } })
+
+  it("posts the command, waits for the thumbs up and returns the robot of the pull request", async () => {
+    patronus.replies = [{ status: "pending" }, { status: "accepted" }]
+    patronus.list = available(ofPullRequest)
+    const started = startPatronusFromPullRequest(7, "rebaseAutosquash")
+    await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
+    expect(await started).toEqual(ofPullRequest)
+    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash" }])
+    expect(patronus.replyCalls).toBe(2)
+    // an incremental list from shortly before the comment
+    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: Math.floor((START - LIST_OVERLAP_MS) / 1000), background: false }])
+    expect(getBranchRobot("auth")?.id).toBe("pr")
+  })
+
+  it("throws the reason the bot gave with its thumbs down", async () => {
+    patronus.replies = [{ status: "rejected", reason: null }, { status: "rejected", reason: "Pull request #7 is a draft and cannot be merged." }]
+    const started = startPatronusFromPullRequest(7, "rebaseAutosquash")
+    const failed = expect(started).rejects.toThrow("Pull request #7 is a draft and cannot be merged.")
+    await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
+    await failed
+    expect(patronus.lists).toEqual([])
+  })
+
+  it("gives up after a minute without an answer", async () => {
+    const started = startPatronusFromPullRequest(7, "dryRun")
+    const failed = expect(started).rejects.toThrow("Patronus did not start a robot within a minute: see pull request #7")
+    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
+    await failed
+  })
+
+  it("keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged", async () => {
+    patronus.list = { ...available(ofPullRequest), githubRepository: "acme/monorepo" }
+    await refreshPatronus("sync")
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
+    patronus.poll = { ...available({ ...ofPullRequest, status: "success", finishTime: 200 }), githubRepository: null }
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
+    expect(notices.pullRequestRefreshes).toEqual(["push"])
   })
 })
 

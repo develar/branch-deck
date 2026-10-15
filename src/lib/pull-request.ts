@@ -159,5 +159,10 @@ export function formatAvailabilityHint(availability: PullRequestAvailability | n
 
 /** Opens the pull request in the browser */
 export function openPullRequest(pullRequest: PullRequest): void {
-  openUrl(pullRequest.url).catch((error: unknown) => notifyError("Cannot open the pull request", error))
+  openPullRequestUrl(pullRequest.url)
+}
+
+/** Opens a pull request by its URL, e.g. the one a Patronus robot belongs to */
+export function openPullRequestUrl(url: string): void {
+  openUrl(url).catch((error: unknown) => notifyError("Cannot open the pull request", error))
 }

@@ -5,12 +5,22 @@ import { pullRequestBaseOf } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
+import { getPatronusGitHubRepository } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName } from "@/stores/repository"
 
 /** The pull request base of a branch, as `gh` takes it */
 export function getPullRequestBase(branch: Branch): string {
   return pullRequestBaseOf(branch, branchSyncStore.getState().baselineBranch ?? "", getFullBranchName)
+}
+
+/**
+ * ` --repo owner/name` for branches mirrored to GitHub from another remote (`branchdeck.githubRepository`): `gh` finds
+ * no GitHub repository among the remotes; empty when `origin` is on GitHub
+ */
+function ghRepositoryOption(): string {
+  const repository = getPatronusGitHubRepository()
+  return repository === null ? "" : ` --repo ${repository}`
 }
 
 /**
@@ -23,7 +33,7 @@ export function getRetargetCommand(branch: Branch): string | null {
     return null
   }
   const base = getPullRequestBase(branch)
-  return pullRequest.baseRefName === base ? null : `gh pr edit ${pullRequest.number} --base ${base}`
+  return pullRequest.baseRefName === base ? null : `gh pr edit ${pullRequest.number}${ghRepositoryOption()} --base ${base}`
 }
 
 /**
@@ -37,7 +47,7 @@ export function showStackedPushToast(branch: Branch, news: PushNews): void {
   const pullRequest = getPullRequest(branch.name)
   const retargetCommand = getRetargetCommand(branch)
   const retarget = retargetCommand !== null
-  const command = retargetCommand ?? `gh pr create --base ${base} --head ${head}`
+  const command = retargetCommand ?? `gh pr create${ghRepositoryOption()} --base ${base} --head ${head}`
   // the short name fits the toast; the copied command has the full branch name
   const baseName = <span className="font-medium">{branch.stack?.effectiveBase ?? base}</span>
   const lead = retarget ? "the pull request targets another base: retarget it to " : "pull request base: "

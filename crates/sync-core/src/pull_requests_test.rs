@@ -187,7 +187,7 @@ fn parses_and_matches_pull_requests_by_virtual_branch() {
   assert!(draft.is_draft);
   assert_eq!(draft.review_decision, Some(ReviewDecision::ReviewRequired));
   assert_eq!(draft.checks, None);
-  assert!(draft.reviewers.is_empty());
+  assert_eq!(draft.reviewers, Vec::<Reviewer>::new());
 
   // merged wins over a newer closed one; a skipped check passes
   let done = &pull_requests["done"];
@@ -214,6 +214,21 @@ fn closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none() {
 }
 
 #[test]
+fn a_pull_request_patronus_closed_with_the_merged_label_is_merged() {
+  let json = r#"[
+    {"number": 1, "title": "a", "url": "u1", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/x",
+     "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z",
+     "statusCheckRollup": [], "latestReviews": [], "reviewRequests": [], "labels": [{"name": "merged"}]},
+    {"number": 2, "title": "b", "url": "u2", "state": "CLOSED", "isDraft": false, "reviewDecision": "", "headRefName": "p/virtual/y",
+     "headRefOid": "b", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z",
+     "statusCheckRollup": [], "latestReviews": [], "reviewRequests": [], "labels": [{"name": "bug"}]}
+  ]"#;
+  let pull_requests = parse_pull_requests(json.as_bytes(), "p", "o").unwrap();
+  assert_eq!(pull_requests["x"].state, PullRequestState::Merged);
+  assert_eq!(pull_requests["y"].state, PullRequestState::Closed);
+}
+
+#[test]
 fn pending_checks_without_failures_are_pending() {
   let json = r#"[{"number": 1, "title": "a", "url": "u", "state": "OPEN", "isDraft": false, "reviewDecision": "CHANGES_REQUESTED",
     "headRefName": "p/virtual/x", "headRefOid": "a", "headRepositoryOwner": {"login": "o"}, "isCrossRepository": false,
@@ -235,11 +250,11 @@ fn rejects_output_that_is_not_a_pull_request_list() {
   assert!(parse_pull_requests(b"[]", "p", "o").unwrap().is_empty());
 }
 
-fn repository(owner: &str, name: &str) -> Option<GitHubRepository> {
-  Some(GitHubRepository {
+fn repository(owner: &str, name: &str) -> GitHubRepository {
+  GitHubRepository {
     owner: owner.to_string(),
     name: name.to_string(),
-  })
+  }
 }
 
 #[test]
@@ -256,7 +271,7 @@ fn parses_github_remote_urls() {
     "git://github.com/JetBrains/ultimate.git",
     "  https://GitHub.com/JetBrains/ultimate.git\n",
   ] {
-    assert_eq!(parse_github_repository(url), repository("JetBrains", "ultimate"), "{url}");
+    assert_eq!(parse_github_repository(url), Some(repository("JetBrains", "ultimate")), "{url}");
   }
 }
 
@@ -368,6 +383,32 @@ fn a_remote_outside_github_does_not_run_gh() {
   let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
   assert_eq!(result.availability, PullRequestAvailability::NotGitHub);
   assert!(!marker.exists());
+}
+
+#[test]
+fn the_configured_github_repository_wins_over_origin() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  // a remote that mirrors pushed branches to GitHub
+  repo.add_remote("origin", "ssh://git@git.example.com/team/monorepo.git").unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let args_file = dir.path().join("args");
+  let gh = fake_gh(dir.path(), &format!("printf '%s\\n' \"$@\" > '{}'\necho '[]'", args_file.display()));
+
+  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
+  assert_eq!(result.availability, PullRequestAvailability::NotGitHub);
+
+  repo.set_config("branchdeck.githubRepository", "acme/monorepo").unwrap();
+  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
+  assert_eq!(
+    result.availability,
+    PullRequestAvailability::Available {
+      owner: "acme".to_string(),
+      name: "monorepo".to_string()
+    }
+  );
+  let args = std::fs::read_to_string(&args_file).unwrap();
+  assert_eq!(args.lines().nth(3), Some("github.com/acme/monorepo"));
 }
 
 #[test]

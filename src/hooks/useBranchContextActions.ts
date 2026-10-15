@@ -18,14 +18,14 @@ import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
 import { openInline } from "@/stores/inline-row-action"
-import { cancelPatronusRobot, getBranchRobot, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, getBranchRobot, getPatronusGitHubRepository, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
 /**
  * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
  * rename (name an issue branch; an issue group is renamed without a rewrite) and ungroup, then commit actions (issue
  * reference, amend, unapply), then history (squash fixups, open or create the pull request), then Patronus (Safe Push,
- * Dry Run, Create Space Merge Request, the robot of the branch). An item that opens a form ends with "…". The right-click on
+ * Dry Run, Create Space Merge Request unless the branches are reviewed on GitHub, the robot of the branch). An item that opens a form ends with "…". The right-click on
  * the row and the "⋯" of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
@@ -139,16 +139,19 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 }
 
 /**
- * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Space Merge Request…, then the restart, the cancel
- * and the page of the branch's robot
+ * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Space Merge Request… (not for branches
+ * reviewed in GitHub pull requests: "Create Pull Request" is the history group's), then the restart, the cancel and the
+ * page of the branch's robot
  */
 function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
   const start = canStartRobot(branch, robot)
   const items: MenuItem[] = [
     { label: "Safe Push…", icon: ShieldCheckIcon, disabled: !start.ok, description: start.ok ? SAFE_PUSH_DESCRIPTION : start.reason, onSelect: () => openInline("safe-push", branch.name) },
     { label: "Dry Run…", icon: FlaskConicalIcon, disabled: !start.ok, ...(!start.ok && { description: start.reason }), onSelect: () => openInline("dry-run", branch.name) },
-    getCreateMergeRequestItem(branch),
   ]
+  if (getPatronusGitHubRepository() === null) {
+    items.push(getCreateMergeRequestItem(branch))
+  }
   if (robot !== undefined) {
     const mode = formatPushMode(robot.pushMode)
     if (canRestartRobot(robot, branch.name, branch.remoteStatus?.remoteTip ?? null, isRobotNeedingReview(robot.id))) {

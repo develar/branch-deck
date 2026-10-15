@@ -15,6 +15,7 @@ pub mod issue_navigation;
 pub mod landed;
 pub mod move_commits;
 pub mod patronus;
+pub mod patronus_command;
 pub mod pull_requests;
 pub mod push;
 pub mod push_lease;
@@ -36,6 +37,8 @@ pub mod update_project;
 
 #[cfg(test)]
 mod branch_prefix_test;
+#[cfg(test)]
+mod patronus_command_test;
 #[cfg(test)]
 mod patronus_test;
 #[cfg(test)]

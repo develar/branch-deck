@@ -75,12 +75,14 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   only working-tree write (`spec/repository/update-project.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
-- **Outgoing and PR status**: header push overview, GitHub PR state via `gh` (`spec/repository/outgoing.spec.md`,
+- **Outgoing and PR status**: header push overview, GitHub PR state via `gh`, also for a checkout mirrored to GitHub
+  (`branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
   `spec/branch/pull-requests.spec.md`).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
   in the background, an OS notification; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
-  guard before a push into a branch whose Safe Push runs (`spec/branch/patronus.spec.md`).
+  guard before a push into a branch whose Safe Push runs; a branch with a GitHub PR starts from it with a `/patronus merge`
+  comment (`gh api`, the app's one GitHub write), so the PR's approvals count (`spec/branch/patronus.spec.md`).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven

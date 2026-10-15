@@ -1,11 +1,11 @@
-use crate::client::PatronusClient;
+use crate::client::{PatronusClient, RobotDto};
 use crate::fake_patronus::start_fake;
-use crate::service::PatronusService;
+use crate::service::{PatronusService, to_robot};
 use crate::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 
 pub(crate) fn token(value: &str) -> TokenLookup {
   TokenLookup::Found(Token {
@@ -45,6 +45,7 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
         finish_time: None,
         cancellation_reason: None,
         url: format!("{base_url}/robot/newer"),
+        pull_request: None,
       },
       PatronusRobot {
         id: "older".to_string(),
@@ -60,6 +61,25 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
   assert_eq!(query.get("owner").map(String::as_str), Some("me"));
   assert_eq!(query.get("repository").map(String::as_str), Some("ultimate"));
   assert!(query.contains_key("start"), "the window is explicit: {query:?}");
+}
+
+#[test]
+fn a_robot_started_by_a_pull_request_comment_links_the_pull_request() {
+  // as `GET /robots` answers for a `/patronus merge` comment: the branch is not a ref
+  let json = r#"{"id": "r1", "name": "Fix", "repository": "monorepo", "sourceBranch": "me/virtual/IJPL-1", "sourceRevision": "abc",
+    "targetBranch": "master", "startDateTime": "2026-10-15T00:07:08.118860Z", "finishDateTime": null, "status": "RUNNING",
+    "type": "GITHUB_PR", "pushMode": "REBASE_AUTOSQUASH", "cancellationReason": null, "spaceReviewKey": null,
+    "githubPrUrl": "https://github.com/acme/monorepo/pull/1031", "githubPrLabel": "acme/monorepo#1031"}"#;
+  let robot: RobotDto = serde_json::from_str(json).unwrap();
+  let robot = to_robot(&robot, "me", &PatronusClient::new("http://patronus".to_string(), "test"));
+  assert_eq!(robot.branch_name.as_deref(), Some("IJPL-1"));
+  assert_eq!(
+    robot.pull_request,
+    Some(PatronusPullRequestLink {
+      number: 1031,
+      url: "https://github.com/acme/monorepo/pull/1031".to_string(),
+    })
+  );
 }
 
 #[tokio::test]
