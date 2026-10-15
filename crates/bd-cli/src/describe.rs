@@ -5,6 +5,7 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
+use crate::text_input::read_text;
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -133,10 +134,7 @@ pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOu
   let current = read_descriptions(context)?.remove(&reference);
 
   let body = match &args.body_file {
-    Some(path) if path.as_os_str() == "-" => {
-      Some(std::io::read_to_string(std::io::stdin()).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read the body from stdin: {e}")))?)
-    }
-    Some(path) => Some(std::fs::read_to_string(path).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read {}: {e}", path.display())))?),
+    Some(path) => Some(read_text(path, "the body")?),
     None => args.body.clone(),
   };
 

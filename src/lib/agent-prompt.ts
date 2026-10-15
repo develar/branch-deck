@@ -81,12 +81,24 @@ function likelyConflictLines(state: ConflictState): string[] {
 }
 
 /**
+ * A word for the shell of `bd`, as bd quotes the repository after `-C`: as it is when plain, else single-quoted, with a
+ * quote as `'\''` for a POSIX shell and doubled for PowerShell
+ */
+function shellWord(word: string, powershell: boolean): string {
+  if (/^[\w\-./:@+]+$/.test(word)) {
+    return word
+  }
+  return `'${word.replaceAll("'", powershell ? "''" : "'\\''")}'`
+}
+
+/**
  * The conflict prompt with bd: the agent updates with `bd update --no-fetch` (the baseline the user saw) and resolves
  * each round in the copies bd writes outside the working tree, never in the working tree itself; no `--expect-head`,
  * because peers commit meanwhile and become more rounds
  */
 function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state: ConflictState, fetchTime: number | null, bd: AgentCliCommand): string {
   const { branch, upstream } = check
+  const fixup = `git -C ${shellWord(repositoryPath, bd.powershell)} commit -m 'fixup! <subject>' -- <paths>`
   const fetched = fetchTime === null ? "" : ` (fetched ${new Date(fetchTime).toISOString()})`
   return [
     `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.`,
@@ -98,9 +110,9 @@ function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state:
     ])}`,
     `Steps:\n${numbered([
       "`bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
-      "Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, add `--take` or `--delete` to the command of step 3, as its `hint` says. A change the commit needs outside the conflict blocks waits for a `fixup!` commit after step 4.",
+      `Exit 1: for each entry of \`session.files\`, edit the file at \`edit\`. Keep the change of \`onto\` and reapply the intent of \`session.commit\` (its \`patch\`). Remove every conflict marker.${bd.powershell ? " Write each copy with `[IO.File]::WriteAllText('<edit>', $text)`: `Set-Content` and `Out-File` add a byte order mark or write UTF-16, and change the line ends." : ""} For \`kind\` modify_delete, add \`--take\` or \`--delete\` to the command of step 3, as its \`hint\` says. A change the commit needs outside the conflict blocks waits for a \`fixup!\` commit after step 4.`,
       "`bd update --continue --round <session.round>`. Exit 1 is the next commit: go to step 2 (`state: pending`: run `session.next`). Exit 2: `error.message` says what to fix (the copies of `error.paths`; `round_moved`: go to step 1; `empty_resolution`: ask me).",
-      "Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as `git commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
+      `Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as \`${fixup}\`${bd.powershell ? " (double each `'` of the subject)" : ""}, and run \`bd fold\`; or run \`bd undo <undo_token>\` and tell me.`,
       "Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
     ])}`,
     `Rules:\n${bullets([

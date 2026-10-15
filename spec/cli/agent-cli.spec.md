@@ -96,6 +96,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
+- The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
+  decodes stdout with a legacy code page, as Windows PowerShell 5.1 does, still gets every path and subject.
+  [@test] ../../crates/bd-cli/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
+- A plan and a body (`--plan`, stdin, `--body-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
+  mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
+  [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
 - `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
   `undo`, `check`, `suggest`, `sync`, `push`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
   `version` and `error` outputs, and the real outputs must use only the properties it declares.
@@ -466,6 +473,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   return the same command with `-C <repository>` without writing anything, quoted for the shell (POSIX quotes; on
   Windows PowerShell's `& '<bd.exe>'` with single quotes, and `powershell: true`): the symlink when it points at the running app, else
   the app binary with `cli` (`bd.exe` on Windows). A binary named `bd` (a cargo build) is the CLI itself and gets no
-  `cli`. `bd update` names its next command (`session.next`) the same way.
+  `cli`. `bd update` names its next command (`session.next`) the same way. A path of the binary shorter than 260
+  characters has no `\\?\` prefix.
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

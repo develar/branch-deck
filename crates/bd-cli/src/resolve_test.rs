@@ -1,4 +1,4 @@
-use crate::fixture_test::{assert_error, git, run_in, write};
+use crate::fixture_test::{assert_error, canonical, git, run_in, write};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -286,6 +286,27 @@ fn markers_an_edit_outside_a_block_and_a_missing_file_are_refused() {
   assert_eq!(read(&edit), merged);
 }
 
+/// `Set-Content -Encoding UTF8` of Windows PowerShell 5.1 adds a byte order mark, `Out-File` writes UTF-16: the copy is
+/// refused with the way to write it
+#[test_log::test]
+fn an_edit_copy_with_a_byte_order_mark_or_in_utf16_is_refused() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  let edit = edit_of(&round, "shared.txt");
+  let resolved = "one\ntheirs mine\nthree\n";
+  let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain(resolved.encode_utf16().flat_map(u16::to_le_bytes)).collect();
+  for content in [format!("\u{feff}{resolved}").into_bytes(), utf16] {
+    std::fs::write(&edit, content).unwrap();
+    let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+    assert_error(&output, exit_code, (2, "resolution_outside_conflict"));
+    let message = output["error"]["message"].as_str().unwrap();
+    assert!(message.contains("byte order mark") && message.contains("[IO.File]::WriteAllText"), "{message}");
+  }
+  std::fs::write(&edit, resolved).unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!(exit_code, 0, "{done}");
+}
+
 #[cfg(unix)]
 #[test_log::test]
 fn a_symlink_at_edit_is_never_followed() {
@@ -537,7 +558,7 @@ fn the_copies_go_to_dir_only_outside_every_worktree() {
   let (exit_code, round) = run_in(&clone, &["update", "--dir", empty.path().to_str().unwrap()]);
   assert_eq!(exit_code, 1, "{round}");
   let edit = edit_of(&round, "shared.txt");
-  assert!(Path::new(&edit).starts_with(std::fs::canonicalize(empty.path()).unwrap()), "{edit}");
+  assert!(Path::new(&edit).starts_with(canonical(empty.path())), "{edit}");
   std::fs::write(&edit, "one\ntheirs mine\nthree\n").unwrap();
   let (exit_code, _) = run_in(&clone, &["update", "--continue"]);
   assert_eq!(exit_code, 0);

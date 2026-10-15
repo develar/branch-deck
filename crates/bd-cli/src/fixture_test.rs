@@ -41,11 +41,20 @@ pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
 
 /// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
 pub fn with_header(repo: &TestRepo, fields: Value) -> Value {
-  let repository = std::fs::canonicalize(repo.path()).unwrap();
-  let mut output = serde_json::json!({ "schema": 1, "repository": repository.to_str().unwrap(), "prefix": PREFIX });
+  let mut output = serde_json::json!({ "schema": 1, "repository": repository(repo), "prefix": PREFIX });
   let Value::Object(fields) = fields else { panic!("fields must be an object") };
   output.as_object_mut().unwrap().extend(fields);
   output
+}
+
+/// The repository path as `bd` prints it: the top level that git names, `C:/Users/...` on Windows
+pub fn repository(repo: &TestRepo) -> String {
+  git(repo, &["rev-parse", "--show-toplevel"])
+}
+
+/// `path` resolved like `std::fs::canonicalize`, without the `\\?\` prefix that it gives on Windows
+pub fn canonical(path: &Path) -> std::path::PathBuf {
+  std::path::PathBuf::from(sync_core::resolve_copies::display_path(&std::fs::canonicalize(path).unwrap()))
 }
 
 /// Run `bd` in `repo` with `--prefix test-user`

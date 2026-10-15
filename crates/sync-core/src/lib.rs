@@ -58,6 +58,8 @@ mod push_test;
 #[cfg(test)]
 mod remote_command_test;
 #[cfg(test)]
+mod resolve_copies_test;
+#[cfg(test)]
 mod sync_test;
 #[cfg(test)]
 mod test_commit;

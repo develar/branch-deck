@@ -7,7 +7,7 @@ use crate::commit_grouper::GroupingInputs;
 use crate::issue_groups::read_grouping_inputs;
 use crate::landed::landed_candidates;
 use crate::repository_lock::lock_repository;
-use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
+use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -345,7 +345,7 @@ fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
     .paths
     .iter()
     .filter_map(|path| conflict.files.iter().find(|file| file.path == *path))
-    .map(|file| copy_path(&root, state.round, "edit", file).to_string_lossy().into_owned())
+    .map(|file| display_path(&copy_path(&root, state.round, "edit", file)))
     .collect();
   if matches!(refusal.kind, RefusalKind::UnresolvedMarkers | RefusalKind::MissingResolution) {
     let mut args = vec!["diff", "--no-ext-diff", "--name-only", "-z", "HEAD", "--"];

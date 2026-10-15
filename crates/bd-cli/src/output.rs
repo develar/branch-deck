@@ -31,10 +31,32 @@ impl JsonSchema for SchemaVersion {
   }
 }
 
-/// Write `value` as one line of JSON
+/// Write `value` as one line of JSON, every non-ASCII character escaped as `\uXXXX` (a UTF-16 pair above the BMP): the
+/// bytes are ASCII, so a reader that decodes stdout with a legacy code page (Windows PowerShell 5.1 uses the OEM one)
+/// still gets every path and subject right
 pub fn write_json<T: Serialize>(out: &mut dyn Write, value: &T) -> std::io::Result<()> {
-  serde_json::to_writer(&mut *out, value)?;
+  let mut serializer = serde_json::Serializer::with_formatter(&mut *out, AsciiFormatter);
+  value.serialize(&mut serializer).map_err(std::io::Error::other)?;
   out.write_all(b"\n")
+}
+
+/// The compact formatter of `serde_json`, with `\uXXXX` for every non-ASCII character
+struct AsciiFormatter;
+
+impl serde_json::ser::Formatter for AsciiFormatter {
+  fn write_string_fragment<W: ?Sized + Write>(&mut self, writer: &mut W, fragment: &str) -> std::io::Result<()> {
+    let mut units = [0u16; 2];
+    for c in fragment.chars() {
+      if c.is_ascii() {
+        writer.write_all(&[c as u8])?;
+      } else {
+        for unit in c.encode_utf16(&mut units) {
+          write!(writer, "\\u{unit:04x}")?;
+        }
+      }
+    }
+    Ok(())
+  }
 }
 
 /// Abbreviates commit ids as `short_id` does, longer for a whole output when two of its ids share that prefix

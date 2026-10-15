@@ -24,6 +24,7 @@ pub mod schema;
 pub mod status;
 pub mod suggest;
 pub mod sync_command;
+pub mod text_input;
 pub mod update_command;
 pub mod version;
 
@@ -286,6 +287,8 @@ mod status_test;
 mod suggest_test;
 #[cfg(test)]
 mod sync_test;
+#[cfg(test)]
+mod text_input_test;
 #[cfg(test)]
 mod update_test;
 #[cfg(test)]

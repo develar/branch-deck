@@ -127,7 +127,7 @@ describe("buildAgentPrompt", () => {
       "1. `bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
       "2. Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, add `--take` or `--delete` to the command of step 3, as its `hint` says. A change the commit needs outside the conflict blocks waits for a `fixup!` commit after step 4.",
       "3. `bd update --continue --round <session.round>`. Exit 1 is the next commit: go to step 2 (`state: pending`: run `session.next`). Exit 2: `error.message` says what to fix (the copies of `error.paths`; `round_moved`: go to step 1; `empty_resolution`: ask me).",
-      "4. Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as `git commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
+      "4. Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as `git -C /work/repo commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
       "5. Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
       "",
       "Rules:",
@@ -147,5 +147,9 @@ describe("buildAgentPrompt", () => {
     const powershell = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "C:\\work\\repo", check: conflict, fetchTime: null, bd: powershell })
     expect(prompt).toContain(`bd is \`${powershell.command}\`, run in PowerShell; below, \`bd\` stands for it.`)
+    // a copy written so that bd reads it, and a fixup commit in the repository, its quote doubled
+    expect(prompt).toContain("Write each copy with `[IO.File]::WriteAllText('<edit>', $text)`")
+    const quoted = buildAgentPrompt({ repositoryPath: "C:\\work\\it's repo", check: conflict, fetchTime: null, bd: powershell })
+    expect(quoted).toContain("`git -C 'C:\\work\\it''s repo' commit -m 'fixup! <subject>' -- <paths>` (double each `'` of the subject)")
   })
 })

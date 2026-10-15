@@ -331,3 +331,119 @@ fn a_switch_during_the_move_fails_on_the_head_lock() {
   assert_eq!(git(clone, &["rev-parse", "master", "peer"]), format!("{new_head}\n{head}"));
   assert_eq!(read(clone, "shared.txt"), "one\nTWO\nthree\n");
 }
+
+/// The arms of a wrapper that fails the `read-tree -u` of the files once the file `crash` exists, and then the rollback
+/// of the branch: the state of a process killed between the move of the branch and its files
+#[cfg(unix)]
+fn crash_before_the_files(directory: &std::path::Path) -> String {
+  let crash = directory.join("crash");
+  let rollback = directory.join("rollback");
+  format!(
+    "*\" read-tree -m -u --no-recurse-submodules \"*) if [ -f '{0}' ]; then rm -f '{0}'; touch '{1}'; exit 1; fi;;\n\
+     *\" update-ref \"*\"--stdin\"*) if [ -f '{1}' ]; then rm -f '{1}'; exit 1; fi;;",
+    crash.display(),
+    rollback.display()
+  )
+}
+
+#[cfg(unix)]
+fn pending_marks(repo: &TestRepo) -> String {
+  git(repo, &["for-each-ref", "--format=%(refname) %(objectname)", "refs/branch-deck/update-pending/"])
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn an_update_killed_before_its_files_followed_is_finished_by_the_next_update() {
+  let setup = SwitchSetup::new(|directory, _| crash_before_the_files(directory));
+  let SwitchSetup { clone, head, new_head, .. } = &setup;
+  std::fs::write(setup.directory.path().join("crash"), "").unwrap();
+  let (exit_code, _) = setup.run(&["update", "--no-fetch"]);
+  assert_ne!(exit_code, 0);
+  // the branch moved with its mark, the files did not
+  assert_eq!(clone.head(), *new_head);
+  assert_eq!(read(clone, "shared.txt"), SHARED);
+  assert_eq!(pending_marks(clone), format!("refs/branch-deck/update-pending/main {head}"));
+
+  let (exit_code, session) = setup.run(&["--full-ids", "update", "--status"]);
+  assert_eq!(exit_code, 0, "{session}");
+  assert_eq!(session["pending_update"]["files_at"], json!(head), "{session}");
+  assert!(session["pending_update"]["next"].as_str().unwrap().ends_with(" update --no-fetch"), "{session}");
+
+  let (exit_code, output) = setup.run(&["update", "--no-fetch"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("up_to_date")), "{output}");
+  assert_eq!(read(clone, "shared.txt"), "one\nTWO\nthree\n");
+  assert_eq!((status(clone), pending_marks(clone)), (String::new(), String::new()));
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo() {
+  let setup = SwitchSetup::new(|directory, _| crash_before_the_files(directory));
+  let SwitchSetup { clone, head, new_head, .. } = &setup;
+  let (exit_code, output) = setup.run(&["update", "--no-fetch"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let token = output["undo_token"].as_str().unwrap();
+
+  std::fs::write(setup.directory.path().join("crash"), "").unwrap();
+  let (exit_code, _) = setup.run(&["undo", token]);
+  assert_ne!(exit_code, 0);
+  assert_eq!(clone.head(), *head);
+  assert_eq!(pending_marks(clone), format!("refs/branch-deck/update-pending/main {new_head}"));
+
+  let (exit_code, undo) = setup.run(&["undo", token]);
+  assert_eq!((exit_code, &undo["already_undone"]), (0, &json!(true)), "{undo}");
+  assert_eq!(read(clone, "shared.txt"), SHARED);
+  assert_eq!((status(clone), pending_marks(clone)), (String::new(), String::new()));
+}
+
+/// The branch moved after the interrupted update: bd changes nothing and names the mark
+#[cfg(unix)]
+#[test_log::test]
+fn an_interrupted_update_of_a_branch_that_moved_since_is_reported() {
+  let setup = SwitchSetup::new(|directory, _| crash_before_the_files(directory));
+  let SwitchSetup { clone, head, .. } = &setup;
+  std::fs::write(setup.directory.path().join("crash"), "").unwrap();
+  let (exit_code, _) = setup.run(&["update", "--no-fetch"]);
+  assert_ne!(exit_code, 0);
+  git(clone, &["update-ref", "refs/heads/master", head]);
+
+  let (exit_code, output) = setup.run(&["update", "--no-fetch"]);
+  assert_error(&output, exit_code, (4, "finish_pending"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains(&format!("git update-ref -d refs/branch-deck/update-pending/main {head}")), "{message}");
+  assert_eq!((clone.head(), pending_marks(clone)), (head.clone(), format!("refs/branch-deck/update-pending/main {head}")));
+}
+
+/// A lock that a killed git left: the error is `locked`, names the file, and nothing moves
+#[test_log::test]
+fn a_stale_head_lock_is_locked_and_names_the_file() {
+  let (upstream, clone) = clone_of_upstream();
+  let head = clone.head();
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  git(&clone, &["fetch", "-q", "origin"]);
+  std::fs::write(clone.path().join(".git/HEAD.lock"), "").unwrap();
+
+  let (exit_code, output) = run_in(&clone, &["update", "--no-fetch"]);
+  assert_error(&output, exit_code, (3, "locked"));
+  let message = output["error"]["message"].as_str().unwrap();
+  // the path as git names it: `C:/...` on Windows
+  let named = git(&clone, &["rev-parse", "--path-format=absolute", "--git-path", "HEAD.lock"]);
+  assert!(message.starts_with(&format!("{named} exists")), "{message}");
+  assert_eq!((clone.head(), read(&clone, "shared.txt")), (head, SHARED.to_string()));
+}
+
+/// With `core.autocrlf=true`, the files of an update and of its undo are checked out with CRLF and the status is clean
+#[test_log::test]
+fn an_update_with_autocrlf_checks_out_crlf_and_leaves_a_clean_status() {
+  let (upstream, clone) = clone_of_upstream();
+  git(&clone, &["config", "core.autocrlf", "true"]);
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+
+  let (exit_code, output) = run_in(&clone, &["update"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("fast_forward")), "{output}");
+  assert_eq!((read(&clone, "shared.txt"), status(&clone)), ("one\r\nTWO\r\nthree\r\n".to_string(), String::new()));
+
+  let (exit_code, undo) = run_in(&clone, &["undo", output["undo_token"].as_str().unwrap()]);
+  assert_eq!(exit_code, 0, "{undo}");
+  assert_eq!((read(&clone, "shared.txt"), status(&clone)), ("one\r\ntwo\r\nthree\r\n".to_string(), String::new()));
+}

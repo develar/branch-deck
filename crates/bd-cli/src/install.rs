@@ -9,6 +9,7 @@ use crate::output::SchemaVersion;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use sync_core::resolve_copies::display_path;
 
 /// The skill directories under the home directory: Claude Code's, and the one Codex and other agents read
 pub const SKILL_DIRS: [&str; 2] = [".claude/skills", ".agents/skills"];
@@ -161,6 +162,12 @@ pub fn skill_command(environment: &Environment) -> String {
   bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell())
 }
 
+/// `path` without the `\\?\` prefix that `canonicalize` gives on Windows, when it is shorter than 260 characters: every
+/// command bd prints names the program, and many tools refuse the verbatim form
+fn without_verbatim(path: &Path) -> PathBuf {
+  PathBuf::from(display_path(path))
+}
+
 /// The binary the command runs: on macOS and Linux the app binary (a `bd` symlink resolves to it), on Windows `bd.exe`
 /// next to the app, the console binary
 fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
@@ -168,9 +175,13 @@ fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
     .executable
     .as_deref()
     .ok_or_else(|| CliError::new(ErrorCode::InstallRefused, "Can't tell where the bd binary is"))?;
-  let executable = std::fs::canonicalize(executable).map_err(|e| io_error(executable, &e))?;
+  let executable = without_verbatim(&std::fs::canonicalize(executable).map_err(|e| io_error(executable, &e))?);
   // an `APPIMAGE` that is gone is not the app's
-  let appimage = environment.appimage.as_deref().and_then(|path| std::fs::canonicalize(path).ok());
+  let appimage = environment
+    .appimage
+    .as_deref()
+    .and_then(|path| std::fs::canonicalize(path).ok())
+    .map(|path| without_verbatim(&path));
   let executable = app_binary_path(&executable, appimage.as_deref());
   if cfg!(windows) {
     let bd = executable.with_file_name("bd.exe");

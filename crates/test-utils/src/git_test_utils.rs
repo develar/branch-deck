@@ -90,6 +90,8 @@ impl TestRepo {
     git_executor.execute_command(&["config", "merge.conflictstyle", "zdiff3"], repo_path).unwrap();
     // A global signing setup must not make test commits prompt or fail
     git_executor.execute_command(&["config", "commit.gpgsign", "false"], repo_path).unwrap();
+    // The system config of Git for Windows sets `core.autocrlf=true`, and the tests compare checked-out text with LF
+    git_executor.execute_command(&["config", "core.autocrlf", "false"], repo_path).unwrap();
 
     Self { dir, git_executor }
   }
@@ -382,7 +384,7 @@ impl TestRepo {
   pub fn clone_from(&self, source_path: &Path) -> Result<(), String> {
     self
       .git_executor
-      .execute_command(&["clone", source_path.to_str().unwrap(), "."], self.path_str())
+      .execute_command(&["clone", "-c", "core.autocrlf=false", source_path.to_str().unwrap(), "."], self.path_str())
       .map_err(|e| e.to_string())?;
     disable_background_maintenance(self.path());
 

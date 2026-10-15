@@ -11,15 +11,17 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, landed_ids, landed_summary};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::short_id;
-use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, NotAnUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateState};
+use git_ops::update_branch::{
+  BranchSwitched, FilesBlocked, GuardRefusal, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState, pending_update,
+};
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use sync_core::baseline::detect_baseline_branch;
 use sync_core::repository_lock::RepositoryLocked;
-use sync_core::resolve_copies::Materialize;
+use sync_core::resolve_copies::{Materialize, display_path};
 use sync_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, SessionView, abort_resolve, continue_resolve, session_status};
 use sync_core::update_project::{
   BdUpdate, FetchFailed, NoUpstream, UndoBlocked, UndoneUpdate, UpdateOptions, UpdateUndoToken, check_baseline_update, undo_update_core, update_and_resolve,
@@ -289,6 +291,18 @@ pub struct UpdateStatusOutput {
   pub session: Option<UpdateSession>,
   /// Every session of the repository, this worktree's included
   pub sessions: Vec<SessionEntry>,
+  /// An update or its undo moved the branch, but a crash stopped it before its files followed: `next` lets them follow
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pending_update: Option<PendingUpdateOutput>,
+}
+
+/// The files of an interrupted update or undo
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PendingUpdateOutput {
+  /// The commit the index and the files are at
+  pub files_at: String,
+  /// The command that lets them follow (any `bd update` or `bd undo` does it first)
+  pub next: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -430,7 +444,8 @@ fn parse_take(text: &str) -> Result<(Side, String), CliError> {
 fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateStatusOutput, CliError> {
   let materialize = args.materialize.then_some(if args.force { Materialize::All } else { Materialize::Missing });
   let (own, sessions) = session_status(&context.git, &context.repository, materialize)?;
-  let short = context.short_ids(own.iter().flat_map(view_ids));
+  let pending = pending_update(&context.git, &context.repository)?;
+  let short = context.short_ids(own.iter().flat_map(view_ids).chain(pending.as_deref()));
   Ok(UpdateStatusOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -448,6 +463,10 @@ fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateSt
         own: summary.own,
       })
       .collect(),
+    pending_update: pending.as_deref().map(|from| PendingUpdateOutput {
+      files_at: short.get(from).to_string(),
+      next: format!("{bd} update --no-fetch"),
+    }),
   })
 }
 
@@ -479,10 +498,6 @@ fn view_ids(view: &SessionView) -> Vec<&str> {
   ids
 }
 
-fn path_string(path: &Path) -> String {
-  path.to_string_lossy().into_owned()
-}
-
 fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
   let state = &view.state;
   let commit = view.round.as_ref().map(|round| SessionCommit {
@@ -490,7 +505,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
     subject: round.commit.subject.clone(),
     body: round.commit.body.clone(),
     author: round.commit.author.clone(),
-    patch: path_string(&round.patch),
+    patch: display_path(&round.patch),
     hint: round
       .commit
       .likely_landed
@@ -510,10 +525,10 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
       .to_string(),
       renamed_from: file.renamed_from.clone(),
       edited: file.edited,
-      edit: path_string(&file.edit),
-      before: file.before.as_deref().map(path_string),
-      onto: file.onto.as_deref().map(path_string),
-      commit: file.commit.as_deref().map(path_string),
+      edit: display_path(&file.edit),
+      before: file.before.as_deref().map(display_path),
+      onto: file.onto.as_deref().map(display_path),
+      commit: file.commit.as_deref().map(display_path),
       markers: file.markers,
       hint: file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref()),
       upstream_commits: conflict_commits(&file.upstream_commits, short),
@@ -529,7 +544,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str) -> UpdateSession {
     round: state.round,
     replayed: state.replayed,
     total: state.total(),
-    dir: path_string(&view.root),
+    dir: display_path(&view.root),
     commit,
     files,
     resolutions: resolutions_of(&state.resolutions, short),
@@ -702,6 +717,10 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
     ErrorCode::InvalidArguments
   } else if let Some(blocked) = error.downcast_ref::<UndoBlocked>() {
     return uncommitted_overlap(blocked.paths.clone(), "undo");
+  } else if error.downcast_ref::<PendingUpdate>().is_some() {
+    ErrorCode::FinishPending
+  } else if error.downcast_ref::<RefLocked>().is_some() {
+    ErrorCode::Locked
   } else if let Some(blocked) = error.downcast_ref::<FilesBlocked>() {
     return uncommitted_overlap(blocked.paths.clone(), "finish of the resolve session");
   } else if error.downcast_ref::<NoSession>().is_some() {
@@ -710,7 +729,7 @@ fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
     let code = match refusal {
       ResolveError::Refused(refusal) => match refusal.kind {
         RefusalKind::UnresolvedMarkers => ErrorCode::UnresolvedMarkers,
-        RefusalKind::OutsideConflict | RefusalKind::LineEnds => ErrorCode::ResolutionOutsideConflict,
+        RefusalKind::OutsideConflict | RefusalKind::LineEnds | RefusalKind::Encoding => ErrorCode::ResolutionOutsideConflict,
         RefusalKind::MissingResolution => ErrorCode::MissingResolution,
       },
       ResolveError::EmptyResolution { .. } => ErrorCode::EmptyResolution,

@@ -7,6 +7,7 @@
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress, get_current_branch};
 use crate::rewrite_plan::{merge_trees, replay_range_with_env};
+use crate::update_resolve::current_worktree;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -763,7 +764,17 @@ pub(crate) fn ensure_head_on(git_executor: &GitCommandExecutor, repo_path: &str,
 /// earlier. If the files can't follow, the branch moves back under the same check and the error says that nothing
 /// was changed
 fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, head: &str, new_head: &str, files_change: bool, operation: &str) -> Result<()> {
-  let none = RefTransaction::new();
+  // the mark of files that have not followed yet: created with the move, deleted when they did or with the rollback
+  let mut with = RefTransaction::new();
+  let mut rollback_with = RefTransaction::new();
+  let pending = if files_change {
+    let pending = pending_ref(git_executor, repo_path)?;
+    with.create(&pending, head);
+    rollback_with.delete(&pending, Some(head));
+    Some(pending)
+  } else {
+    None
+  };
   move_branch_and_files_with(
     git_executor,
     repo_path,
@@ -773,10 +784,105 @@ fn move_branch_and_files(git_executor: &GitCommandExecutor, repo_path: &str, bra
       new_head,
       files_change,
       operation,
-      with: &none,
-      rollback_with: &none,
+      with: &with,
+      rollback_with: &rollback_with,
     },
-  )
+  )?;
+  if let Some(pending) = pending {
+    let mut done = RefTransaction::new();
+    done.delete(&pending, Some(head));
+    // the files followed: a failure here only leaves the mark, which the next update clears
+    if let Err(e) = done.commit(git_executor, repo_path, &format!("{operation} files followed")) {
+      tracing::warn!(error = %format!("{e:#}"), "can't delete the mark of the pending files");
+    }
+  }
+  Ok(())
+}
+
+/// The refs that mark an update (or its undo) whose files have not followed the move of the branch yet, one per
+/// worktree: `<prefix><worktree id>`, pointing at the commit the index and the files are at
+pub const PENDING_UPDATE_PREFIX: &str = "refs/branch-deck/update-pending/";
+
+/// The mark of pending files of the current worktree
+fn pending_ref(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+  Ok(format!("{PENDING_UPDATE_PREFIX}{}", current_worktree(git_executor, repo_path)?.id))
+}
+
+/// An update or its undo of this worktree moved the branch, but a crash stopped it before the files followed; the mark
+/// points at the commit the files are at. `None` without one. Reads only
+pub fn pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<String>> {
+  let pending = pending_ref(git_executor, repo_path)?;
+  let (from, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("{pending}^{{commit}}")], repo_path)?;
+  Ok((exit_code == 0).then_some(from))
+}
+
+/// The files of an interrupted update can't be finished here: the branch moved on since; nothing was changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingUpdate {
+  pub message: String,
+}
+
+impl std::fmt::Display for PendingUpdate {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.message)
+  }
+}
+
+impl std::error::Error for PendingUpdate {}
+
+/// Finish an update (or its undo) that a crash stopped between the move of the branch and its files: when the last
+/// move of the branch is that update, from the mark's commit to HEAD, the files follow now through the guarded update
+/// (`files_follow`: refused with `FilesBlocked` and the branch moved back when local changes are in the way), or only
+/// the mark goes when they did follow already. Anything else is `PendingUpdate`. Returns the branch's commits
+/// `(from, to)` when a mark was there; runs under the repository lock before every update and undo
+pub fn finish_pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<(String, String)>> {
+  let Some(from) = pending_update(git_executor, repo_path)? else {
+    return Ok(None);
+  };
+  let pending = pending_ref(git_executor, repo_path)?;
+  let branch = check_update_guards(git_executor, repo_path)?;
+  let head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
+  // `<new id>\0<message>` of the last move of the branch, then the value before it
+  let (last, _) = git_executor.execute_command_with_status(&["log", "-g", "-n1", "--format=%H%x00%gs", &format!("refs/heads/{branch}"), "--"], repo_path)?;
+  let (before, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}@{{1}}")], repo_path)?;
+  let ours = [UPDATE_OPERATION, UNDO_OPERATION].map(|operation| format!("{REFLOG_PREFIX}{operation}"));
+  let is_that_move = last.split_once('\0').is_some_and(|(to, message)| to == head && ours.iter().any(|ours| ours == message)) && exit_code == 0 && before == from;
+  if !is_that_move {
+    return Err(anyhow::Error::new(PendingUpdate {
+      message: format!(
+        "An update of {branch} was interrupted before its files followed (they are at {}), and {branch} moved since. Look at \
+         `git status` with the user; `git update-ref -d {pending} {from}` removes the mark",
+        crate::rewrite_plan::short_id(&from)
+      ),
+    }));
+  }
+  let changed = changed_paths(git_executor, repo_path, &from, &head)?;
+  if !changed.is_empty() && index_left_behind(git_executor, repo_path, &changed)? {
+    let mut rollback_with = RefTransaction::new();
+    rollback_with.delete(&pending, Some(&from));
+    files_follow(git_executor, repo_path, &branch, &from, &head, &changed, &rollback_with)?;
+  }
+  let mut done = RefTransaction::new();
+  done.delete(&pending, Some(&from));
+  done.commit(git_executor, repo_path, "update files followed")?;
+  info!(%branch, "the files of an interrupted update followed");
+  Ok(Some((from, head)))
+}
+
+/// Whether the index still holds the old side of a changed path (`cat-file --batch-check` of `:<path>`): the files did
+/// not follow a move. A path that is neither side (staged since) counts as followed
+pub(crate) fn index_left_behind(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<bool> {
+  let input = changed.iter().fold(String::new(), |mut input, c| {
+    input.push(':');
+    input.push_str(&c.path);
+    input.push('\0');
+    input
+  });
+  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
+  Ok(changed.iter().zip(output.split(|&b| b == 0)).any(|(c, id)| {
+    let id = String::from_utf8_lossy(id);
+    if c.was_added() { id.ends_with(" missing") } else { id == c.old_id() }
+  }))
 }
 
 /// A move of `move_branch_and_files_with`
@@ -821,6 +927,9 @@ pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo
         actual,
       }));
     }
+    if let Some(lock) = held_ref_lock(git_executor, repo_path, branch) {
+      return Err(anyhow::Error::new(RefLocked { path: lock }));
+    }
     bail!("{branch} changed during the update, nothing was changed: {e:#}");
   }
 
@@ -831,6 +940,45 @@ pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo
     bail!("Files changed during the update; nothing was changed: {e:#}");
   }
   Ok(())
+}
+
+/// A lock file of git is in the way of a ref move: another git process holds it, or a killed one left it; nothing was
+/// changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefLocked {
+  pub path: String,
+}
+
+impl std::fmt::Display for RefLocked {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{} exists: another git process changes the branch, or a killed one left the lock; nothing was changed. Retry; if it stays, \
+       remove the file once no git runs",
+      self.path
+    )
+  }
+}
+
+impl std::error::Error for RefLocked {}
+
+/// The lock file of HEAD or of `branch` that exists now, if any: why a move that did not move HEAD failed. The files are
+/// checked, not git's translated message
+fn held_ref_lock(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Option<String> {
+  let paths = git_executor
+    .execute_command_lines(
+      &[
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "HEAD.lock",
+        "--git-path",
+        &format!("refs/heads/{branch}.lock"),
+      ],
+      repo_path,
+    )
+    .ok()?;
+  paths.into_iter().find(|path| Path::new(path).exists())
 }
 
 /// Move the branch back from `new_head` to `head` with `rollback_with`, under the same check as the move; the files did

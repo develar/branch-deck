@@ -3,15 +3,15 @@
 
 use crate::context::RepoContext;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
+use crate::text_input::{read_stdin_unless_terminal, read_text};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::io::IsTerminal;
 use std::path::PathBuf;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, check_plan};
 use sync_types::stack::BranchStack;
@@ -188,20 +188,13 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
 /// The plan from `--plan` (`-` for stdin), else from stdin unless it is a terminal; `None` for no plan
 fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
   let text = match path {
-    Some(path) if path.as_os_str() != "-" => {
-      std::fs::read_to_string(path).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read {}: {e}", path.display())))?
-    }
-    None if std::io::stdin().is_terminal() => String::new(),
-    Some(_) | None => read_stdin()?,
+    Some(path) => read_text(path, "the plan")?,
+    None => read_stdin_unless_terminal("the plan")?,
   };
   if text.trim().is_empty() {
     return Ok(None);
   }
   parse_group_plan(&text).map(Some)
-}
-
-fn read_stdin() -> Result<String, CliError> {
-  std::io::read_to_string(std::io::stdin()).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read the plan from stdin: {e}")))
 }
 
 /// The commits older than `commit` that change one of `files` and are neither in the branch nor in the branches it is

@@ -40,7 +40,8 @@ Workflow:
    target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to}: `from` touches lines
    `to` added). `bd commits <id>... --patch` or `bd commits --unassigned` for unclear commits, `bd status --stats`
    for the size of each branch.
-2. The plan: {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]},
+2. The plan (in Windows PowerShell write it to a file and pass the file: a pipe of PowerShell 5.1 turns non-ASCII
+   into `?`): {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]},
    \"ungroup_issues\": [keys], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}}. A path is a branch name, or
    `parent/leaf` for a stacked branch (`git config branchdeck.stacks true`). Fixups follow their targets; a commit
    goes with, or stacks on, the commits it depends on. After any change of `branches`, `unassign`, `issue_groups` or
@@ -108,7 +109,8 @@ A round (`state: conflict`, `session`):
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
   intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
   change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the
-  update, folded with bd fold.
+  update, folded with bd fold. Write a copy as UTF-8 without a byte order mark: in Windows PowerShell with
+  `[IO.File]::WriteAllText(<edit>, $text)`, because `Set-Content` and `Out-File` add a BOM or write UTF-16.
 - `kind` content: edit `edit`. `kind` modify_delete or rename_delete (one side deleted the file; `renamed_from`
   names its path before a rename): `--take onto:<path>`,
   `--take commit:<path>` or `--delete <path>` on the --continue command, or edit `edit`. Every file needs a

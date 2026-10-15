@@ -11,12 +11,12 @@ use crate::commit_writer::{
 };
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::ref_transaction::RefTransaction;
-use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_markers};
+use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
 use crate::rewrite_guard::ensure_no_merges;
 use crate::rewrite_plan::{replay_range_with_env, short_id};
 use crate::update_branch::{
-  ChangedPath, FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, changed_paths, check_update_guards, commits_touching, files_follow, likely_blocking_paths,
-  move_branch_and_files_with,
+  ChangedPath, FileMove, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, changed_paths, check_update_guards, commits_touching, files_follow, index_left_behind,
+  likely_blocking_paths, move_branch_and_files_with,
 };
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -394,6 +394,8 @@ pub enum RefusalKind {
   OutsideConflict,
   /// Only the line ends of an `edit` copy changed outside its conflict blocks
   LineEnds,
+  /// An `edit` copy starts with a byte order mark or is UTF-16
+  Encoding,
   /// No edited regular file at `edit`, no `--take`, no `--delete`
   MissingResolution,
 }
@@ -445,6 +447,11 @@ impl fmt::Display for Refusal {
         f,
         "The line ends of {names} changed outside the conflict blocks (CRLF and LF, or the newline at the end of the file); keep \
          the line ends of the edit copy"
+      )?,
+      RefusalKind::Encoding => write!(
+        f,
+        "{names} starts with a byte order mark or is UTF-16; write the copy as UTF-8 without a BOM (in Windows PowerShell \
+         `[IO.File]::WriteAllText(<edit>, $text)`, not `Set-Content` or `Out-File`)"
       )?,
       RefusalKind::MissingResolution => write!(
         f,
@@ -1124,12 +1131,14 @@ fn check_round(
           refused.push((RefusalKind::MissingResolution, path));
           continue;
         }
+        _ if has_foreign_encoding(merged, content) => Some(CheckFailure::Encoding),
         _ => has_markers(content, labels).then_some(CheckFailure::UnresolvedMarkers),
       };
       if let Some(failure) = failure {
         let kind = match failure {
           CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
           CheckFailure::LineEnds => RefusalKind::LineEnds,
+          CheckFailure::Encoding => RefusalKind::Encoding,
           CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
         };
         refused.push((kind, path));
@@ -1155,6 +1164,7 @@ fn check_round(
   // one kind at a time, the one the agent fixes first
   for kind in [
     RefusalKind::MissingResolution,
+    RefusalKind::Encoding,
     RefusalKind::OutsideConflict,
     RefusalKind::LineEnds,
     RefusalKind::UnresolvedMarkers,
@@ -1740,20 +1750,6 @@ fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, s
   transaction.commit(git_executor, repo_path, "resolve session finished")?;
   let previous_head = state.head.clone();
   Ok(Step::Applied { session, previous_head })
-}
-
-/// Whether the index still holds the old side of a changed path (`cat-file --batch-check` of `:<path>`): the files did
-/// not follow the move. A path that is neither side (staged since) counts as followed
-fn index_left_behind(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<bool> {
-  let input = changed.iter().fold(String::new(), |mut input, c| {
-    let _ = write!(input, ":{}\0", c.path);
-    input
-  });
-  let output = git_executor.execute_command_with_input_raw(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
-  Ok(changed.iter().zip(output.split(|&b| b == 0)).any(|(c, id)| {
-    let id = String::from_utf8_lossy(id);
-    if c.was_added() { id.ends_with(" missing") } else { id == c.old_id() }
-  }))
 }
 
 /// The local changes that likely block the finish, known before it: changes on the paths the upstream changes since

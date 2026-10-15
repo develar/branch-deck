@@ -116,3 +116,14 @@ fn cached_check_equals_uncached() {
   assert_eq!(cold, uncached);
   assert_eq!(warm, uncached);
 }
+
+/// A plan file with the byte order mark that Windows PowerShell 5.1 writes
+#[test_log::test]
+fn a_plan_with_a_byte_order_mark_is_read() {
+  let (repo, ids) = repo();
+  let file = tempfile::NamedTempFile::new().unwrap();
+  let plan = json!({ "branches": { "a": [ids[0], ids[1]], "c": [ids[2]] } });
+  std::fs::write(file.path(), format!("\u{feff}{plan}")).unwrap();
+  let (exit_code, output) = run_in(&repo, &["check", "--plan", file.path().to_str().unwrap()]);
+  assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
+}

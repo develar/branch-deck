@@ -171,6 +171,10 @@ The header shows whether an update would apply cleanly, from a check that every 
 - After a process was killed between the move and the files (HEAD at the new head, the files at the previous one),
   the undo must succeed and be the recovery.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`the_undo_recovers_an_update_killed_before_the_files_followed`)
+- The move must create the mark `refs/branch-deck/update-pending/<worktree id>` in its ref transaction, and delete it
+  once the files followed. With the mark left by a killed process, the next update or undo, the app's included, must
+  let the files follow first, or change nothing with `finish_pending` when the branch moved since.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
 - An undo of an undone update is no error and changes nothing (`already_undone`).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move
@@ -299,14 +303,16 @@ The header shows whether an update would apply cleanly, from a check that every 
   "Likely conflict: <path> (mine: <ids>; upstream: <id> <subject>, <author>)"); the steps:
   1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); with
      `session.blocked_paths`, ask the user about those files first;
-  2. on exit 1, edit each file at `edit`, keeping the change of `onto` and the intent of the commit; for
-     modify/delete, add `--take` or `--delete` to the command of step 3; a change the commit needs outside the
-     conflict blocks waits for a `fixup!` commit after step 4;
+  2. on exit 1, edit each file at `edit`, keeping the change of `onto` and the intent of the commit (in PowerShell,
+     write each copy with `[IO.File]::WriteAllText`, as UTF-8 without a byte order mark); for modify/delete, add
+     `--take` or `--delete` to the command of step 3; a change the commit needs outside the conflict blocks waits for
+     a `fixup!` commit after step 4;
   3. `bd update --continue --round <session.round>`: exit 1 is the next commit (`state: pending`: run
      `session.next`); on exit 2, `error.message` says what to fix (the copies of `error.paths`; `round_moved`: step 1
      again; `empty_resolution`: ask the user);
   4. on exit 0, build and test, and on a failure a `fixup! <subject>` commit of only the fixed files
-     (`git commit -m 'fixup! <subject>' -- <paths>`, never the changes of other sessions) with `bd fold`, or
+     (`git -C <repository> commit -m 'fixup! <subject>' -- <paths>`, the repository quoted for the shell, and in
+     PowerShell each `'` of the subject doubled; never the changes of other sessions) with `bd fold`, or
      `bd undo <undo_token>`;
   5. report each resolution with its dropped lines.
 

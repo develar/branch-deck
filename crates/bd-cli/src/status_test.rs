@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_with_baseline, run_in, run_json, with_header, write};
+use crate::fixture_test::{PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_with_baseline, repository, run_in, run_json, with_header, write};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -231,8 +231,7 @@ fn subdirectory_resolves_to_top_level() {
   write(&repo, "nested/dir/file.txt", "x\n");
   let (exit_code, output) = run_json(&environment(&repo.path().join("nested")), &["-C", "dir", "--prefix", PREFIX, "status", "--unassigned"]);
   assert_eq!(exit_code, 0, "{output}");
-  let repository = std::fs::canonicalize(repo.path()).unwrap();
-  assert_eq!(output["repository"], json!(repository.to_str().unwrap()));
+  assert_eq!(output["repository"], json!(repository(&repo)));
 }
 
 #[test_log::test]

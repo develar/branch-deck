@@ -361,14 +361,15 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` | error (`FetchFailed`), nothing changed |
 | 2b. Lock | `$GIT_COMMON_DIR/branch-deck.lock`, held to the end | `locked` after 10 s, nothing changed |
+| 2c. Pending files | `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below) | `finish_pending`: the branch moved since, nothing changed |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U` |
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none: the merge base suffices |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
-| 9. Move | `symbolic-ref --quiet --short HEAD` (still `<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile, nothing changed |
-| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh` | roll back: `update HEAD H N`, `branch-deck: update project rolled back` |
+| 9. Move | `symbolic-ref --quiet --short HEAD` (still `<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
+| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
 
 Details:
 
@@ -491,13 +492,18 @@ following, under the repository lock:
 **Residual risk.** `read-tree -u` validates every path before it writes the first file, but writing can still fail
 midway, e.g. when a smudge filter (Git LFS) fails or the disk fills up. The branch then moves back to H, and the files
 already written show up as uncommitted changes that bring in the upstream's version; `git status` and the reflog
-(`branch-deck: update project`) show what happened. A process killed between the move (step 9) and the files
-(step 10), e.g. by an agent harness at its timeout on a monorepo index, leaves HEAD at N and the index and the files
-at H; no rollback runs, and `git status` shows the update reversed as staged changes. `bd undo update:` is the
-recovery: the index and the files still match H, the tree the undo moves to, so its two-way update keeps them, and the
-branch goes back to H. Then `bd update` again. Submodules are not
-updated (`--no-recurse-submodules`); a changed
-gitlink shows as a modified submodule until the user updates it.
+(`branch-deck: update project`) show what happened. Submodules are not updated (`--no-recurse-submodules`); a
+changed gitlink shows as a modified submodule until the user updates it.
+
+**Interrupted files.** A process killed between the move (step 9) and the files (step 10), e.g. by an agent harness at
+its timeout on a monorepo index, leaves HEAD at N and the index and the files at H; no rollback runs. The move creates
+the mark `refs/branch-deck/update-pending/<worktree id>` at H in its transaction (the undo: at N), and step 10 deletes
+it, so the state is never silent. Every later update, undo and the app's Update Project starts with the mark, under the
+lock (step 2c). When the last reflog entry of the branch is that move from the mark's commit to HEAD, the files follow
+through the same guarded update, or only the mark goes when the index already has the new side. A local change in the
+way refuses it, and the branch moves back with the mark deleted. When the branch moved since, the result is
+`finish_pending`, which names `git update-ref -d <mark> <commit>` and changes nothing. `bd update --status` prints the
+mark as `pending_update`.
 
 Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and the moves of a resolve finish),
 `crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside

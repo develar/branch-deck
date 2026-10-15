@@ -15,6 +15,8 @@ pub enum CheckFailure {
   OutsideConflict,
   /// Only the line ends outside the blocks changed (CRLF and LF, or the newline at the end of the file)
   LineEnds,
+  /// The resolution starts with a byte order mark or is UTF-16, which `merged` is not: an editor or a shell wrote it so
+  Encoding,
   /// A conflict marker is left where a block was
   UnresolvedMarkers,
 }
@@ -145,6 +147,14 @@ fn replaced_regions<'a>(plains: &[Lines<'_>], resolved: &'a [u8]) -> Option<Line
   Some(replaced)
 }
 
+/// Whether `resolved` starts with a byte order mark (UTF-8 or UTF-16) or looks like UTF-16 (a NUL in every second byte),
+/// and `merged` does not
+pub fn has_foreign_encoding(merged: &[u8], resolved: &[u8]) -> bool {
+  let marked = |content: &[u8]| content.starts_with(b"\xEF\xBB\xBF") || content.starts_with(b"\xFF\xFE") || content.starts_with(b"\xFE\xFF");
+  let utf16 = |content: &[u8]| content.len() >= 4 && content.iter().skip(1).step_by(2).take(64).all(|&b| b == 0);
+  (marked(resolved) || utf16(resolved)) && !marked(merged) && !utf16(merged)
+}
+
 /// `content` with LF line ends and without a newline at the end
 fn normalized_line_ends(content: &[u8]) -> Vec<u8> {
   let mut normalized = Vec::with_capacity(content.len());
@@ -174,6 +184,9 @@ pub fn check_resolution<'a>(merged: &[u8], resolved: &'a [u8], labels: Labels<'_
     return if merged == resolved { Ok(Vec::new()) } else { Err(CheckFailure::OutsideConflict) };
   };
   let Some(replaced) = replaced_regions(&plains, resolved) else {
+    if has_foreign_encoding(merged, resolved) {
+      return Err(CheckFailure::Encoding);
+    }
     let (merged, resolved) = (normalized_line_ends(merged), normalized_line_ends(resolved));
     let same_text = split_blocks(&merged, labels).is_some_and(|plains| replaced_regions(&plains, &resolved).is_some());
     return Err(if same_text { CheckFailure::LineEnds } else { CheckFailure::OutsideConflict });

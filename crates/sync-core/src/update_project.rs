@@ -17,6 +17,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::get_current_branch;
 use git_ops::update_branch::{
   AppliedUpdate, CheckPurpose, UndoCheck, UpdateCheck, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_guards, check_update_undo,
+  finish_pending_update,
 };
 use git_ops::update_resolve::{Worktree, current_worktree};
 use serde::{Deserialize, Serialize};
@@ -360,6 +361,8 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
 
   on_progress(UpdatePhase::Checking.into());
   let _lock = lock_repository(git_executor, repo_path, options.lock_timeout)?;
+  // an update or undo that a crash stopped before its files followed: they follow first
+  finish_pending_update(git_executor, repo_path)?;
   let grouping = read_grouping_inputs(git_executor, repo_path)?;
   // a resolve session marks the same candidates as likely landed
   let candidates: RefCell<Option<Vec<Vec<String>>>> = RefCell::new(None);
@@ -513,6 +516,7 @@ pub struct UndoneUpdate {
 #[instrument(skip(git_executor))]
 pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UpdateUndoToken, lock_timeout: Duration) -> Result<UndoneUpdate> {
   let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  finish_pending_update(git_executor, repo_path)?;
   let undo = match check_update_undo(git_executor, repo_path, &token.previous_head, &token.new_head)? {
     UndoCheck::Ready(undo) => undo,
     UndoCheck::AlreadyUndone { branch } => {

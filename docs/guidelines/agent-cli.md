@@ -47,6 +47,10 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 ## The JSON contract
 
 - stdout gets exactly one JSON object per run, on one line. Only `bd help` prints text.
+- The JSON is ASCII: every other character is a `\uXXXX` escape, so a shell that decodes stdout with a legacy code
+  page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that bd reads (`--plan`, stdin,
+  `--body-file`; `-` is stdin) is UTF-8, with or without a byte order mark, or UTF-16 with one. A pipe of Windows
+  PowerShell 5.1 turns other characters into `?` before bd reads them, so pass a file there.
 - Every object starts with `"schema": 1`. The version goes up only when a field changes meaning or disappears. New
   optional fields don't change it.
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
@@ -418,7 +422,12 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
   with `already_undone: true` and changes nothing.
 - The move updates `HEAD` and commits only while git holds its lock, after a check that HEAD is still on the checked
   branch; a `git switch` meanwhile is `head_moved` with nothing changed (see "Ref moves" in
-  [Git Operations](../design/git-operations.md)).
+  [Git Operations](../design/git-operations.md)). A lock file of git that is in the way (`HEAD.lock`, or one that a killed
+  git left) is `locked` with its path.
+- A `bd update` or `bd undo` killed after the move and before the files followed leaves the mark
+  `refs/branch-deck/update-pending/<worktree id>`. The next `bd update`, `bd undo` or Update Project lets the files
+  follow first; `bd update --status` shows it as `pending_update`. When the branch moved since, `finish_pending`
+  (exit 4) names the command that removes the mark.
 
 ### The resolve session of `bd update`
 
@@ -442,7 +451,10 @@ session open prints the open round again, fetches nothing and writes the missing
 
 - The sides are named by content: `edit` is the merge result with zdiff3 markers, the file to edit; `before` the
   commit's parent; `onto` the new parent (the baseline and the commits replayed so far); `commit` the commit's version;
-  `patch` the whole commit. Edit only the files at `edit`, never the same path in the working tree. A change that the
+  `patch` the whole commit. Edit only the files at `edit`, never the same path in the working tree. Write a copy as
+  UTF-8 without a byte order mark: in Windows PowerShell with `[IO.File]::WriteAllText(<edit>, $text)`, because
+  `Set-Content` and `Out-File` add one or write UTF-16. On Windows the paths have backslashes, and the `\\?\` form
+  from 260 characters on. A change that the
   commit needs outside the blocks, or in another file, goes into a `fixup! <subject>` commit after the update, folded
   with `bd fold`.
 - bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids, followed by `:<path>` for a
@@ -463,7 +475,7 @@ session open prints the open round again, fetches nothing and writes the missing
   that the result lost, to report to the user). `--dry-run` checks and reports the resolution, `resolved` id included,
   and moves no ref.
 - Exit 2 changes nothing: `missing_resolution`, `resolution_outside_conflict` (a line outside the blocks changed, or
-  only the line ends), `unresolved_markers`, with `paths` and the copies in the message (and the paths changed in the
+  only the line ends, or a byte order mark or UTF-16), `unresolved_markers`, with `paths` and the copies in the message (and the paths changed in the
   working tree, where bd never reads); `no_session` without a session. `round_moved` (exit 2): another round is open,
   `bd update` prints it. `empty_resolution` (exit 2): the resolution changes nothing; ask the user, then
   `--allow-empty` keeps an empty commit and `--drop-empty <commit>` drops it (never counted as landed).

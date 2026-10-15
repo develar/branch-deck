@@ -69,6 +69,18 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
   the undo.
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`, `a_switch_during_the_move_fails_on_the_head_lock`)
+- A lock file of git in the way of the move (`HEAD.lock` or the lock file of the branch), which a killed git can leave,
+  must be `locked` (exit 3, retryable) with the path of the file in the message, and move nothing.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_stale_head_lock_is_locked_and_names_the_file`)
+- A `bd update` or `bd undo` killed between the move of the branch and its files must leave the mark
+  `refs/branch-deck/update-pending/<worktree id>`, which the move creates in its ref transaction. The next `bd update`,
+  `bd undo` or Update Project of the app must let the files follow first. When the branch moved since, the result is
+  `finish_pending` (exit 4), changing nothing, with the command that removes the mark. `bd update --status` must print
+  the mark as `pending_update`, with `next`.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
+- With `core.autocrlf=true`, the files of an update and of its undo must get the line ends of a checkout, and the
+  status must stay clean.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`an_update_with_autocrlf_checks_out_crlf_and_leaves_a_clean_status`)
 - Uncommitted, staged or untracked files on paths the update writes must be `uncommitted_overlap` (exit 4, not
   retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them.
   [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`)
@@ -125,6 +137,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   result with zdiff3 markers), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits
   replayed so far) and `commit` (the commit's version), a side left out when it has no such file, `markers` (the
   blocks left in `edit` now), a `hint`, and the newest 10 `upstream_commits` that changed it since the merge base.
+  On Windows every path of a copy must have backslashes, and the `\\?\` form only from 260 characters on, which
+  Windows PowerShell 5.1 opens without long paths enabled.
+  [@test] ../../crates/sync-core/src/resolve_copies_test.rs (`a_windows_path_has_backslashes_and_the_verbatim_form_only_from_260_characters`)
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `modify_delete_is_resolved_with_take_and_delete`)
 - A local commit whose patch id (`patch-id --stable`) equals that of a baseline commit since the merge base must be
   left out of the replay, as `git rebase` leaves it out, and listed as `landed_dropped` with that baseline commit (in
@@ -194,8 +209,10 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_setext_heading_is_text`, `longer_markers_are_found_by_their_labels`, `markers_of_a_renamed_file_carry_the_path`)
 - An edited content file must equal bd's `edit` copy outside the conflict blocks (`resolution_outside_conflict`), and
   have no marker line of bd's labels where a block was (`unresolved_markers`). When only the line ends differ (CRLF and
-  LF, or the newline at the end), the message says so. All three refusals are exit 2 with `paths`.
-  [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
+  LF, or the newline at the end), the message says so. A copy that starts with a byte order mark or is UTF-16, which
+  `Set-Content` and `Out-File` of Windows PowerShell 5.1 write, is `resolution_outside_conflict` with its own message:
+  write the copy as UTF-8 without a BOM, with `[IO.File]::WriteAllText`. All three refusals are exit 2 with `paths`.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `an_edit_copy_with_a_byte_order_mark_or_in_utf16_is_refused`)
   [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_resolution_inside_the_block_passes`, `an_edit_outside_the_block_is_refused`, `markers_left_are_refused`, `the_plain_runs_between_two_blocks_must_stay_in_order`, `changed_line_ends_are_named`)
 - The message of a refusal must name the absolute `edit` copy of each path. For leftover markers and a missing
   resolution, it must also name the paths that changed in the working tree, where bd never reads. The refusal of a
@@ -286,7 +303,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   edit only the files at `edit` (a change outside the blocks waits for a `fixup!`), `--continue` with `--take`,
   `--delete`, `--allow-empty` and `--drop-empty`, the exit codes, the report of the resolutions, the build after exit 0
   and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--force` for a live
-  session of another worktree), `--status` and `--dir`. `bd help agent` must only name it; together the two texts must name every
+  session of another worktree), `--status` and `--dir`, and that a copy is written as UTF-8 without a BOM
+  (`[IO.File]::WriteAllText` in Windows PowerShell). `bd help agent` must only name it; together the two texts must name every
   option of `bd update`.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 

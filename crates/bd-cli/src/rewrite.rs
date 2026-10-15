@@ -9,11 +9,12 @@ use crate::group_plan::{DescriptionChange, changed_descriptions, check_descripti
 use crate::output::SchemaVersion;
 use crate::status::read_head;
 use crate::sync_command::{SyncOutput, lock, sync_locked};
+use crate::text_input::read_text;
 use crate::update_command::undo_update;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use sync_core::baseline::NoBaseline;
 use sync_core::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
@@ -198,10 +199,7 @@ pub struct UndoOutput {
 }
 
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
-  let text = match &args.plan {
-    Some(path) => std::fs::read_to_string(path).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read {}: {e}", path.display())))?,
-    None => std::io::read_to_string(std::io::stdin()).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("Cannot read the plan from stdin: {e}")))?,
-  };
+  let text = read_text(args.plan.as_deref().unwrap_or(Path::new("-")), "the plan")?;
   let plan = parse_group_plan(&text)?;
   rewrite(context, "group", &args.rewrite, &plan.descriptions, |options| {
     regroup_commits_accepted(&context.git, &context.repository, &plan.regroup, options, |outcome| {
