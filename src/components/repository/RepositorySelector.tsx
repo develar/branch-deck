@@ -5,7 +5,7 @@ import { FieldGroup } from "@/components/layout/FieldGroup"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { logError } from "@/lib/errors"
+import { resolveHomeDir, tildePath } from "@/lib/home-path"
 import { formatRelativeTime } from "@/lib/time"
 import { browseRepository, selectProject, useRepository } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -119,16 +119,11 @@ function useHomeDir(): string {
   const [homeDir, setHomeDir] = useState("")
   useEffect(() => {
     let cancelled = false
-    import("@tauri-apps/api/path")
-      .then(({ homeDir }) => homeDir())
-      .then((dir) => {
-        if (!cancelled) {
-          setHomeDir(dir)
-        }
-      })
-      .catch((error: unknown) => {
-        logError("Failed to resolve home directory", error)
-      })
+    void resolveHomeDir().then((dir) => {
+      if (!cancelled) {
+        setHomeDir(dir)
+      }
+    })
     return () => {
       cancelled = true
     }
@@ -136,17 +131,9 @@ function useHomeDir(): string {
   return homeDir
 }
 
-/** Replaces the home directory with `~`. */
-function formatPath(path: string, homeDir: string): string {
-  if (homeDir && path.startsWith(homeDir)) {
-    return path.replace(homeDir, "~")
-  }
-  return path
-}
-
 /** Shortens a path for the dropdown, keeping the project name and as many trailing segments as fit. */
 function formatPathWithTruncation(path: string, homeDir: string, maxLength: number = 36): string {
-  const formatted = formatPath(path, homeDir)
+  const formatted = tildePath(path, homeDir)
   if (formatted.length <= maxLength) {
     return formatted
   }

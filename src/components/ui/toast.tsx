@@ -1,5 +1,7 @@
 // local customisation: typed `data.kind` with a `robot` body with two actions below the text (the primary one, then
-// "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`
+// "Open in Patronus"); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
+// and description `wrap-break-word`, so a path or branch name wider than the text column breaks instead of running
+// under the action
 "use client"
 
 import * as React from "react"
@@ -76,7 +78,7 @@ function ToastTitle({ className, ...props }: ToastPrimitive.Title.Props) {
   return (
     <ToastPrimitive.Title
       data-slot="toast-title"
-      className={cn("text-sm font-medium", className)}
+      className={cn("text-sm font-medium wrap-break-word", className)}
       {...props}
     />
   )
@@ -89,7 +91,7 @@ function ToastDescription({
   return (
     <ToastPrimitive.Description
       data-slot="toast-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("text-sm text-muted-foreground wrap-break-word", className)}
       {...props}
     />
   )

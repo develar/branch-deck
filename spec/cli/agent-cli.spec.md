@@ -426,8 +426,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   bd (grouping, and updating onto the baseline with its conflicts), its full path, `bd help agent` as the workflow and
   `bd help update` for an update; `bd help skill` must print the same text.
 - It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
-  symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, with "Copy Path"
-  (the full path of `bd`); a failure is the error toast "Cannot install the Agent CLI".
+  symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, paths under the
+  home directory as `~`, with "Copy Path" (the full path of `bd`); a failure is the error toast "Cannot install the
+  Agent CLI".
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
 - The symlink must outlive the running app: on Linux, with `APPIMAGE` set, it must point at the AppImage file, not at
   the binary in its temporary mount; on macOS an app run translocated (its path under `AppTranslocation/`) must be
