@@ -165,6 +165,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   update deleted comes back included, and when the branch moved since the update.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_when_local_changes_overlap`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_after_the_branch_moved`)
+- After a process was killed between the move and the files (HEAD at the new head, the files at the previous one),
+  the undo must succeed and be the recovery.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`the_undo_recovers_an_update_killed_before_the_files_followed`)
 - An undo of an undone update is no error and changes nothing (`already_undone`).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move
@@ -300,7 +303,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/agent-prompt.test.ts (`leaves out the file list when the conflicting files are unknown`)
 - The blocked prompt must never stash: it lists the files, says that other sessions work in the tree, forbids to
   stash, reset, check out or commit them, and asks the agent to ask the user about each file. Then, with the app's bd,
-  it runs `<bd> -C <repository> update --no-fetch` (quoted for the shell, `& "…"` in PowerShell on Windows) and
+  it runs `<bd> -C <repository> update --no-fetch` (quoted for the shell, `& '…'` in PowerShell on Windows) and
   continues as its output says; without one, it tells the user to update in Branch Deck again. The conflict prompt
   keeps the git steps.
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, sends a blocked update to the user and then to bd, never to a stash`)

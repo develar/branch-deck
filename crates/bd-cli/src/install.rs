@@ -110,7 +110,7 @@ impl BdCommand {
   }
 
   /// The command for the user's shell, run as written: on macOS and Linux a POSIX shell, the path single-quoted when it
-  /// needs it; on Windows PowerShell, `& "<path>"` (a quoted path needs the call operator there)
+  /// needs it; on Windows PowerShell, `& '<path>'` (a quoted path needs the call operator there)
   pub fn for_shell(&self) -> String {
     let program = shell_word(&display(&self.program));
     let program = if cfg!(windows) { format!("& {program}") } else { program };
@@ -126,13 +126,14 @@ impl BdCommand {
   }
 }
 
-/// A word for the user's shell: as it is when plain, else single-quoted for a POSIX shell or double-quoted for PowerShell
+/// A word for the user's shell: as it is when plain, else single-quoted, where nothing expands: for a POSIX shell a
+/// quote is `'\''`, for PowerShell `''`
 fn shell_word(word: &str) -> String {
   let plain = !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@' | '+'));
   if plain {
     word.to_string()
   } else if cfg!(windows) {
-    format!("\"{}\"", word.replace('"', "`\""))
+    format!("'{}'", word.replace('\'', "''"))
   } else {
     format!("'{}'", word.replace('\'', r"'\''"))
   }

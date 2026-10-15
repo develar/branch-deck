@@ -89,8 +89,10 @@ written, except by Update Project (its own section below).
 
    `commit_while` needs `GitCommandExecutor::spawn_interactive` (`crates/git-executor/src/interactive_command.rs`):
    git with piped stdin, stdout and stderr, the environment and config of every other call, a reply line awaited
-   with a timeout (60 s; ref locks are taken without waiting), and a kill on drop, so git releases its locks. It is
-   used only here.
+   with a timeout (60 s; ref locks are taken without waiting). A dropped handle closes stdin and waits up to 5 s:
+   `update-ref` then aborts and removes its lock files. Then it sends SIGTERM, whose handler in git removes them too,
+   and SIGKILL only as the last resort, which would leave `HEAD.lock` and the branch lock behind. It is used only
+   here.
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
    - HEAD is not detached;
@@ -483,8 +485,9 @@ midway, e.g. when a smudge filter (Git LFS) fails or the disk fills up. The bran
 already written show up as uncommitted changes that bring in the upstream's version; `git status` and the reflog
 (`branch-deck: update project`) show what happened. A process killed between the move (step 9) and the files
 (step 10), e.g. by an agent harness at its timeout on a monorepo index, leaves HEAD at N and the index and the files
-at H; no rollback runs, and `git status` shows the update reversed as staged changes. `bd undo update:` then refuses,
-because the index differs from N; `git read-tree -m -u H N` in a terminal lets the files follow. Submodules are not
+at H; no rollback runs, and `git status` shows the update reversed as staged changes. `bd undo update:` is the
+recovery: the index and the files still match H, the tree the undo moves to, so its two-way update keeps them, and the
+branch goes back to H. Then `bd update` again. Submodules are not
 updated (`--no-recurse-submodules`); a changed
 gitlink shows as a modified submodule until the user updates it.
 

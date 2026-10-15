@@ -93,7 +93,7 @@ describe("buildAgentPrompt", () => {
   })
 
   it("names PowerShell for the command of Windows", () => {
-    const bd = { command: "& \"C:\\Program Files\\Branch Deck\\bd.exe\" -C \"C:\\work\\my repo\"", powershell: true }
+    const bd = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\my repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
     expect(prompt).toContain(`run \`${bd.command} update --no-fetch\` in PowerShell and continue as its output says.`)
   })

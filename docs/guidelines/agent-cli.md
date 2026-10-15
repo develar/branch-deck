@@ -649,7 +649,7 @@ and to be run as written: the bare app binary starts the app.
 The app's prompts name bd the same way without an install: the Tauri command `agent_cli_command(repository)`
 (`bd_command` and `for_shell_in` in `install.rs`) returns `<bd> -C <repository>`, with the `bd` symlink when it points
 at the running app, else the app binary with `cli` (on Windows `bd.exe` next to the app). It is quoted for a POSIX
-shell, or for PowerShell on Windows (`& "<bd.exe>" -C "<repository>"`, `powershell: true`). It writes nothing, so the
+shell, or for PowerShell on Windows (`& '<bd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the
 bd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `bd.exe`), the
 blocked prompt names no command: the user updates in the app.
 

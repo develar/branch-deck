@@ -450,7 +450,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Without the symlink to this binary, `bd help skill` must name the app binary with `cli`, never the bare app binary,
   which starts the app, quoted for the shell and to be run as written. The app's `agent_cli_command(repository)` must
   return the same command with `-C <repository>` without writing anything, quoted for the shell (POSIX quotes; on
-  Windows PowerShell's `& "<bd.exe>"`, and `powershell: true`): the symlink when it points at the running app, else
+  Windows PowerShell's `& '<bd.exe>'` with single quotes, and `powershell: true`): the symlink when it points at the running app, else
   the app binary with `cli` (`bd.exe` on Windows).
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

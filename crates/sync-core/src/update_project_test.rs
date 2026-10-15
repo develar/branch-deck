@@ -915,3 +915,23 @@ fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
   assert!(error.downcast_ref::<BranchSwitched>().is_some(), "{error:#}");
   assert_eq!(git(&clone, &["rev-parse", "master", "other2"]), format!("{0}\n{0}", applied.new_head));
 }
+
+/// A process killed between the move and the files leaves HEAD at the new head and the index and the files at the
+/// previous one; the undo is the recovery
+#[test]
+fn the_undo_recovers_an_update_killed_before_the_files_followed() {
+  let (Setup { upstream: _upstream, clone }, head, plan) = checked_rebase();
+  let new_head = plan.replayed_head().unwrap().to_string();
+  // the move of `apply_update`, without the files
+  git(&clone, &["update-ref", "-m", "branch-deck: update project", "HEAD", &new_head, &head]);
+  assert_eq!(read(&clone, "shared.txt"), SHARED);
+
+  let token = UpdateUndoToken {
+    previous_head: head.clone(),
+    new_head,
+  };
+  undo(&clone, &token).unwrap();
+  assert_eq!(clone.head(), head);
+  assert_eq!(read(&clone, "shared.txt"), SHARED);
+  assert_eq!(status(&clone), "");
+}
