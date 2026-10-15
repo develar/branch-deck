@@ -46,7 +46,7 @@ function WindowControl({ label, glyph, className, onClick }: { label: string, gl
             type="button"
             aria-label={label}
             className={cn(
-              "flex w-11.5 items-center justify-center font-window-controls text-window-control text-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset",
+              "flex w-11.5 items-center justify-center font-window-controls bd-window-control-glyph text-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset",
               className,
             )}
             onClick={onClick}

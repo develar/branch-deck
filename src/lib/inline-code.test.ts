@@ -23,6 +23,8 @@ describe("splitInlineCode", () => {
     ["Bazel target pattern", "//plugins/air/..."],
     ["path with two slashes", "src/lib/commit.ts"],
     ["file name with dots", "Foo.generated.kt"],
+    ["dotted module name", "intellij.air.backend.tests"],
+    ["dotted name ending in a member", "com.intellij.air.backend.workflows.sessionFinished"],
     ["long flag", "--lane"],
     ["short flag", "-p"],
     ["flag with a value", "--level=debug"],
@@ -43,6 +45,8 @@ describe("splitInlineCode", () => {
     ["a short camelCase word", "aB"],
     ["a PascalCase name with two humps", "GenUI"],
     ["a PascalCase name ending in a capital", "AssertJ"],
+    ["a host name of two parts", "example.com"],
+    ["an abbreviation with dots", "e.g."],
     ["JavaScript from the stoplist", "JavaScript"],
     ["macOS from the stoplist", "macOS"],
   ])("keeps %s as prose", (_kind, token) => {
@@ -59,6 +63,14 @@ describe("splitInlineCode", () => {
 
   it("joins code tokens separated by a single space into one span", () => {
     expect(splitInlineCode("run bt.cmd --lane now")).toEqual([text("run "), code("bt.cmd --lane"), text(" now")])
+  })
+
+  it("joins a flag and its dotted value into one span", () => {
+    expect(splitInlineCode("bt --module intellij.air.tests --filter com.intellij.air: 5 passed")).toEqual([
+      text("bt "),
+      code("--module intellij.air.tests --filter com.intellij.air"),
+      text(": 5 passed"),
+    ])
   })
 
   it("ends a code span at trailing punctuation", () => {

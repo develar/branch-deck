@@ -14,7 +14,7 @@ export function InlineCode({ plain = false, className, ...props }: InlineCodePro
   return (
     <code
       data-slot="inline-code"
-      className={cn("font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]", !plain && "rounded-sm bg-muted px-1", className)}
+      className={cn("font-mono leading-none [overflow-wrap:anywhere]", !plain && "rounded-sm bg-muted px-1", className)}
       {...props}
     />
   )

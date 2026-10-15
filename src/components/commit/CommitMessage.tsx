@@ -36,20 +36,31 @@ export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+export type CommitMessageBodySize = "compact" | "reading"
+
+const bodySizeClasses: Record<CommitMessageBodySize, { text: string, preformatted: string }> = {
+  // the leading follows the size: `cn` drops a leading-* that comes before a text-* size
+  compact: { text: "text-sm", preformatted: "text-xs leading-relaxed" },
+  reading: { text: "text-md", preformatted: "text-sm leading-relaxed" },
+}
+
 /**
  * Body of a commit message (the message without its subject line), shown in the commit preview and the hash popover;
  * rows don't render or parse their bodies.
  *
  * A lead-in label ("Why:", "What changed:") is a small heading above its blocks. Code tokens are set in the monospace font.
  * The text is selectable, and a click in it does not change the row selection.
+ *
+ * `reading` (the previews) is the 14/22 reading text, `compact` (the hash popover) the 13/20 UI text; a preformatted
+ * block is one step below the text. Both keep a line at `max-w-prose` (65ch, about 80 characters).
  */
-export function CommitMessageBody({ message, className }: { message: string, className?: string }) {
+export function CommitMessageBody({ message, size = "compact" }: { message: string, size?: CommitMessageBodySize }) {
   const sections = groupCommitBodySections(parseCommitBody(getCommitMessageBody(message)))
   return (
     <div
       data-testid="commit-message-body"
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-      className={cn("flex max-w-[90ch] cursor-text flex-col gap-4 pb-1 text-sm text-foreground/85 select-text [font-feature-settings:'ss04']", className)}
+      className={cn("flex max-w-prose cursor-text flex-col gap-4 pb-1 text-foreground/85 select-text [font-feature-settings:'ss04']", bodySizeClasses[size].text)}
       onClick={event => event.stopPropagation()}
     >
       {/* sections of the same message never reorder, so the index is a stable key */}
@@ -59,7 +70,7 @@ export function CommitMessageBody({ message, className }: { message: string, cla
             <div data-slot="commit-section-label" className="font-medium text-foreground/70">{section.label}</div>
           )}
           <div className="flex min-w-0 flex-col gap-2">
-            {section.blocks.map((block, blockIndex) => <CommitBodyBlockView key={blockIndex} block={block} />)}
+            {section.blocks.map((block, blockIndex) => <CommitBodyBlockView key={blockIndex} block={block} size={size} />)}
           </div>
         </div>
       ))}
@@ -67,7 +78,7 @@ export function CommitMessageBody({ message, className }: { message: string, cla
   )
 }
 
-function CommitBodyBlockView({ block }: { block: CommitBodyBlock }) {
+function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock, size: CommitMessageBodySize }) {
   switch (block.type) {
     case "paragraph":
       return (
@@ -88,7 +99,7 @@ function CommitBodyBlockView({ block }: { block: CommitBodyBlock }) {
     }
     case "preformatted":
       return (
-        <pre className="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre">
+        <pre className={cn("overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono whitespace-pre", bodySizeClasses[size].preformatted)}>
           <LinkedText text={block.text} />
         </pre>
       )

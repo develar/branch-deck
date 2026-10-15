@@ -121,8 +121,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
         <ClosePreviewContext value={onClose}>
           <PreviewDialogHeader>
             <div className="flex min-w-0 items-center gap-2">
-              <DialogTitle className="shrink-0 leading-5">
-                <LinkedText text={branch.name} className="text-sm font-medium" linkClassName="text-foreground hover:underline" />
+              <DialogTitle className="shrink-0 leading-6">
+                <LinkedText text={branch.name} className="text-base font-medium" linkClassName="text-foreground hover:underline" />
               </DialogTitle>
               <StackBaseLabel name={branch.name} />
               {/* an issue branch is named after its issue */}
@@ -257,7 +257,7 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
     <li data-testid="branch-preview-commit" className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-1">
         <div className="flex items-start gap-2">
-          <CommitSubject subject={subject} clamp={false} className="font-medium" />
+          <CommitSubject subject={subject} clamp={false} className="text-md font-medium" />
           {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
         </div>
         <CommitMetadata
@@ -268,7 +268,7 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
           fileStats={fileStats}
         />
       </div>
-      {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} className="text-sm leading-6" />}
+      {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} size="reading" />}
     </li>
   )
 }

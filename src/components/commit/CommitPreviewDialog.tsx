@@ -150,8 +150,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
       {commit !== undefined && (
         <>
           <PreviewDialogHeader>
-            <DialogTitle className="leading-5">
-              <CommitSubject subject={subject} clamp={false} className="font-medium" />
+            <DialogTitle className="leading-6">
+              <CommitSubject subject={subject} clamp={false} className="text-base font-medium" />
             </DialogTitle>
             <CommitMetadata
               hash={hash}
@@ -183,7 +183,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
               : (
                   <div className="flex flex-col gap-5">
                     {hasCommitMessageBody(subject, commit.message)
-                      ? <CommitMessageBody message={commit.message} className="text-sm leading-6" />
+                      ? <CommitMessageBody message={commit.message} size="reading" />
                       : <p className="text-sm text-muted-foreground">No description</p>}
                     {isFilesOpen && <CommitFilesSection commitId={hash} />}
                   </div>

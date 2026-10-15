@@ -1,4 +1,4 @@
-<div class="flex max-w-[90ch] cursor-text flex-col gap-4 pb-1 text-foreground/85 select-text [font-feature-settings:'ss04'] text-sm leading-6" data-testid="commit-message-body">
+<div class="flex max-w-prose cursor-text flex-col gap-4 pb-1 text-foreground/85 select-text [font-feature-settings:'ss04'] text-md" data-testid="commit-message-body">
   <div class="flex flex-col gap-1">
     <div class="flex min-w-0 flex-col gap-2">
       <p>
@@ -35,7 +35,7 @@
           The limits can be tuned in the pool configuration:
         </span>
       </p>
-      <pre class="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre">
+      <pre class="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono whitespace-pre text-sm leading-relaxed">
         <span>
           retry: { attempts: 6, maxDelayMs: 5000 }
         </span>
@@ -49,21 +49,21 @@
     <div class="flex min-w-0 flex-col gap-2">
       <p>
         <span>
-          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+          <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
             createPool
           </code>
           in
-          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+          <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
             db
             <wbr />
             /pool.js
           </code>
           ignored
-          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+          <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
             POOL_RETRY_LIMIT
           </code>
           , so
-          <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-explicit="" data-slot="inline-code">
+          <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-explicit="" data-slot="inline-code">
             retry
           </code>
           never ran, unlike the JavaScript client.

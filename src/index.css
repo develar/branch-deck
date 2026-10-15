@@ -74,14 +74,27 @@
   padding-left: calc(var(--bd-nesting-step) - 0.5rem - 1px);
 }
 
+/* the 10px glyph of a Windows caption button: a utility, not a text-* step, which `cn` would drop as a colour */
+@utility bd-window-control-glyph {
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
 @theme {
-  /* the IntelliJ UI font size: Inter 13px, on a 20px line */
+  /*
+   * The type scale, one role per step (docs/design/ui-theme.md, "Type sizes"): text-xs 12/16 meta, text-sm the UI text,
+   * text-md reading prose, text-base dialog titles. A custom step takes a t-shirt name: `cn` (tailwind-merge) merges
+   * any other text-* class as a colour and drops it next to text-foreground.
+   */
+  /* the IntelliJ UI font size: Inter 13px, on a 20px line; rows, controls and short text, not long prose */
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.25rem;
+  /* reading text: commit bodies in the previews, 14px on a 22px line */
+  --text-md: 0.875rem;
+  --text-md--line-height: 1.375rem;
 
-  /* the glyphs of the Windows caption buttons (WindowControls) */
+  /* the glyphs of the Windows caption buttons (WindowControls), sized by bd-window-control-glyph */
   --font-window-controls: "Segoe Fluent Icons", "Segoe MDL2 Assets";
-  --text-window-control: 0.625rem;
 
   /* indeterminate progress bar (inline form rows) */
   --animate-carousel: carousel 2s ease-in-out infinite;

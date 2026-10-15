@@ -169,8 +169,10 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 - **The state of a whole block is an `Alert`**: the repository path error, a branch that failed to sync or is blocked,
   the empty window. Its `destructive` variant is tinted like `success`, `warning` and `info`; call sites add no colour
   overrides.
-- **Code inside a sentence is an `InlineCode`** (`src/components/shared/InlineCode.tsx`, the chip of `LinkedText`). A
-  command on its own line is a `pre` block, `rounded-lg bg-muted px-3 py-2 font-mono text-xs`.
+- **Code inside a sentence is an `InlineCode`** (`src/components/shared/InlineCode.tsx`, the chip of `LinkedText`), at
+  the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
+  the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
+  `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
 - **Help next to a section title is a `HelpPopover`** (`src/components/shared/HelpPopover.tsx`):
   - the trigger is an `InfoIcon` (`size-3.5`, `cursor-help`) button, so never inside another button: `CollapsibleCard`
     takes it as `actions`, outside its toggle;
@@ -190,11 +192,26 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
     progress row while it runs, the form again with its input after a failure of a form with an input
     (`keepFormOnError`, `keepFormOnFailure`);
   - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
-- **Type sizes** come from the scale: `text-sm` for text and commit messages, 13px on a 20px line (`--text-sm` in
-  `src/index.css`, the IntelliJ UI font size), and `text-xs` for meta lines. No arbitrary sizes (`text-[13px]`,
-  `text-[10px]`).
+- **Type sizes** come from the scale in `src/index.css`, one role per step. No arbitrary sizes (`text-[13px]`,
+  `text-[10px]`, `text-[0.875em]`):
+  - `text-xs` (12/16px): meta lines, column headers, key hints, help popovers;
+  - `text-sm` (13/20px, the IntelliJ UI font size): rows, controls, labels, short text, the commit subjects of the
+    lists and the hash popover body;
+  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitMessageBody
+    size="reading"`), at most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs
+    a user reads;
+  - `text-base` (16/24px): dialog titles, also the subject in the commit preview header and the branch name in the
+    branch preview header; a commit subject above its body in the branch preview is `text-md`, never smaller than its
+    body. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
+    `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
+    never `text-lg`.
+  - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour
+    and drops it next to `text-foreground` (`src/lib/type-scale.test.ts`). A size outside the scale is a `bd-` utility
+    (`bd-window-control-glyph`, the 10px Windows caption glyph).
 - **Fonts**: Inter for text, JetBrains Mono for `font-mono` (hashes, paths, code), with `calt` off so `->` stays two
-  characters; `body` is `antialiased`.
+  characters; `body` is `antialiased`. JetBrains Mono, not the system `ui-monospace`: it is the same on every platform,
+  matches Inter's metrics (SF Mono is 4% lower and exists only on macOS), and is the font of the IntelliJ editor the
+  code comes from.
 - **Density** is the IntelliJ list density:
   - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the tree
     rules span (`bd-nesting-level`, `bd-nesting-leaf`);
@@ -206,9 +223,6 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   duration-150`, opacity only, so nothing a test measures moves). Under `prefers-reduced-motion` the enter and exit
   animations and the transitions are off; the progress indicators (`animate-spin`, `animate-carousel`, `animate-pulse`)
   keep running.
-  - Island titles are `text-sm font-semibold` (`SectionCardHeader`), dialog titles `text-base`.
-  - The one exception is the Welcome card title, `text-base font-semibold`: it greets once, above an otherwise empty
-    window, so it is the size of a dialog title, never `text-lg`.
 - **Live counters are `tabular-nums`** ("Pushing 45%", the fetch percent, "syncing 3/10", download bytes, "3 / 12"), so
   the text does not jitter while it counts. A hash inside a sentence is in the monospace font (`InlineCode plain`).
 - **Icons, one per concept** (lucide):

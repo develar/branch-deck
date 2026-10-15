@@ -195,17 +195,19 @@ The commit hash popover shows the same header and body.
 ### Code tokens
 
 - Text in backticks must show as code, without the backticks.
-- The body must show detected paths, file names, flags, calls, CONSTANT_CASE, snake_case and camelCase as code.
+- The body must show detected paths, file names, dotted module and package names of three or more parts, flags, calls,
+  CONSTANT_CASE, snake_case and camelCase as code. A dotted name of two parts (`example.com`, `e.g.`) stays prose.
 - Names from the stoplist (`JavaScript`, `GitHub`, `macOS`) must stay prose.
 - Preformatted blocks and trailers must not detect code.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../src/lib/inline-code.test.ts (`shows text in backticks as explicit code without the backticks`, `detects a %s as code`, `keeps %s as prose`)
 - A PascalCase name must be code only when it has three or more humps.
 - A token in double quotes must stay prose.
-- Code tokens that only single spaces separate must form one span, such as `bt.cmd --lane`.
+- Code tokens that only single spaces separate must form one span, such as `bt.cmd --lane` or
+  `--module intellij.air.tests --filter com.intellij.air`.
 - Punctuation around a token must stay prose.
 - An issue key inside a code token must stay part of the code.
-  [@test] ../../src/lib/inline-code.test.ts (`keeps %s as prose`, `keeps a token in double quotes as prose`, `joins code tokens separated by a single space into one span`, `ends a code span at trailing punctuation`, `keeps the punctuation around a token as prose`, `keeps the punctuation after a call as prose`, `keeps an issue key inside a code token`)
+  [@test] ../../src/lib/inline-code.test.ts (`keeps %s as prose`, `keeps a token in double quotes as prose`, `joins code tokens separated by a single space into one span`, `joins a flag and its dotted value into one span`, `ends a code span at trailing punctuation`, `keeps the punctuation around a token as prose`, `keeps the punctuation after a call as prose`, `keeps an issue key inside a code token`)
 - A long path must break before a `/` or a non-final `.`, never before a short final extension.
   [@test] ../../src/lib/inline-code.test.ts (`breaks a path before each slash`, `does not break before a short final extension`, `breaks before a dot that is not the final extension`, `does not break inside a leading ./`, `does not break inside // or ...`, `keeps a CONSTANT_CASE name whole`)
 - The subject must not detect code.
@@ -283,8 +285,8 @@ The commit hash popover shows the same header and body.
 ### Commit preview
 
 - The preview is a centered dialog on the blurred backdrop, at most 56rem wide and `min(80vh, 48rem)` high.
-- The header shows the whole subject in `font-medium`, the title of the dialog, without the two-line clamp, above the
-  meta line. A `border-border` rule separates it.
+- The header shows the whole subject in `text-base font-medium` (16/24px), the title of the dialog, without the
+  two-line clamp, above the meta line. A `border-border` rule separates it.
 - Only the body scrolls. The body has the focus, so PageUp and PageDown scroll it. ↑ and ↓ belong to the navigation.
 - A newly shown commit starts at the top of its body.
 - The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,
@@ -298,14 +300,17 @@ The commit hash popover shows the same header and body.
 
 ### Message body
 
-- The body is at most `90ch` wide.
-- The body text is 14/24px `text-foreground/85` with the `ss04` font feature in the preview, and 13/20px in the hash popover.
+- The body is at most `max-w-prose` (65ch, about 80 characters) wide.
+- The body text is `text-foreground/85` with the `ss04` font feature: the 14/22px reading text (`text-md`,
+  `size="reading"`) in the preview, the 13/20px UI text (`text-sm`) in the hash popover.
 - A section label is a small `font-medium text-foreground/70` heading above its blocks.
 - Sections have a 16px gap. Blocks in a section have an 8px gap.
 - Lists have a 20px indent and muted markers.
-- Preformatted text uses `font-mono text-xs` on `bg-muted` and scrolls horizontally.
+- Preformatted text uses `font-mono` one step below the body (`text-sm` in the preview, `text-xs` in the hash popover)
+  on `bg-muted` and scrolls horizontally.
 - Trailers use `text-xs text-muted-foreground` below a `border-border` rule.
-- Detected code uses the monospace font at `0.875em` without a background.
+- Detected code uses the monospace font at the size of the text, without a background: JetBrains Mono has the x-height
+  and cap height of Inter, so a smaller size only shrinks it.
 - Code in backticks also gets a `bg-muted` chip.
 - The body shows the text cursor, and its text is selectable.
 

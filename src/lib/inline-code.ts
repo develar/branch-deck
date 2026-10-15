@@ -20,6 +20,9 @@ const CODE_PATTERNS: readonly RegExp[] = [
   /^\w[\w.-]*(\/[\w.-]+){2,}\/?$/,
   // file names: Foo.generated.kt, db/pool.js
   new RegExp(`^[\\w-]+(\\/[\\w.-]+)*(\\.[\\w-]+)*\\.(${CODE_EXTENSIONS})$`),
+  // dotted names of modules and packages, from three parts: intellij.air.backend.tests, com.intellij.Foo
+  // (two parts are too often prose: example.com, e.g.)
+  /^[a-z][\w-]*(\.[A-Za-z_][\w-]*){2,}$/,
   // flags: --lane, -p, --level=debug
   /^--?[a-z][\w-]*(=\S+)?$/,
   // calls and members: run(), Foo.bar(), Foo::bar, Foo#bar
@@ -44,8 +47,9 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Splits text into prose and code: spans in backticks, and tokens that look like code (paths, file names, flags,
- * calls, CONSTANT_CASE, snake_case, camelCase, PascalCase with three or more humps), except the names in a stoplist
+ * Splits text into prose and code: spans in backticks, and tokens that look like code (paths, file names, dotted module
+ * and package names, flags, calls, CONSTANT_CASE, snake_case, camelCase, PascalCase with three or more humps), except
+ * the names in a stoplist
  * and tokens in double quotes. Consecutive code tokens separated by single spaces form one span (`bt.cmd --lane`).
  */
 export function splitInlineCode(text: string): InlineSegment[] {

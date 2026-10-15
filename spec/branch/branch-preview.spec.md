@@ -103,11 +103,12 @@ The arrows step through the branches of the table, and P pushes the shown branch
 - The preview uses the frame of the commit preview (`PreviewDialogFrame`): a centered dialog on the blurred backdrop,
   at most 56rem wide and `min(80vh, 48rem)` high, the header and the footer below and above a `border-border` rule.
 - Only the body scrolls, and it has the focus, so PageUp and PageDown scroll it. A newly shown branch starts at the top.
-- The header shows the name in `text-sm font-medium`, then the issue chip and the summary in `text-xs
+- The header shows the name in `text-base font-medium`, the dialog title, then the issue chip and the summary in `text-xs
   text-muted-foreground`, truncated. The meta line below uses `text-xs text-muted-foreground` and `·` separators.
 - The status in the meta line is the muted text of the status column with its colour dot; the dot stands in for the
   separator before it, so the line never reads "· ● not pushed".
-- The commits are separated by `border-border` rules. The bodies use the 14/24px text of the commit preview.
+- The commits are separated by `border-border` rules. Each subject is `text-md font-medium`, the size of its
+  body, and the bodies use the 14/22px reading text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close` and a ghost `xs` button `P Push` on
   the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
