@@ -283,7 +283,6 @@ GitHub" opens its files there.
 - The search counts a request that was answered by a review moments ago until GitHub's index catches up; the review
   time drops it.
 - A request of a team the user is in is not shown, by design; a CODEOWNERS-heavy repository may show little.
-- A commit of a pull request shows its subject only in the commit preview: the range lists no bodies.
 - Whether macOS shows a notification of the app in front ("Send Test Notification" while Branch Deck is frontmost) is
   to be checked in the app.
 

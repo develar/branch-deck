@@ -312,12 +312,12 @@ function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[], onO
   )
 }
 
-/** A commit of the pull request as the commit preview shows one: its subject is all of its message the range has */
+/** A commit of the pull request as the commit preview shows one, with its whole message */
 function asPreviewCommit(commit: ReviewCommit): MissingCommit {
   return {
     hash: commit.id,
     subject: commit.subject,
-    message: commit.subject,
+    message: commit.message,
     authorTime: commit.authorTime,
     committerTime: commit.authorTime,
     author: commit.author,
