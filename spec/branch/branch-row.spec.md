@@ -216,7 +216,7 @@ parent's commits runs into the rule of its children.
 - An item that opens a form must end with "…"; an item that acts at once must not.
 - "Open Pull Request" must show `O`, its key in the branch preview.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the expected one`)
 
 ### Inline forms
 

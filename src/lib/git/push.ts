@@ -3,16 +3,16 @@ import { toast } from "@/components/ui/toast"
 import type { PatronusRobot, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { getPullRequestToastAction } from "@/lib/git/new-pull-request"
-import { showStackedPushToast } from "@/lib/git/stacked-push-toast"
-import { formatPushMode, isPushIntoRobotRisky } from "@/lib/patronus"
-import { runRobotAction } from "@/lib/patronus-actions"
+import type { PushOutcome } from "@/lib/git/push-toast"
+import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
+import { describeRobot, formatPushMode, isPushIntoRobotRisky, openRobot } from "@/lib/patronus"
+import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
-import { showToast } from "@/lib/toast-message"
-import { recordPush } from "@/stores/activity"
-import type { RemoteStatus } from "@/stores/branch-sync"
+import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
+import { recordPush, recordRobot } from "@/stores/activity"
+import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackDescendants, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchRobot, restartPatronusRobot } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
@@ -32,30 +32,61 @@ export interface PushOptions {
    * canceled, never restarted, so the branch doesn't run twice
    */
   startsRobot?: boolean
+  /**
+   * Whether a toast says the push succeeded; false when the push is a step of another action that says how it went (a
+   * Safe Push start, a merge request, a restart): one action, one toast. Activity records the push either way, and a
+   * failure is an error toast either way.
+   */
+  announce?: boolean
 }
 
 /**
  * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
  * the branch now shows the pushed commit). A push into a branch whose Safe Push runs asks first (see
- * `guardRunningRobot`). Errors are reported with a toast. Resolves to whether the push succeeded.
+ * `guardRunningRobot`). Says how it went in a toast (`showPushToast`, unless `announce` is false); errors are reported
+ * with a toast. Resolves to whether the push succeeded.
  *
  * The push replaces the remote branch only where the row showed it (`expectedRemote`): a remote that moved since is
  * fetched, not overwritten, and a toast says what it has, with a push over exactly that.
  */
 export async function pushBranch(branchName: string, options: PushOptions = {}): Promise<boolean> {
-  if (isBranchPushing(branchName)) {
+  const outcome = await pushOne(branchName, options)
+  if (outcome === null) {
     return false
   }
+  if (options.announce === false) {
+    // the action the push is a step of says how it went; a restart is the action of "Push and Restart"
+    if (outcome.restarted !== undefined) {
+      showRobotToast(`${formatPushMode(outcome.restarted.pushMode)} restarted`, outcome.restarted)
+    }
+  }
+  else {
+    showPushToast(branchName, describePush(branchName, outcome.before), outcome.restarted)
+  }
+  return true
+}
 
+/** The branch in the table, or an error toast */
+function findBranch(branchName: string): Branch | undefined {
   const branch = getBranch(branchName)
   if (branch === undefined) {
     notifyError(`Cannot push ${branchName}`, "The branch is not in the table: sync and try again.")
-    return false
+  }
+  return branch
+}
+
+/**
+ * The push of `pushBranch`, without its success toast: what the push did and the robot it restarted (recorded in
+ * Activity, the caller says it); null when nothing was pushed (it said why)
+ */
+async function pushOne(branchName: string, options: PushOptions): Promise<PushOutcome | null> {
+  if (isBranchPushing(branchName) || findBranch(branchName) === undefined) {
+    return null
   }
 
   const guard = await guardRunningRobot(branchName, options.startsRobot === true)
   if (guard.answer === "back") {
-    return false
+    return null
   }
   if (guard.answer === "cancel-push-restart" || guard.answer === "cancel-push") {
     try {
@@ -63,11 +94,35 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
     }
     catch (error) {
       notifyError("Cannot cancel the Safe Push", error)
-      return false
+      return null
     }
   }
   const restartRobot = guard.answer === "cancel-push-restart" ? guard.robot : options.restartRobot
 
+  // the question may have waited for the user while a sync changed the branch: push it as it is now
+  const branch = findBranch(branchName)
+  if (branch === undefined || isBranchPushing(branchName)) {
+    return null
+  }
+  const pushed = await pushWithProgress(branch, options)
+  if (pushed === null) {
+    return null
+  }
+  if (pushed.moved !== null) {
+    await showRemoteMovedToast(branchName, pushed.moved, restartRobot)
+    return null
+  }
+  // the restart takes the commit just pushed
+  const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot)
+  return { name: branchName, before: branch.remoteStatus, restarted }
+}
+
+/**
+ * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
+ * (`moved`), null when it failed (an error toast said so)
+ */
+async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{ moved: RemoteStatus | null } | null> {
+  const branchName = branch.name
   setBranchPushing(branchName, true)
   try {
     const request = vcsRequestFactory.createRequest()
@@ -92,25 +147,10 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
       setBranchRemoteStatus(branchName, remoteStatus)
       recordPush(request.repositoryPath, branchName, branch.remoteStatus, result.data.type === "remoteMoved" ? remoteStatus : null)
       if (result.data.type === "remoteMoved") {
-        showRemoteMovedToast(branchName, remoteStatus, restartRobot)
-        return false
-      }
-      // in the words of its Activity entry
-      const news = describePush(branchName, branch.remoteStatus)
-      if (branch.stack === null) {
-        // the branch with its new remote status: a branch the push created can have a pull request now
-        const action = getPullRequestToastAction(getBranch(branchName) ?? branch)
-        showToast({ title: news.title, description: news.description, action: action ?? undefined })
-      }
-      else {
-        showStackedPushToast(branch, news)
+        return { moved: remoteStatus }
       }
       void refreshPullRequestsAfterPush(branchName, branch.commits[0]?.hash)
-      if (restartRobot !== undefined) {
-        // the restart takes the commit just pushed
-        restartAfterPush(restartRobot)
-      }
-      return true
+      return { moved: null }
     }
     notifyError(`Cannot push ${branchName}`, result.error)
   }
@@ -120,12 +160,24 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
   finally {
     setBranchPushing(branchName, false)
   }
-  return false
+  return null
 }
 
-function restartAfterPush(robot: PatronusRobot): void {
+/**
+ * Restarts a robot the push canceled, on the pushed commit, and records it in Activity in the words of a restart
+ * toast; the caller says it, in the toast of its action. Undefined when the restart failed (an error toast said so).
+ */
+async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRobot | undefined> {
   const mode = formatPushMode(robot.pushMode)
-  void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`)
+  try {
+    const restarted = await restartPatronusRobot(robot)
+    recordRobot(`${mode} restarted`, describeRobot(restarted), restarted)
+    return restarted
+  }
+  catch (error) {
+    notifyError(`Cannot restart the ${mode}`, error)
+    return undefined
+  }
 }
 
 type RobotGuard = { answer: "push" } | { answer: PushGuardAnswer, robot: PatronusRobot }
@@ -165,21 +217,26 @@ export function pushOrConfirm(branchName: string, target: PushConfirmTarget, opt
 /**
  * The remote branch moved since its status was shown, so nothing was pushed: the toast says what the remote has now,
  * and its action pushes over exactly that, through the Safe Push question as any push; a push that drops the commits
- * the remote has now confirms in the row first. A Safe Push the push canceled to restart is restarted by that push.
+ * the remote has now confirms in the row first. A Safe Push the push canceled to restart is restarted by that push;
+ * with nothing left to push it is restarted at once, and the toast says so and opens it.
  */
-function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): void {
+async function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): Promise<void> {
   const texts = buildRemoteMovedTexts(branchName, remoteStatus)
-  if (restartRobot !== undefined && texts.action === null) {
-    // nothing left to push: the remote has the branch's commits, the robot can run on them
-    restartAfterPush(restartRobot)
+  // nothing left to push: the remote has the branch's commits, the robot can run on them
+  const restarted = restartRobot !== undefined && texts.action === null ? await restartAfterPush(restartRobot) : undefined
+  let note = ""
+  if (restarted !== undefined) {
+    note = ` The ${formatPushMode(restarted.pushMode)} restarted on it.`
   }
-  const canceled = restartRobot === undefined || texts.action === null ? "" : ` The ${formatPushMode(restartRobot.pushMode)} is canceled: the push restarts it.`
+  else if (restartRobot !== undefined && texts.action !== null) {
+    note = ` The ${formatPushMode(restartRobot.pushMode)} is canceled: the push restarts it.`
+  }
   const id = toast.add({
     type: "warning",
     title: texts.title,
-    description: `${texts.description}${canceled}`,
+    description: `${texts.description}${note}`,
     // the user decides: the toast stays until then
-    timeout: 0,
+    timeout: texts.action === null && restarted !== undefined ? ACTION_TOAST_TIMEOUT_MS : 0,
     ...(texts.action !== null && {
       actionProps: {
         children: texts.action,
@@ -189,23 +246,31 @@ function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, re
         },
       },
     }),
+    ...(texts.action === null && restarted !== undefined && {
+      actionProps: { children: "Open in Patronus", onClick: () => openRobot(restarted) },
+    }),
   })
 }
 
 /** Pushes the ancestors of a stacked branch that have work for the remote, root first, then the branch; stops at a failure */
 export async function pushStack(branchName: string): Promise<void> {
-  await pushInOrder(stackPushOrder(branchName, getBranch))
+  await pushInOrder(stackPushOrder(branchName, getBranch), branchName)
 }
 
 /** Pushes a branch and the branches stacked on it that have work for the remote, parents first; stops at a failure */
 export async function pushWithChildren(branchName: string): Promise<void> {
-  await pushInOrder(stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch))
+  await pushInOrder(stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch), branchName)
 }
 
-async function pushInOrder(names: readonly string[]): Promise<void> {
+/** Pushes the branches in order, then one toast says what was pushed, also before a failure (`showStackPushToast`) */
+async function pushInOrder(names: readonly string[], startedFrom: string): Promise<void> {
+  const outcomes: PushOutcome[] = []
   for (const name of names) {
-    if (!await pushBranch(name)) {
-      return
+    const outcome = await pushOne(name, {})
+    if (outcome === null) {
+      break
     }
+    outcomes.push(outcome)
   }
+  showStackPushToast(outcomes, startedFrom)
 }

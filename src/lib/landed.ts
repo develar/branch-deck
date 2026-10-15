@@ -1,13 +1,11 @@
 import type { AppliedUpdate, LandedBranch, UpdateCheck } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
+import { joinNames } from "@/lib/text"
 
 /*
  * The landed news has one grammar wherever it shows (the Update tooltip, the footer of the outgoing overview, the toast,
  * the island, the chip): each number has its verb, "3 commits of IJPL-257337 landed · 9 stay local", never a ratio.
  */
-
-/** At most this many branch names in a sentence */
-const NAMED_BRANCHES = 3
 
 /** The name of a landed branch; commits without a prefix have none */
 export function landedBranchName(branch: LandedBranch): string {
@@ -75,17 +73,6 @@ export function sharedCommitter(report: readonly LandedBranch[]): string | undef
   const committers = report.map(landedCommitter)
   const first = committers[0]
   return first !== undefined && committers.every(committer => committer === first) ? first : undefined
-}
-
-/** "a", "a and b", "a, b and c", "a, b, c and 2 more" */
-function joinNames(names: readonly string[]): string {
-  if (names.length <= 1) {
-    return names.join("")
-  }
-  if (names.length > NAMED_BRANCHES) {
-    return `${names.slice(0, NAMED_BRANCHES).join(", ")} and ${names.length - NAMED_BRANCHES} more`
-  }
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
 }
 
 function yourCommits(count: number): string {

@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the GitHub pull request status of the virtual branches, read through the gh CLI (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the gh CLI (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu, the branch preview and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -24,7 +24,7 @@ targets:
   - ../../src/components/branch/StatusChip.tsx
   - ../../src/lib/git/push.ts
   - ../../src/lib/git/new-pull-request.ts
-  - ../../src/lib/git/stacked-push-toast.tsx
+  - ../../src/lib/git/push-toast.tsx
   - ../../crates/bd-cli/src/push_command.rs
 ---
 
@@ -199,28 +199,35 @@ the one write of the app on GitHub.
   the one `gh` lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows the branches are
   mirrored to (the Space settings, no `gh` needed for a link); the base is the pull request base of the branch
   ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed branch, else the baseline as the
-  remote names it, `master`). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
+  remote names it, `master`, also while the parent isn't on the remote). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
   GitHub creates nothing until the form is submitted.
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
 - The history group of the branch menu (the right-click and "⋯") has "Create Pull Request" when the branch is on the
-  remote, has no pull request and the GitHub repository is known; a branch that isn't pushed or has one doesn't.
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
-- The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of a branch that
-  isn't stacked has the action "Open Pull Request" when the branch has a pull request, else "Create Pull Request" under
-  the same conditions as the menu, and stays 10 s; off GitHub it has no action. The toast of a stacked branch keeps
-  naming the base with "Copy gh pr create" ([Stacked Branches](stacked-branches.spec.md#pull-requests)).
-- A copied or printed `gh` command (`gh pr create`, `gh pr edit` of the stacked toast and menu, `bd push`) gets
-  `--repo <owner>/<name>` when the GitHub repository is not the one `origin` pushes to (a mirror): `gh` finds no GitHub
-  repository among the remotes of a mirrored checkout.
+  remote, has no open or merged pull request and the GitHub repository is known; a branch that isn't pushed or has one
+  doesn't. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request" still opens the
+  closed one.
+  [@test] ../../src/lib/git/push.test.ts (`offers a new pull request when the branch has only a closed one`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
+- The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
+  stacked or not, with stacked branches on or off, has the action "Create Pull Request" under the same conditions as
+  the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.
+  The toast reads the branch after the push: the push that created the remote branch offers its pull request. A
+  stacked branch's toast also names the base, and a pull request with another base gets "Copy gh pr edit" instead
+  ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A push that is a step of another action has no toast
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
+- A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "Copy Retarget Command", the
+  `gh pr create` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one `origin` pushes
+  to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.
 
 ### Branch preview
 
 - The meta line of the [branch preview](branch-preview.spec.md) ends with the chip; the body starts with a pull request
   section (the details of the chip popover) above the commits; `O` and the footer button "Open Pull Request" open it.
-  A branch without a pull request has neither.
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`)
+  A branch without a pull request has neither. Where the menu offers "Create Pull Request", the footer has it instead
+  of "Open Pull Request"; `O` keeps opening a closed pull request.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`, `should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`)
 
 ### Outgoing overview
 

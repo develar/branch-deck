@@ -36,7 +36,8 @@ targets:
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchRow.tsx
-  - ../../src/lib/git/stacked-push-toast.tsx
+  - ../../src/lib/git/push-toast.tsx
+  - ../../src/lib/git/new-pull-request.ts
 ---
 
 # Stacked Branches
@@ -147,17 +148,22 @@ renames branches.
 ### Pull requests
 
 - The pull request base of a stacked branch must be its parent's pushed branch; of a root, the baseline as the remote
-  names it (`master`). "Copy PR Base" in the branch menu must copy it, and "Create Pull Request" opens GitHub's form
-  with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
-  [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`)
+  names it (`master`). A parent that isn't on the remote (its remote status says so; one not loaded yet stays the
+  base) can't be a base: until it is pushed the base is the baseline, and the pull request includes the parent's
+  commits; once it is pushed, the retarget below is offered. "Copy PR Base" in the branch menu must copy it, and
+  "Create Pull Request" opens GitHub's form with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
+  [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`, `targets the baseline while the parent isn't on the remote`)
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
-- After a push, the toast must say what the push did, as any push toast ("Pushed oauth" / "1 commit · created the
-  remote branch · pull request base: login"), name the base and offer to copy `gh pr create --base … --head …`. An open
-  pull request whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or the branch
-  was restacked, must get "retarget it" with `gh pr edit … --base …` in the toast and "Copy Retarget Command" in the
-  copy group of the branch menu.
+- After a push, the toast is the push toast of any branch ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)):
+  it says what the push did and offers "Create Pull Request" (into the base) or "Open Pull Request". A stacked branch's
+  toast also names the base ("Pushed oauth" / "1 commit · created the remote branch · pull request base: login"); a
+  root's names none, with stacked branches on, every branch has a stack, and a root's base is the baseline as for any
+  branch. An open pull request whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated
+  or pushed, or the branch was restacked, must get "retarget it" with "Copy gh pr edit" (`gh pr edit … --base …`; the
+  app doesn't write to GitHub) in the toast and "Copy Retarget Command" in the copy group of the branch menu.
+  [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `names the parent of a stacked branch and creates its pull request into the parent's branch`, `creates the pull request of a stacked branch into the baseline while its parent isn't on the remote`, `copies the command that retargets a pull request with another base`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the parent`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to retarget a pull request whose base is not the expected one`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose parent has work for the remote must stay as it is (`Create Remote (1)`, enabled):
   pushing the branch alone is legitimate. Its description must make the choice explicit: below the push's own lines,
@@ -170,6 +176,14 @@ renames branches.
 - "Push Stack" (in that description or the branch menu) must push the ancestors with unpushed work, root first, then
   the branch, and stop at a failure.
   [@test] ../../src/lib/stack.test.ts (`pushes the ancestors that have work for the remote first, root first`)
+- A push of several branches, "Push Stack" or "Push with Children", is one toast, also when it stopped at a failure
+  (then for the branches pushed before it, and the failure's own error toast): "Pushed auth, login and oauth" (more than
+  three: "Pushed auth, login, oauth and 2 more") / "3 commits · created 2 remote branches · force pushed auth", the
+  pull request of a pushed branch that needs a retarget, the robots the pushes restarted. The action is the pull
+  request action of the branch the user pushed from ("Create Pull Request" into its base, or "Open Pull Request"),
+  unless a retarget comes first. Activity has an entry per branch. A push of one branch is its own push toast.
+  [@test] ../../src/lib/git/push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`)
+  [@test] ../../src/lib/push-summary.test.ts (`says what the pushes of a stack did together`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
 - The push button of a branch whose descendants have work for the remote must stay as it is too: it pushes only the
   branch. Its description must offer the children below a rule: "oauth is stacked on login and has commits to push."

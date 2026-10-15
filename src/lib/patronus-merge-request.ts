@@ -23,7 +23,8 @@ export async function createBranchMergeRequest(branchName: string): Promise<void
     return
   }
   const pushed = (branch.remoteStatus?.remoteTip ?? null) === (branch.commits[0]?.hash ?? null)
-  if (!pushed && !await pushBranch(branchName)) {
+  // the merge request's toast says how it went
+  if (!pushed && !await pushBranch(branchName, { announce: false })) {
     return
   }
 

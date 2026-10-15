@@ -1,4 +1,5 @@
 import { formatCommitCount } from "@/lib/commit"
+import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
@@ -83,6 +84,55 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
     title: `Force pushed ${branchName}`,
     description: [...parts, `dropped ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}`].join(" · "),
     warning: true,
+  }
+}
+
+/** A push of a branch, by the remote status it was made against */
+export interface BranchPush {
+  name: string
+  before: RemoteStatus | null
+}
+
+/**
+ * What a push of several branches of a stack did, as one toast says it: "Pushed auth, login and oauth" / "7 commits ·
+ * created 2 remote branches · force pushed auth"; a push that dropped remote commits says how many
+ */
+export function describeStackPush(pushes: readonly BranchPush[]): PushNews {
+  let commits = 0
+  let created = 0
+  let dropped = 0
+  const forced: string[] = []
+  for (const { name, before } of pushes) {
+    const action = before === null ? null : getPushAction({ remoteStatus: before })
+    if (before === null || action === null || action === "upToDate") {
+      continue
+    }
+    commits += before.commitsAhead
+    if (action === "create") {
+      created++
+    }
+    else if (action === "force") {
+      forced.push(name)
+      dropped += before.commitsBehind
+    }
+  }
+  const parts: string[] = []
+  if (commits > 0) {
+    parts.push(formatCommitCount(commits))
+  }
+  if (created > 0) {
+    parts.push(`created ${plural(created, "remote branch", "remote branches")}`)
+  }
+  if (forced.length > 0) {
+    parts.push(`force pushed ${joinNames(forced)}`)
+  }
+  if (dropped > 0) {
+    parts.push(`dropped ${plural(dropped, "remote commit", "remote commits")}`)
+  }
+  return {
+    title: `Pushed ${joinNames(pushes.map(push => push.name))}`,
+    ...(parts.length > 0 && { description: parts.join(" · ") }),
+    ...(dropped > 0 && { warning: true as const }),
   }
 }
 

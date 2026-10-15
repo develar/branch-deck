@@ -82,12 +82,14 @@ function baselineOnRemote(baselineBranch: string): string {
 }
 
 /**
- * The base of the pull request of a branch: the full branch name of the branch it is built on, or the baseline.
- * `fullName` turns a virtual branch name into the pushed one.
+ * The base of the pull request of a branch: the full branch name of the branch it is built on, or the baseline. A
+ * parent that isn't on the remote can't be a base: until it is pushed, the pull request targets the baseline and
+ * includes the parent's commits. `fullName` turns a virtual branch name into the pushed one, `branchOf` looks a branch up.
  */
-export function pullRequestBaseOf(branch: Branch, baselineBranch: string, fullName: (name: string) => string): string {
+export function pullRequestBaseOf(branch: Branch, baselineBranch: string, fullName: (name: string) => string, branchOf: (name: string) => Branch | undefined): string {
   const base = branch.stack?.effectiveBase ?? null
-  return base === null ? baselineOnRemote(baselineBranch) : fullName(base)
+  // a parent whose remote status isn't loaded yet keeps the base
+  return base === null || branchOf(base)?.remoteStatus?.exists === false ? baselineOnRemote(baselineBranch) : fullName(base)
 }
 
 /** Whether a push of the branch has work for the remote; false while its remote status is unknown */

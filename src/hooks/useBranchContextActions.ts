@@ -3,15 +3,14 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
-import { pushStack, pushWithChildren } from "@/lib/git/push"
+import { pushBranch, pushStack, pushWithChildren } from "@/lib/git/push"
 import { copyText } from "@/lib/clipboard"
-import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
-import { getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
+import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { canCancelRobot, canRestartRobot, canStartRobot, formatPushMode, openRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
+import { canCancelRobot, canStartRobot, formatPushMode, getRobotRestartAction, openRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
 import { createBranchMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
@@ -140,8 +139,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
 /**
  * Safe Push…, Dry Run… (disabled with the reason of `canStartRobot`), Create Space Merge Request… (not for branches
- * reviewed in GitHub pull requests: "Create Pull Request" is the history group's), then the restart, the cancel and the
- * page of the branch's robot
+ * reviewed in GitHub pull requests: "Create Pull Request" is the history group's), then the restart (a push first when
+ * the branch changed locally, as the chip offers it), the cancel and the page of the branch's robot
  */
 function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, openRobotItem: MenuItem | null): MenuItem[] {
   const start = canStartRobot(branch, robot)
@@ -154,8 +153,13 @@ function getPatronusMenuItems(branch: Branch, robot: PatronusRobot | undefined, 
   }
   if (robot !== undefined) {
     const mode = formatPushMode(robot.pushMode)
-    if (canRestartRobot(robot, branch.name, branch.remoteStatus?.remoteTip ?? null, isRobotNeedingReview(robot.id))) {
+    const restart = getRobotRestartAction(robot, branch.name, branch.commits[0]?.hash, branch.remoteStatus, isRobotNeedingReview(robot.id))
+    if (restart === "restart") {
       items.push({ label: `Restart ${mode}`, icon: RotateCcwIcon, onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`) })
+    }
+    else if (restart === "pushAndRestart") {
+      // the restart takes the commit just pushed, and its toast is the one of the action
+      items.push({ label: `Push and Restart ${mode}`, icon: UploadIcon, disabled: branch.status === "Blocked", ...(branch.status === "Blocked" && { description: formatBlockedReason(branch) }), onSelect: () => void pushBranch(branch.name, { restartRobot: robot, announce: false }) })
     }
     if (canCancelRobot(robot)) {
       items.push({ label: `Cancel ${mode}`, icon: ShieldOffIcon, onSelect: () => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`) })

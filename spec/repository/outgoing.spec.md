@@ -193,7 +193,10 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   remote status the push was made against (`describePush`): "Pushed JIRA-456" / "3 commits · created the remote
   branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies" or "1 commit ·
   dropped 1 remote commit"; with the pull request action ([Pull Requests](../branch/pull-requests.spec.md)) it stays
-  10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason.
+  10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason. One action is one toast: a push that
+  is a step of another action (a Safe Push start, a merge request, Push and Restart, [Patronus](../branch/patronus.spec.md))
+  has none, and a push of several branches of a stack is one toast
+  ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch from the overview and follow the push results`)
 - A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote

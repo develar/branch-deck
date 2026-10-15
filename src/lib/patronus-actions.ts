@@ -9,9 +9,13 @@ import { recordRobot } from "@/stores/activity"
  * · profile Large Scale Change", with "Open in Patronus" (a toast about an object opens it)
  */
 export function announceRobot(title: string, robot: PatronusRobot, profileName: string | null = null): void {
-  const description = describeRobot(robot, profileName)
-  showToast({ title, description, action: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
-  recordRobot(title, description, robot)
+  showRobotToast(title, robot, profileName)
+  recordRobot(title, describeRobot(robot, profileName), robot)
+}
+
+/** The toast of `announceRobot` alone, for a robot Activity has already (a restart after a push) */
+export function showRobotToast(title: string, robot: PatronusRobot, profileName: string | null = null): void {
+  showToast({ title, description: describeRobot(robot, profileName), action: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
 }
 
 /** Runs a restart or a cancel of a robot from a menu or a popover, and says how it went */

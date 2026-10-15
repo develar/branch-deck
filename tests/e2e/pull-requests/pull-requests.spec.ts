@@ -125,7 +125,7 @@ test.describe("Pull request chip", () => {
     await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toHaveCount(0)
   })
 
-  test("should offer to create the pull request of a pushed branch in the push toast and the branch menu", async ({ page }) => {
+  test("should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview", async ({ page }) => {
     await routePush(page, {})
     // the baseline `origin/master` is `master` on the remote
     const compareUrl = `https://github.com/${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}/compare/master...user-name/virtual/feature-auth?expand=1`
@@ -142,9 +142,17 @@ test.describe("Pull request chip", () => {
     await toast.getByRole("button", { name: "Create Pull Request" }).click()
     expect(await getOpenedUrls(page)).toEqual([compareUrl])
 
+    // the preview offers it where "Open Pull Request" would be; Space would press the focused push button
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    const preview = await openBranchPreview(page, "feature-auth")
+    await preview.getByRole("button", { name: "Create Pull Request" }).click()
+    expect(await getOpenedUrls(page)).toEqual([compareUrl, compareUrl])
+    await page.keyboard.press("Escape")
+    await expect(preview).toHaveCount(0)
+
     await row.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Create Pull Request" }).click()
-    expect(await getOpenedUrls(page)).toEqual([compareUrl, compareUrl])
+    expect(await getOpenedUrls(page)).toEqual([compareUrl, compareUrl, compareUrl])
   })
 
   test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {

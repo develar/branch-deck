@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
-import { TriangleAlertIcon } from "lucide-react"
+import { GitPullRequestCreateIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -32,6 +32,7 @@ import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
 import { getPushButtonState } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
+import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
@@ -80,6 +81,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const push = branch === undefined || branch.hasError || branch.commitCount === 0 ? null : getPushButtonState(branch, { isSyncing, isPushing })
   const canPush = push !== null && !push.disabled && !processing
   const pullRequest = usePullRequest(currentName ?? "")
+  // as the branch menu offers it: a pushed branch without a live pull request, on GitHub
+  const newPullRequestUrl = branch === undefined ? null : getNewPullRequestUrl(branch)
   const patronusAvailable = usePatronusAvailable()
 
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -141,12 +144,19 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
           <PreviewDialogFooter start={<span data-testid="branch-preview-position" className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}>
             <PreviewNavigationHints count={names.length} />
-            {pullRequest !== undefined && (
-              <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
-                <Kbd>O</Kbd>
-                Open Pull Request
-              </Button>
-            )}
+            {newPullRequestUrl !== null
+              ? (
+                  <Button variant="ghost" size="xs" onClick={() => openNewPullRequest(newPullRequestUrl)}>
+                    <GitPullRequestCreateIcon data-icon="inline-start" />
+                    Create Pull Request
+                  </Button>
+                )
+              : pullRequest !== undefined && (
+                <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
+                  <Kbd>O</Kbd>
+                  Open Pull Request
+                </Button>
+              )}
             {/* the start form is a form of the row: the preview closes for it (`ClosePreviewContext`) */}
             {patronusAvailable && push !== null && <SafePushButton branch={branch} />}
             {push !== null && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}

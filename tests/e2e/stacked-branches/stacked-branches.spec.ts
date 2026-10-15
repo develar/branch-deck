@@ -4,9 +4,11 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { pushedToast, routePush } from "../helpers/push-helpers"
+import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
+
+const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
 
 /** `name@depth` of the branch rows in display order */
 async function tree(page: Page): Promise<string[]> {
@@ -175,7 +177,8 @@ test.describe("Stacked branches", () => {
   })
 
   test("should push a stack parents first and name the pull request base", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_branches")
+    // on GitHub, no pull request yet
+    await setupRepo("stacked_branches", { pullRequests: availablePullRequests() })
     await syncAndWaitForBranches()
     // the E2E server has no remote: answer the pushes and record their order
     const pushes = await routePush(page, {})
@@ -196,13 +199,12 @@ test.describe("Stacked branches", () => {
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
     // the parents are on the remote: nothing to choose any more
     await expect(oauth.getByTestId("stack-base")).toHaveCount(0)
-    // the toast says what the push did, as Activity does, then the base
-    const toast = pushedToast(page, "oauth")
-    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch · pull request base: login")
-    // the toasts of the stack pile up; hovering expands them
-    await toast.hover()
-    await toast.getByRole("button", { name: "Copy gh pr create" }).click()
-    expect(await readClipboard(page)).toBe("gh pr create --base user-name/virtual/login --head user-name/virtual/oauth")
+    // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth into login
+    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("3 commits · created 3 remote branches")
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
+    await toast.getByRole("button", { name: "Create Pull Request" }).click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/user-name/virtual/login...user-name/virtual/oauth?expand=1`])
 
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Copy PR Base")
@@ -230,18 +232,28 @@ test.describe("Stacked branches", () => {
     await expect(page.getByRole("menuitem", { name: /^Push with Children/ })).toHaveCount(0)
   })
 
-  test("should offer to retarget a pull request whose base is not the parent", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the pull request of login still targets master, e.g. it was opened before login was stacked on auth
-    await setupRepo("stacked_branches", { pullRequests: availablePullRequests(pullRequest("login", 801, { baseRefName: "master" })) })
+  test("should offer to retarget a pull request whose base is not the expected one", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the pull request of auth targets the branch it was stacked on before; the one of login targets master
+    const pullRequests = availablePullRequests(
+      pullRequest("auth", 802, { baseRefName: "user-name/virtual/core" }),
+      pullRequest("login", 801, { baseRefName: "master" }),
+    )
+    await setupRepo("stacked_branches", { pullRequests })
     await syncAndWaitForBranches()
     await routePush(page, {})
 
+    // auth isn't on the remote: master is the right base of login until auth is pushed, GitHub has no auth to target
     await openContextMenu(page, findBranchRow(page, "login"))
-    await clickContextMenuItem(page, "Copy Retarget Command")
-    await expect.poll(() => readClipboard(page)).toBe("gh pr edit 801 --base user-name/virtual/auth")
+    await expect(page.getByRole("menuitem", { name: "Copy PR Base" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Copy Retarget Command" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
 
-    await getPushButton(findBranchRow(page, "login")).click()
-    const toast = page.locator("[data-slot=toast]", { hasText: "retarget it to auth" })
+    await openContextMenu(page, findBranchRow(page, "auth"))
+    await clickContextMenuItem(page, "Copy Retarget Command")
+    await expect.poll(() => readClipboard(page)).toBe("gh pr edit 802 --base master")
+
+    await getPushButton(findBranchRow(page, "auth")).click()
+    const toast = page.locator("[data-slot=toast]", { hasText: "retarget it to master" })
     await expect(toast).toBeVisible()
     await expect(toast.getByRole("button", { name: "Copy gh pr edit" })).toBeVisible()
   })

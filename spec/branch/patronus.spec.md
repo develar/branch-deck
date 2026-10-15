@@ -235,7 +235,8 @@ reports in it and closes it once merged.
 - A branch whose tip the remote lacks is pushed first, as the push button does it ("Push and Start Safe Push"), and the
   form says so: "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The
   last commit of auth isn't on the remote yet: …" when the remote branch is older). A dry run pushes the branch too:
-  only the push into the target is left out. A failed push starts nothing. A Safe Push of the branch still running on
+  only the push into the target is left out. The push is a step of the start: it has no toast of its own (Activity
+  records it), the start's toast is the one toast of the action. A failed push starts nothing. A Safe Push of the branch still running on
   an older commit is canceled for that push, not restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then
   `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
   `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
@@ -349,8 +350,8 @@ reports in it and closes it once merged.
 - The form shows "No code-owner review needed.", "Approved in IJ-CR-7.", or a `warning` block: "Needs review by the
   code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
   Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Patronus counts code-owner
-  approvals in a Space merge request.", "Create Space Merge Request" (the branch is pushed first; the merge request
-  opens in the browser) or "Open IJ-CR-7", and Recheck. Start stays possible.
+  approvals in a Space merge request.", "Create Space Merge Request" (the branch is pushed first, without a push
+  toast; the merge request opens in the browser) or "Open IJ-CR-7", and Recheck. Start stays possible.
 - The UI must name the system a review button creates or opens in: the user may review on GitHub, while only the Space
   merge request counts.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
@@ -362,14 +363,14 @@ reports in it and closes it once merged.
   ("Approved on GitHub by alice; the Safe Push counts them, the check before it can't."), "A Safe Push fails without
   these approvals." and "Patronus counts code-owner approvals in pull request #7." with "Open Pull Request #7", or,
   without a pull request, "Patronus counts code-owner approvals in the pull request of the branch; the Safe Push starts
-  from it." with "Create Pull Request" (the branch is pushed first, then GitHub's form opens). The branch menu has no
+  from it." with "Create Pull Request" (the branch is pushed first, without a push toast, then GitHub's form opens). The branch menu has no
   "Create Space Merge Request…".
   [@test] ../../crates/patronus/src/review_test.rs (`a_branch_reviewed_on_github_looks_up_no_merge_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not merge a draft pull request, and count the approvals in it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and start a branch without one through the API`)
 - The Patronus group of the branch menu has "Create Space Merge Request…", the step of the form on its own, so the code
   owners can approve before a start: it pushes the branch when the remote lacks its tip (asking first while a Safe Push
-  of the branch runs; a failed push creates nothing), creates the merge request into the target branch
+  of the branch runs; a failed push creates nothing; the push has no toast of its own), creates the merge request into the target branch
   (`POST /space/merge-requests`, as the form's "Create Space Merge Request") and opens it in the browser. While Patronus
   answers, a loading toast says "Creating a merge request of auth…"; then a `success` toast "Created merge request
   IJ-CR-8 for auth" offers "Open Merge Request". A failure is the error toast "Cannot create the Space merge request". A
@@ -406,8 +407,11 @@ reports in it and closes it once merged.
 - Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks, the popover
   offers "Push and Restart" instead of Restart: the push of the row (asking first as any push,
   [below](#pushing-into-a-branch-whose-safe-push-runs)), then the restart on the pushed commit; a passed dry run counts
-  the pushed commit as the newer one. The branch menu keeps Restart.
+  the pushed commit as the newer one. The branch menu offers the same: "Push and Restart Safe Push" (disabled for a
+  blocked branch, with the reason). The restart is the action: its toast "Safe Push restarted" is the one toast, the
+  push has none (Activity records both).
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
+  [@test] ../../src/lib/git/push.test.ts (`says only the restart for Push and Restart, recorded once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the popover`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
   Patronus" and sends nothing.
@@ -419,7 +423,10 @@ reports in it and closes it once merged.
   modified"). Every push of the branch (the row, the overview, the preview, `P`) whose Safe Push runs on the branch reads
   the status of the robot first (`GET /robots/{id}/status`, one row); still running, a dialog asks: "Cancel, Push and
   Restart" (cancel, push, restart on the pushed commit, the focused button), "Push Anyway" or back (`Esc Back`). A dry run is not affected
-  and asks nothing; a robot that finished meanwhile asks nothing.
+  and asks nothing; a robot that finished meanwhile asks nothing. The push is the action: its toast is the one toast,
+  "Pushed auth" / "1 commit · Safe Push restarted" with "Open in Patronus" (the restarted robot); Activity records the
+  push and the restart. A failed restart is the push toast, then "Cannot restart the Safe Push". The push takes the
+  branch as it is after the answer: a sync while the dialog was open is not pushed over.
   [@test] ../../src/lib/patronus.test.ts (`guards a push into the branch of a running Safe Push, not of a dry run`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask first, and push only when told to`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit`)
@@ -430,14 +437,16 @@ reports in it and closes it once merged.
   twice, the restarted robot without the merge request. The push of the Dry Run form keeps the restart: a dry run
   doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for a push of a new one, and never restarts it`)
-  [@test] ../../src/lib/git/push.test.ts (`restarts the canceled Safe Push on the pushed commit for any other push`)
+  [@test] ../../src/lib/git/push.test.ts (`restarts the canceled Safe Push on the pushed commit for any other push, in the one toast of the push`)
+  [@test] ../../src/lib/git/push.test.ts (`pushes the branch as a sync left it while the question waited`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); that push must ask the same question first. When it drops
   the commits the remote has now, the toast's action first opens the confirm of the row's push button, and its Force
   Push asks the question. A robot canceled for a push that did not happen must stay canceled until the toast's push,
   which restarts it on the pushed commit; the toast says so ("The Safe Push is canceled: the push restarts it."). With
-  nothing left to push it is restarted at once.
+  nothing left to push it is restarted at once, and the toast says that instead ("The Safe Push restarted on it.") with
+  "Open in Patronus".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask again before the push of the remote-moved toast`, `should restart a robot canceled for a push the remote refused once the toast pushes`)
 
 ### Branch preview

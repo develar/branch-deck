@@ -66,9 +66,19 @@ describe("pull request bases of stacked branches", () => {
 
   it("targets the parent's branch, or the baseline on the remote", () => {
     const fullName = (name: string) => `user/virtual/${name}`
-    expect(pullRequestBaseOf(branches.oauth!, "origin/master", fullName)).toBe("user/virtual/login")
-    expect(pullRequestBaseOf(branches.auth!, "origin/master", fullName)).toBe("master")
-    expect(pullRequestBaseOf(branches.auth!, "main", fullName)).toBe("main")
+    const branchOf = (name: string) => branches[name]
+    expect(pullRequestBaseOf(branches.oauth!, "origin/master", fullName, branchOf)).toBe("user/virtual/login")
+    expect(pullRequestBaseOf(branches.auth!, "origin/master", fullName, branchOf)).toBe("master")
+    expect(pullRequestBaseOf(branches.auth!, "main", fullName, branchOf)).toBe("main")
+  })
+
+  it("targets the baseline while the parent isn't on the remote", () => {
+    const fullName = (name: string) => `user/virtual/${name}`
+    const unpushedParent: Record<string, Branch> = { ...branches, login: testBranch("login", "auth", { remoteStatus: testRemoteStatus({ exists: false }) }) }
+    expect(pullRequestBaseOf(branches.oauth!, "origin/master", fullName, name => unpushedParent[name])).toBe("master")
+    // not loaded yet: the parent stays the base
+    const notLoaded: Record<string, Branch> = { ...branches, login: testBranch("login", "auth", { remoteStatus: null }) }
+    expect(pullRequestBaseOf(branches.oauth!, "origin/master", fullName, name => notLoaded[name])).toBe("user/virtual/login")
   })
 
   it("pushes the ancestors that have work for the remote first, root first", () => {

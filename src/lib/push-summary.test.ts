@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { OutgoingBranch } from "@/lib/push-summary"
-import { describePush, formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatOutgoingCount, formatOutgoingTitle, formatPushSummaryTitle, getOutgoingBarSegments, getOutgoingLegend, getPushAction, getPushColor, MAX_BAR_SEGMENTS, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -15,6 +15,22 @@ describe("describePush", () => {
       description: "1 commit · dropped 3 remote commits",
       warning: true,
     })
+  })
+})
+
+describe("describeStackPush", () => {
+  it("says what the pushes of a stack did together", () => {
+    expect(describeStackPush([
+      { name: "auth", before: testRemoteStatus({ commitsAhead: 2, fastForward: false }) },
+      { name: "login", before: testRemoteStatus({ exists: false, commitsAhead: 3 }) },
+      { name: "oauth", before: testRemoteStatus({ exists: false, commitsAhead: 1 }) },
+    ])).toEqual({ title: "Pushed auth, login and oauth", description: "6 commits · created 2 remote branches · force pushed auth" })
+    expect(describeStackPush([
+      { name: "auth", before: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false }) },
+      { name: "login", before: null },
+      { name: "oauth", before: testRemoteStatus({ commitsAhead: 1 }) },
+      { name: "session", before: testRemoteStatus({ commitsAhead: 1 }) },
+    ])).toEqual({ title: "Pushed auth, login, oauth and 1 more", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
   })
 })
 

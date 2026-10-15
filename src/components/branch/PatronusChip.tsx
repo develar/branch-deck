@@ -182,7 +182,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         )}
         {restart === "pushAndRestart" && (
           // the restart takes the commit just pushed
-          <Button variant="outline" size="xs" onClick={() => void pushBranch(branchName, { restartRobot: robot })}>
+          <Button variant="outline" size="xs" onClick={() => void pushBranch(branchName, { restartRobot: robot, announce: false })}>
             <UploadIcon data-icon="inline-start" />
             Push and Restart
           </Button>

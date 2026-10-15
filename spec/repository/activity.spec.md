@@ -51,7 +51,9 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 
 - Every event that toasts in the main window is recorded for its repository, the selected one by default, in the words
   of its toast: the toast and the entry take their title and description from one function (`describePush`,
-  `describeRobot`, `appliedUpdateToast`). A sub-window records nothing: it neither owns nor receives the log.
+  `describeRobot`, `appliedUpdateToast`). A push that is a step of another action, which has no toast of its own (a
+  Safe Push start, a merge request), and each branch of a stack push are recorded too, in the words their toast would
+  have. A sub-window records nothing: it neither owns nor receives the log.
   [@test] ../../src/stores/activity.test.ts (`keeps the log of each repository apart, newest first`, `records nothing without a repository`)
 - A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
   ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the
