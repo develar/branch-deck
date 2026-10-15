@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { logError } from "@/lib/errors"
+import { isMac } from "@/lib/platform"
 import { MIN_WINDOW, minWindowWidth, nextZoom } from "@/lib/zoom"
 import type { ZoomAction } from "@/lib/zoom"
 import { isMainWindow } from "@/stores/settings/app-store"
@@ -48,11 +49,13 @@ export function useZoom(): void {
     }
   })
 
-  // ⌘+ (⌘⇧=, or + on the numeric keypad) as in browsers: a menu item has a single shortcut, and the page sees the key
-  // first, so handling it here keeps the menu from getting it as well
+  // a menu item has a single shortcut, so the page takes the other one of Zoom In, as browsers have both: ⌘= on macOS,
+  // where the item is ⌘+ (`show_zoom_in_as_plus` in src-tauri/src/menu.rs), Ctrl++ (Ctrl+⇧=, or + on the numeric
+  // keypad) elsewhere, where it is Ctrl+=. The page sees a key first, so handling it keeps the menu from getting it too.
   useEffect(() => {
+    const otherKey = isMac ? "=" : "+"
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === "+" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+      if (event.key === otherKey && (event.metaKey || event.ctrlKey) && !event.altKey) {
         event.preventDefault()
         zoom("in")
       }

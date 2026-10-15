@@ -62,9 +62,10 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
 
   // in the order of Safari; the page zooms itself (`useZoom`), WKWebView has no zoom keys
   let actual_size = MenuItemBuilder::with_id("zoom_reset", "Actual Size").accelerator("CmdOrCtrl+0").build(app)?;
-  let zoom_in = MenuItemBuilder::with_id("zoom_in", "Zoom In").accelerator("CmdOrCtrl+=").build(app)?;
+  // ⌘+ on macOS (`show_zoom_in_as_plus`)
+  let zoom_in = MenuItemBuilder::with_id("zoom_in", ZOOM_IN).accelerator("CmdOrCtrl+=").build(app)?;
   let zoom_out = MenuItemBuilder::with_id("zoom_out", "Zoom Out").accelerator("CmdOrCtrl+-").build(app)?;
-  let view_menu_builder = SubmenuBuilder::new(app, "View").item(&actual_size).item(&zoom_in).item(&zoom_out);
+  let view_menu_builder = SubmenuBuilder::new(app, VIEW).item(&actual_size).item(&zoom_in).item(&zoom_out);
 
   #[cfg(target_os = "macos")]
   let view_menu_builder = view_menu_builder.separator().item(&PredefinedMenuItem::fullscreen(app, None)?);
@@ -111,7 +112,39 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   )?;
 
   app.set_menu(menu)?;
+  #[cfg(target_os = "macos")]
+  show_zoom_in_as_plus();
   Ok(())
+}
+
+const VIEW: &str = "View";
+const ZOOM_IN: &str = "Zoom In";
+
+/// Zoom In is `⌘+` on macOS, as in Safari and Electron apps. Tauri builds accelerators from key codes only, and `+` is
+/// no key but `⇧=` on most layouts, so the key equivalent is set on the native item: `AppKit` shows `⌘+` and takes `⌘⇧=`
+/// (and `⌘+` of the keypad), the page takes `⌘=` (`useZoom`).
+#[cfg(target_os = "macos")]
+fn show_zoom_in_as_plus() {
+  use objc2::MainThreadMarker;
+  use objc2_app_kit::NSApplication;
+  use objc2_foundation::NSString;
+
+  // the setup runs on the main thread
+  let Some(mtm) = MainThreadMarker::new() else {
+    tracing::warn!("the menu is built off the main thread, Zoom In keeps ⌘=");
+    return;
+  };
+  let item = NSApplication::sharedApplication(mtm)
+    .mainMenu()
+    .and_then(|menu| menu.itemWithTitle(&NSString::from_str(VIEW)))
+    .and_then(|view| view.submenu())
+    .and_then(|view| view.itemWithTitle(&NSString::from_str(ZOOM_IN)));
+  if let Some(item) = item {
+    // the modifier mask stays ⌘
+    item.setKeyEquivalent(&NSString::from_str("+"));
+  } else {
+    tracing::warn!("Zoom In is not in the View menu, it keeps ⌘=");
+  }
 }
 
 fn open_url(url: &str) {

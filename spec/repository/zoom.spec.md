@@ -46,13 +46,17 @@ menu items are ours and call `Webview::set_zoom` (WKWebView `pageZoom`, WebView2
 
 ### Menu
 
-- The View menu starts with Actual Size (`CmdOrCtrl+0`), Zoom In (`CmdOrCtrl+=`) and Zoom Out (`CmdOrCtrl+-`), in
-  Safari's order, followed on macOS by Enter Full Screen. The items emit `zoom` with `reset`, `in` or `out` to the main
-  window only, so one press is one step for all windows.
+- The View menu starts with Actual Size (⌘0, Ctrl+0), Zoom In (⌘+, Ctrl+=) and Zoom Out (⌘−, Ctrl+-), in Safari's
+  order, followed on macOS by Enter Full Screen. The items emit `zoom` with `reset`, `in` or `out` to the main window
+  only, so one press is one step for all windows.
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should step through the levels with Zoom In, Zoom Out and Actual Size`)
-- ⌘+ (⌘⇧=, or + on the numeric keypad) zooms in as in a browser. The page handles it (`useZoom`), because a menu item
-  has a single shortcut, and handling the key keeps the menu from also getting it.
-  [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom in with ⌘+, as a browser does`)
+- Zoom In shows ⌘+ on macOS, as in Safari and Slack. Tauri builds accelerators from key codes only (`CmdOrCtrl+=`),
+  and `+` is no key but ⇧= on most layouts, so `show_zoom_in_as_plus` in `src-tauri/src/menu.rs` sets the key
+  equivalent of the native item to `+`: AppKit shows ⌘+ and takes ⌘⇧= and the + of the keypad.
+- Zoom In takes both keys, as in a browser. A menu item has a single shortcut, so the page handles the other one
+  (`useZoom`): ⌘= on macOS, Ctrl++ (Ctrl+⇧=, or + on the keypad) elsewhere. The page sees a key first, and handling
+  it keeps the menu from also getting it.
+  [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom in with Ctrl++ as well as with the Ctrl+= of the menu item`, `should zoom in with ⌘= as well as with the ⌘+ of the menu item`)
 
 ### Levels
 
@@ -101,7 +105,7 @@ menu items are ours and call `Webview::set_zoom` (WKWebView `pageZoom`, WebView2
   size in `__e2eWindowState.minSize`. A test zooms the page as the webview does, with a viewport of the window size
   divided by the level (`zoomPage` in `tests/e2e/helpers/header-helpers.ts`). A CSS `zoom` on the root is not the same:
   the page would overflow sideways.
-- By hand: `pnpm tauri dev` on macOS, ⌘= / ⌘− / ⌘0 / ⌘+, a restart, and a sub-window (conflicting files) opened at
+- By hand: `pnpm tauri dev` on macOS, View shows Zoom In ⌘+; ⌘= / ⌘+ / ⌘− / ⌘0 step once each, a restart, and a sub-window (conflicting files) opened at
   150%.
 
 ## Open Questions / Risks

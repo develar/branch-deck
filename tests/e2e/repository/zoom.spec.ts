@@ -32,8 +32,8 @@ test.describe("Zoom", () => {
     await expect.poll(() => webviewZoom(page)).toBe(1)
   })
 
-  test("should zoom in with ⌘+, as a browser does", async ({ page }) => {
-    await page.keyboard.press("ControlOrMeta+Shift+Equal")
+  test("should zoom in with Ctrl++ as well as with the Ctrl+= of the menu item", async ({ page }) => {
+    await page.keyboard.press("Control+Shift+Equal")
     await expect.poll(() => webviewZoom(page)).toBe(1.1)
   })
 
@@ -55,5 +55,17 @@ test.describe("Zoom", () => {
 
     await emitTauriEvent(page, "zoom", "reset")
     await expect.poll(() => minWindowWidth(page)).toBe(MIN_WINDOW.width)
+  })
+})
+
+test.describe("Zoom on macOS", () => {
+  // the page tells macOS by the user agent (`isMac`)
+  test.use({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)" })
+
+  test("should zoom in with ⌘= as well as with the ⌘+ of the menu item", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await page.keyboard.press("Meta+Equal")
+    await expect.poll(() => webviewZoom(page)).toBe(1.1)
   })
 })

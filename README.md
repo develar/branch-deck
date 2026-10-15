@@ -66,7 +66,7 @@ repositories: all operations run through the Git CLI.
   branch, split or unapply a branch.
 - **At home next to IntelliJ**: the colours and the density of the IntelliJ Islands themes, light and dark, and the
   toolbar in the title bar, beside the macOS traffic lights or with its own window buttons on Windows.
-- **Zoom**: View → Zoom In (⌘=, ⌘+), Zoom Out (⌘−) and Actual Size (⌘0), from 67% to 150%, in every window and kept
+- **Zoom**: View → Zoom In (⌘+, also ⌘=), Zoom Out (⌘−) and Actual Size (⌘0), from 67% to 150%, in every window and kept
   after a restart; the toolbar keeps the size of a title bar.
 - **Commit files**: every commit row says how many files and lines it changes ("3 files · +42 −7"). The commit
   preview lists the files after the message, each expanding to its diff (`F` hides them), and the context menu copies
