@@ -48,7 +48,7 @@ export function LandedCard() {
   const dismiss = () => void dismissLanded(repositoryPath)
   return (
     <Card className="animate-in gap-0 divide-y divide-border py-0 duration-300 fade-in-0 slide-in-from-top-2" data-testid="landed-card">
-      <div className="flex items-center justify-between gap-3 p-4 sm:px-6">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
         <div className="flex min-w-0 items-center gap-2" data-testid="landed-header">
           <PackageCheckIcon className="size-4 shrink-0 text-info" />
           <h2 className="truncate text-sm font-semibold text-foreground">{`Landed in ${upstream}`}</h2>

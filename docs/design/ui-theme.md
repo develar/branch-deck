@@ -132,7 +132,8 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 ### Rules for UI changes
 
 - **A new top-level block is a `Card`**:
-  - use `gap-0 py-0` with your own padding, `p-4 sm:px-6` for a header row, as in `UnassignedCommitListCard`;
+  - use `gap-0 py-0` with your own padding, `px-4 py-2.5 sm:px-6` for a header row (40px, an IntelliJ tool window
+    header), as in `UnassignedCommitListCard`;
   - for a collapsible section, use `CollapsibleCard`;
   - never put a `bg-muted` or `bg-background` div directly on the canvas, because it vanishes into or clashes with the
     window.
@@ -186,9 +187,22 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
     progress row while it runs, the form again with its input after a failure of a form with an input
     (`keepFormOnError`, `keepFormOnFailure`);
   - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
-- **Type sizes** come from the scale: `text-sm` for text, `text-xs` for meta lines, and `text-message`
-  (`--text-message` in `src/index.css`, 13px on a 20px line) for commit messages. No arbitrary sizes (`text-[13px]`,
+- **Type sizes** come from the scale: `text-sm` for text and commit messages, 13px on a 20px line (`--text-sm` in
+  `src/index.css`, the IntelliJ UI font size), and `text-xs` for meta lines. No arbitrary sizes (`text-[13px]`,
   `text-[10px]`).
+- **Fonts**: Inter for text, JetBrains Mono for `font-mono` (hashes, paths, code), with `calt` off so `->` stays two
+  characters; `body` is `antialiased`.
+- **Density** is the IntelliJ list density:
+  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the tree
+    rules span (`bd-nesting-level`, `bd-nesting-leaf`);
+  - a two-line commit row is 50px (`bd-padding-list-item`, `py-1.5`, the subject 2px above the meta line);
+  - island header rows are 40px; the table header is `text-xs font-medium text-muted-foreground` without a fill;
+  - the horizontal padding stays `px-6` (24px): the tree rule sits under the folder icon and the commit subjects start
+    at the branch name only with it.
+- **Motion**: an expanded branch row and an open `CollapsibleCard` fade their content in (`animate-in fade-in-0
+  duration-150`, opacity only, so nothing a test measures moves). Under `prefers-reduced-motion` the enter and exit
+  animations and the transitions are off; the progress indicators (`animate-spin`, `animate-carousel`, `animate-pulse`)
+  keep running.
   - Island titles are `text-sm font-semibold` (`SectionCardHeader`), dialog titles `text-base`.
   - The one exception is the Welcome card title, `text-base font-semibold`: it greets once, above an otherwise empty
     window, so it is the size of a dialog title, never `text-lg`.
@@ -201,6 +215,9 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   - `GitMergeIcon` means merged and nothing else; a commit (the merge base, the merged-by line) is
     `GitCommitHorizontalIcon`;
   - message and title icons are `size-4`, the help icon `size-3.5`.
+- **A `Tooltip` is not hoverable** (`disableHoverablePopup` in `src/components/ui/tooltip.tsx`): it closes when the
+  pointer leaves its trigger and lets clicks through, as IntelliJ tooltips do. In the dense rows the tooltip of a
+  button can open over the form of the row above; a hoverable one stayed open there and swallowed the click.
 - **An icon-only button has a `Tooltip`** and an `aria-label`; a label repeated on every row names its object
   ("Expand feature-auth"). Text is a `Tooltip`, rich content a `Popover`; never a native `title`.
 - **States**:

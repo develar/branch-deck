@@ -110,12 +110,12 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
           canExpand={branch.commitCount > 0 || branch.hasError}
           onToggleExpanded={toggle}
         />
-        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+        <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           <span className="text-sm text-muted-foreground">
             {branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}
           </span>
         </td>
-        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+        <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           {/*
             three columns, so each chip kind keeps its column across rows: the status text (7rem at least), the pull
             request chip, then the Patronus and Landed chips and the parent a push leaves out; `justify-start` keeps the
@@ -133,7 +133,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
             </div>
           </div>
         </td>
-        <td className="w-px px-4 py-4 whitespace-nowrap">
+        <td className="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
           <BranchActions branch={branch} setExpanded={setExpanded} />
         </td>
       </BranchContextMenuRow>
@@ -182,7 +182,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
 
       {expanded && (
         <tr>
-          <td colSpan={columnCount} className="px-0 py-4">
+          <td colSpan={columnCount} className="px-0 py-(--bd-cell-y)">
             <ActiveBranchExpanded branch={branch} depth={depth} hasChildren={hasChildren} highlightTipCommit={activeInline?.type === "amend-changes"} />
           </td>
         </tr>

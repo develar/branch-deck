@@ -70,7 +70,7 @@ export function BranchTableCard() {
       <div className="overflow-x-auto">
         {/* focusable, so a click on a row gives it the focus that Space falls back on */}
         <table ref={tableRef} tabIndex={-1} className="w-full outline-none">
-          <thead className="border-b border-border bg-muted/50">
+          <thead className="border-b border-border">
             <tr>
               <TableHeader>Branch Name</TableHeader>
               <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>

@@ -133,7 +133,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
           aria-label="Commit message"
           data-testid="squash-message-editor"
           // the raw message, as git stores it: the first line is the subject, the grouping prefix included
-          className="min-h-48 font-mono text-message"
+          className="min-h-48 font-mono"
           value={draft}
           disabled={isSquashing}
           spellCheck

@@ -14,7 +14,7 @@ export interface CommitHeaderProps extends CommitMetadataProps {
 /** Subject line over the meta line: the header of a commit wherever one is shown (rows, popovers, conflict views). */
 export function CommitHeader({ subject, subjectPrefix, subjectAddon, ...metadata }: CommitHeaderProps) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-0.5">
       <div className="flex items-center gap-2">
         {subjectPrefix}
         <CommitSubject subject={subject} />

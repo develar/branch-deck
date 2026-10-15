@@ -9,6 +9,8 @@
 @import "shadcn/tailwind.css";
 /* full InterVariable build (rsms): the fontsource files lack ss02, cv05, cv11 and other OpenType features */
 @import "inter-ui/inter-variable.css";
+/* the monospace face of the IntelliJ editor, as in the JetBrains genui renderer */
+@import "@fontsource-variable/jetbrains-mono";
 @import "@git-diff-view/react/styles/diff-view-pure.css";
 
 /* The colour scheme follows the OS; there is no manual toggle */
@@ -28,10 +30,10 @@
 /*
  * bd-padding-list-item: List item padding
  * Use for: Commit rows, file lists, any repeated list items
- * Responsive: horizontal 16px → 24px, vertical 12px consistent
+ * Responsive: horizontal 16px → 24px, vertical 6px consistent (a two-line commit row is 50px)
  */
 @utility bd-padding-list-item {
-  @apply px-4 sm:px-6 py-3;
+  @apply px-4 sm:px-6 py-1.5;
 }
 
 /*
@@ -48,28 +50,34 @@
  * level and draws one rule per level. The rule of level n sits 2rem + (n - 1) × step from the cell edge: under the left
  * wall of the folder icon of the row above (the icon starts at the px-6 cell padding, its rule 0.5rem in). The commit
  * rail of an expanded row of depth d is the rule of level d + 1, so a parent's commits continue into its children's
- * rule, and the commit subjects start at the branch name.
+ * rule, and the commit subjects start at the branch name. Every cell of the table, the expanded one included, has the
+ * vertical padding --bd-cell-y, which the rules span to run over the whole row: a 36px row around the 24px folder button.
  */
 :root {
   --bd-nesting-step: 1.75rem;
+  --bd-cell-y: 0.375rem;
 }
 
 /* a level above the row's own: its rule over the whole row height, then the next level one step to the right */
 @utility bd-nesting-level {
-  @apply -my-4 border-l border-border py-4;
+  @apply border-l border-border;
+  margin-block: calc(var(--bd-cell-y) * -1);
+  padding-block: var(--bd-cell-y);
   padding-left: calc(var(--bd-nesting-step) - 1px);
 }
 
 /* the row's own level: its rule, then the folder icon one step to the right of the rule above, less the 0.5rem from the icon to its rule */
 @utility bd-nesting-leaf {
-  @apply -my-4 border-l border-border py-4;
+  @apply border-l border-border;
+  margin-block: calc(var(--bd-cell-y) * -1);
+  padding-block: var(--bd-cell-y);
   padding-left: calc(var(--bd-nesting-step) - 0.5rem - 1px);
 }
 
 @theme {
-  /* commit message text (bodies, the message editors): between text-xs and text-sm, on the text-sm line */
-  --text-message: 0.8125rem;
-  --text-message--line-height: 1.25rem;
+  /* the IntelliJ UI font size: Inter 13px, on a 20px line */
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
 
   /* indeterminate progress bar (inline form rows) */
   --animate-carousel: carousel 2s ease-in-out infinite;
@@ -87,6 +95,9 @@
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: InterVariable, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* no ligatures: `->` and `!=` in a commit message stay two characters */
+  --font-mono--font-feature-settings: "calt" 0;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -254,9 +265,26 @@
   }
   body {
     /* Islands layering: the window is the canvas, top-level blocks are `Card` islands */
-    @apply bg-canvas text-foreground;
+    @apply bg-canvas text-foreground antialiased;
   }
   html {
     @apply font-sans;
+  }
+}
+
+/*
+ * Reduced motion: no enter and exit animations or transitions. The progress indicators (animate-spin, animate-carousel,
+ * animate-pulse) stay, they say that something runs.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-out {
+    animation: none !important;
+  }
+
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0s !important;
   }
 }

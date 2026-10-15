@@ -30,7 +30,7 @@ export function CollapsibleCard({ header, actions, children, defaultOpen = false
       data-testid={testId}
       render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border")} />}
     >
-      <div className="flex items-center gap-3 p-4 sm:px-6">
+      <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
         <CollapsibleTrigger data-state={state} className="group min-w-0 flex-1 cursor-pointer rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
           {header}
         </CollapsibleTrigger>
@@ -38,7 +38,7 @@ export function CollapsibleCard({ header, actions, children, defaultOpen = false
       </div>
 
       {open && (
-        <CollapsibleContent data-state={state} className="overflow-x-auto">
+        <CollapsibleContent data-state={state} className="animate-in overflow-x-auto duration-150 fade-in-0">
           {children}
         </CollapsibleContent>
       )}

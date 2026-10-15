@@ -55,7 +55,7 @@ export function ArchivedBranchTableCard() {
       actions={<ArchivedBranchesHelpPopover />}
     >
       <table className="w-full">
-        <thead className="border-b border-border bg-muted/50">
+        <thead className="border-b border-border">
           <tr>
             <TableHeader>Branch Name</TableHeader>
             <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
@@ -109,13 +109,13 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           mark={isNew && <Badge variant="info" className="shrink-0" data-testid="archived-branch-new">New</Badge>}
           onToggleExpanded={toggle}
         />
-        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+        <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           <ArchivedBranchStatusBadge branch={branch} />
         </td>
-        <td className="hidden w-px px-4 py-4 whitespace-nowrap sm:table-cell">
+        <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           <ArchivedDateCell branch={branch} />
         </td>
-        <td className="w-px px-4 py-4 whitespace-nowrap">
+        <td className="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
           <RowActions>
             <CopyButton text={() => name} tooltip="Copy full branch name" label={`Copy full name of ${name}`} alwaysVisible />
             <MoreActionsMenu name={getSimpleBranchName(name)} disabled={processing} menu={<ArchivedBranchMenuItems name={name} Items={DropdownMenuItems} />} />
@@ -144,7 +144,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 
       {expanded && (
         <tr>
-          <td colSpan={columnCount} className="px-0 py-4">
+          <td colSpan={columnCount} className="px-0 py-(--bd-cell-y)">
             <ArchivedBranchExpanded branch={branch} />
           </td>
         </tr>

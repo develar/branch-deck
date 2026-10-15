@@ -47,9 +47,9 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, depth
  */
 function CommitRail({ depth, hasChildren, children }: { depth: number, hasChildren: boolean, children: ReactNode }) {
   return (
-    <div className="pl-8">
+    <div className="pl-8 animate-in duration-150 fade-in-0">
       <NestingRules levels={depth}>
-        <div className={cn("flex flex-col gap-2 border-l border-border pr-6", hasChildren && "-mb-4 pb-4")} data-testid="commit-rail">
+        <div className={cn("flex flex-col gap-2 border-l border-border pr-6", hasChildren && "-mb-(--bd-cell-y) pb-(--bd-cell-y)")} data-testid="commit-rail">
           {children}
         </div>
       </NestingRules>

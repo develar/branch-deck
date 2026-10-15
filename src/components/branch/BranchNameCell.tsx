@@ -63,12 +63,17 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
       {issueKey !== null && <BranchIssueBadge issueKey={issueKey} />}
       {fixupCount > 0 && <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">{formatFixupCount(fixupCount)}</Badge>}
       {mark}
-      {summary && <BranchSummary summary={summary} />}
+      {/* the rest of the row; below 6rem the summary would be a letter or two, so it drops out */}
+      {summary && (
+        <span className="@container min-w-0 flex-1" data-testid="branch-summary-slot">
+          <BranchSummary summary={summary} className="hidden @min-[6rem]:block" />
+        </span>
+      )}
     </div>
   )
   return (
     // a nested row starts at its first rule (2rem), a top-level row at its folder icon
-    <td className={cn("w-full max-w-0 py-4", depth > 0 ? "pr-6 pl-8" : "px-6")}>
+    <td className={cn("w-full max-w-0 py-(--bd-cell-y)", depth > 0 ? "pr-6 pl-8" : "px-6")}>
       <NestingRules levels={depth - 1}>{content}</NestingRules>
     </td>
   )
@@ -76,7 +81,7 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
 
 /**
  * The rules of `levels` tree levels around `children`, one `--bd-nesting-step` apart, each over the whole height of its
- * `py-4` cell. The branch row draws the levels above its own; its expanded commits draw all of its levels, so the tree
+ * cell (`--bd-cell-y`). The branch row draws the levels above its own; its expanded commits draw all of its levels, so the tree
  * continues past them.
  */
 export function NestingRules({ levels, children }: { levels: number, children: ReactNode }) {
@@ -97,10 +102,10 @@ export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
 }
 
 /** Latest commit subject of the branch, with its issue links; a conventional-commit prefix is dimmed as in the commit rows. */
-export function BranchSummary({ summary }: { summary: string }) {
+export function BranchSummary({ summary, className }: { summary: string, className?: string }) {
   const { prefix, text } = splitSubjectPrefix(summary)
   return (
-    <span className="truncate text-xs text-muted-foreground">
+    <span className={cn("truncate text-xs text-muted-foreground", className)} data-testid="branch-summary">
       {prefix != null && <span className="font-mono text-muted-foreground/70">{`${prefix} `}</span>}
       <LinkedText text={text} />
     </span>

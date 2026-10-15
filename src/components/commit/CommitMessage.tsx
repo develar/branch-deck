@@ -49,7 +49,7 @@ export function CommitMessageBody({ message, className }: { message: string, cla
     <div
       data-testid="commit-message-body"
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-      className={cn("flex max-w-[90ch] cursor-text flex-col gap-4 pb-1 text-message text-foreground/85 select-text [font-feature-settings:'ss04']", className)}
+      className={cn("flex max-w-[90ch] cursor-text flex-col gap-4 pb-1 text-sm text-foreground/85 select-text [font-feature-settings:'ss04']", className)}
       onClick={event => event.stopPropagation()}
     >
       {/* sections of the same message never reorder, so the index is a stable key */}

@@ -42,7 +42,7 @@ export function SectionPanel({ island, header, className, children, ...props }: 
 
 function PanelHeader(props: SectionCardHeaderProps) {
   return (
-    <div className="border-b border-border p-4 sm:px-6">
+    <div className="border-b border-border px-4 py-2.5 sm:px-6">
       <SectionCardHeader {...props} />
     </div>
   )

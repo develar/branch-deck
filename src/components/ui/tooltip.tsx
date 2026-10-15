@@ -1,4 +1,6 @@
-// local customisation: `role="tooltip"` on the popup
+// local customisation: `role="tooltip"` on the popup; `disableHoverablePopup` by default: a text tooltip closes when the
+// pointer leaves its trigger and never blocks what is under it (a tooltip over the submit of the form above it stayed
+// open while hovered and swallowed the click)
 "use client"
 
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
@@ -17,8 +19,8 @@ function TooltipProvider({
   )
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+function Tooltip({ disableHoverablePopup = true, ...props }: TooltipPrimitive.Root.Props) {
+  return <TooltipPrimitive.Root data-slot="tooltip" disableHoverablePopup={disableHoverablePopup} {...props} />
 }
 
 function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {

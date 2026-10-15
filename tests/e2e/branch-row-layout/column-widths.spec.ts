@@ -39,4 +39,27 @@ test.describe("Branch table column widths", () => {
     const summary = branchName.locator(".truncate")
     await expect(summary).toContainText("add UI test that enables a plugin")
   })
+
+  test("drops a subject that has no room to be read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // below the 960px minimum of the window: the room that a longer name with its chips leaves at the minimum
+    await page.setViewportSize({ width: 900, height: 800 })
+    await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+
+    const summaries = page.getByTestId("branch-row").getByTestId("branch-summary")
+    await expect(summaries.first()).toBeAttached()
+    let hidden = 0
+    for (const summary of await summaries.all()) {
+      if (await summary.isVisible()) {
+        // a visible subject has at least 6rem, never a letter or two
+        expect((await summary.boundingBox())!.width).toBeGreaterThanOrEqual(6 * 16)
+      }
+      else {
+        hidden++
+      }
+    }
+    // the issue chips of feature-auth and feature-db leave about 3rem for their subjects
+    expect(hidden).toBeGreaterThan(0)
+    await expect(findBranchRow(page, "feature-auth").getByTestId("branch-summary")).toBeHidden()
+  })
 })

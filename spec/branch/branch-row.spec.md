@@ -87,6 +87,8 @@ parent's commits runs into the rule of its children.
 - The Status column must be 16rem wide at least, so chips that arrive after the sync do not reflow the table.
 - A long name or subject must truncate, not wrap: the row stays one line high.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
+- A subject with less than 6rem of free width must drop out instead of truncating to a letter or two.
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`drops a subject that has no room to be read`)
 
 ### Name cell
 
@@ -266,8 +268,11 @@ parent's commits runs into the rule of its children.
 
 ### Row
 
-- Every cell has `py-4`. The name cell has `px-6`, a nested one `pl-8 pr-6`; the other cells `px-4`, `w-px` and
+- Every cell has the vertical padding `--bd-cell-y` (6px), so a row is 36px around the 24px folder button, as dense as
+  an IntelliJ list. The name cell has `px-6`, a nested one `pl-8 pr-6`; the other cells `px-4`, `w-px` and
   `whitespace-nowrap`. The Status `<th>` has `min-w-[16rem]`.
+- The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
+- An expanded row fades its commits in (150ms, opacity only).
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
   repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the subject
   `text-xs text-muted-foreground`, its prefix `font-mono text-muted-foreground/70`.

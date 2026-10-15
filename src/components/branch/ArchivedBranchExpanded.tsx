@@ -21,7 +21,7 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
 
   return (
     // neutral rule under the folder icon; the subjects start at the branch name x
-    <div className="ml-8 flex flex-col gap-2 border-l border-border pr-6">
+    <div className="ml-8 flex animate-in flex-col gap-2 border-l border-border pr-6 duration-150 fade-in-0">
       {branch.integrationCommit !== undefined && <IntegrationCommitLine commit={branch.integrationCommit} />}
       {branch.isLoadingCommits
         ? (

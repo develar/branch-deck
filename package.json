@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@git-diff-view/react": "0.1.7",
     "@tauri-apps/api": "2.12.2",
     "@tauri-apps/plugin-log": "2.10.0",
