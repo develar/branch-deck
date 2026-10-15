@@ -121,17 +121,19 @@ How agents commit to this repository; "Git Operations" below is about the git th
 ### Worktrees
 Parallel work runs in a worktree from the [treehouse](https://github.com/kunchenguid/treehouse) pool
 (`~/.treehouse/<repo>-<hash>/`); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
-- **Acquire**: `treehouse get --lease --lease-holder <agent-name>` fetches origin and prints only the worktree path
-  (`--json` adds the lease id, `--no-fetch` skips the fetch). A leased worktree is never handed out again or pruned.
-- **Branch**: the worktree starts on a detached HEAD; branch off local master, which may be ahead of `origin/master`:
-  `git switch -c <branch> master`.
+- **Acquire**: `treehouse get --lease --lease-holder <agent-name> -b <branch>` fetches origin, creates `<branch>` and
+  prints only the worktree path (`--json` adds the lease id, `--no-fetch` skips the fetch). A leased worktree is never
+  handed out again or pruned.
+- **Base**: the branch starts at local `master`, which may be ahead of `origin/master` (a local branch wins over
+  `origin/<base>`); `--base <integration-branch>` cuts it from another branch. Without `-b` the worktree is detached.
 - **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
   `node_modules` and `target/` survive a reuse; run `pnpm install` when `pnpm-lock.yaml` changed.
 - **E2E**: port 3030 of the mock server is shared by all worktrees, so one `pnpm e2e` at a time; check
   `lsof -nP -i :3030` first.
 - **Integrate** as in "Commits and History": `git rebase master` in the worktree, `git merge --ff-only <branch>` in
   the main checkout.
-- **Release**: commit, then `treehouse return <path>`; it cleans and resets the worktree, the branch survives.
+- **Release**: commit, then `treehouse return` inside the worktree (or `treehouse return <path>`); it cleans and
+  resets the worktree, the branch survives.
   `treehouse status` lists the pool; `treehouse prune` and `treehouse destroy` are dry runs without `--yes`.
 
 ### Git Operations
