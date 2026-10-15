@@ -991,6 +991,11 @@ export type PatronusRobot = {
 	 *  merged. A robot started otherwise has none.
 	 */
 	pullRequest?: PatronusPullRequestLink | null,
+	/**
+	 *  The merge profile the robot runs with, which decides its checks (and so how long it runs); null while unknown: a
+	 *  list doesn't say it, a poll, the details and a start do
+	 */
+	profile?: PatronusRobotProfile | null,
 };
 
 /**  What the chip popover shows beyond the list: the merge profile, the CI checks and the problems */
@@ -1011,6 +1016,15 @@ export type PatronusRobotParams = {
 	repositoryPath: string,
 	branchPrefix: string,
 	robotId: string,
+};
+
+/**
+ *  The merge profile of a robot, e.g. "Large Scale Change"; a known robot without one has `id` null (the default checks
+ *  of the target branch)
+ */
+export type PatronusRobotProfile = {
+	id: string | null,
+	name: string | null,
 };
 
 export type PatronusRobotStatus = "running" | 

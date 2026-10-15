@@ -31,6 +31,21 @@ pub struct PatronusRobot {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub pull_request: Option<PatronusPullRequestLink>,
+  /// The merge profile the robot runs with, which decides its checks (and so how long it runs); null while unknown: a
+  /// list doesn't say it, a poll, the details and a start do
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub profile: Option<PatronusRobotProfile>,
+}
+
+/// The merge profile of a robot, e.g. "Large Scale Change"; a known robot without one has `id` null (the default checks
+/// of the target branch)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusRobotProfile {
+  pub id: Option<String>,
+  pub name: Option<String>,
 }
 
 /// A GitHub pull request a robot belongs to

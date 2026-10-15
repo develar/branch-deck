@@ -2,12 +2,12 @@
 //! problems, the merge profiles). Each is one request or a few in parallel; the answers that don't change are cached:
 //! the details of a finished robot for the session, of a running one for a minute, the profiles for 10 minutes.
 
-use crate::client::{BranchRobotStartRequest, MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto};
-use crate::service::{PatronusService, parse_push_mode, parse_status, to_robot};
+use crate::client::{BranchRobotStartRequest, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckDto};
+use crate::service::{PatronusService, parse_push_mode, parse_status, robot_profile, to_robot};
 use std::time::{Duration, Instant};
 use sync_types::patronus::{
-  PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus,
-  PatronusStartOptions,
+  PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile,
+  PatronusRobotStatus, PatronusStartOptions,
 };
 use tracing::instrument;
 
@@ -36,9 +36,10 @@ impl PatronusService {
   pub async fn robot_details(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobotDetails, ActionError> {
     let details = self.cached_details(robot_id).await?;
     let robot = to_robot(&details.robot, branch_prefix, self.client());
+    let profile = robot_profile(&details.robot);
     Ok(PatronusRobotDetails {
-      profile_id: details.robot.options.get(MERGE_PROFILE_ID_OPTION).cloned().filter(|id| !id.is_empty()),
-      profile_name: details.robot.options.get(MERGE_PROFILE_NAME_OPTION).cloned().filter(|name| !name.is_empty()),
+      profile_id: profile.as_ref().and_then(|profile| profile.id.clone()),
+      profile_name: profile.and_then(|profile| profile.name),
       robot,
       checks: details.checks,
       problems: details.problems,
@@ -107,7 +108,7 @@ impl PatronusService {
         .cached_details(robot_id)
         .await
         .ok()
-        .and_then(|details| details.robot.options.get(MERGE_PROFILE_ID_OPTION).cloned())
+        .and_then(|details| robot_profile(&details.robot)?.id)
         .filter(|id| profiles.iter().any(|profile| &profile.id == id)),
       None => None,
     };
@@ -160,7 +161,7 @@ impl PatronusService {
       target_branch: target_branch.to_string(),
       mode,
       source_branch_delete_policy: "NEVER",
-      merge_profile_id: profile_id,
+      merge_profile_id: profile_id.clone(),
       space_review: merge_request.map(|merge_request| SpaceReviewDto {
         project_key: merge_request.project_key,
         review_key: merge_request.review_key,
@@ -169,7 +170,12 @@ impl PatronusService {
     let token = self.action_token()?;
     let response = self.client().start_robot(&token.value, &request).await;
     let robot_id = self.settle(response, &token.stamp).map_err(availability_message)?;
-    self.fetch_robot(branch_prefix, &robot_id).await
+    let mut robot = self.fetch_robot(branch_prefix, &robot_id).await?;
+    // the robot knows the profile it was started with, also before Patronus has written it into its options
+    if robot.profile.as_ref().is_none_or(|profile| profile.id.is_none()) && profile_id.is_some() {
+      robot.profile = Some(PatronusRobotProfile { id: profile_id, name: None });
+    }
+    Ok(robot)
   }
 
   /// Starts the robot again on the newest commit of its branch: a new robot

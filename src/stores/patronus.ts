@@ -21,9 +21,12 @@ import type { RefreshReason } from "@/lib/refresh-gate"
 import { closeLandedPullRequests } from "@/lib/landed-stack"
 import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { createRefreshGates } from "@/lib/refresh-gate"
-import { expectedRobotDuration } from "@/lib/robot-eta"
+import type { RobotEstimate } from "@/lib/robot-eta"
+import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import { stackAncestors } from "@/lib/stack"
 import { recordRobot } from "@/stores/activity"
+import type { RobotHistoryEntry } from "@/stores/robot-history"
+import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
@@ -217,43 +220,64 @@ function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: 
   return spans
 }
 
+/** What an estimate depends on of a robot */
+type EstimatedRobot = Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile">
+
 /**
- * How long a robot like this one usually runs, in seconds (`expectedRobotDuration`), from the robots listed for the
- * repository; null without history. Renders again only when the estimate changes.
+ * How long a robot like this one usually runs (`estimateRobotDuration`), from the robots listed for the repository and
+ * the history of finished ones; null without history. Renders again only when the estimate changes. No request.
  */
-export function useExpectedRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch"> | undefined): number | null {
+export function useRobotEstimate(robot: EstimatedRobot | undefined): RobotEstimate | null {
   const key = useRepositoryKey()
+  const repositoryPath = useSelectedProject()?.path ?? ""
+  const history = useStore(robotHistoryStore, state => state.items)
   const pushMode = robot?.pushMode
   const targetBranch = robot?.targetBranch
+  const profileId = robot?.profile == null ? undefined : robot.profile.id
+  const profileName = robot?.profile?.name ?? null
   return useStore(patronusStore, (state) => {
     const robots = state.repositories[key]?.robots
-    return robots === undefined || pushMode === undefined || targetBranch === undefined ? null : expectedDurationIn(robots, pushMode, targetBranch)
+    if (robots === undefined || pushMode === undefined || targetBranch === undefined) {
+      return null
+    }
+    const profile = profileId === undefined ? null : { id: profileId, name: profileName }
+    return estimateIn(robots, history, repositoryPath, { pushMode, targetBranch, profile })
   })
 }
 
-/** Non-hook variant of `useExpectedRobotDuration`, for the Dock */
-export function getExpectedRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch">): number | null {
+/** Non-hook variant of `useRobotEstimate`, for the Dock */
+export function getRobotEstimate(robot: EstimatedRobot): RobotEstimate | null {
   const key = currentKey()
   const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
-  return robots === undefined ? null : expectedDurationIn(robots, robot.pushMode, robot.targetBranch)
+  return robots === undefined ? null : estimateIn(robots, robotHistoryStore.getState().items, getSelectedProject()?.path ?? "", robot)
 }
 
-/** The estimates of a robots record by push mode and target, computed once per record */
-const expectedDurations = new WeakMap<Readonly<Record<string, PatronusRobot>>, Map<string, number | null>>()
+interface Estimates {
+  readonly robots: Readonly<Record<string, PatronusRobot>>
+  readonly history: readonly RobotHistoryEntry[]
+  readonly repositoryPath: string
+  /** By push mode, target and profile */
+  readonly values: Map<string, RobotEstimate | null>
+}
 
-function expectedDurationIn(robots: Readonly<Record<string, PatronusRobot>>, pushMode: PatronusPushMode, targetBranch: string): number | null {
-  let known = expectedDurations.get(robots)
-  if (known === undefined) {
-    known = new Map()
-    expectedDurations.set(robots, known)
+/** The estimates of the last robots and history: every slot asks for its own, they are computed once per change */
+let lastEstimates: Estimates | null = null
+
+function estimateIn(robots: Readonly<Record<string, PatronusRobot>>, history: readonly RobotHistoryEntry[], repositoryPath: string, robot: EstimatedRobot): RobotEstimate | null {
+  let estimates = lastEstimates
+  if (estimates === null || estimates.robots !== robots || estimates.history !== history || estimates.repositoryPath !== repositoryPath) {
+    estimates = { robots, history, repositoryPath, values: new Map() }
+    lastEstimates = estimates
   }
-  const cacheKey = `${pushMode}\n${targetBranch}`
-  let expected = known.get(cacheKey)
-  if (expected === undefined) {
-    expected = expectedRobotDuration({ pushMode, targetBranch }, Object.values(robots), Date.now())
-    known.set(cacheKey, expected)
+  const profile = robot.profile
+  const cacheKey = `${robot.pushMode}\n${robot.targetBranch}\n${profile == null ? "?" : `${profile.id ?? ""}\n${profile.name ?? ""}`}`
+  let estimate = estimates.values.get(cacheKey)
+  if (estimate === undefined) {
+    const samples = [...Object.values(robots).map(robotSample), ...historySamples(history, repositoryPath)]
+    estimate = estimateRobotDuration(robot, samples, Date.now())
+    estimates.values.set(cacheKey, estimate)
   }
-  return expected
+  return estimate
 }
 
 /** The robot failed for missing code-owner approvals (its problems are read once, see `loadReviewProblems`) */
@@ -322,6 +346,8 @@ function sameRobot(a: PatronusRobot, b: PatronusRobot): boolean {
     && a.targetBranch === b.targetBranch
     && a.startTime === b.startTime
     && a.pullRequest?.number === b.pullRequest?.number
+    && a.profile?.id === b.profile?.id
+    && a.profile?.name === b.profile?.name
 }
 
 /**
@@ -335,8 +361,10 @@ export function mergeRobots(
 ): Readonly<Record<string, PatronusRobot>> {
   const next: Record<string, PatronusRobot> = replace ? {} : { ...previous }
   let changed = replace && Object.keys(previous).length !== incoming.length
-  for (const robot of incoming) {
-    const known = previous[robot.id]
+  for (const answered of incoming) {
+    const known = previous[answered.id]
+    // a list doesn't name the profile: the one a poll, the details or the start named stays
+    const robot = answered.profile == null && known?.profile != null ? { ...answered, profile: known.profile } : answered
     if (known !== undefined && sameRobot(known, robot)) {
       next[robot.id] = known
     }
@@ -354,6 +382,8 @@ function storeRobots(key: string, incoming: readonly PatronusRobot[], replace: b
   const robots = mergeRobots(previous, incoming, replace)
   update(key, () => ({ ...patch, robots }))
   if (robots !== previous) {
+    // what the estimates learn from, also after a restart
+    recordFinishedRobots(key.slice(0, key.lastIndexOf("\n")), Object.values(robots))
     for (const robot of findMergedRobots(previous, robots)) {
       announceMerge(key, robot)
     }
@@ -637,15 +667,29 @@ export function upsertPatronusRobot(robot: PatronusRobot): void {
 }
 
 /**
+ * The merge profile an answer named for a robot (its details), for the estimate of its time: kept on the stored robot,
+ * as a list never names it. Asks nothing.
+ */
+export function rememberRobotProfile(robot: PatronusRobot): void {
+  const key = currentKey()
+  const known = key === null ? undefined : patronusStore.getState().repositories[key]?.robots[robot.id]
+  if (key !== null && known !== undefined && robot.profile != null && known.profile == null) {
+    storeRobots(key, [{ ...known, profile: robot.profile }], false, {})
+  }
+}
+
+/**
  * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
  * its tip), with the merge request whose approvals its review check counts. Resolves to the robot, now
- * polled while it runs; throws what Patronus said. The caller announces it (`announceRobot`, with the profile name).
+ * polled while it runs, with the profile it was started with; throws what Patronus said. The caller announces it
+ * (`announceRobot`, with the profile name).
  */
 export async function startPatronusRobot(
   branchName: string,
   mode: PatronusPushMode,
   profileId: string | null,
   mergeRequest: PatronusMergeRequest | null,
+  profileName: string | null = null,
 ): Promise<PatronusRobot> {
   const result = await commands.startPatronusRobot({
     ...patronusRequest(),
@@ -658,8 +702,10 @@ export async function startPatronusRobot(
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
-  upsertPatronusRobot(result.data)
-  return result.data
+  // the form knows the name of the profile Patronus may not have written into the robot yet
+  const robot = result.data.profile?.name == null && profileId !== null ? { ...result.data, profile: { id: profileId, name: profileName } } : result.data
+  upsertPatronusRobot(robot)
+  return robot
 }
 
 /**

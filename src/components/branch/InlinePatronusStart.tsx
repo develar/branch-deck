@@ -142,7 +142,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
     const profileName = profiles.find(it => it.id === profileId)?.name ?? null
     await withRowProgress(branchName, async () => {
       try {
-        announceRobot(`${modeName} started`, await startPatronusRobot(branchName, mode, profileId, mergeRequest), profileName)
+        announceRobot(`${modeName} started`, await startPatronusRobot(branchName, mode, profileId, mergeRequest, profileName), profileName)
         return true
       }
       catch (error) {

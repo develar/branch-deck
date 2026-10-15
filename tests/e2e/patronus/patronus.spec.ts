@@ -91,7 +91,8 @@ test.describe("Patronus chip", () => {
     await expect(popover.getByTestId("patronus-name")).toHaveText("JIRA-456 fix the database connection pool")
     await expect(popover.getByTestId("patronus-state")).toHaveText("Running")
     await expect(popover.getByTestId("patronus-target")).toHaveText("master")
-    await expect(popover.getByTestId("patronus-started")).toHaveText("Yesterday 9:00 PM · usually ~1 h · 14 h, longer than usual")
+    // the profile of JIRA-456 is not known (a list doesn't name it): the rough estimate of the push mode
+    await expect(popover.getByTestId("patronus-started")).toHaveText("Yesterday 9:00 PM · usually ~1 h for Safe Push · 14 h, longer than usual")
 
     await popover.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([RUNNING.url])
@@ -153,6 +154,46 @@ test.describe("Patronus chip", () => {
 })
 
 baseTest.describe("Patronus robot timing", () => {
+  baseTest("should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const LSC = { id: "lsc", name: "Large Scale Change" }
+    // three Large Scale Changes of 110 minutes and two Safe Pushes without a profile of 40, of branches merged since
+    const finished = (id: string, minutes: number, profile: { id: string | null, name: string | null }) =>
+      robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + minutes * 60, profile })
+    const history = [finished("a", 110, LSC), finished("b", 110, LSC), finished("c", 110, LSC), finished("d", 40, { id: null, name: null }), finished("e", 40, { id: null, name: null })]
+    const repo = await setupRepo("issue_links", {
+      patronus: availableRobots(
+        robot("JIRA-456", "lsc-robot", { startTime: NOW - 18 * 60, profile: LSC }),
+        // a list doesn't name its profile
+        robot("ABC-123", "unknown-robot", { startTime: NOW - 18 * 60 }),
+        ...history,
+      ),
+    })
+    await syncAndWaitForBranches()
+    // the unassigned commits card renders after the branches and would move the rows away from the pointer
+    await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+    await expect(getChip(page, "JIRA-456")).toHaveText("18m · ~1h 32m left")
+    const calls = await repo.getPatronusCalls()
+
+    let popover = await hoverChip(page, "JIRA-456")
+    await expect(popover.getByTestId("patronus-started")).toContainText("usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left")
+    await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")
+    await page.keyboard.press("Escape")
+    await expect(popover).toBeHidden()
+    await page.mouse.move(0, 0)
+    popover = await hoverChip(page, "ABC-123")
+    // the rough estimate names the push mode: the median of all five
+    await expect(popover.getByTestId("patronus-started")).toContainText("usually ~1 h 50 min for Safe Push")
+    await page.keyboard.press("Escape")
+    await expect(popover).toBeHidden()
+
+    // the list of the robots indicator names the profile too
+    await page.getByTestId("robots-indicator").hover()
+    const row = page.getByTestId("robots-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
+    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · Large Scale Change · 18m · ~1h 32m left")
+    // no list and no poll for the estimates
+    expect(await repo.getPatronusCalls()).toEqual(calls)
+  })
+
   baseTest("should count the time of a running robot and the time it usually takes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // two Safe Pushes of 40 minutes this week, of branches merged since; JIRA-456 started 18 minutes ago
     const history = ["a", "b"].map(id => robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: EARLIER_COMMIT, startTime: NOW - 86400, finishTime: NOW - 86400 + 2400 }))

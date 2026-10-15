@@ -117,8 +117,9 @@ function RobotList({ title, testId, entries, onReveal }: RobotListProps) {
 }
 
 /**
- * A robot: its icon, the branch (a click shows its row), below it the mode and the time or the state, the progress bar
- * of a running one; then Cancel and "Open in Patronus"
+ * A robot: its icon, the branch (a click shows its row), below it the mode, the merge profile when an answer named it,
+ * and the time or the state ("Safe Push · Large Scale Change · 18m · ~1h 30m left"), the progress bar of a running one;
+ * then Cancel and "Open in Patronus"
  */
 function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (name: string) => void }) {
   const { robot, chip, branchName } = entry
@@ -145,6 +146,7 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry, onReveal: (n
           : <span className="min-w-0 truncate text-sm">{branchName}</span>}
         <span className="text-xs text-muted-foreground tabular-nums" data-testid="robots-row-state">
           {`${mode} · `}
+          {robot.profile?.name != null && `${robot.profile.name} · `}
           {active
             ? <RunningTime entry={entry} />
             : (

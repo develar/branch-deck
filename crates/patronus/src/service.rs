@@ -2,13 +2,15 @@
 //! Push CLI renews it, background requests stop while Patronus fails (exponential backoff), and a full list asked by
 //! two windows of one repository within a few seconds is fetched once.
 
-use crate::client::{PatronusClient, PatronusError, RobotDto, RobotUpdateRequest};
+use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use moka::sync::Cache;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
+use sync_types::patronus::{
+  KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
+};
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tracing::{info, instrument};
 
@@ -231,7 +233,19 @@ pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient) 
     cancellation_reason: robot.cancellation_reason.clone().filter(|reason| !reason.is_empty()),
     url: client.robot_url(&robot.id),
     pull_request: robot.github_pr_url.as_deref().and_then(parse_pull_request_link),
+    profile: robot_profile(robot),
   }
+}
+
+/// The merge profile in the options of an answer that has them (a poll, the details, a start); None from a list, which
+/// lacks the options: unknown, not "none"
+pub fn robot_profile(robot: &RobotDto) -> Option<PatronusRobotProfile> {
+  let options = robot.options.as_ref()?;
+  let option = |key: &str| options.get(key).filter(|value| !value.is_empty()).cloned();
+  Some(PatronusRobotProfile {
+    id: option(MERGE_PROFILE_ID_OPTION),
+    name: option(MERGE_PROFILE_NAME_OPTION),
+  })
 }
 
 /// `https://github.com/{owner}/{name}/pull/{number}`

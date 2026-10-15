@@ -1,35 +1,96 @@
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatPushMode } from "@/lib/patronus"
 
-/** An estimate learns from the robots started this long before now, as long as the first list of Patronus reaches */
-export const ROBOT_HISTORY_MS = 7 * 24 * 60 * 60_000
+/** An estimate learns from the robots started this long before now: as long as the history of finished robots keeps them */
+export const ROBOT_HISTORY_MS = 30 * 24 * 60 * 60_000
 /** With this many finished robots into the same target branch, only they count: another target runs other checks */
 export const SAME_TARGET_MIN_ROBOTS = 3
+/** With this many finished robots of the same merge profile, only they count: the profile decides the checks */
+export const SAME_PROFILE_MIN_ROBOTS = 3
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
 
+/** A robot an estimate learns from: one the app listed, or one of the history of finished robots (`robot-history.ts`) */
+export interface RobotSample {
+  readonly id: string
+  readonly status: string
+  readonly pushMode: string
+  readonly targetBranch: string
+  /** Unix seconds */
+  readonly startTime: number
+  readonly finishTime: number | null
+  /** The merge profile id; null: no profile; undefined: not known (a list doesn't name it) */
+  readonly profileId?: string | null
+}
+
+/** A listed robot as a sample */
+export function robotSample(robot: PatronusRobot): RobotSample {
+  return {
+    id: robot.id,
+    status: robot.status,
+    pushMode: robot.pushMode,
+    targetBranch: robot.targetBranch,
+    startTime: robot.startTime,
+    finishTime: robot.finishTime,
+    ...(robot.profile != null && { profileId: robot.profile.id }),
+  }
+}
+
 /**
- * How long a robot usually runs, in seconds: the median duration of the successful robots of its push mode started in
- * the last 7 days (only those into its target branch when there are 3 or more), from the robots the app already listed,
- * so an estimate asks Patronus nothing. A failed robot stops early and says nothing about a full run. null without one:
- * the run is indeterminate.
+ * What an estimate is the usual time of: the robots of the same merge profile (`id` null: those without one), or, as
+ * the rough fallback, of the same push mode
  */
-export function expectedRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch">, robots: Iterable<PatronusRobot>, now: number): number | null {
+export type EstimateBasis
+  = | { readonly kind: "profile", readonly id: string | null, readonly name: string | null }
+    | { readonly kind: "mode" }
+
+/** How long a robot usually runs */
+export interface RobotEstimate {
+  readonly seconds: number
+  readonly basis: EstimateBasis
+}
+
+/**
+ * How long a robot usually runs, in seconds: the median duration of the successful robots of its merge profile and push
+ * mode started in the last 30 days, when 3 or more of them are known (only those into its target branch when there are
+ * 3 or more); else, roughly, of its push mode: the profile of the robot is not known yet (a list doesn't name it), or
+ * too few robots of the profile finished. The samples are the robots the app already listed and the history of
+ * finished ones: an estimate asks Patronus nothing. A failed robot stops early and says nothing about a full run. null
+ * without one: the run is indeterminate.
+ */
+export function estimateRobotDuration(
+  robot: Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile">,
+  samples: Iterable<RobotSample>,
+  now: number,
+): RobotEstimate | null {
   const since = (now - ROBOT_HISTORY_MS) / 1000
-  const all: number[] = []
-  const sameTarget: number[] = []
-  for (const it of robots) {
+  // one sample per robot, the one that knows the profile
+  const byId = new Map<string, RobotSample>()
+  for (const it of samples) {
     if (it.status !== "success" || it.pushMode !== robot.pushMode || it.finishTime === null || it.startTime < since || it.finishTime <= it.startTime) {
       continue
     }
-    const duration = it.finishTime - it.startTime
-    all.push(duration)
-    if (it.targetBranch === robot.targetBranch) {
-      sameTarget.push(duration)
+    const known = byId.get(it.id)
+    if (known === undefined || (known.profileId === undefined && it.profileId !== undefined)) {
+      byId.set(it.id, it)
     }
   }
-  return median(sameTarget.length >= SAME_TARGET_MIN_ROBOTS ? sameTarget : all)
+  const profile = robot.profile
+  if (profile != null) {
+    const sameProfile = [...byId.values()].filter(it => it.profileId !== undefined && it.profileId === profile.id)
+    if (sameProfile.length >= SAME_PROFILE_MIN_ROBOTS) {
+      return { seconds: medianDuration(sameProfile, robot.targetBranch)!, basis: { kind: "profile", id: profile.id, name: profile.name } }
+    }
+  }
+  const seconds = medianDuration([...byId.values()], robot.targetBranch)
+  return seconds === null ? null : { seconds, basis: { kind: "mode" } }
+}
+
+/** The median duration of `samples`, of those into `targetBranch` when there are enough */
+function medianDuration(samples: readonly RobotSample[], targetBranch: string): number | null {
+  const sameTarget = samples.filter(it => it.targetBranch === targetBranch)
+  return median((sameTarget.length >= SAME_TARGET_MIN_ROBOTS ? sameTarget : samples).map(it => it.finishTime! - it.startTime))
 }
 
 function median(values: number[]): number | null {
@@ -45,8 +106,10 @@ function median(values: number[]): number | null {
 export interface RobotTiming {
   /** Since the start */
   readonly elapsed: number
-  /** The usual duration (`expectedRobotDuration`); null without history */
+  /** The usual duration (`estimateRobotDuration`); null without history */
   readonly expected: number | null
+  /** What the usual duration is of; null without history */
+  readonly basis: EstimateBasis | null
   /** Until the usual duration; null without history and once past it */
   readonly remaining: number | null
   /** `elapsed / expected` from 0 to 1; null without history and once past it: the progress is indeterminate then */
@@ -54,12 +117,14 @@ export interface RobotTiming {
 }
 
 /** The timing of a running robot at `now` (milliseconds) */
-export function getRobotTiming(robot: Pick<PatronusRobot, "startTime">, expected: number | null, now: number): RobotTiming {
+export function getRobotTiming(robot: Pick<PatronusRobot, "startTime">, estimate: RobotEstimate | null, now: number): RobotTiming {
   const elapsed = Math.max(0, Math.floor(now / 1000) - robot.startTime)
+  const expected = estimate?.seconds ?? null
+  const basis = estimate?.basis ?? null
   if (expected === null || elapsed >= expected) {
-    return { elapsed, expected, remaining: null, progress: null }
+    return { elapsed, expected, basis, remaining: null, progress: null }
   }
-  return { elapsed, expected, remaining: expected - elapsed, progress: elapsed / expected }
+  return { elapsed, expected, basis, remaining: expected - elapsed, progress: elapsed / expected }
 }
 
 /** The usual duration is known and the robot runs past it */
@@ -149,15 +214,29 @@ export function formatSpokenRobotProgress(timing: RobotTiming): string {
 }
 
 /**
- * The timing after the start time in the details of a running robot: "usually ~40 min · about 22 min left", "usually
- * ~40 min · 14 h, longer than usual", and without history "running 18 min · no Safe Push finished in the last 7 days to
- * estimate from"
+ * What the usual time is of, after "usually ~40 min": "for Large Scale Change" (the robots of its profile), "without a
+ * merge profile", or, roughly, "for Safe Push" (of its push mode)
+ */
+function formatEstimateBasis(robot: Pick<PatronusRobot, "pushMode">, basis: EstimateBasis): string {
+  if (basis.kind === "mode") {
+    return `for ${formatPushMode(robot.pushMode)}`
+  }
+  if (basis.name !== null) {
+    return `for ${basis.name}`
+  }
+  return basis.id === null ? "without a merge profile" : "for its merge profile"
+}
+
+/**
+ * The timing after the start time in the details of a running robot, with what the estimate is of: "usually ~1 h 50
+ * min for Large Scale Change · about 22 min left", the rough "usually ~40 min for Safe Push · 55 min, longer than
+ * usual", and without history "running 18 min · no Safe Push finished in the last 30 days to estimate from"
  */
 export function formatRobotTimingDetails(robot: Pick<PatronusRobot, "pushMode">, timing: RobotTiming): string {
-  if (timing.expected === null) {
-    return `running ${formatDuration(timing.elapsed)} · no ${formatPushMode(robot.pushMode)} finished in the last 7 days to estimate from`
+  if (timing.expected === null || timing.basis === null) {
+    return `running ${formatDuration(timing.elapsed)} · no ${formatPushMode(robot.pushMode)} finished in the last 30 days to estimate from`
   }
-  const usually = `usually ~${formatDuration(timing.expected)}`
+  const usually = `usually ~${formatDuration(timing.expected)} ${formatEstimateBasis(robot, timing.basis)}`
   return timing.remaining === null
     ? `${usually} · ${formatDuration(timing.elapsed)}, longer than usual`
     : `${usually} · about ${formatDuration(roundUpToMinute(timing.remaining))} left`

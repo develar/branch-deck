@@ -77,6 +77,8 @@ async fn starts_a_robot_on_the_pushed_branch_and_keeps_the_branch() {
     .await
     .unwrap();
   assert_eq!(robot.id, "started");
+  // Patronus has not written the profile into the new robot's options yet: the robot knows the one it was started with
+  assert_eq!(robot.profile.and_then(|profile| profile.id).as_deref(), Some("lsc"));
   assert_eq!(
     *fake.last_start.lock().unwrap(),
     serde_json::json!({

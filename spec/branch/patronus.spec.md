@@ -26,6 +26,7 @@ targets:
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/lib/robot-eta.ts
+  - ../../src/stores/robot-history.ts
   - ../../src/lib/patronus-icons.ts
   - ../../src/hooks/useRobotTiming.ts
   - ../../src/components/branch/ReviewCommitNotice.tsx
@@ -225,11 +226,27 @@ reports in it and closes it once merged.
 
 ### Timing
 
-- How long a robot usually runs is the median duration of the successful robots of its push mode started in the last
-  7 days, only those into its target branch when there are 3 or more (`expectedRobotDuration`). It comes from the robots
-  the app already listed: an estimate asks Patronus nothing, and the polling stays as [above](#load-on-patronus). A
-  failed robot stopped early and doesn't count. Without such a robot the run is indeterminate.
-  [@test] ../../src/lib/robot-eta.test.ts (`takes the median of the successful robots of the push mode started in the last 7 days`, `is indeterminate without a finished robot to learn from`, `counts only the robots into the same target once there are enough of them`)
+- No request is made for the estimate: it comes from the robots the app already listed and polled, and the polling
+  stays as [above](#load-on-patronus).
+- The merge profile decides the checks of a robot, and so how long it runs (a Large Scale Change runs for hours, the
+  default checks for minutes). A list doesn't name it; the answers that do carry it onto the robot at no cost: a poll
+  (`fetch-updates` answers a robot with its options once its status changed, so every robot polled to its finish), the
+  details (`GET /robots/{id}`) and a start (the profile chosen in the form, also before Patronus wrote it into the
+  robot's options). A later list keeps it: the robot merges, the profile isn't overwritten with "not known".
+  [@test] ../../crates/patronus/src/service_test.rs (`polls_only_running_robots_with_their_known_status`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
+  [@test] ../../src/stores/patronus.test.ts (`keeps the merge profile a poll, the details or the start named when a list, which never names it, answers the robot`)
+- The main window keeps a history of the finished robots it saw (`robotHistory` in `settings.json`, the robot, its
+  profile when known, the push mode, the target branch, the start, the finish and the status), at most 200 robots and
+  none that finished more than 30 days ago, so the estimate survives a restart and learns beyond the 7 days of a list.
+  [@test] ../../src/stores/robot-history.test.ts (`adds the finished robots of an answer, never a running one, and learns a profile an answer named since`, `keeps at most 200 robots and none that finished more than 30 days ago, the newest first`, `records the robots of a repository and gives them back as samples of its estimates`)
+- How long a robot usually runs is the median duration of the successful robots of its merge profile (those without one
+  for a robot without one) and push mode started in the last 30 days, of the listed robots and the history, when 3 or
+  more of them finished; only those into its target branch when there are 3 or more (`estimateRobotDuration`). While
+  the profile of the robot is not known, or fewer than 3 robots of it finished, the estimate is the rough one of its
+  push mode. A failed robot stopped early and doesn't count. Without such a robot the run is indeterminate.
+  [@test] ../../src/lib/robot-eta.test.ts (`takes the median of the successful robots of the push mode started in the last 30 days`, `takes the robots of the same merge profile once three of them finished, and those without one for a robot without one`, `falls back to the push mode, roughly, while the profile is not known or too few of its robots finished`, `is indeterminate without a finished robot to learn from`, `counts only the robots into the same target once there are enough of them`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it`)
 - The slot says how long the robot runs and how long it has left: "18m · ~22m left" (the time left rounded up); past its
   usual time, the usual time instead, "55m · usually ~40m" (the hours only from an hour: "14h · usually ~1h"); without
   history, "18m". The time ticks with the relative times, every 15 s, without a request.
@@ -238,11 +255,14 @@ reports in it and closes it once merged.
 - A thin line under the row of a running robot shows the share of its usual time; without history, past it and while it
   cancels, it runs across (indeterminate).
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should count the time of a running robot and the time it usually takes`)
-- The details of a running robot say it after the start time: "Today 14:02 · usually ~40 min · about 22 min left",
-  "… · usually ~40 min · 55 min, longer than usual", "… · running 18 min · no Safe Push finished in the last 7 days to
-  estimate from".
-  [@test] ../../src/lib/robot-eta.test.ts (`explains the estimate in the details`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
+- The details of a running robot say it after the start time, with what the estimate is of: "Today 14:02 · usually ~1 h
+  50 min for Large Scale Change · about 1 h 32 min left", "… without a merge profile …", the rough "… · usually ~40 min
+  for Safe Push · 55 min, longer than usual", "… · running 18 min · no Safe Push finished in the last 30 days to
+  estimate from". The slot doesn't name it. The details have the profile row when the profile is known, also before
+  the details answered; the list of the robots indicator names it in a row: "Safe Push · Large Scale Change · 18m ·
+  ~1h 32m left".
+  [@test] ../../src/lib/robot-eta.test.ts (`explains the estimate and what it is of in the details`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`, `should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it`)
 
 ### Chip
 
@@ -642,9 +662,9 @@ reports in it and closes it once merged.
   failing the list.
 - Patronus matches `repository` exactly: a repository whose Patronus alias is not its Space name lists no robots.
 - The token lives 14 days and is renewed only when the Safe Push CLI runs; the footer says so when it expired.
-- The estimate knows only the user's own robots of the last 7 days, not the merge profile (the list doesn't name it):
-  a Large Scale Change runs longer than the median says. Half of the robots run past the median, so "usually ~40m"
-  shows near the end of many runs.
+- The estimate knows only the user's own robots, and the profile only of the robots the app polled to their finish or
+  whose details were open: a robot finished while the app was closed is a sample of its push mode only. Half of the
+  robots run past the median, so "usually ~40m" shows near the end of many runs.
 - The changed-since rule replaces a finished robot in the slot with "Safe Push…" as soon as the branch has a commit
   the robot didn't test: its result is then only in the preview, the outgoing overview and the list of the robots
   indicator, under "Last 24 hours".

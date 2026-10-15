@@ -513,10 +513,12 @@ pub async fn get_patronus_robot_details(
       .into_iter()
       .find(|robot| robot.id == params.robot_id)
       .ok_or_else(|| anyhow::anyhow!("No robot {}", params.robot_id))?;
+    // the profile of the fixture robot, as the options of `GET /robots/{id}` name it
+    let profile = robot.profile.clone();
     anyhow::Ok(sync_types::patronus::PatronusRobotDetails {
       robot,
-      profile_id: None,
-      profile_name: None,
+      profile_id: profile.as_ref().and_then(|profile| profile.id.clone()),
+      profile_name: profile.and_then(|profile| profile.name),
       checks: None,
       problems: Vec::new(),
     })

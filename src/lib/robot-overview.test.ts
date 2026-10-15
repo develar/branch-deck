@@ -108,11 +108,12 @@ describe("getDockProgress", () => {
   it("shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs", () => {
     const start = { startTime: NOW_SECONDS - 600 }
     expect(getDockProgress([])).toEqual({ status: "none" })
+    const usual = (seconds: number) => ({ seconds, basis: { kind: "mode" } as const })
     expect(getDockProgress([getRobotTiming(start, null, NOW)])).toEqual({ status: "indeterminate" })
     // past its usual time it has no estimate left either
-    expect(getDockProgress([getRobotTiming(start, 300, NOW)])).toEqual({ status: "indeterminate" })
+    expect(getDockProgress([getRobotTiming(start, usual(300), NOW)])).toEqual({ status: "indeterminate" })
     // 10 of 40 minutes, 30 left; 10 of 20 minutes, 10 left: the second is nearer
-    expect(getDockProgress([getRobotTiming(start, 2400, NOW), getRobotTiming(start, 1200, NOW), getRobotTiming(start, null, NOW)])).toEqual({ status: "normal", progress: 50 })
+    expect(getDockProgress([getRobotTiming(start, usual(2400), NOW), getRobotTiming(start, usual(1200), NOW), getRobotTiming(start, null, NOW)])).toEqual({ status: "normal", progress: 50 })
   })
 
   it("counts the conflicts of the last sync for the badge", () => {

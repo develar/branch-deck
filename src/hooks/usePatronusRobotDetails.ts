@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { PatronusRobotDetails } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { patronusRequest } from "@/stores/patronus"
+import { patronusRequest, rememberRobotProfile } from "@/stores/patronus"
 
 /** A popover that opens and closes at once asks nothing */
 export const DETAILS_DELAY_MS = 300
@@ -24,6 +24,8 @@ export function usePatronusRobotDetails(robotId: string, status: string, enabled
       commands.getPatronusRobotDetails({ ...patronusRequest(), robotId }).then((result) => {
         if (current && result.status === "ok") {
           setDetails({ key, value: result.data })
+          // the details name the merge profile, which the estimate of the robot's time keeps
+          rememberRobotProfile(result.data.robot)
         }
       }, () => {
         // the details are an extra: the popover shows the list data

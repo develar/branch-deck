@@ -77,11 +77,16 @@ pub(crate) fn robot_json(id: &str, status: &str, source_branch: &str, start: &st
   })
 }
 
-/// A robot as `GET /robots/{id}` answers: with its options
+/// The options of a robot that runs with the Large Scale Change profile, as `GET /robots/{id}` and `fetch-updates` have them
+fn profile_options() -> serde_json::Value {
+  serde_json::json!({"patronus.merge.profile.id": "lsc", "patronus.merge.profile.name": "Large Scale Change"})
+}
+
+/// A robot as `GET /robots/{id}` answers: with its options; a robot just started has none written yet
 fn robot_detail_json(id: &str) -> serde_json::Value {
   let status = if id == "finished" { "FAILURE" } else { "RUNNING" };
   let mut robot = robot_json(id, status, "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
-  robot["options"] = serde_json::json!({"patronus.merge.profile.id": "lsc", "patronus.merge.profile.name": "Large Scale Change"});
+  robot["options"] = if id == "started" { serde_json::json!({}) } else { profile_options() };
   robot
 }
 
@@ -118,7 +123,9 @@ pub(crate) async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
         fake.update_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_updates.lock().unwrap() = body;
-        fake.answer(serde_json::json!({"robots": [robot_json("newer", "SUCCESS", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z")]}))
+        let mut robot = robot_json("newer", "SUCCESS", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z");
+        robot["options"] = profile_options();
+        fake.answer(serde_json::json!({"robots": [robot]}))
       }),
     )
     .route(

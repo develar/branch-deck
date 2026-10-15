@@ -116,6 +116,8 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const branch = useBranch(branchName)
   const patronusAvailable = usePatronusAvailable()
   const mode = formatPushMode(robot.pushMode)
+  // the details name it; a poll or the start may have named it before
+  const profileName = details?.profileName ?? robot.profile?.name ?? null
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="patronus-details">
       <div className="flex flex-col gap-1">
@@ -132,10 +134,10 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted-foreground">Into</dt>
         <dd className="break-words" data-testid="patronus-target">{robot.targetBranch}</dd>
-        {details?.profileName != null && (
+        {profileName !== null && (
           <>
             <dt className="text-muted-foreground">Profile</dt>
-            <dd className="break-words" data-testid="patronus-profile-name">{details.profileName}</dd>
+            <dd className="break-words" data-testid="patronus-profile-name">{profileName}</dd>
           </>
         )}
         {robot.sourceRevision !== null && (

@@ -5,7 +5,7 @@ use crate::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus};
 
 pub(crate) fn token(value: &str) -> TokenLookup {
   TokenLookup::Found(Token {
@@ -46,6 +46,8 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
         cancellation_reason: None,
         url: format!("{base_url}/robot/newer"),
         pull_request: None,
+        // a list has no options: the profile is not known
+        profile: None,
       },
       PatronusRobot {
         id: "older".to_string(),
@@ -198,6 +200,14 @@ async fn polls_only_running_robots_with_their_known_status() {
   assert_eq!(
     changed.robots.iter().map(|robot| (robot.id.as_str(), robot.status)).collect::<Vec<_>>(),
     [("newer", PatronusRobotStatus::Success)]
+  );
+  // the poll answers a robot with its options: its merge profile comes at no cost, the list never has it
+  assert_eq!(
+    changed.robots[0].profile,
+    Some(PatronusRobotProfile {
+      id: Some("lsc".to_string()),
+      name: Some("Large Scale Change".to_string()),
+    })
   );
   assert_eq!(
     *fake.last_updates.lock().unwrap(),

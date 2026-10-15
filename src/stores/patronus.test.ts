@@ -421,4 +421,14 @@ describe("mergeRobots", () => {
     // a full list drops the robots it does not have
     expect(Object.keys(mergeRobots(changed, [robot({ id: "r2" })], true))).toEqual(["r2"])
   })
+
+  it("keeps the merge profile a poll, the details or the start named when a list, which never names it, answers the robot", () => {
+    const profile = { id: "lsc", name: "Large Scale Change" }
+    const polled = robot({ profile })
+    const previous = { r1: polled }
+    expect(mergeRobots(previous, [robot()], true)).toBe(previous)
+    expect(mergeRobots(previous, [robot({ status: "failure" })], false).r1?.profile).toEqual(profile)
+    // an answer that names another profile wins
+    expect(mergeRobots(previous, [robot({ profile: { id: null, name: null } })], false).r1?.profile).toEqual({ id: null, name: null })
+  })
 })

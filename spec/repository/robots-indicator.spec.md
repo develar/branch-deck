@@ -72,8 +72,9 @@ app already listed: nothing asks Patronus more ([Patronus](../branch/patronus.sp
   "Last 24 hours" (the others that finished in the last day, the newest robot of each branch, newest first, a branch
   archived since too). A branch is listed once.
   [@test] ../../src/lib/robot-overview.test.ts (`lists the robots that finished in the last day, the newest of each branch, also of a branch archived since`)
-- A row has the icon of the state (the ring while it runs) and the branch; below it the push mode, then for a running
-  robot its time as in the Safe Push slot ("Safe Push · 18m · ~22m left", [Patronus](../branch/patronus.spec.md#timing))
+- A row has the icon of the state (the ring while it runs) and the branch; below it the push mode and the merge
+  profile when an answer named it, then for a running robot its time as in the Safe Push slot ("Safe Push · Large Scale
+  Change · 18m · ~1h 32m left", [Patronus](../branch/patronus.spec.md#timing))
   and a progress bar below, for a finished one the state in its hue and when it finished ("Safe Push · Failed · 50
   minutes ago"); then "Cancel Safe Push" for a running robot and "Open in Patronus", icon buttons named after the robot
   ("Cancel Safe Push of JIRA-456") with the tooltip of the action.
