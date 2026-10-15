@@ -650,8 +650,9 @@ be rebuilt from the session ref.
   can't reach outside the round directory, can't collide with another file (two paths that differ only in case get
   distinct keys), and needs no directories of the tree. A basename longer than 100 bytes is cut on a character
   boundary and keeps its extension, so the name stays below `NAME_MAX` with the key and the temporary file.
-- Tree paths are validated: no empty, `.` or `..` component, no `.git` in any case, no NUL, and on Windows no `\` and no
-  `:` (a drive prefix). Characters a file system may refuse are replaced in the flat name only.
+- Tree paths are validated per component by `gix_validate::path::component`: no empty, `.` or `..` component, no `.git`
+  in any case or a name NTFS or HFS+ takes for it (`GIT~1`, `.git.`, `.g\u{200c}it`), no NUL, and on Windows no `\`,
+  no drive prefix, no `:` stream and no device name (`CON`). Characters a file system may refuse are replaced in the flat name only.
 - Bytes are written and read in Rust, as git stores them, without filters. A write goes to a new temporary file that a
   rename puts in place, which replaces a symlink at the target instead of writing through it. A read takes only a
   regular file, and the file it opens must be the one `lstat` saw. Every directory from the git dir (or `--dir`) down

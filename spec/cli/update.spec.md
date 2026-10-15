@@ -168,7 +168,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - The copies must be in `branch-deck/resolve/r<n>/` of the worktree's git dir: `edit/`, `before/`, `onto/` and
   `commit/`, each file under the flat name `<key>-<basename>`, and `commit.patch`. The tree paths must be validated: no
-  empty, `.` or `..` component, no `.git` in any case, no NUL. Two paths that differ only in case get distinct names. A
+  empty, `.` or `..` component, no `.git` in any case or a name the file system takes for it (`GIT~1`, `.git.`, HFS+
+  ignorable code points, as `core.protectNTFS` and `core.protectHFS`), no NUL. Two paths that differ only in case get distinct names. A
   basename longer than 100 bytes is cut on a character boundary, and keeps its extension.
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`tree_paths_that_could_leave_a_directory_are_invalid`, `copies_have_flat_names_that_never_collide`, `a_long_basename_is_cut_and_keeps_its_extension`)
 - bd must write and read the bytes as git stores them, without filters, through a new temporary file and a rename,

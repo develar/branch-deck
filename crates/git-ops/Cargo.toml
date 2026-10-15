@@ -23,6 +23,8 @@ tempfile.workspace = true
 specta = { workspace = true, optional = true }
 # `Description` in the JSON schemas of the `bd` output
 schemars = { workspace = true, optional = true }
+gix-validate = "0.13.0"
+bstr = { version = "1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }

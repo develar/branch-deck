@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn tree_paths_that_could_leave_a_directory_are_invalid() {
-  for path in ["a.txt", "dir/a.txt", ".github/x", "a..b", "...", "x.gitignore"] {
+  for path in ["a.txt", "dir/a.txt", ".github/x", "a..b", "...", "x.gitignore", "git~2", ".gitx"] {
     assert!(is_valid_tree_path(path), "{path}");
   }
   for path in [
@@ -18,6 +18,10 @@ fn tree_paths_that_could_leave_a_directory_are_invalid() {
     ".git/hooks/post-checkout",
     "x/.GIT/config",
     "nul\0",
+    "GIT~1/config",
+    "x/.git./config",
+    "x/.git /config",
+    ".g\u{200c}it/hooks/pre-commit",
   ] {
     assert!(!is_valid_tree_path(path), "{path:?}");
   }

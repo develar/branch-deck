@@ -19,6 +19,7 @@ use crate::update_branch::{
   likely_blocking_paths, move_branch_and_files_with,
 };
 use anyhow::{Result, anyhow, bail};
+use bstr::BStr;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -146,10 +147,7 @@ fn shortened(name: &str) -> String {
     return name.to_string();
   }
   let extension = name.rfind('.').map(|dot| &name[dot..]).filter(|extension| extension.len() <= 16).unwrap_or("");
-  let mut end = MAX_COPY_BASENAME - extension.len();
-  while !name.is_char_boundary(end) {
-    end -= 1;
-  }
+  let end = name.floor_char_boundary(MAX_COPY_BASENAME - extension.len());
   format!("{}{extension}", &name[..end])
 }
 
@@ -1500,16 +1498,20 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
   Ok(files)
 }
 
-/// A tree path that is safe to name a file by: no empty, `.` or `..` component, no `.git` (in any case), no NUL; on
-/// Windows also no `\` and no drive prefix. The copies use only the last component, but the path also goes into the
-/// state tree and the output
+/// A tree path that is safe to name a file by: no empty, `.` or `..` component, no `.git` or a name the file system
+/// takes for it (`GIT~1`, `.git.`, `.g\u{200c}it`, as `core.protectNTFS` and `core.protectHFS`), no NUL; on Windows also
+/// no `\`, no drive prefix and no device name (`CON`). The copies use only the last component, but the path also goes
+/// into the state tree and the output
 pub fn is_valid_tree_path(path: &str) -> bool {
-  if path.is_empty() || path.contains('\0') || (cfg!(windows) && (path.contains('\\') || path.contains(':'))) {
-    return false;
-  }
-  path
-    .split('/')
-    .all(|component| !component.is_empty() && component != "." && component != ".." && !component.eq_ignore_ascii_case(".git"))
+  let options = gix_validate::path::component::Options {
+    protect_windows: cfg!(windows),
+    protect_hfs: true,
+    protect_ntfs: true,
+  };
+  !path.contains('\0')
+    && path
+      .split('/')
+      .all(|component| gix_validate::path::component(BStr::new(component), None, options).is_ok())
 }
 
 /// Write the state commit of `state` on a temporary ref, by the session's committer: `state.json`, the round's merge

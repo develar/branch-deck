@@ -204,7 +204,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   worktree's git dir, or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this git dir,
   used by no other session); the marker `.branch-deck-resolve` names the owner's git dir; flat names
   `<key>-<basename>` (the basename cut to 100 bytes), never tree paths; tree paths validated (no empty, `.`, `..` or
-  `.git` component); regular files only, bytes as git stores them without filters, never read, written or deleted
+  `.git` component, nor an NTFS/HFS+ alias of `.git`, `gix-validate`); regular files only, bytes as git stores them without filters, never read, written or deleted
   through a symlink (of the file or of any directory below the git dir or `--dir`), every write a temporary file plus
   a rename; delete only the files bd wrote, only in a directory whose marker names this git dir. All other session
   state is in git (`refs/branch-deck/resolve/<worktree id>`, a shared ref: a gc in another worktree prunes a
