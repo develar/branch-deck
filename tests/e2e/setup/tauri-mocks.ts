@@ -684,9 +684,8 @@ export const tauriMockScript = () => {
       { pattern: /_[rR]_[0-9a-z]+_/g, replacement: "[ID]" },
       { pattern: /«[rR][0-9a-z]+»/g, replacement: "[ID]" },
       { pattern: /:[rR][0-9a-z]+:/g, replacement: "[ID]" },
-      // Base UI fallback counter ids and @git-diff-view roots
+      // Base UI fallback counter ids
       { pattern: /\bbase-ui-\d+\b/g, replacement: "base-ui-[ID]" },
-      { pattern: /diff-root(-\w+)?--\d+/g, replacement: "diff-root$1--[DYNAMIC]" },
     ],
 
     // Per-run values: applied to text nodes and to attribute values

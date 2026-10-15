@@ -485,6 +485,10 @@ export type FetchBaselineResult = {
 export type FileDiff = {
 	oldFile: FileInfo,
 	newFile: FileInfo,
+	/**
+	 *  The patch of the file: one `diff --git` section, or hunks that each repeat the `---`/`+++` header; the frontend
+	 *  joins them into one patch for the diff view
+	 */
 	hunks: string[],
 };
 

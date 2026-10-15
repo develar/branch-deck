@@ -91,13 +91,14 @@ fn diff_by_file(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, 
   args.extend(PATCH_ARGS);
   args.extend(["--end-of-options", from, to, "--"]);
   args.extend(file_paths.iter().map(String::as_str));
+  // untrimmed: the last line of a patch may be a context line of a blank line, a single space
   let output = git_executor
-    .execute_command(&args, repo_path)
+    .execute_command_raw(&args, repo_path)
     .map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
   Ok(split_diff_by_file(&output).into_iter().collect())
 }
 
-/// Parse one file's patch into hunks, each prefixed with the file header expected by git-diff-view.
+/// Parse one file's patch into hunks, each prefixed with its file header (`---`/`+++`); the frontend joins them into one patch.
 /// Only the lines before the first hunk are metadata; inside a hunk every line is content.
 fn parse_diff_hunks(file_patch: &str, file_path: &str) -> Vec<String> {
   let mut hunks = Vec::new();

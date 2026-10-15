@@ -74,7 +74,7 @@ export interface LineCountsProps {
 /** `+42 −7`: added and deleted lines, with a minus sign rather than a hyphen */
 export function LineCounts({ additions, deletions, colored, "data-testid": testId }: LineCountsProps) {
   return (
-    <span data-testid={testId} className="tabular-nums">
+    <span data-testid={testId} className="whitespace-nowrap tabular-nums">
       <span className={cn(colored && "text-success")}>{`+${additions}`}</span>
       {" "}
       <span className={cn(colored && "text-destructive")}>{`−${deletions}`}</span>

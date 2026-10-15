@@ -140,8 +140,12 @@ State isolation:
 HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.ts`):
 - **Formatter**: `formatElementWithNormalization` in the mock script prints one attribute set per element with sorted attributes,
   so snapshots diff cleanly.
-- **Generated ids**: React `useId` values (`_r_1f_`, `«r1»`, `:r1:`), Base UI ids (`base-ui-_r_2_`, `base-ui-2`) and
-  `@git-diff-view` roots are replaced with `[ID]`/`[DYNAMIC]` in every attribute except `class` and `style`.
+- **Generated ids**: React `useId` values (`_r_1f_`, `«r1»`, `:r1:`) and Base UI ids (`base-ui-_r_2_`, `base-ui-2`) are
+  replaced with `[ID]` in every attribute except `class` and `style`.
+- **Diffs**: a diff (`@pierre/diffs`) renders into the shadow root of `<diffs-container>`, which the formatter does not
+  walk: a loaded diff without slotted light-DOM children (annotations, custom headers) prints as an empty element.
+  Assert on diff text with `toContainText`, which reads shadow roots too, and keep it to lines near the top: a long diff
+  is virtualized.
 - **Per-run values**: repository ids (KSUIDs) and temporary paths become `[REPO_ID]`/`[TEMP_PATH]` in text and attributes.
 - **Icons**: lucide-react renders `<svg class="lucide lucide-NAME ...">`. The formatter prints each icon as one line with the
   canonical name and its own classes, without paths and SVG presentation attributes. No icon name index is needed.

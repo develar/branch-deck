@@ -289,6 +289,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 
 ### Design Documents
 - [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
+- [Diff View](docs/design/diff-view.md) - The @pierre/diffs engine: Shiki in a worker pool, IntelliJ syntax themes, word diff, the lazy chunk
 - [Distributed Settings Architecture](docs/design/distributed-settings.md) - Settings synchronization across windows
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
 - [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
@@ -313,6 +314,7 @@ src/
 │   ├── commit/      # Commit list, commit info, floating selection bar
 │   ├── unassigned/  # Unassigned commits card and inline branch creator
 │   ├── conflict/    # Conflict and missing-commits views
+│   ├── diff/        # Diff views on @pierre/diffs (lazy chunk)
 │   ├── ai/          # AI branch name suggestions (Claude Code)
 │   └── settings/    # Settings dialogs
 ├── hooks/           # React hooks (useX.ts)

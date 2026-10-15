@@ -1,11 +1,10 @@
 import { useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
-import { DiffModeEnum, DiffView } from "@git-diff-view/react"
 import { Spinner } from "@/components/ui/spinner"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
+import { LazyFileDiffView } from "@/components/diff/LazyDiffViews"
 import { Callout } from "@/components/shared/Callout"
-import { useIsDark } from "@/hooks/useIsDark"
 import type { FileDiff } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
@@ -38,7 +37,6 @@ type FileDiffState = { kind: "loading" } | { kind: "error", message: string } | 
  * item is first expanded.
  */
 export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified", loadDiff }: OnDemandFileDiffListProps) {
-  const isDark = useIsDark()
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   // keyed by file path
   const [diffStates, setDiffStates] = useState<ReadonlyMap<string, FileDiffState>>(new Map())
@@ -103,14 +101,7 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
               {state?.kind === "loaded" && (state.diff.hunks.length === 0
                 ? <p className="p-4 text-sm text-muted-foreground">No changed lines</p>
                 : (
-                    <DiffView
-                      data={state.diff}
-                      diffViewMode={diffViewMode === "unified" ? DiffModeEnum.Unified : DiffModeEnum.Split}
-                      diffViewWrap
-                      diffViewHighlight
-                      diffViewFontSize={12}
-                      diffViewTheme={isDark ? "dark" : "light"}
-                    />
+                    <LazyFileDiffView diff={state.diff} diffViewMode={diffViewMode} />
                   ))}
             </AccordionPrimitive.Panel>
           </AccordionPrimitive.Item>

@@ -105,6 +105,22 @@ The Rhea preset derives all radii from `--radius` through the multipliers in the
 
 Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 10px radius.
 
+### Diffs
+
+A diff (`@pierre/diffs`, [Diff View](diff-view.md)) renders into the open shadow root of `<diffs-container>`, so
+Tailwind classes do not reach it. It takes its colours and fonts from custom properties, which inherit into the shadow
+root. `src/index.css` sets them on `diffs-container`; a declaration on the host wins over the theme the library writes
+on `:host`:
+
+- the background is `--card`, in both the light and the dark variable: our tokens already switch with the scheme;
+- added, deleted and modified lines are `--success`, `--destructive` and `--primary`, line numbers `--muted-foreground`,
+  the separators the `--bd-tint` of the foreground;
+- the code is JetBrains Mono at 12px without ligatures, 20px lines (the height Pierre's virtualizer measures with). The
+  font comes from `--theme(--font-mono)`: Tailwind does not emit `--font-mono` as a variable (`@theme inline`), so
+  `var(--font-mono)` would be empty.
+
+The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/diff/islands-themes.ts`.
+
 ### Key Decisions
 
 1. **Decision**: Change one token, `--radius`, and never radius classes in `src/components/ui/*`.

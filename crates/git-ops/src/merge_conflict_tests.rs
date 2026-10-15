@@ -179,7 +179,7 @@ fn test_get_merge_conflict_content_with_markers() {
   assert!(conflict_content.contains("\n  console.log('hello from target');\n"), "content: {conflict_content:?}");
   assert!(conflict_content.ends_with("}\n"), "content: {conflict_content:?}");
 
-  // Verify hunks are properly formatted for git-diff-view
+  // Verify hunks are properly formatted for the diff view
   assert!(!file_diff.hunks.is_empty(), "Should have diff hunks");
   let hunk = &file_diff.hunks[0];
   assert!(hunk.contains("@@"), "Hunk should contain @@ markers");
@@ -299,7 +299,7 @@ fn test_multiple_conflicting_files_with_markers() {
       assert!(conflict_content.contains("content2 cherry"));
     }
 
-    // Verify hunks exist for git-diff-view
+    // Verify hunks exist for the diff view
     assert!(!file_diff.hunks.is_empty(), "File {} should have diff hunks", conflict_detail.file);
 
     println!("Conflict in {}: {}", conflict_detail.file, conflict_content);

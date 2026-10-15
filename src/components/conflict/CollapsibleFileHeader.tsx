@@ -28,7 +28,8 @@ export function CollapsibleFileHeader({ fileName, label = fileName, actions }: C
         // hidden without delay, shown on header hover after a delay
         className="relative z-10 duration-200 ease-out focus-within:opacity-100 group-hover/file-header:opacity-100 group-hover/file-header:delay-300"
       />
-      <div className="flex flex-1 items-center justify-end gap-1">
+      {/* never shrinks: a long path truncates, the counts stay on one line */}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         {actions}
         <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/file-header:rotate-180" />
       </div>

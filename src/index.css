@@ -1,7 +1,6 @@
 /*
  * Scan only the app sources for class names: the automatic detection walked the whole checkout (Rust code, docs,
  * e2e snapshots, agent worktrees), which took the build 37 s and added classes no component uses.
- * The classes of @git-diff-view come with its own stylesheet below.
  */
 @import "tailwindcss" source("../src");
 @source "../index.html";
@@ -11,7 +10,6 @@
 @import "inter-ui/inter-variable.css";
 /* the monospace face of the IntelliJ editor, as in the JetBrains genui renderer */
 @import "@fontsource-variable/jetbrains-mono";
-@import "@git-diff-view/react/styles/diff-view-pure.css";
 
 /* The colour scheme follows the OS; there is no manual toggle */
 @custom-variant dark (@media (prefers-color-scheme: dark));
@@ -338,6 +336,29 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
   }
+}
+
+/*
+ * Diffs (@pierre/diffs) render into an open shadow root: custom properties inherit into it, and these declarations on
+ * the host win over the theme the library writes on :host (docs/design/ui-theme.md "Diffs"). The tokens switch with the
+ * colour scheme, so one value serves both the light and the dark variable.
+ */
+diffs-container {
+  /* --font-mono is not emitted as a variable (@theme inline) */
+  --diffs-font-family: --theme(--font-mono);
+  --diffs-header-font-family: --theme(--font-sans);
+  --diffs-font-features: "calt" 0;
+  --diffs-font-size: 12px;
+  /* the line height Pierre's virtualizer measures with */
+  --diffs-line-height: 20px;
+  --diffs-tab-size: 4;
+  --diffs-light-bg: var(--card);
+  --diffs-dark-bg: var(--card);
+  --diffs-addition-color-override: var(--success);
+  --diffs-deletion-color-override: var(--destructive);
+  --diffs-modified-color-override: var(--primary);
+  --diffs-fg-number-override: var(--muted-foreground);
+  --diffs-bg-separator-override: color-mix(in oklab, var(--foreground) var(--bd-tint), var(--card));
 }
 
 @layer base {

@@ -35,7 +35,8 @@ export function MissingCommitsDetails({ missingCommits, conflict, branchName, on
     if (commit.fileDiffs.length === 0) {
       return null
     }
-    return <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} />
+    // the file contents of a missing commit come with its patch
+    return <FileDiffList fileDiffs={commit.fileDiffs} keyPrefix={commit.hash} diffViewMode={diffViewMode} withContents />
   }, [diffViewMode])
 
   const openMissingCommitsWindow = () => {

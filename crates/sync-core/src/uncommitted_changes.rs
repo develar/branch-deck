@@ -128,23 +128,39 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
   // Determine file language from extension
   let file_lang = std::path::Path::new(&file_path).extension().and_then(|ext| ext.to_str()).unwrap_or("txt").to_string();
 
-  // Get unified diff with 3 lines of context
+  // the patch the diff view parses: literal pathspec, fixed prefixes, no external diff or textconv of the user's config;
+  // untrimmed, the last line may be a context line of a blank line, a single space
+  let pathspec = format!(":(literal){file_path}");
   let diff_output = git_executor
-    .execute_command(&["diff", "HEAD", "-U3", "--", &file_path], &repo_path)
+    .execute_command_raw(
+      &[
+        "diff",
+        "HEAD",
+        "-U3",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--",
+        &pathspec,
+      ],
+      &repo_path,
+    )
     .map_err(|e| format!("Failed to get diff for file {file_path}: {e}"))?;
 
-  // Create FileDiff with unified diff in hunks - git-diff-view will parse it
+  // the contents are not read: the patch has the changed lines and their context
   Ok(FileDiff {
     old_file: FileInfo {
       file_name: file_path.clone(),
       file_lang: file_lang.clone(),
-      content: String::new(), // Empty - git-diff-view will extract from hunks
+      content: String::new(),
     },
     new_file: FileInfo {
       file_name: file_path,
       file_lang,
-      content: String::new(), // Empty - git-diff-view will extract from hunks
+      content: String::new(),
     },
-    hunks: vec![diff_output], // Unified diff output from git
+    hunks: if diff_output.trim().is_empty() { Vec::new() } else { vec![diff_output] },
   })
 }

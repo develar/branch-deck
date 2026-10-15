@@ -17,6 +17,13 @@ targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/components/conflict/OnDemandFileDiffList.tsx
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
+  - ../../src/components/diff/FileDiffView.tsx
+  - ../../src/components/diff/LazyDiffViews.tsx
+  - ../../src/lib/diff/file-diff.ts
+  - ../../src/lib/diff/diff-engine.ts
+  - ../../src/lib/diff/diff-languages.ts
+  - ../../src/lib/diff/islands-themes.ts
+  - ../../src/index.css
   - ../../src/hooks/useCommitCopyActions.ts
   - ../../tests/e2e/helpers/aria-snapshot-helpers.ts
 ---
@@ -44,7 +51,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - The row does not list the files; the preview does.
 - The branch preview lists no files: its commits show the counts on their meta lines.
-- No word diff, no blame, no file history.
+- No blame, no file history.
 - The diffs of uncommitted changes stay in the amend card ([Amend Changes](amend.spec.md)).
 
 ## Requirements
@@ -94,6 +101,14 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A path must be taken literally, never as a pattern.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`file_diff_of_a_rename_shows_the_changed_lines`, `file_diff_takes_the_path_literally`)
 - A binary file must show "Binary file", and a file without changed lines "No changed lines", instead of a diff.
+- The diff must mark the changed words of a changed line, and highlight the code as the IntelliJ editor does, in the
+  light and the dark scheme. Kotlin, Gradle (`.gradle`, `.gradle.kts`), Rust, TypeScript, Java and the other common
+  languages must be read by their grammar; an unknown file is plain text.
+  [@test] ../../src/lib/diff/file-diff.test.ts (`keeps a whole git patch as it is, also its last context line of a blank line`, `parses a git patch with its object ids, partial without the contents`, `has no hunks for a file without hunks`)
+  [@test] ../../src/lib/diff/diff-languages.test.ts (`maps our custom extensions to grammars Shiki has`, `highlights %s as %s`)
+  [@test] ../../src/lib/diff/islands-themes.test.ts (`colour Kotlin as the IntelliJ Light scheme does`, `colour Rust and TypeScript with the dark scheme`)
+- Highlighting must not block the window: it runs in a worker pool, which starts with the first diff shown and lives
+  as long as the window. When the workers cannot start, the diff is highlighted on the main thread.
 - The section must offer the unified and the split view; the choice is the one of the conflict viewer.
 - Another commit (↑, ↓) must show its own files, collapsed.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
@@ -130,6 +145,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - Each file is a `rounded-lg border` panel: the path in `font-mono text-xs` muted, the copy button on hover (as in
   the amend card), then on the right the coloured `+/−` counts in `text-xs` and the status badge in the subtle badge
   colour of its status (added `success`, modified `info`, deleted `destructive`, the others neutral) and the chevron.
+  A long path is cut with "…"; the counts and the badge never wrap or shrink.
+- The diff is JetBrains Mono at 12px on the `card` background, added lines `success`, deleted `destructive`, a bar in
+  the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading file content…".
 - The footer shows a ghost `xs` button `F Files` (pressed while the section is shown) before `E Edit`.
 
@@ -137,7 +155,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
   `src-tauri/src/repository_state_test.rs`.
-- `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/stores/commit-files.test.ts`.
+- `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/stores/commit-files.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`. The test server runs the commands on the fixture repositories without the
   object cache.
 
@@ -151,6 +169,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 ## References
 
 - [Git Operations](../../docs/design/git-operations.md) ("Commit files", "Object cache")
+- [Diff View](../../docs/design/diff-view.md)
 - [Commit Row](commit-row.spec.md)
 - [Branch Preview](../branch/branch-preview.spec.md)
 - GitHub and GitLab show `+42 −7` per commit and per file, with the added lines green and the deleted ones red.

@@ -1,7 +1,5 @@
-import { useMemo } from "react"
 import type { ReactNode } from "react"
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
-import { DiffModeEnum, DiffView } from "@git-diff-view/react"
 import { GitBranchIcon, GitCommitHorizontalIcon, GitPullRequestIcon, InfoIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { useDefaultLayout } from "react-resizable-panels"
@@ -9,8 +7,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
 import { CollapsibleHint, HintList } from "@/components/conflict/ConflictResolutionHint"
-import { useIsDark } from "@/hooks/useIsDark"
-import type { ConflictDetail, FileDiff, MergeConflictInfo } from "@/lib/bindings"
+import { LazyFileContentView, LazyFileDiffView } from "@/components/diff/LazyDiffViews"
+import type { ConflictDetail, MergeConflictInfo } from "@/lib/bindings"
 import { getMergeBase } from "@/lib/merge-conflict"
 
 export interface GitDiffMergeViewProps {
@@ -84,7 +82,6 @@ const initialLayout = { base: 0, target: 50, cherry: 50 }
 /** Mounted only while the accordion item is open */
 function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWayPanelsProps) {
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: `conflict-${index}`, storage: localStorage, onlySaveAfterUserInteractions: true })
-  const baseDiff = useMemo(() => getBaseDiffData(conflict), [conflict])
 
   return (
     <ResizablePanelGroup orientation="horizontal" defaultLayout={defaultLayout ?? initialLayout} onLayoutChanged={onLayoutChanged} className="h-[min(600px,60vh)] w-full">
@@ -98,7 +95,7 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
               {mergeBase ? <CommitPopover commit={mergeBase} /> : <span>merge base</span>}
             </>
           )}
-          diff={baseDiff}
+          content={<LazyFileContentView name={conflict.file} contents={conflict.baseFile?.content ?? ""} />}
         />
       </ResizablePanel>
 
@@ -114,7 +111,7 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
               {target && <CommitPopover commit={target} />}
             </>
           )}
-          diff={conflict.baseToTargetDiff}
+          content={<LazyFileDiffView diff={conflict.baseToTargetDiff} diffViewMode="unified" withContents />}
         />
       </ResizablePanel>
 
@@ -130,7 +127,7 @@ function ThreeWayPanels({ conflict, index, mergeBase, target, cherry }: ThreeWay
               {cherry && <CommitPopover commit={cherry} />}
             </>
           )}
-          diff={conflict.baseToCherryDiff}
+          content={<LazyFileDiffView diff={conflict.baseToCherryDiff} diffViewMode="unified" withContents />}
         />
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -149,11 +146,11 @@ interface DiffPanelProps {
   icon: LucideIcon
   title: string
   description: ReactNode
-  diff: FileDiff
+  /** The file or the diff the panel shows */
+  content: ReactNode
 }
 
-function DiffPanel({ icon: Icon, title, description, diff }: DiffPanelProps) {
-  const isDark = useIsDark()
+function DiffPanel({ icon: Icon, title, description, content }: DiffPanelProps) {
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
@@ -166,35 +163,8 @@ function DiffPanel({ icon: Icon, title, description, diff }: DiffPanelProps) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border">
-        <DiffView
-          data={diff}
-          diffViewMode={DiffModeEnum.Unified}
-          diffViewWrap
-          diffViewHighlight
-          diffViewFontSize={12}
-          diffViewTheme={isDark ? "dark" : "light"}
-        />
+        {content}
       </div>
     </div>
   )
-}
-
-/** The base content as a single hunk of context lines (no changes) */
-function getBaseDiffData(conflict: ConflictDetail): FileDiff {
-  const fileName = conflict.file
-  const fileLang = fileName.split(".").pop() || "txt"
-  const content = conflict.baseFile?.content || ""
-
-  const hunks: string[] = []
-  if (content) {
-    const lines = content.split("\n")
-    // a space prefix marks a context line
-    hunks.push(`--- a/${fileName}\n+++ b/${fileName}\n@@ -1,${lines.length} +1,${lines.length} @@${lines.map(line => `\n ${line}`).join("")}`)
-  }
-
-  return {
-    oldFile: { fileName, fileLang, content },
-    newFile: { fileName, fileLang, content },
-    hunks,
-  }
 }

@@ -2,24 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import { GitBranchIcon, GitCommitHorizontalIcon, GitPullRequestIcon, SplitIcon, TriangleAlertIcon } from "lucide-react"
 import { cn } from "cn"
 import { CommitHashPopover } from "@/components/commit/CommitHashPopover"
-import type { ConflictCommit } from "@/lib/bindings"
-
-export type ConflictMarkerType = "conflict-start" | "conflict-base" | "conflict-separator" | "conflict-end"
-
-export interface ConflictMarkerInfo {
-  type: ConflictMarkerType
-  tooltip: string
-  branch?: string
-  base?: string
-  commit?: string
-}
-
-/** `extendData` payload of a diff line holding a conflict marker */
-export interface ConflictLineData {
-  tooltip: string
-  conflictInfo?: ConflictMarkerInfo
-  conflictMarkerCommits?: Record<string, ConflictCommit>
-}
+import type { ConflictLineData, ConflictMarkerType } from "@/lib/diff/conflict-annotations"
 
 interface MarkerStyle {
   icon: LucideIcon
@@ -74,7 +57,7 @@ function isCommitHash(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value)
 }
 
-/** Annotation under a diff line with a conflict marker (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`); rendered by `DiffView` `renderExtendLine`. */
+/** Annotation under a diff line with a conflict marker (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`), the `renderAnnotation` of `FileDiffView` */
 export function ConflictMarkerExtension({ data }: { data: ConflictLineData }) {
   const conflictInfo = data.conflictInfo
   if (!conflictInfo?.type) {

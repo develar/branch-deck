@@ -32,7 +32,9 @@ pub struct MissingCommit {
 pub struct FileDiff {
   pub old_file: FileInfo,
   pub new_file: FileInfo,
-  pub hunks: Vec<String>, // Array of unified diff hunks for git-diff-view
+  /// The patch of the file: one `diff --git` section, or hunks that each repeat the `---`/`+++` header; the frontend
+  /// joins them into one patch for the diff view
+  pub hunks: Vec<String>,
 }
 
 /// Information about a file including its content and metadata.
@@ -359,7 +361,8 @@ pub(crate) fn batch_get_file_diffs(
     show_args.extend(["--end-of-options", commit_hash.as_str(), "--"]);
     show_args.extend(files.iter().map(std::string::String::as_str));
 
-    let diff_output = git_executor.execute_command(&show_args, repo_path)?;
+    // untrimmed: the last line of a patch may be a context line of a blank line, a single space
+    let diff_output = git_executor.execute_command_raw(&show_args, repo_path)?;
     let file_to_diff: HashMap<String, String> = split_diff_by_file(&diff_output).into_iter().collect();
 
     // Build FileDiff objects

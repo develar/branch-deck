@@ -32,6 +32,8 @@ targets:
   - ../../src/components/conflict/ConflictingFilesSection.tsx
   - ../../src/components/conflict/GitDiffMergeView.tsx
   - ../../src/components/conflict/ConflictMarkerExtension.tsx
+  - ../../src/components/conflict/FileDiffList.tsx
+  - ../../src/lib/diff/conflict-annotations.ts
   - ../../src/components/conflict/ConflictWindowPage.tsx
   - ../../src/components/shared/NestedPanel.tsx
   - ../../src/lib/merge-conflict.ts
@@ -263,6 +265,12 @@ The commit hash popover shows the same header and body.
   empty under a non-zero file count.
   [@test] ../../src/lib/merge-conflict.test.ts (`keeps only the hunks with conflict markers`, `keeps the whole diff of a file without conflict markers, so no conflicting file disappears`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should list every conflicting file in the Diff View, also one without conflict markers`)
+- An added line with a conflict marker (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`) must get an annotation under it
+  that names its side and the branch or commit of the marker, with the commit popover for a hash.
+  [@test] ../../src/lib/diff/conflict-annotations.test.ts (`annotates each marker kind at its new-file line, past context and deleted lines`, `names the branch, the base and the commit of the markers`, `counts lines from the start of each hunk`)
+- The diffs of the missing commits and of the 3-way view must expand the unchanged lines between hunks: they come
+  with both file contents. A side without the file shows "No changed lines".
+  [@test] ../../src/lib/diff/file-diff.test.ts (`is complete with contents that agree with the hunks, so the unchanged lines can expand`, `keeps the file header of hunks that each repeat it once`, `adds a file header to hunks without one`)
 - The 3-way tab must start with a collapsed "How to read this view".
 - A row with a generic error must show the error text in a destructive alert.
 - The conflict commit context of a sub-window must show the title over the meta line of the commit, with the branch
