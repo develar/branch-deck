@@ -125,11 +125,9 @@ impl Drop for InteractiveCommand {
     }
     #[cfg(unix)]
     {
-      if let Ok(pid) = libc::pid_t::try_from(self.child.id()) {
-        // SAFETY: `kill` takes no pointers; the pid is our child's, which we have not waited for, so it is not reused
-        unsafe {
-          libc::kill(pid, libc::SIGTERM);
-        }
+      // the pid is our child's, which we have not waited for, so it is not reused
+      if let Some(pid) = i32::try_from(self.child.id()).ok().and_then(rustix::process::Pid::from_raw) {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
       }
       if self.exits_within(EXIT_GRACE) {
         return;
