@@ -26,6 +26,9 @@ export async function setupTestRepository(
   if (parsedOptions.pullRequests !== undefined) {
     await repoBuilder.setPullRequests(parsedOptions.pullRequests)
   }
+  if (parsedOptions.reviewRequests !== undefined) {
+    await repoBuilder.setReviewRequests(parsedOptions.reviewRequests)
+  }
   if (parsedOptions.patronus !== undefined) {
     await repoBuilder.setPatronus(parsedOptions.patronus)
   }

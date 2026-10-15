@@ -1,0 +1,217 @@
+// @spec spec/repository/review-requests.spec.md
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
+import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
+import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"
+import { closeReviewRequest, openReviewRequest, refreshReviewRequests, resetReviewRequests, reviewRequestsStore } from "@/stores/review-requests"
+import { reviewRequest as request } from "@/test-support/review-request"
+
+const { gh } = vi.hoisted(() => ({
+  gh: {
+    selected: "/repo",
+    result: null as ReviewRequestsResult | null,
+    calls: [] as { repositoryPath: string, githubRepository: string | null }[],
+    prunes: [] as { repositoryPath: string, keep: number[] }[],
+    toasts: [] as { title: string, description?: string, actionProps?: { children: string, onClick: () => void } }[],
+    notifications: [] as { title: string, body: string }[],
+    activity: [] as string[],
+  },
+}))
+
+vi.mock("@/lib/bindings", () => ({
+  commands: {
+    getReviewRequests: async (params: { repositoryPath: string, githubRepository: string | null }) => {
+      gh.calls.push(params)
+      return { status: "ok", data: gh.result }
+    },
+    pruneReviewRefs: async (params: { repositoryPath: string, keep: number[] }) => {
+      gh.prunes.push(params)
+      return { status: "ok", data: null }
+    },
+  },
+}))
+
+vi.mock("@/stores/repository", () => ({
+  getSelectedProject: () => ({ path: gh.selected }),
+  useSelectedProject: () => ({ path: gh.selected }),
+}))
+
+vi.mock("@/stores/pull-requests", () => ({ getGitHubRepository: () => ({ owner: "acme", name: "monorepo" }) }))
+
+vi.mock("@/stores/activity", () => ({
+  recordReviewRequest: (_path: string, request: ReviewRequest) => gh.activity.push(`#${request.number}`),
+}))
+
+vi.mock("@/components/ui/toast", () => ({
+  toast: {
+    add: (options: (typeof gh.toasts)[number]) => {
+      gh.toasts.push(options)
+      return "toast"
+    },
+    close: () => {},
+  },
+}))
+
+vi.mock("@tauri-apps/plugin-notification", () => ({
+  isPermissionGranted: async () => true,
+  requestPermission: async () => "granted",
+  sendNotification: (options: { title: string, body: string }) => gh.notifications.push(options),
+}))
+
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
+
+function available(...requests: ReviewRequest[]): ReviewRequestsResult {
+  return { availability: { status: "available", owner: "acme", name: "monorepo" }, totalCount: requests.length, requests }
+}
+
+function entry(path = "/repo") {
+  return reviewRequestsStore.getState().repositories[path]!
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime(1_000_000_000)
+  resetReviewRequests()
+  resetOsNotification()
+  gh.selected = "/repo"
+  gh.result = available()
+  gh.calls = []
+  gh.prunes = []
+  gh.toasts = []
+  gh.notifications = []
+  gh.activity = []
+})
+
+describe("answers", () => {
+  it("tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity", async () => {
+    gh.result = available(request(1))
+    await refreshReviewRequests("sync")
+    expect(gh.calls).toEqual([{ repositoryPath: "/repo", githubRepository: "acme/monorepo" }])
+    expect(gh.toasts).toEqual([])
+
+    gh.result = available(request(1), request(2), request(3))
+    await refreshReviewRequests("manual")
+    expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["2 reviews requested", "#2 Change 2 · #3 Change 3", "Review"]])
+    expect(gh.activity).toEqual(["#2", "#3"])
+    expect([...entry().unread]).toEqual(["2@1002", "3@1003"])
+
+    gh.toasts[0]!.actionProps!.onClick()
+    expect(reviewRequestsStore.getState().openReview?.number).toBe(2)
+    expect([...entry().unread]).toEqual(["3@1003"])
+  })
+
+  it("tells a re-request, keeps the list of an answer that changed nothing", async () => {
+    gh.result = available(request(1))
+    await refreshReviewRequests("sync")
+    const first = entry().requests
+    await refreshReviewRequests("manual")
+    expect(entry().requests).toBe(first)
+
+    gh.result = available(request(1, { waitingSince: 5_000, reRequested: true }))
+    await refreshReviewRequests("manual")
+    expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
+  })
+
+  it("tells in the background by an OS notification, and in a toast on focus", async () => {
+    await refreshReviewRequests("sync")
+    setWindowFocus(false)
+    gh.result = available(request(7))
+    await refreshReviewRequests("manual")
+    await vi.waitFor(() => expect(gh.notifications).toEqual([{ title: "bob requested your review", body: "#7 Change 7" }]))
+    expect(gh.toasts).toEqual([])
+    setWindowFocus(true)
+    expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
+  })
+
+  it("keeps the rows when a refresh fails, drops them without gh", async () => {
+    gh.result = available(request(1))
+    await refreshReviewRequests("sync")
+    const checkedAt = entry().checkedAt
+    gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
+    vi.advanceTimersByTime(1_000)
+    await refreshReviewRequests("manual")
+    expect(entry().requests.map(it => it.number)).toEqual([1])
+    expect(entry().availability).toEqual({ status: "error", message: "offline" })
+    expect(entry().checkedAt).toBe(checkedAt)
+
+    gh.result = { availability: { status: "notAuthenticated" }, totalCount: 0, requests: [] }
+    await refreshReviewRequests("manual")
+    expect(entry().requests).toEqual([])
+  })
+
+  it("is silent for the first answer after a repository switch", async () => {
+    gh.result = available(request(1))
+    await refreshReviewRequests("sync")
+    gh.selected = "/other"
+    gh.result = available(request(5))
+    await refreshReviewRequests("sync")
+    gh.selected = "/repo"
+    gh.result = available(request(1), request(2))
+    await refreshReviewRequests("sync")
+    expect(gh.toasts).toEqual([])
+  })
+})
+
+describe("polling", () => {
+  it("polls every five minutes, focused or not, and backs off while gh fails", async () => {
+    await refreshReviewRequests("sync")
+    setWindowFocus(false)
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(2)
+
+    gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(3)
+    // the first failure doubles the interval
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(3)
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(4)
+    await vi.advanceTimersByTimeAsync(MAX_BACKOFF_MS)
+    expect(gh.calls).toHaveLength(5)
+  })
+
+  it("stops while gh is logged out, until a focus asks again", async () => {
+    gh.result = { availability: { status: "notAuthenticated" }, totalCount: 0, requests: [] }
+    await refreshReviewRequests("sync")
+    await vi.advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(1)
+    gh.result = available(request(1))
+    await refreshReviewRequests("focus")
+    expect(gh.calls).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(3)
+  })
+
+  it("skips a poll while offline", async () => {
+    await refreshReviewRequests("sync")
+    vi.stubGlobal("navigator", { onLine: false })
+    try {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+      expect(gh.calls).toHaveLength(1)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(gh.calls).toHaveLength(2)
+  })
+})
+
+describe("review refs", () => {
+  it("prunes once after an answer with the requests, never after a failure, and keeps the open dialog's", async () => {
+    gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
+    await refreshReviewRequests("sync")
+    expect(gh.prunes).toEqual([])
+
+    gh.result = available(request(4))
+    await refreshReviewRequests("manual")
+    await refreshReviewRequests("manual")
+    expect(gh.prunes).toEqual([{ repositoryPath: "/repo", keep: [] }])
+
+    openReviewRequest("/repo", 4)
+    closeReviewRequest()
+    // nothing was written since the last prune
+    expect(gh.prunes).toHaveLength(1)
+  })
+})

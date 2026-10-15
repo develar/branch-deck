@@ -12,7 +12,13 @@
     "window-state:default",
     "log:default",
     "dialog:allow-open",
-    "opener:allow-open-url",
-    "opener:allow-default-urls"
+    "opener:allow-default-urls",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "x-apple.systempreferences:*" },
+        { "url": "ms-settings:*" }
+      ]
+    }
   ]
 }

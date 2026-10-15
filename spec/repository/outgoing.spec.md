@@ -145,6 +145,10 @@ is outgoing compares content, not hashes: the question is whether the remote has
   changes requested, failing checks". A robot that failed is told by the robots indicator after this one
   ([Robots Indicator](robots-indicator.spec.md)), not here: once.
   [@test] ../../src/lib/outgoing-attention.test.ts (`names what each pull request waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)
+- The "Returned to you" line of the Your Turn card ([Review Requests](review-requests.spec.md#card)) names, in these
+  words, only the open pull requests with changes requested: "Returned to you: ABC-123 (changes requested)"; a failing
+  check stays the indicator's.
+  [@test] ../../src/lib/outgoing-attention.test.ts (`names only the open pull requests a reviewer handed back, in the table order`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator`)
 - It must follow every sync and push result without a reload.

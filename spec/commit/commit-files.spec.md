@@ -19,6 +19,7 @@ targets:
   - ../../src/components/files/FileTree.tsx
   - ../../src/lib/file-tree.ts
   - ../../src/stores/commit-patch.ts
+  - ../../src-tauri/src/commands/review_requests.rs
   - ../../src/lib/diff/commit-patch.ts
   - ../../src/lib/preview-keys.ts
   - ../../crates/git-ops/src/cat_file_batch.rs
@@ -86,6 +87,11 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A commit id must be a full object id: an abbreviation, a ref or an option is refused.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`refuses_what_is_not_an_object_id`)
 - Nothing must write to a ref, the index or the working tree.
+- The files of a range `base..head` (the review of a pull request,
+  [Review Requests](../repository/review-requests.spec.md#review-dialog)) are one `diff-tree --raw --numstat -z` of the
+  two commits (never `--stdin`, so a range never lands in the disk cache entry of its head), its id `<base>..<head>`,
+  both ids validated; the app keys it by that id and drops it when the review closes.
+  [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
 
 ### Reading the diffs
 
@@ -96,6 +102,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A file over 1 MiB or 10 000 lines of patch, and every file after the first 16 MiB of a commit, must keep only its
   header and the count of the lines left out: a huge commit costs the limits, not its size.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_keeps_only_the_header_of_a_file_over_a_limit`, `commit_patch_leaves_out_the_hunks_after_the_total_limit`)
+- The patch of a range is one `diff-tree -p --full-index` of the two commits (`get_range_patch`), kept as a commit's
+  under `<base>..<head>`.
+  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
 - The app must keep the patches of the last 8 commits it showed, at most 32 MiB of text, and read a commit once while
   it is being read; a failed read is tried again with the next diff shown.
   [@test] ../../src/stores/commit-patch.test.ts (`reads a commit once, also when asked again while it loads`, `keeps a failure as an error and tries again on the next load`, `evicts the least recently loaded patch over the limit`)

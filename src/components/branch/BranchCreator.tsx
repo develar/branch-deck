@@ -8,12 +8,14 @@ import { GitSetupAlert } from "@/components/repository/GitSetupAlert"
 import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
+import { YourTurnCard } from "@/components/repository/YourTurnCard"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { usePushGuardRequest } from "@/stores/push-guard"
+import { useOpenReview } from "@/stores/review-requests"
 import { branchSyncStore, syncBranches, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
@@ -27,6 +29,7 @@ const debouncedAutoSync = pDebounce(async () => {
 }, 100)
 
 const PushGuardDialog = lazy(() => import("@/components/branch/PushGuardDialog").then(it => ({ default: it.PushGuardDialog })))
+const PullRequestReviewDialog = lazy(() => import("@/components/review/PullRequestReviewDialog").then(it => ({ default: it.PullRequestReviewDialog })))
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
 /** Root of the main window: configuration header, onboarding, errors and the branch tables. */
@@ -53,6 +56,11 @@ export function BranchCreator() {
   const [isPushGuardMounted, setPushGuardMounted] = useState(false)
   if (hasPushGuardRequest && !isPushGuardMounted) {
     setPushGuardMounted(true)
+  }
+  const hasOpenReview = useOpenReview() !== null
+  const [isReviewDialogMounted, setReviewDialogMounted] = useState(false)
+  if (hasOpenReview && !isReviewDialogMounted) {
+    setReviewDialogMounted(true)
   }
 
   const pathValidation = useRepository(state => state.pathValidation)
@@ -118,6 +126,9 @@ export function BranchCreator() {
           </Alert>
         )}
 
+      {/* after the first completed sync: never during Welcome or Ready to Sync */}
+      {hasSynced && <YourTurnCard />}
+
       {unassignedCommitCount > 0 && (
         <Suspense fallback={null}>
           <UnassignedCommitListCard commits={unassignedCommits} />
@@ -131,6 +142,12 @@ export function BranchCreator() {
       {isPushGuardMounted && (
         <Suspense fallback={null}>
           <PushGuardDialog />
+        </Suspense>
+      )}
+
+      {isReviewDialogMounted && (
+        <Suspense fallback={null}>
+          <PullRequestReviewDialog />
         </Suspense>
       )}
     </div>

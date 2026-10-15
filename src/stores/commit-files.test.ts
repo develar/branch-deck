@@ -1,12 +1,13 @@
 // @spec spec/commit/commit-files.spec.md
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { CommitFiles } from "@/lib/bindings"
-import { commitFilesStore, getFilesOfCommit, loadCommitFiles, loadFilesOfCommit } from "@/stores/commit-files"
+import { commitFilesStore, dropFilesOf, getFilesOfCommit, loadCommitFiles, loadFilesOfCommit, loadFilesOfSubject } from "@/stores/commit-files"
 
 const { calls } = vi.hoisted(() => ({
   calls: {
     batches: [] as string[][],
     singles: [] as string[],
+    ranges: [] as string[],
     fail: false,
     /** Resolves the batch in flight; null answers at once */
     release: null as (() => void) | null,
@@ -33,6 +34,10 @@ vi.mock("@/lib/bindings", () => ({
       calls.singles.push(commitId)
       return { status: "ok", data: files(commitId) }
     },
+    getRangeFiles: async ({ base, head }: { base: string, head: string }) => {
+      calls.ranges.push(`${base}..${head}`)
+      return { status: "ok", data: files(`${base}..${head}`) }
+    },
   },
 }))
 
@@ -43,6 +48,7 @@ beforeEach(() => {
   commitFilesStore.setState({ byCommit: new Map(), loading: new Set() })
   calls.batches = []
   calls.singles = []
+  calls.ranges = []
   calls.fail = false
   calls.hold = false
   calls.release = null
@@ -93,5 +99,20 @@ describe("loadFilesOfCommit", () => {
     expect(calls.singles).toEqual(["a"])
     expect(calls.batches).toEqual([])
     expect(getFilesOfCommit("a")).toEqual(files("a"))
+  })
+})
+
+describe("loadFilesOfSubject", () => {
+  it("loads the range of a review by its id, base..head, until its review drops it", async () => {
+    await loadFilesOfSubject({ kind: "range", base: "b", head: "h" })
+    await loadFilesOfSubject({ kind: "range", base: "b", head: "h" })
+    await loadFilesOfSubject({ kind: "commit", id: "h" })
+    expect(calls.ranges).toEqual(["b..h"])
+    expect(calls.singles).toEqual(["h"])
+    expect(getFilesOfCommit("b..h")).toEqual(files("b..h"))
+
+    dropFilesOf(["b..h"])
+    expect(getFilesOfCommit("b..h")).toBeUndefined()
+    expect(getFilesOfCommit("h")).toEqual(files("h"))
   })
 })

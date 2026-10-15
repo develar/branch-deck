@@ -57,9 +57,11 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 
 - Creating pull requests itself, updating or merging them. Approvals are final and Patronus merges; the app reads,
   leaves the creation to GitHub's form, and its one comment is the Patronus command ([Patronus](patronus.spec.md#pull-requests)).
-- Pull requests of others, of forks, and of branches that are not virtual branches of the user.
+- Pull requests of forks and of branches that are not virtual branches of the user, here. The pull requests of others
+  that wait for the user's review are [Review Requests](../repository/review-requests.spec.md) ("Your Turn").
 - GitHub Enterprise and other hosts: only github.com.
-- Polling: GitHub is asked after a sync, a push, a focus and a manual refresh only.
+- Polling the user's own pull requests: GitHub is asked for them after a sync, a push, a focus and a manual refresh
+  only. The review requests of others are polled ([Review Requests](../repository/review-requests.spec.md#polling)).
 
 ## Requirements
 
@@ -291,4 +293,5 @@ close of the pull requests a Safe Push of a stacked branch landed ([Stacked Bran
 - [Outgoing Commits](../repository/outgoing.spec.md)
 - [Branch Preview](branch-preview.spec.md)
 - [Patronus](patronus.spec.md): the other review status, shown next to the chip
+- [Review Requests](../repository/review-requests.spec.md): the pull requests of others that wait for the user
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md)

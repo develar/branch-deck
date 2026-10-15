@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import type { OutgoingAttention } from "@/lib/outgoing-attention"
 import { collectOutgoingAttention } from "@/lib/outgoing-attention"
 import { useBranchTableRows } from "@/stores/branch-sync"
-import { useRepositoryPullRequests } from "@/stores/pull-requests"
+import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 
 /**
  * The branches whose pull request waits for their author, in the table order, for the outgoing indicator; a failed
@@ -10,6 +10,6 @@ import { useRepositoryPullRequests } from "@/stores/pull-requests"
  */
 export function useOutgoingAttention(): readonly OutgoingAttention[] {
   const rows = useBranchTableRows()
-  const { pullRequests } = useRepositoryPullRequests()
+  const pullRequests = useRepositoryPullRequestMap()
   return useMemo(() => collectOutgoingAttention(rows, pullRequests), [rows, pullRequests])
 }

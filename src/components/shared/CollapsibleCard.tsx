@@ -10,6 +10,11 @@ export interface CollapsibleCardProps {
   "actions"?: ReactNode
   "children": ReactNode
   "defaultOpen"?: boolean
+  /** Controlled: the open state, kept by the caller (e.g. per repository); `defaultOpen` is ignored then */
+  "open"?: boolean
+  "onOpenChange"?: (open: boolean) => void
+  /** Of the card: its entrance animation */
+  "className"?: string
   "data-testid"?: string
 }
 
@@ -18,17 +23,18 @@ export interface CollapsibleCardProps {
  * `data-state="open|closed"` is set explicitly on the root and the body (Base UI emits `data-open`/`data-closed`).
  * Inside the header, `group-data-[state=open]:` targets the open state.
  */
-export function CollapsibleCard({ header, actions, children, defaultOpen = false, "data-testid": testId }: CollapsibleCardProps) {
-  const [open, setOpen] = useState(defaultOpen)
+export function CollapsibleCard({ header, actions, children, defaultOpen = false, open: controlledOpen, onOpenChange, className, "data-testid": testId }: CollapsibleCardProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen)
+  const open = controlledOpen ?? uncontrolledOpen
   const state = open ? "open" : "closed"
 
   return (
     <Collapsible
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={onOpenChange ?? setUncontrolledOpen}
       data-state={state}
       data-testid={testId}
-      render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border")} />}
+      render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border", className)} />}
     >
       <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
         <CollapsibleTrigger data-state={state} className="group min-w-0 flex-1 cursor-pointer rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30">

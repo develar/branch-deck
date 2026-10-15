@@ -1,6 +1,6 @@
 ---
 name: Commit Review
-description: Requirements for the review of a commit in its preview: the directory tree of its files beside the diffs of all of them in one virtualized view, with keys for the files, the changes and the commits.
+description: Requirements for the review of a commit in its preview, and of the range of a pull request in its review dialog: the directory tree of its files beside the diffs of all of them in one virtualized view, with keys for the files, the changes and the commits.
 style: plain-1
 targets:
   - ../../src/components/commit/CommitReview.tsx
@@ -14,6 +14,9 @@ targets:
   - ../../src/lib/file-tree.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/stores/commit-patch.ts
+  - ../../src/stores/commit-files.ts
+  - ../../src/lib/commit-files.ts
+  - ../../src/components/review/PullRequestReviewDialog.tsx
 ---
 
 # Commit Review
@@ -54,6 +57,14 @@ changes. Escape goes back to the preview of the same commit.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list in the review, which stays open.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
+
+- The review has a subject: a commit, or the range `base..head` of a pull request that waits for the user's review
+  ([Review Requests](../repository/review-requests.spec.md#review-dialog)). The same view shows both: the loading line,
+  the error ("Cannot read the changes of the commit", "… of the pull request") and the empty state are one. A range is
+  keyed `<base>..<head>` in the stores of the files and the patches and dropped when its dialog closes.
+  [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
+  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 
 ### The tree and the diffs
 

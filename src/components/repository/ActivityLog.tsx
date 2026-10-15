@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { ArrowDownIcon, ChevronRightIcon, ExternalLinkIcon, OctagonXIcon, PackageCheckIcon, PenLineIcon, ShieldCheckIcon, TriangleAlertIcon, UploadIcon } from "lucide-react"
+import { ArrowDownIcon, ChevronRightIcon, ExternalLinkIcon, OctagonXIcon, PackageCheckIcon, PenLineIcon, ShieldCheckIcon, TriangleAlertIcon, UploadIcon, UserCheckIcon } from "lucide-react"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { LandedBranchRow } from "@/components/repository/LandedCard"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { notifyError } from "@/lib/errors"
+import { openPullRequestUrl } from "@/lib/pull-request"
 import type { ActivityDetails, ActivityEntry } from "@/stores/activity"
 import { canUndoActivity, clearActivity, groupActivityByDay, undoActivity, useActivity } from "@/stores/activity"
 import { useBranchOrder } from "@/stores/branch-sync"
@@ -91,7 +92,8 @@ function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
           </p>
         )}
         {entry.undo !== undefined && <UndoAction entry={entry} />}
-        {details?.type === "robot" && <OpenRobotAction url={details.url} />}
+        {details?.type === "robot" && <OpenLinkAction label="Open in Patronus" testId="activity-open-robot" onOpen={() => openUrl(details.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))} />}
+        {details?.type === "pullRequest" && <OpenLinkAction label="Open on GitHub" testId="activity-open-pull-request" onOpen={() => openPullRequestUrl(details.url)} />}
         {details?.type === "dropped" && (
           <div className="pt-1">
             <DroppedCommitList dropped={details} />
@@ -101,6 +103,16 @@ function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
       </div>
     </li>
   )
+}
+
+const kindIcons: Readonly<Record<ActivityEntry["kind"], typeof UploadIcon>> = {
+  push: UploadIcon,
+  update: ArrowDownIcon,
+  landed: PackageCheckIcon,
+  patronus: ShieldCheckIcon,
+  rewrite: PenLineIcon,
+  review: UserCheckIcon,
+  error: OctagonXIcon,
 }
 
 /** The kind of the entry, in the hue of its outcome */
@@ -115,7 +127,7 @@ function EntryIcon({ entry }: { entry: ActivityEntry }) {
   if (entry.details?.type === "landed") {
     return <PackageCheckIcon aria-hidden className={cn(className, "text-info")} />
   }
-  const Icon = entry.kind === "push" ? UploadIcon : entry.kind === "update" ? ArrowDownIcon : entry.kind === "patronus" ? ShieldCheckIcon : PenLineIcon
+  const Icon = kindIcons[entry.kind]
   return <Icon aria-hidden className={cn(className, "text-muted-foreground")} />
 }
 
@@ -178,17 +190,13 @@ function UndoAction({ entry }: { entry: ActivityEntry }) {
   )
 }
 
-function OpenRobotAction({ url }: { url: string }) {
+/** Opens the object of an entry in the browser: a robot in Patronus, a pull request on GitHub */
+function OpenLinkAction({ label, testId, onOpen }: { label: string, testId: string, onOpen: () => void }) {
   return (
     <div className="-ml-2 flex">
-      <Button
-        size="xs"
-        variant="ghost"
-        data-testid="activity-open-robot"
-        onClick={() => openUrl(url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))}
-      >
+      <Button size="xs" variant="ghost" data-testid={testId} onClick={onOpen}>
         <ExternalLinkIcon data-icon="inline-start" />
-        Open in Patronus
+        {label}
       </Button>
     </div>
   )

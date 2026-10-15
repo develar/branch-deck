@@ -1,7 +1,7 @@
 # UX Writing: Toasts, Errors and Labels
 
 **Status:** Active  
-**Updated:** 2026-10-14  
+**Updated:** 2026-10-15  
 **Tags:** [ui, wording, toasts]
 
 ## Summary
@@ -56,7 +56,10 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 
 - **Title Case** for buttons, menu items, card titles, tabs and toast actions: "Create Pull Request", "Open in
   Patronus", "Copy Path", "Install and Restart".
-- **Sentence case** for dialog titles, toast titles, descriptions, tooltips, placeholders and help heads.
+- **Sentence case** for dialog titles, toast titles, descriptions, tooltips, placeholders and help heads, and for the
+  label of a switch and the heading of a settings section ("Review requests", "Count failed robots and conflicts",
+  "Dock icon"): a switch states a setting, it is not a command. A switch that mirrors a menu item keeps the item's
+  Title Case ("Auto-sync on Focus").
 - **"…"** (the ellipsis character, never "...") for progress ("Pushing…") and on every command that opens a form
   ("Safe Push…", "Unapply…").
 - **"canceled"**, "canceling" (US spelling), "Branch Deck".

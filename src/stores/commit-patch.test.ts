@@ -1,11 +1,12 @@
 // @spec spec/commit/commit-files.spec.md
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { CommitPatch } from "@/lib/bindings"
-import { commitPatchStore, loadCommitPatch, MAX_CACHED_PATCHES } from "@/stores/commit-patch"
+import { commitPatchStore, dropPatchesOf, loadCommitPatch, loadSubjectPatch, MAX_CACHED_PATCHES } from "@/stores/commit-patch"
 
 const getCommitPatch = vi.hoisted(() => vi.fn())
+const getRangePatch = vi.hoisted(() => vi.fn())
 
-vi.mock("@/lib/bindings", () => ({ commands: { getCommitPatch } }))
+vi.mock("@/lib/bindings", () => ({ commands: { getCommitPatch, getRangePatch } }))
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 vi.mock("@/lib/command", () => import("@/test-support/invoke-command-mock"))
 vi.mock("@/lib/errors", () => ({ logError: () => {} }))
@@ -20,6 +21,8 @@ beforeEach(() => {
   commitPatchStore.setState({ byCommit: new Map() })
   getCommitPatch.mockReset()
   getCommitPatch.mockImplementation(answer)
+  getRangePatch.mockReset()
+  getRangePatch.mockImplementation(async ({ base, head }: { base: string, head: string }) => ({ status: "ok", data: patch(`${base}..${head}`) }))
 })
 
 function requestedIds(): string[] {
@@ -72,5 +75,17 @@ describe("loadCommitPatch", () => {
     expect(ids).toHaveLength(MAX_CACHED_PATCHES)
     expect(ids).not.toContain("c1")
     expect(ids.slice(-2)).toEqual(["c0", "new"])
+  })
+})
+
+describe("loadSubjectPatch", () => {
+  it("reads the range of a review with its own command, keyed base..head, until its review drops it", async () => {
+    loadSubjectPatch({ kind: "range", base: "b", head: "h" })
+    await settle()
+    expect(getRangePatch).toHaveBeenCalledTimes(1)
+    expect(getCommitPatch).not.toHaveBeenCalled()
+    expect(commitPatchStore.getState().byCommit.get("b..h")).toEqual({ kind: "loaded", patch: patch("b..h") })
+    dropPatchesOf(["b..h"])
+    expect(commitPatchStore.getState().byCommit.has("b..h")).toBe(false)
   })
 })

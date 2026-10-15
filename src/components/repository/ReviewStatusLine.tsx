@@ -8,6 +8,8 @@ export interface ReviewStatusLineProps {
   hint: string | null
   /** "Pull requests checked", followed by how long ago (`checkedAt`, it ages while shown); shown without a hint */
   checkedLabel: string
+  /** After the hint too: "GitHub: offline · checked 5 minutes ago", for rows kept from an earlier answer */
+  ageWithHint?: boolean
   /** When the service last answered, `Date.now()` */
   checkedAt: number
   isRefreshing: boolean
@@ -19,14 +21,15 @@ export interface ReviewStatusLineProps {
 }
 
 /** A footer line of the outgoing overview: when a review service was last asked, or a quiet hint why it can't be, and a refresh button */
-export function ReviewStatusLine({ hint, checkedLabel, checkedAt, isRefreshing, onRefresh, refreshLabel, testId, refreshTestId }: ReviewStatusLineProps) {
+export function ReviewStatusLine({ hint, checkedLabel, checkedAt, ageWithHint = false, isRefreshing, onRefresh, refreshLabel, testId, refreshTestId }: ReviewStatusLineProps) {
   return (
     <div className="flex items-center justify-between gap-3" data-testid={testId}>
       {/* wraps: a hint is read in full */}
       <span className="min-w-0 text-muted-foreground">
-        {hint ?? (
+        {hint !== null && hint}
+        {(hint === null || (ageWithHint && checkedAt !== 0)) && (
           <>
-            {`${checkedLabel} `}
+            {hint === null ? `${checkedLabel} ` : ` · ${checkedLabel.toLowerCase()} `}
             <RelativeTime time={checkedAt} />
           </>
         )}

@@ -208,7 +208,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
 
           <PreviewDialogBody ref={bodyRef} itemKey={hash} fill={isReviewing} data-testid="commit-preview-body">
             {isReviewing
-              ? <CommitReview commitId={hash} initialPath={review.hash === hash ? review.path : null} onPositionChange={setReviewPosition} />
+              ? <CommitReview subject={{ kind: "commit", id: hash }} initialPath={review.hash === hash ? review.path : null} onPositionChange={setReviewPosition} />
               : isEditing
                 ? (
                     <Textarea
@@ -279,8 +279,8 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   )
 }
 
-/** The keys of the review: the files, the changes, the commits and the way back */
-function ReviewKeyHints({ count }: { count: number }) {
+/** The keys of the review: the files, the changes, the commits (`count` > 1) and the way back */
+export function ReviewKeyHints({ count }: { count: number }) {
   const option = isMac ? "⌥" : "Alt+"
   return (
     <>

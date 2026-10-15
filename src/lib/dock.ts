@@ -7,6 +7,11 @@ import type { DockProgress } from "@/lib/robot-overview"
 let shownProgress: DockProgress = { status: "none" }
 let shownBadge = 0
 
+/** What the badge counts: what needs the user (failed robots, conflicts), and the pull requests that wait for a review */
+export type BadgeSource = "attention" | "reviewRequests"
+
+const badgeCounts: Record<BadgeSource, number> = { attention: 0, reviewRequests: 0 }
+
 function sameProgress(a: DockProgress, b: DockProgress): boolean {
   return a.status === b.status && (a.status !== "normal" || a.progress === (b as typeof a).progress)
 }
@@ -39,16 +44,29 @@ export async function setDockProgress(progress: DockProgress): Promise<void> {
   }
 }
 
-/** The badge of the Dock: what needs the user, never a running robot; none at 0. Windows has no badge count. */
-export async function setDockBadge(count: number): Promise<void> {
-  if (isWindows || count === shownBadge) {
+/**
+ * Sets the count of one source of the badge of the Dock; the badge shows the sum, none at 0. Each source is set from
+ * its own place (`useDockStatus`), behind its switch in Settings. Windows has no badge count.
+ */
+export async function setBadgeSource(source: BadgeSource, count: number): Promise<void> {
+  badgeCounts[source] = count
+  const total = badgeCounts.attention + badgeCounts.reviewRequests
+  if (isWindows || total === shownBadge) {
     return
   }
-  shownBadge = count
+  shownBadge = total
   try {
-    await getCurrentWindow().setBadgeCount(count === 0 ? undefined : count)
+    await getCurrentWindow().setBadgeCount(total === 0 ? undefined : total)
   }
   catch (error: unknown) {
     logError("Cannot show the badge in the Dock", error)
   }
+}
+
+/** Forgets what the Dock shows (tests) */
+export function resetDock(): void {
+  shownProgress = { status: "none" }
+  shownBadge = 0
+  badgeCounts.attention = 0
+  badgeCounts.reviewRequests = 0
 }

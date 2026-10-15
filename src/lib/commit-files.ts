@@ -1,6 +1,38 @@
 import type { CommitFile, CommitFiles, FileStatus } from "@/lib/bindings"
 import type { UIColor } from "@/lib/ui-types"
 
+/**
+ * What a review diffs: one commit (against its first parent), or the range `base..head` of a pull request, as GitHub's
+ * "Files changed" shows it
+ */
+export type DiffSubject = { readonly kind: "commit", readonly id: string } | { readonly kind: "range", readonly base: string, readonly head: string }
+
+/**
+ * The id of the files and the patch of a subject in their stores: the commit id, or `<base>..<head>`, the `commitId` the
+ * backend answers a range with
+ */
+export function diffSubjectId(subject: DiffSubject): string {
+  return subject.kind === "commit" ? subject.id : `${subject.base}..${subject.head}`
+}
+
+/** The map without the entries of `ids`; the map itself when it has none of them */
+export function withoutIds<V>(map: ReadonlyMap<string, V>, ids: readonly string[]): ReadonlyMap<string, V> {
+  if (!ids.some(id => map.has(id))) {
+    return map
+  }
+  const next = new Map(map)
+  for (const id of ids) {
+    next.delete(id)
+  }
+  return next
+}
+
+/** The subject of a `diffSubjectId`: a commit id has no `..` */
+export function parseDiffSubjectId(id: string): DiffSubject {
+  const separator = id.indexOf("..")
+  return separator === -1 ? { kind: "commit", id } : { kind: "range", base: id.slice(0, separator), head: id.slice(separator + 2) }
+}
+
 /** What the meta line of a commit says about its files: "3 files · +42 −7" */
 export interface CommitFileStats {
   count: number

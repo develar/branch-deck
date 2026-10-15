@@ -12,6 +12,12 @@ const AppSettingsSchema = z.object({
   autoSyncOnFocus: z.boolean().default(false),
   // the zoom of the pages in every window (`useZoom`), read by the window builders too (`src-tauri/src/zoom.rs`)
   zoom: z.number().positive().default(1),
+  // Settings → Notifications: the OS notifications in the background (`src/lib/os-notification.ts`)
+  notifyReviewRequests: z.boolean().default(true),
+  notifyPatronusMerges: z.boolean().default(true),
+  // Settings → Dock icon: what the badge counts (`src/lib/dock.ts`); Windows has no badge
+  reviewBadge: z.boolean().default(true),
+  attentionBadge: z.boolean().default(true),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -35,6 +41,13 @@ export function setAutoSyncOnFocus(autoSyncOnFocus: boolean): void {
 
 export function setZoom(zoom: number): void {
   appSettingsStore.setState({ zoom })
+}
+
+/** A switch of the Settings dialog */
+export type AppSettingsSwitch = "notifyReviewRequests" | "notifyPatronusMerges" | "reviewBadge" | "attentionBadge"
+
+export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
+  appSettingsStore.setState({ [name]: value })
 }
 
 export function setGlobalUserBranchPrefix(globalUserBranchPrefix: string | undefined): void {

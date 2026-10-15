@@ -3,7 +3,6 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { KnownRobotStatus, PatronusAvailability, PatronusMergeRequest, PatronusPushMode, PatronusRobot, PatronusRobotStatus } from "@/lib/bindings"
 import type { LandingAncestor, LandingDescendant } from "@/lib/patronus"
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import {
@@ -20,6 +19,7 @@ import {
 } from "@/lib/patronus"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { closeLandedPullRequests } from "@/lib/landed-stack"
+import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { createRefreshGates } from "@/lib/refresh-gate"
 import { expectedRobotDuration } from "@/lib/robot-eta"
 import { stackAncestors } from "@/lib/stack"
@@ -364,14 +364,11 @@ function storeRobots(key: string, incoming: readonly PatronusRobot[], replace: b
 
 /** The merged robots already told about, once each */
 const announcedMerges = new Set<string>()
-/** Merges that happened while the window was not focused: their toasts show on focus */
-let pendingMergeToasts: { key: string, robot: PatronusRobot, description: string }[] = []
-/** null until the first notification asks the OS */
-let notificationsAllowed: boolean | null = null
 
 /**
  * A robot merged a branch: a toast with Fetch, so the header learns that an update brings the branch in, and "Open in
- * Patronus". While the window is not focused, an OS notification says it at once, and the toast waits for the focus.
+ * Patronus". While no window is focused, an OS notification says it at once (unless Settings turned it off), and the
+ * toast waits for the focus.
  * A stacked branch landed its ancestors too: their open pull requests are closed (`closeLandedPullRequests`), and the
  * toast says so.
  */
@@ -387,12 +384,8 @@ function announceMerge(key: string, robot: PatronusRobot): void {
   const closed = closeLandedPullRequests(robot)
   const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
   recordRobot(formatMergedRobotTitle(robot), description, robot, key.split("\n")[0])
-  if (windowFocused) {
-    showMergeToast(key, robot, description)
-    return
-  }
-  pendingMergeToasts.push({ key, robot, description })
-  void notifyOs(formatMergedRobotTitle(robot), `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up`)
+  const notification = { title: formatMergedRobotTitle(robot), body: `${formatPushMode(robot.pushMode)} · Fetch and update to pick it up` }
+  announce("patronusMerges", notification, () => showMergeToast(key, robot, description))
 }
 
 function showMergeToast(key: string, robot: PatronusRobot, description: string): void {
@@ -412,21 +405,6 @@ function showMergeToast(key: string, robot: PatronusRobot, description: string):
     // Fetch is the primary action, the robot page the second one
     data: { kind: "robot", openRobot: () => openRobot(robot) },
   })
-}
-
-/** Asks for the permission on the first notification, never at startup; a notification is an extra, it never fails */
-async function notifyOs(title: string, body: string): Promise<void> {
-  try {
-    if (notificationsAllowed === null) {
-      notificationsAllowed = await isPermissionGranted() || await requestPermission() === "granted"
-    }
-    if (notificationsAllowed) {
-      sendNotification({ title, body })
-    }
-  }
-  catch {
-    // no notification plugin (the E2E mock), or the OS refused
-  }
 }
 
 // ---- refresh ----
@@ -459,7 +437,6 @@ const pollGates = createRefreshGates({
 })
 
 let pollTimer: ReturnType<typeof setTimeout> | undefined
-let windowFocused = typeof document === "undefined" || document.hasFocus()
 
 /**
  * Stores an answer of Patronus: its robots (a full list replaces them), its availability and, for a list (not a poll),
@@ -589,6 +566,7 @@ function schedulePoll(restart: boolean): void {
     return
   }
   const active = activeBranchRobots(key)
+  const windowFocused = isWindowFocused()
   if (windowFocused ? active.length === 0 : !active.some(isPushingRobot)) {
     return
   }
@@ -789,15 +767,10 @@ export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<Pa
  * their toasts and the running robots are asked for at once
  */
 export function setPatronusWindowFocus(focused: boolean): void {
-  windowFocused = focused
+  setWindowFocus(focused)
   if (!focused) {
     schedulePoll(true)
     return
-  }
-  const toasts = pendingMergeToasts
-  pendingMergeToasts = []
-  for (const { key, robot, description } of toasts) {
-    showMergeToast(key, robot, description)
   }
   clearTimeout(pollTimer)
   pollTimer = undefined
@@ -811,9 +784,7 @@ export function resetPatronus(): void {
   pollGates.reset()
   clearTimeout(pollTimer)
   pollTimer = undefined
-  windowFocused = true
+  resetOsNotification()
   announcedMerges.clear()
-  pendingMergeToasts = []
-  notificationsAllowed = null
   patronusStore.setState({ repositories: {} })
 }

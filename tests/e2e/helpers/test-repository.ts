@@ -1,4 +1,4 @@
-import type { BranchNameSuggestionOutcome, PatronusRobotsResult, PullRequestsResult } from "../../../src/lib/bindings"
+import type { BranchNameSuggestionOutcome, PatronusRobotsResult, PullRequestsResult, ReviewRequestsResult } from "../../../src/lib/bindings"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 export class TestRepositoryBuilder {
@@ -70,6 +70,16 @@ export class TestRepositoryBuilder {
   /** How often the app asked for pull requests */
   async getPullRequestCalls(): Promise<number> {
     return (await this.getFixture<{ calls: number }>("pull-requests")).calls
+  }
+
+  /** Sets what `get_review_requests` answers from now on (E2E never runs gh) */
+  async setReviewRequests(result: ReviewRequestsResult): Promise<void> {
+    await this.setFixture("review-requests", result)
+  }
+
+  /** How often the app asked for the review requests */
+  async getReviewRequestCalls(): Promise<number> {
+    return (await this.getFixture<{ calls: number }>("review-requests")).calls
   }
 
   /** Sets what `suggest_branch_names` answers from now on and how long it takes (E2E never runs claude) */

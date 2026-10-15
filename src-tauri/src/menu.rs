@@ -19,6 +19,9 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   #[cfg(target_os = "macos")]
   let mac_menu = {
     let submenu = SubmenuBuilder::new(app, app_name).about(None).separator();
+    // the macOS place of the settings of an app, ⌘,
+    let settings = MenuItemBuilder::with_id(SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
+    let submenu = submenu.item(&settings).separator();
 
     // Only add update menu item when auto-update feature is enabled
     #[cfg(feature = "auto-update")]
@@ -40,12 +43,20 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   // Store checkbox reference in MenuState for programmatic access
   app.state::<MenuState>().set_auto_sync_checkbox(auto_sync_checkbox.clone());
 
-  let file_menu = &SubmenuBuilder::new(app, "File")
+  let file_menu_builder = SubmenuBuilder::new(app, "File")
     .item(&sync_branches)
     .item(&update_project)
     .separator()
-    .item(&auto_sync_checkbox)
-    .build()?;
+    .item(&auto_sync_checkbox);
+
+  // Windows and Linux: File → Settings…, Ctrl+,
+  #[cfg(not(target_os = "macos"))]
+  let file_menu_builder = {
+    let settings = MenuItemBuilder::with_id(SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
+    file_menu_builder.separator().item(&settings)
+  };
+
+  let file_menu = &file_menu_builder.build()?;
 
   #[cfg(not(target_os = "linux"))]
   let edit_menu_builder = SubmenuBuilder::new(app, "Edit").items(&[
@@ -118,6 +129,7 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
 }
 
 const VIEW: &str = "View";
+const SETTINGS: &str = "settings";
 const ZOOM_IN: &str = "Zoom In";
 
 /// Zoom In is `⌘+` on macOS, as in Safari and Electron apps. Tauri builds accelerators from key codes only, and `+` is
@@ -177,6 +189,18 @@ pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
       let result = app.emit_to("main", "zoom", &event.id().as_ref()["zoom_".len()..]);
       if result.is_err() {
         tracing::error!(error = ?result.err(), "error while triggering zoom");
+      }
+    }
+    // the focused window opens the dialog (a conflict window too), the main one when none is focused
+    SETTINGS => {
+      let label = app
+        .webview_windows()
+        .into_iter()
+        .find(|(_, window)| window.is_focused().unwrap_or(false))
+        .map_or_else(|| "main".to_owned(), |(label, _)| label);
+      let result = app.emit_to(label.as_str(), "open_settings", ());
+      if result.is_err() {
+        tracing::error!(error = ?result.err(), "error while opening the settings");
       }
     }
     "color_selector" => {

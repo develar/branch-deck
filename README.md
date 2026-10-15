@@ -69,6 +69,13 @@ repositories: all operations run through the Git CLI.
   (the parent branch of a stacked one). Branches pushed to Space work too when its committed settings
   (`.space/repository-settings.json`) mirror the repository to GitHub; otherwise `git config branchdeck.githubRepository
   <owner>/<name>` names it.
+- **Your Turn**: the pull requests of others that ask for your review by name, above the branches, waiting the longest
+  first, an old one in the warning colour after a working day; your own pull requests a reviewer handed back are named
+  below them. GitHub is asked every five minutes; a new request is a toast, or an OS notification in the background,
+  and the Dock badge counts them. A row opens the review in the app: the description and the commits while the pull
+  request is fetched (also from a Space checkout), then all its diffs beside the file tree, without touching your
+  working tree; "Review on GitHub" is where you approve. Settings… (`⌘,`) turns the notifications and the badge counts
+  on and off.
 - **Patronus** (JetBrains Space repositories): the Safe Push, Safe Merge or Dry Run of each branch, running, failed or
   merged, and whether the branch changed since it started (a sync that only rebuilt the branch on a newer baseline did
   not). While a robot runs, the Safe Push button of its row is the robot: how long it runs and about how long it has

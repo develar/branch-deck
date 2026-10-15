@@ -51,6 +51,14 @@ export function useRepositoryPullRequests(): RepositoryPullRequests {
   return useStore(pullRequestsStore, state => state.repositories[key] ?? EMPTY)
 }
 
+const NO_PULL_REQUESTS: RepositoryPullRequests["pullRequests"] = {}
+
+/** The pull requests of the selected repository by branch; re-renders only when they change, not on `isRefreshing` */
+export function useRepositoryPullRequestMap(): RepositoryPullRequests["pullRequests"] {
+  const key = useRepositoryKey()
+  return useStore(pullRequestsStore, state => state.repositories[key]?.pullRequests ?? NO_PULL_REQUESTS)
+}
+
 /** Re-renders only when the pull request of the branch changes, not on every refresh */
 export function usePullRequest(branchName: string): PullRequest | undefined {
   const key = useRepositoryKey()

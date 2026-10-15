@@ -108,6 +108,12 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Title bar**: the toolbar is the title bar, as in the IntelliJ new UI: beside the macOS traffic lights (overlay),
   with its own window buttons on Windows (no decorations), below the native title bar on Linux; the page learns the kind
   from `window.__BD_TITLE_BAR__` (`spec/repository/title-bar.spec.md`).
+- **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
+  (`gh api graphql`, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
+  requests with changes requested, a toast or an OS notification per answer with news, the Dock badge
+  (`setBadgeSource`); the review dialog fetches the pull request into `refs/branch-deck/review/<n>/…` and reviews
+  `base..head` in the commit review (a range subject); Settings… (⌘,) holds the notification and badge switches
+  (`spec/repository/review-requests.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).

@@ -3,6 +3,7 @@ name: Patronus
 description: Requirements for the Patronus status of the virtual branches (Safe Push, Safe Merge, Dry Run), read over the Patronus REST API with the token of the Safe Push CLI, with the least load on Patronus, shown live in the Safe Push slot of the branch row (its time and how long it usually takes, a progress line, the branches it lands) and as a chip in the branch preview and the outgoing overview; the toast and the OS notification when a robot merged a branch, with a fetch of the baseline; starting a Safe Push or a Dry Run of a branch (from the row, the branch menu, the preview and the chip popover) with the code-owner review it needs and its merge request, or from its GitHub pull request with a /patronus comment when the branches are reviewed on GitHub; restarting and canceling its robot, and the question before a push into a branch whose Safe Push runs.
 style: plain-1
 targets:
+  - ../../src/lib/os-notification.ts
   - ../../crates/sync-types/src/patronus.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
@@ -417,9 +418,11 @@ reports in it and closes it once merged.
   toast "Cannot close pull request #5".
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`)
-- In the background, an OS notification says it at once ("auth merged into master", "Safe Push · Fetch and update to
-  pick it up"); the toast shows on the next focus. The permission is asked on the first notification, never at start;
-  without it, or without the plugin, nothing is said but the toast.
+- In the background (no Branch Deck window has the focus), an OS notification says it at once ("auth merged into
+  master", "Safe Push · Fetch and update to pick it up") while "Safe Push merges" is on in Settings
+  ([Review Requests](../repository/review-requests.spec.md#settings), `notifyPatronusMerges`, on by default); the toast
+  shows on the next focus. The permission is asked on the first notification, never at start; without it, or without
+  the plugin, nothing is said but the toast (`src/lib/os-notification.ts`).
   [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
 - Fetch fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
   the files (`fetch_baseline`). Meanwhile the Update button of the robot's repository shows the fetch ("Fetching 45%"),

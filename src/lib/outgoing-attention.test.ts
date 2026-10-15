@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { PullRequest } from "@/lib/bindings"
-import { collectOutgoingAttention, formatAttentionLine, formatIndicatorLabel } from "@/lib/outgoing-attention"
+import type { ChecksSummary, PullRequest } from "@/lib/bindings"
+import { collectOutgoingAttention, collectReturnedToYou, formatAttentionLine, formatIndicatorLabel, formatReturnedItem } from "@/lib/outgoing-attention"
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 function row(name: string): BranchTableRow {
@@ -39,6 +39,21 @@ describe("collectOutgoingAttention", () => {
       { branchName: "oauth", reason: "failing checks" },
     ])
     expect(collectOutgoingAttention(names.map(row), {})).toEqual([])
+  })
+})
+
+describe("collectReturnedToYou", () => {
+  it("names only the open pull requests a reviewer handed back, in the table order", () => {
+    const failing: ChecksSummary = { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] }
+    const pullRequests = {
+      ui: openPullRequest("ui", { reviewDecision: "changesRequested", checks: failing }),
+      auth: openPullRequest("auth", { reviewDecision: "changesRequested" }),
+      // failing checks are the chip's and the outgoing dot's
+      api: openPullRequest("api", { checks: failing }),
+      old: openPullRequest("old", { reviewDecision: "changesRequested", state: "closed" }),
+    }
+    const returned = collectReturnedToYou(["auth", "api", "ui", "old"].map(row), pullRequests)
+    expect(returned.map(formatReturnedItem)).toEqual(["auth (changes requested)", "ui (changes requested)"])
   })
 })
 

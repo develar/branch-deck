@@ -1,0 +1,304 @@
+// @spec spec/repository/review-requests.spec.md
+import type { Page } from "@playwright/test"
+import { test, expect } from "../fixtures/test-fixtures"
+import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { availableReviewRequests, getReviewRow, getYourTurnCard, openReviewDialog, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { routeCommandError } from "../helpers/wait-helpers"
+
+// the `issue_links` template: 7 branches; the requests review them as the branches of others
+const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
+const RECENT = reviewRequest("feature-auth", 102, 3, { title: "Add OAuth login", reRequested: true, reviewedCommit: null })
+const RELEASE = reviewRequest("JIRA-456", 103, 2, { title: "Backport the pool fix", baseRefName: "release/253", baseIsDefault: false, checksState: "pending" })
+const FOURTH = reviewRequest("feature-docs", 104, 1, { title: "Document the CLI" })
+const FIFTH = reviewRequest("feature-db", 105, 0.5, { title: "Migrate the schema" })
+
+type SetupRepo = (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
+
+async function setupRequests(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, ...requests: ReturnType<typeof reviewRequest>[]): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests) })
+  await syncAndWaitForBranches()
+  await expect(getYourTurnCard(page)).toBeVisible()
+  return repo
+}
+
+/** The toast of a new request, by its title */
+function reviewToast(page: Page, title: string) {
+  return page.locator("[data-slot=toast]").filter({ has: page.locator("[data-slot=toast-title]", { hasText: title }) })
+}
+
+test.describe("Your Turn card", () => {
+  test("should stay hidden off GitHub, and not ask again on focus", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toHaveCount(0)
+    await page.clock.fastForward("02:01")
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(getYourTurnCard(page)).toHaveCount(0)
+    expect(await repo.getReviewRequestCalls()).toBe(1)
+  })
+
+  test("should stay hidden while gh is logged out or nothing waits, and show once something does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: { availability: { status: "notAuthenticated" }, totalCount: 0, requests: [] } })
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toHaveCount(0)
+
+    // logged out: no poll, the next focus asks again
+    await repo.setReviewRequests(availableReviewRequests([]))
+    await page.clock.fastForward("02:01")
+    await emitTauriEvent(page, "tauri://focus")
+    await expect.poll(() => repo.getReviewRequestCalls()).toBe(2)
+    await expect(getYourTurnCard(page)).toHaveCount(0)
+
+    await repo.setReviewRequests(availableReviewRequests([OLD]))
+    await page.clock.fastForward("02:01")
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(getReviewRow(page, 101)).toBeVisible()
+  })
+
+  test("should show the oldest three first, the rest behind Show More, and say how long each waits", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, FIFTH, RECENT, OLD, FOURTH, RELEASE)
+    const card = getYourTurnCard(page)
+    await expect(card.getByTestId("your-turn-count")).toHaveText("5")
+    const rows = card.getByTestId("review-request-row")
+    await expect(rows.getByTestId("review-request-title")).toHaveText(["Rework the session store", "Add OAuth login", "Backport the pool fix"])
+
+    const old = getReviewRow(page, 101)
+    await expect(old.getByTestId("review-request-meta")).toHaveText("#101 · carol · 2 files · +12 −3")
+    await expect(old.getByTestId("review-request-age")).toHaveText("waiting 2 days")
+    // a working day passed: the warning hue
+    await expect(old.getByTestId("review-request-age")).toHaveAttribute("data-old", "true")
+    await expect(old.getByTestId("review-request-checks-failing")).toBeVisible()
+    const recent = getReviewRow(page, 102)
+    await expect(recent.getByTestId("review-request-age")).toHaveText("re-requested 3 hours ago")
+    await expect(recent.getByTestId("review-request-age")).not.toHaveAttribute("data-old")
+    await expect(getReviewRow(page, 103).getByTestId("review-request-meta")).toHaveText("#103 · carol · 2 files · +12 −3 · → release/253")
+    await expect(getReviewRow(page, 103).getByTestId("review-request-checks-pending")).toBeVisible()
+
+    await card.getByTestId("review-requests-show-more").click()
+    await expect(rows).toHaveCount(5)
+    await expect(card.getByTestId("review-requests-show-more")).toHaveText("Show Less")
+
+    // collapsed: the count and the oldest age in the header, per repository
+    await card.getByTestId("your-turn-header").click()
+    await expect(card.getByTestId("your-turn-summary")).toHaveText("5 reviews · oldest waiting 2 days")
+    await expect(rows).toHaveCount(0)
+  })
+
+  test("should say 50 of 63 when GitHub has more than it returns", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT, RELEASE, FOURTH], 63) })
+    await syncAndWaitForBranches()
+    const card = getYourTurnCard(page)
+    await expect(card.getByTestId("your-turn-count")).toHaveText("63")
+    await card.getByTestId("review-requests-show-more").click()
+    await expect(card.getByTestId("review-requests-more-on-github")).toHaveText("4 of 63Open All on GitHub")
+    await card.getByRole("button", { name: "Open All on GitHub" }).click()
+    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pulls?q=is%3Apr%20is%3Aopen%20archived%3Afalse%20draft%3Afalse%20user-review-requested%3A%40me"])
+  })
+
+  test("should move with the arrows, review with Enter and open the menu from the keyboard", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT, RELEASE)
+    await getReviewRow(page, 101).focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(getReviewRow(page, 102)).toBeFocused()
+    await page.keyboard.press("Shift+F10")
+    const menu = page.getByRole("menu")
+    await expect(menu.getByRole("menuitem")).toHaveText(["Review", "Open on GitHub", "Copy Link", "Copy Branch Name"])
+    await page.keyboard.press("Escape")
+    await expect(getReviewRow(page, 102)).toBeFocused()
+    await page.keyboard.press("Enter")
+    const dialog = page.getByTestId("review-dialog")
+    await expect(dialog.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    // the focus returns to the row
+    await expect(getReviewRow(page, 102)).toBeFocused()
+  })
+
+  test("should name the own pull requests a reviewer handed back, and reveal the branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", {
+      reviewRequests: availableReviewRequests([OLD]),
+      pullRequests: availablePullRequests(
+        pullRequest("JIRA-456", 760, { reviewDecision: "changesRequested" }),
+        // failing checks are told by the chip and the outgoing dot
+        pullRequest("feature-api", 761, { checks: { state: "failing", passed: 1, failed: 1, pending: 0, failedNames: ["tests"] } }),
+      ),
+    })
+    await syncAndWaitForBranches()
+    const returned = getYourTurnCard(page).getByTestId("returned-to-you")
+    await expect(returned).toHaveText("Returned to you:JIRA-456 (changes requested)")
+    await returned.getByRole("button", { name: "JIRA-456 (changes requested)" }).click()
+    await verifyBranchState(findBranchRow(page, "JIRA-456"), "open")
+  })
+
+  test("should keep the rows when a refresh fails, with the reason in the footer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveText("Checked just nowRefresh")
+    await routeCommandError(page, "get_review_requests", "offline")
+    await getYourTurnCard(page).getByTestId("review-requests-refresh").click()
+    await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveText("GitHub: offline · checked just nowRefresh")
+    await expect(getReviewRow(page, 101)).toBeVisible()
+  })
+})
+
+test.describe("New review requests", () => {
+  test("should tell a request that comes with a poll in a toast whose Review opens it, unread until opened", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT, RELEASE]) })
+    await syncAndWaitForBranches()
+    // the first answer is silent
+    await expect(getReviewRow(page, 101)).toBeVisible()
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
+
+    await repo.setReviewRequests(availableReviewRequests([OLD, RECENT, RELEASE, FOURTH]))
+    await page.clock.fastForward("05:00")
+    const toast = reviewToast(page, "dave requested your review")
+    await expect(toast).toBeVisible()
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("#104 Document the CLI")
+    // the unread row is shown above the cap, in the place of a read one
+    const row = getReviewRow(page, 104)
+    await expect(row.getByTestId("review-request-unread")).toBeVisible()
+    await expect(getYourTurnCard(page).getByTestId("review-request-row")).toHaveCount(3)
+
+    await toast.getByRole("button", { name: "Review" }).click()
+    await expect(page.getByTestId("review-dialog").getByRole("heading", { name: "Document the CLI" })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(row.getByTestId("review-request-unread")).toHaveCount(0)
+
+    // the Activity keeps it
+    await page.getByRole("button", { name: "Activity" }).click()
+    await expect(page.getByTestId("activity-title").first()).toHaveText("dave requested your review on #104")
+  })
+})
+
+test.describe("Review dialog", () => {
+  test("should preview the pull request, fetch it with progress, then review its range with the file tree", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    let release = () => {}
+    const fetches = await routeReviewFetch(page, { progress: [42], release: new Promise<void>(resolve => (release = resolve)) })
+    const dialog = await openReviewDialog(page, 101)
+    await expect(dialog.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+    await expect(dialog.getByTestId("review-dialog-meta")).toHaveText("#101·carol·master ← user-name/virtual/ABC-123·2 files·+12 −3·checks failing")
+    await expect(dialog.getByTestId("review-dialog-body")).toContainText("The change of ABC-123.")
+    await expect(dialog.getByTestId("review-fetch-progress")).toHaveText("Fetching #101 from origin… 42%")
+    await expect(dialog.getByTestId("review-dialog-review")).toBeDisabled()
+    await expect(dialog.getByTestId("review-dialog-position")).toHaveText("1 / 2")
+    expect(fetches).toHaveLength(1)
+
+    release()
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+    await expect(dialog.getByTestId("review-dialog-review")).toBeEnabled()
+    await page.keyboard.press("d")
+    const review = dialog.getByTestId("commit-review")
+    await expect(review).toBeVisible()
+    await expect(dialog.getByTestId("review-dialog-position")).toHaveText(/^File 1 \/ \d+$/)
+    await review.press("j")
+    await expect(dialog.getByTestId("review-dialog-position")).toHaveText(/^File 2 \/ \d+$/)
+
+    // Escape goes back to the preview, then closes
+    await page.keyboard.press("Escape")
+    await expect(review).toBeHidden()
+    await expect(dialog.getByTestId("review-commits")).toBeVisible()
+    await dialog.getByTestId("review-on-github").click()
+    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101/files"])
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+  })
+
+  test("should open a commit of the pull request in the commit preview, and show the next request with ↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const dialog = await openReviewDialog(page, 101)
+    const commit = dialog.getByTestId("review-commit").first()
+    await expect(commit).toBeVisible()
+    await commit.click()
+    const preview = page.getByTestId("commit-preview")
+    await expect(preview).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(preview).toBeHidden()
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByTestId("review-dialog-body").focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(dialog.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
+    await expect(dialog.getByTestId("review-dialog-position")).toHaveText("2 / 2")
+  })
+
+  test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await routeReviewFetch(page, { error: "GitHub asked for credentials: run gh auth setup-git" })
+    const dialog = await openReviewDialog(page, 101)
+    const failure = dialog.getByTestId("review-fetch-failed")
+    await expect(failure).toContainText("Cannot fetch pull request #101")
+    await expect(failure).toContainText("GitHub asked for credentials: run gh auth setup-git")
+
+    await page.unroute("**/invoke/fetch_review_head")
+    await failure.getByTestId("review-fetch-retry").click()
+    await expect(failure).toBeHidden()
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
+  })
+
+  test("should keep the dialog when the request is withdrawn meanwhile", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
+    await syncAndWaitForBranches()
+    const dialog = await openReviewDialog(page, 101)
+    await repo.setReviewRequests(availableReviewRequests([RECENT]))
+    await page.clock.fastForward("05:00")
+    await expect(dialog.getByTestId("review-withdrawn")).toHaveText("No longer waiting for your review")
+    await expect(dialog.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+  })
+})
+
+test.describe("Settings", () => {
+  test("should open from the card menu and keep the switches", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await getYourTurnCard(page).getByRole("button", { name: "More actions for Your Turn" }).click()
+    await page.getByRole("menuitem", { name: "Notification Settings…" }).click()
+    const dialog = page.getByTestId("settings-dialog")
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible()
+    const reviews = dialog.getByTestId("setting-notifyReviewRequests").getByRole("switch")
+    await expect(reviews).toBeChecked()
+    await reviews.click()
+    await expect(reviews).not.toBeChecked()
+    // Windows has no Dock badge: no group
+    await expect(dialog.getByTestId("setting-reviewBadge")).toHaveCount(0)
+    await expect.poll(() => testStore.get("appSettings")).toMatchObject({ notifyReviewRequests: false })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+  })
+
+  test("should open from the app menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await emitTauriEvent(page, "open_settings")
+    await expect(page.getByTestId("settings-dialog")).toBeVisible()
+  })
+})
+
+// the E2E user agent is the one of Windows: no badge, Ctrl instead of ⌘
+test.describe("On macOS", () => {
+  test.use({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" })
+
+  test("should open a pull request on GitHub from its button, a ⌘-click and its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const row = getReviewRow(page, 101)
+    await row.hover()
+    await row.getByRole("button", { name: "Open #101 on GitHub" }).click()
+    await getReviewRow(page, 102).getByTestId("review-request-title").click({ modifiers: ["Meta"] })
+    await row.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Open on GitHub" }).click()
+    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101", "https://github.com/acme/monorepo/pull/102", "https://github.com/acme/monorepo/pull/101"])
+    await expect(page.getByTestId("review-dialog")).toHaveCount(0)
+  })
+
+  test("should count the review requests, behind its switch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const badges = () => page.evaluate(() => ((window as unknown as { __e2eDockCalls?: { badgeCount?: number | null }[] }).__e2eDockCalls ?? []).filter(it => "badgeCount" in it).map(it => it.badgeCount))
+    await expect.poll(badges).toEqual([2])
+
+    await emitTauriEvent(page, "open_settings")
+    const dialog = page.getByTestId("settings-dialog")
+    await dialog.getByTestId("setting-reviewBadge").getByRole("switch").click()
+    await expect.poll(badges).toEqual([2, null])
+  })
+})

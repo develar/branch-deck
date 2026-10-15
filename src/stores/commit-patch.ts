@@ -3,17 +3,22 @@ import { useStore } from "zustand"
 import type { CommitPatch } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
+import type { DiffSubject } from "@/lib/commit-files"
+import { diffSubjectId, withoutIds } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
 import { getSelectedProject } from "@/stores/repository"
 
 export type CommitPatchEntry = { kind: "loading" } | { kind: "error", message: string } | { kind: "loaded", patch: CommitPatch }
 
 export interface CommitPatchState {
-  /** By commit id, the least recently loaded first. A patch never changes, so an entry is never stale */
+  /**
+   * By commit id, or `<base>..<head>` for a range (`diffSubjectId`), the least recently loaded first. A patch never
+   * changes, so an entry is never stale
+   */
   byCommit: ReadonlyMap<string, CommitPatchEntry>
 }
 
-/** The patches kept: the commits a preview or a review shows and the few before them */
+/** The patches kept: the commits (and ranges) a preview or a review shows and the few before them */
 export const MAX_CACHED_PATCHES = 8
 /** The patch text kept, in UTF-16 code units: a few huge commits must not keep the memory */
 export const MAX_CACHED_PATCH_LENGTH = 32 * 1024 * 1024
@@ -29,6 +34,15 @@ export function useCommitPatch(commitId: string): CommitPatchEntry | undefined {
  * load is tried again. A loaded patch moves to the end of the cache, so the shown commits are evicted last.
  */
 export function loadCommitPatch(commitId: string): void {
+  loadSubjectPatch({ kind: "commit", id: commitId })
+}
+
+/**
+ * Reads the patch of a subject of a review: a commit with `get_commit_patch`, a range with `get_range_patch` (one
+ * `diff-tree -p` of the two commits), cached as a commit's
+ */
+export function loadSubjectPatch(subject: DiffSubject): void {
+  const commitId = diffSubjectId(subject)
   const entry = commitPatchStore.getState().byCommit.get(commitId)
   if (entry?.kind === "loading") {
     return
@@ -42,15 +56,23 @@ export function loadCommitPatch(commitId: string): void {
     return
   }
   commitPatchStore.setState(state => ({ byCommit: withEntry(state.byCommit, commitId, { kind: "loading" }) }))
-  void invokeCommand(() => commands.getCommitPatch({ repositoryPath, commitId })).then((result) => {
+  const read = subject.kind === "commit"
+    ? () => commands.getCommitPatch({ repositoryPath, commitId })
+    : () => commands.getRangePatch({ repositoryPath, base: subject.base, head: subject.head })
+  void invokeCommand(read).then((result) => {
     if (result.status === "error") {
-      logError("Cannot read the changes of a commit", result.error)
+      logError(subject.kind === "commit" ? "Cannot read the changes of a commit" : "Cannot read the changes of a pull request", result.error)
     }
     const loaded: CommitPatchEntry = result.status === "ok"
       ? { kind: "loaded", patch: result.data }
       : { kind: "error", message: result.error.message }
     commitPatchStore.setState(state => ({ byCommit: evict(withEntry(state.byCommit, commitId, loaded)) }))
   })
+}
+
+/** Forgets the patches of these ids: the ranges of a closed review */
+export function dropPatchesOf(ids: readonly string[]): void {
+  commitPatchStore.setState(state => ({ byCommit: withoutIds(state.byCommit, ids) }))
 }
 
 function withEntry(byCommit: ReadonlyMap<string, CommitPatchEntry>, commitId: string, entry: CommitPatchEntry): Map<string, CommitPatchEntry> {

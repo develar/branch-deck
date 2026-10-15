@@ -1,6 +1,6 @@
 ---
 name: Activity
-description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, history rewrites, errors), opened from the header, with the Undo of a rewrite while its toast's lasts.
+description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts.
 style: plain-1
 targets:
   - ../../src/stores/activity.ts
@@ -16,6 +16,8 @@ targets:
   - ../../src/lib/patronus-actions.ts
   - ../../src/lib/push-summary.ts
   - ../../src/stores/patronus.ts
+  - ../../src/stores/review-requests.ts
+  - ../../src/lib/review-requests.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/landed.ts
   - ../../src/stores/settings/app-store.ts
@@ -75,6 +77,10 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   ("Safe Push is canceling" / "auth → master") or merged ("auth merged into master" / "Safe Push"), with "Open in
   Patronus".
   [@test] ../../src/stores/activity.test.ts (`records a robot with its page`)
+- A new review request ([Review Requests](review-requests.spec.md#new-requests)), one entry per request also when one
+  toast told several: "dave requested your review on #104" / its title, kind `review`, with "Open on GitHub".
+  [@test] ../../src/stores/review-requests.test.ts (`tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack), and every error toast
   (`notifyError`, with its reason).
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about`)
@@ -117,7 +123,7 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   "Yesterday", the date), the body scrolling within `max-h-[60vh]` with the day headings sticky, then "Clear".
   [@test] ../../src/stores/activity.test.ts (`groups by local day: today, yesterday, then the date`)
 - An entry: the icon of its kind (`UploadIcon` push, `ArrowDownIcon` update, `ShieldCheckIcon` robot, `PenLineIcon`
-  rewrite), `PackageCheckIcon` in `info` for what landed, `TriangleAlertIcon` in `warning` for a refusal, a dropping
+  rewrite, `UserCheckIcon` review request), `PackageCheckIcon` in `info` for what landed, `TriangleAlertIcon` in `warning` for a refusal, a dropping
   push or a moved remote, `OctagonXIcon` in `destructive` for an error; the title, the description muted, the relative
   time (`RelativeTime`). Commit subjects show through `CommitSubjectLine`, with their issue links.
 - A word of the title or description that names a branch of the table is a button: it closes the popover and reveals

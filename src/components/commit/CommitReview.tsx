@@ -9,13 +9,16 @@ import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import type { CommitFile, CommitFiles, CommitPatch } from "@/lib/bindings"
+import type { DiffSubject } from "@/lib/commit-files"
+import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
-import { getFilesOfCommit, loadFilesOfCommit, useFilesOfCommit } from "@/stores/commit-files"
-import { loadCommitPatch, useCommitPatch } from "@/stores/commit-patch"
+import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
+import { loadSubjectPatch, useCommitPatch } from "@/stores/commit-patch"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
 export interface CommitReviewProps {
-  commitId: string
+  /** A commit, or the range of a pull request */
+  subject: DiffSubject
   /** The file shown first; the first file of the tree by default */
   initialPath: string | null
   /** "File 3 / 12": the selected file, for the footer */
@@ -23,28 +26,32 @@ export interface CommitReviewProps {
 }
 
 /**
- * The review of a commit: the directory tree of its files beside the diffs of all of them in one virtualized view.
+ * The review of a commit or of the range of a pull request (`base..head`): the directory tree of its files beside the
+ * diffs of all of them in one virtualized view.
  * The tree follows the diffs as they scroll, a file selected in the tree scrolls the diffs to it. J and K step through
  * the files, N and P through the blocks of changed lines.
  */
-export function CommitReview({ commitId, initialPath, onPositionChange }: CommitReviewProps) {
-  const commitFiles = useFilesOfCommit(commitId)
-  const entry = useCommitPatch(commitId)
+export function CommitReview({ subject, initialPath, onPositionChange }: CommitReviewProps) {
+  const subjectId = diffSubjectId(subject)
+  const commitFiles = useFilesOfCommit(subjectId)
+  const entry = useCommitPatch(subjectId)
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
 
+  // by the id: the subject object may be new on every render
   useEffect(() => {
-    void loadFilesOfCommit(commitId).then(() => {
-      if (getFilesOfCommit(commitId) === undefined) {
-        setFilesFailed(commitId)
+    const current = parseDiffSubjectId(subjectId)
+    void loadFilesOfSubject(current).then(() => {
+      if (getFilesOfCommit(subjectId) === undefined) {
+        setFilesFailed(subjectId)
       }
     })
-    loadCommitPatch(commitId)
-  }, [commitId])
+    loadSubjectPatch(current)
+  }, [subjectId])
 
-  if (filesFailed === commitId || entry?.kind === "error") {
+  if (filesFailed === subjectId || entry?.kind === "error") {
     return (
       <div className="p-6">
-        <Callout tone="destructive" title="Cannot read the changes of the commit">{entry?.kind === "error" ? entry.message : null}</Callout>
+        <Callout tone="destructive" title={subject.kind === "commit" ? "Cannot read the changes of the commit" : "Cannot read the changes of the pull request"}>{entry?.kind === "error" ? entry.message : null}</Callout>
       </div>
     )
   }
@@ -59,8 +66,8 @@ export function CommitReview({ commitId, initialPath, onPositionChange }: Commit
   if (commitFiles.files.length === 0) {
     return <p className="p-6 text-sm text-muted-foreground">No changed files</p>
   }
-  // keyed by the commit: the selection and the collapsed directories belong to one commit
-  return <ReviewLayout key={commitId} commitFiles={commitFiles} patch={entry.patch} initialPath={initialPath} onPositionChange={onPositionChange} />
+  // keyed by the subject: the selection and the collapsed directories belong to one commit or range
+  return <ReviewLayout key={subjectId} commitFiles={commitFiles} patch={entry.patch} initialPath={initialPath} onPositionChange={onPositionChange} />
 }
 
 interface ReviewLayoutProps {

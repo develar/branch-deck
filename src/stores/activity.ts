@@ -1,10 +1,11 @@
 import { z } from "zod"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
-import type { LandedBranch, PatronusRobot, UpdateProjectResult } from "@/lib/bindings"
+import type { LandedBranch, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
 import { setErrorRecorder } from "@/lib/errors"
 import { appliedUpdateToast, landedNews } from "@/lib/landed"
 import { describePush } from "@/lib/push-summary"
+import { describeRequestActivity } from "@/lib/review-requests"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { describeUpdateState } from "@/lib/update-state"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -15,7 +16,7 @@ import type { ArrayStoreState } from "@/stores/settings/persistent-store"
 
 /*
  * Activity: what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, history rewrites,
- * errors), newest first. Toasts pass, the log stays: persisted by the main window, at most `MAX_ACTIVITY_ENTRIES` and
+ * errors) and the review requests it told about, newest first. Toasts pass, the log stays: persisted by the main window, at most `MAX_ACTIVITY_ENTRIES` and
  * `MAX_ACTIVITY_AGE_MS`. See spec/repository/activity.spec.md.
  */
 
@@ -26,7 +27,7 @@ export const MAX_ACTIVITY_AGE_MS = 30 * 24 * 60 * 60 * 1000
 /** How long the Undo of a rewrite lasts, the toast's and the one in Activity alike */
 export const UNDO_WINDOW_MS = 10_000
 
-const ActivityKindSchema = z.enum(["push", "update", "landed", "patronus", "rewrite", "error"])
+const ActivityKindSchema = z.enum(["push", "update", "landed", "patronus", "rewrite", "review", "error"])
 
 export type ActivityKind = z.infer<typeof ActivityKindSchema>
 
@@ -56,6 +57,8 @@ const ActivityDetailsSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("landed"), upstream: z.string(), report: z.array(LandedBranchSchema) }),
   /** The robot page in the Patronus web UI */
   z.object({ type: z.literal("robot"), url: z.string() }),
+  /** A pull request on GitHub: one that waits for the user's review */
+  z.object({ type: z.literal("pullRequest"), url: z.string() }),
 ])
 
 export type ActivityDetails = z.infer<typeof ActivityDetailsSchema>
@@ -253,6 +256,14 @@ export function recordLanded(repositoryPath: string, report: readonly LandedBran
  */
 export function recordRobot(title: string, description: string, robot: PatronusRobot, repositoryPath?: string): void {
   recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "robot", url: robot.url } })
+}
+
+/**
+ * A pull request that waits for the user's review, told by a toast or an OS notification: "alice requested your review
+ * on #123" / its title, with the pull request on GitHub
+ */
+export function recordReviewRequest(repositoryPath: string, request: ReviewRequest): void {
+  recordActivity({ repositoryPath, kind: "review", ...describeRequestActivity(request), details: { type: "pullRequest", url: request.url } })
 }
 
 // every error the user was told about (`notifyError`); errors.ts can't import the store, which imports errors.ts

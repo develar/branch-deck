@@ -16,6 +16,8 @@ const ProjectMetadataSchema = z.object({
    * the user had seen them. Their chips stay until Dismiss.
    */
   landedHiddenUntil: z.number().optional(),
+  /** The user collapsed the "Your Turn" card of the repository (open by default) */
+  reviewRequestsCollapsed: z.boolean().optional(),
   issueNavigationConfig: z.any().optional(), // TODO: create proper schema
 })
 
@@ -56,4 +58,9 @@ export function updateProject(path: string, update: Partial<ProjectMetadata> | (
     return
   }
   setRecentProjects(items.with(index, next))
+}
+
+/** Collapses or opens the "Your Turn" card of the repository; open is the default and is not stored */
+export function setReviewRequestsCollapsed(path: string, collapsed: boolean): void {
+  updateProject(path, project => (project.reviewRequestsCollapsed === true) === collapsed ? project : { ...project, reviewRequestsCollapsed: collapsed ? true : undefined })
 }

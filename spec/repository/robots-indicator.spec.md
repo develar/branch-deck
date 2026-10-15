@@ -9,6 +9,8 @@ targets:
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useRobotOverview.ts
   - ../../src/hooks/useDockStatus.ts
+  - ../../src/lib/dock.ts
+  - ../../src/stores/settings/appSettings.ts
   - ../../src/lib/robot-overview.ts
   - ../../src/lib/dock.ts
   - ../../src/lib/platform.ts
@@ -90,9 +92,14 @@ app already listed: nothing asks Patronus more ([Patronus](../branch/patronus.sp
   [@test] ../../src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show the progress of the robot nearest to finishing, and a badge only for what needs the user`, `should show an indeterminate progress without history, and no badge for a running robot`)
 - The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, and the
-  branches the last sync left with a conflict. Never a running robot; no badge at 0. Windows has no badge count: it is
-  left out there.
+  branches the last sync left with a conflict ("Count failed robots and conflicts", `attentionBadge`), plus the pull
+  requests that wait for the user's review ("Count review requests", `reviewBadge`,
+  [Review Requests](review-requests.spec.md#badge)); both switches are in Settings, on by default. Each source sets its
+  count (`setBadgeSource` in `src/lib/dock.ts`, the only `setBadgeCount` caller), the badge shows their sum. Never a
+  running robot; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings.
   [@test] ../../src/lib/robot-overview.test.ts (`counts the conflicts of the last sync for the badge`)
+  [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)
   [@test] ../../tests/e2e/patronus/robots-indicator.spec.ts (`should show the progress, without a badge on Windows`)
 - A call goes out only on a change; a failed one is logged and otherwise ignored. The capability of the main window
   allows `core:window:allow-set-progress-bar` and `core:window:allow-set-badge-count`.

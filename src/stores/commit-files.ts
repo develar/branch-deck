@@ -3,11 +3,16 @@ import { useStore } from "zustand"
 import type { CommitFiles } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
+import type { DiffSubject } from "@/lib/commit-files"
+import { diffSubjectId, withoutIds } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
 import { getSelectedProject } from "@/stores/repository"
 
 export interface CommitFilesState {
-  /** By commit id. The files of a commit never change: an entry is never stale, also after a repository switch */
+  /**
+   * By commit id, or `<base>..<head>` for a range (`diffSubjectId`). The files of a commit never change: an entry is
+   * never stale, also after a repository switch; a range is dropped when its review closes (`dropFilesOf`)
+   */
   byCommit: ReadonlyMap<string, CommitFiles>
   /** The commits whose files are being read: a list is busy until its commits are done */
   loading: ReadonlySet<string>
@@ -52,6 +57,25 @@ export function loadFilesOfCommit(commitId: string): Promise<void> {
     const result = await commands.getCommitFiles({ repositoryPath, commitId })
     return result.status === "ok" ? { status: "ok", data: [result.data] } : result
   })
+}
+
+/**
+ * Loads the files of a subject of a review: a commit as `loadFilesOfCommit`, a range with `get_range_files` (one
+ * `diff-tree` of the two commits, never cached on disk)
+ */
+export function loadFilesOfSubject(subject: DiffSubject): Promise<void> {
+  if (subject.kind === "commit") {
+    return loadFilesOfCommit(subject.id)
+  }
+  return load([diffSubjectId(subject)], async (repositoryPath) => {
+    const result = await commands.getRangeFiles({ repositoryPath, base: subject.base, head: subject.head })
+    return result.status === "ok" ? { status: "ok", data: [result.data] } : result
+  })
+}
+
+/** Forgets the files of these ids: the ranges of a closed review */
+export function dropFilesOf(ids: readonly string[]): void {
+  commitFilesStore.setState(state => ({ byCommit: withoutIds(state.byCommit, ids) }))
 }
 
 function load(commitIds: readonly string[], fetch: (repositoryPath: string, missing: string[]) => Promise<CommandResult<CommitFiles[]>>): Promise<void> {

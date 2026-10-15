@@ -37,6 +37,12 @@ export const SetupRepoOptionsSchema = z.object({
   pullRequests: z.any().optional(),
 
   /**
+   * What `get_review_requests` answers (a `ReviewRequestsResult`, see `review-request-helpers.ts`), set before the first sync
+   * Default: undefined - the repository is not on GitHub
+   */
+  reviewRequests: z.any().optional(),
+
+  /**
    * What `get_patronus_robots` answers (a `PatronusRobotsResult`, see `patronus-helpers.ts`), set before the first sync
    * Default: undefined - the repository is not on Space
    */
