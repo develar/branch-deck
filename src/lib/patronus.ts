@@ -99,13 +99,14 @@ function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | 
 }
 
 /**
- * A failed robot of the branch as it is, the user has to act: "failed Safe Push"; null for any other robot. The branch as
- * it is: the robot took the local tip, or the same commits before a sync rebuilt them on a newer baseline.
+ * A failed robot (also for missing approvals) of the branch as it is: the user has to act, the robots indicator and the
+ * Dock badge count it. The branch as it is: the robot took the local tip, or the same commits before a sync rebuilt them
+ * on a newer baseline. A branch changed since (a fix) needs nothing.
  */
-export function formatPatronusAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null): string | null {
+export function needsRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null): boolean {
   const onBranch = robot.sourceRevision !== null
     && (robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased")
-  return robot.status === "failure" && onBranch ? `failed ${formatPushMode(robot.pushMode)}` : null
+  return robot.status === "failure" && onBranch
 }
 
 const pushModeNames: Readonly<Record<PatronusPushMode, string>> = {

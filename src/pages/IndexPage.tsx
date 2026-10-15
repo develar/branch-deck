@@ -1,6 +1,7 @@
 import { BranchCreator } from "@/components/branch/BranchCreator"
 import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
+import { DockStatus } from "@/components/repository/DockStatus"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 
@@ -16,6 +17,8 @@ export function IndexPage() {
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />
+      {/* the running robots and what needs the user, in the Dock */}
+      <DockStatus />
       <main className="min-h-0 flex-1 overflow-y-auto">
         <Container className="pb-2">
           <BranchCreator />

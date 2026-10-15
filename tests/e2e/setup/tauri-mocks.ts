@@ -312,14 +312,22 @@ export const tauriMockScript = () => {
   }
 
   // the window of the page, for a toolbar that draws the title bar (`__BD_TITLE_BAR__`): a test sets
-  // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`, and the minimum size
-  // a zoom sets (`useZoom`) in `__e2eWindowState.minSize`
+  // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`, the minimum size
+  // a zoom sets (`useZoom`) in `__e2eWindowState.minSize`, and what the Dock shows (`useDockStatus`) in
+  // `__e2eDockCalls`, each progress bar and badge as it was set
   const windowState = ((window as any).__e2eWindowState ??= { fullscreen: false, maximized: false })
   function handleWindowCommand(cmd: string, payload: any): any {
     const [, action] = cmd.split("|")
     switch (action) {
       case "set_min_size":
         windowState.minSize = payload?.value?.size ?? payload?.value
+        break
+      case "set_progress_bar":
+        ;((window as any).__e2eDockCalls ??= []).push({ progressBar: payload?.value ?? null })
+        break
+      case "set_badge_count":
+        // `undefined` removes the badge
+        ;((window as any).__e2eDockCalls ??= []).push({ badgeCount: payload?.value ?? null })
         break
       case "is_fullscreen":
         return windowState.fullscreen

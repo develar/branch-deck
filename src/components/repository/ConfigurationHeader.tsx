@@ -13,6 +13,7 @@ import { OutgoingIndicator } from "@/components/repository/OutgoingIndicator"
 import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
+import { RobotsIndicator } from "@/components/repository/RobotsIndicator"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { WindowControls } from "@/components/repository/WindowControls"
@@ -116,6 +117,7 @@ export function ConfigurationHeader() {
                   </>
                 )}
               />
+              <RobotsIndicator />
               <ActivityButton />
             </div>
           )}

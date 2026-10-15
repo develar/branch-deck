@@ -139,14 +139,14 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The indicator must be hidden when nothing is outgoing, also right after the last push, unless a pull request is open
   ([Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should hide when every branch is pushed`)
-- A branch that waits for its author, an open pull request with changes requested or failing checks
-  ([Pull Requests](../branch/pull-requests.spec.md)) or a robot that failed on the branch as it is, also rebuilt on a
-  newer baseline since ([Patronus](../branch/patronus.spec.md)), must put a `destructive` dot on the icon of the indicator. The overview
-  explains it with a line per such branch, in the table order, below its title: "ABC-123 needs attention: changes
-  requested, failing checks", "ABC-123 needs attention: failed Safe Push".
-  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each branch waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)
+- A branch whose open pull request waits for its author, changes requested or failing checks
+  ([Pull Requests](../branch/pull-requests.spec.md)), must put a `destructive` dot on the icon of the indicator. The
+  overview explains it with a line per such branch, in the table order, below its title: "ABC-123 needs attention:
+  changes requested, failing checks". A robot that failed is told by the robots indicator after this one
+  ([Robots Indicator](robots-indicator.spec.md)), not here: once.
+  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each pull request waits for, in the table order, a branch once`, `adds how many branches need attention to the title of the overview`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the chips in a column and a dot for a pull request that waits for the author`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column and a dot for a robot that failed on the branch tip`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator`)
 - It must follow every sync and push result without a reload.
 
 ### Overview
@@ -336,6 +336,6 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md): how ahead, behind and mine are computed.
 - [Branch Preview](../branch/branch-preview.spec.md): the same push button and labels.
 - [Pull Requests](../branch/pull-requests.spec.md): the chip column, the attention dot and the pull request footer line.
-- [Patronus](../branch/patronus.spec.md): the robot chip in the same column, the attention dot of a failed robot and the
-  Patronus footer line.
+- [Patronus](../branch/patronus.spec.md): the robot chip in the same column and the Patronus footer line.
+- [Robots Indicator](robots-indicator.spec.md): the indicator after this one, which tells a failed robot.
 - [UI Theme: Islands Layering and the Radius Scale](../../docs/design/ui-theme.md)

@@ -19,8 +19,9 @@ export interface OutgoingIndicatorProps {
   /** Branches with an open pull request, in the table order: the overview lists those with nothing to push too */
   reviewBranches?: readonly string[]
   /**
-   * The branches that wait for their author (changes requested, failing checks, a failed robot): a `destructive` dot on
-   * the icon, named in the accessible name and explained by a line per branch in the overview
+   * The branches whose pull request waits for their author (changes requested, failing checks): a `destructive` dot on
+   * the icon, named in the accessible name and explained by a line per branch in the overview. A failed robot is the
+   * robots indicator's.
    */
   attention?: readonly OutgoingAttention[]
   /** Below the branch rows of the overview: the update state of the baseline */

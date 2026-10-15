@@ -85,7 +85,7 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 - Running must take the branches whose robot (`findBranchRobot`) runs or cancels (`isRobotActive`).
   [@test] ../../src/lib/branch-filter.test.ts (`puts a branch whose robot runs or cancels into Running`)
 - Attention must take what waits for the user: an error or a conflict, a branch blocked by its stack parent, a failed
-  robot of the branch as it is (also one that failed for missing approvals; `formatPatronusAttention`), and an open pull
+  robot of the branch as it is (also one that failed for missing approvals; `needsRobotAttention`), and an open pull
   request with changes requested or failing checks (`formatAuthorAttention`), as the dot of the outgoing indicator.
   [@test] ../../src/lib/branch-filter.test.ts (`puts an error, a conflict, a blocked branch, a failed robot of the branch as it is and a pull request waiting for its author into Attention`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)

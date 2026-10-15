@@ -5,7 +5,7 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, openOverviewWithAttention, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
+import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, openOutgoingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
@@ -177,9 +177,14 @@ baseTest.describe("Patronus robot timing", () => {
 })
 
 test.describe("Patronus in the outgoing overview", () => {
-  test("should show the chips in a column and a dot for a robot that failed on the branch tip", async ({ page }) => {
-    // the overview says what the dot means
-    const popover = await openOverviewWithAttention(page, "12 commits to push in 7 branches", "ABC-123 needs attention: failed Safe Push")
+  test("should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator", async ({ page }) => {
+    // the robots indicator tells the failed robot, once: no dot here
+    const indicator = page.getByTestId("outgoing-indicator")
+    await expect(indicator).toHaveAccessibleName("12 commits to push in 7 branches")
+    await expect(indicator.getByTestId("outgoing-attention-dot")).toHaveCount(0)
+    await expect(page.getByTestId("robots-indicator")).toHaveAccessibleName("Patronus robots: 1 running, 1 failed")
+    const popover = await openOutgoingOverview(page)
+    await expect(popover.getByTestId("outgoing-attention")).toHaveCount(0)
     // the shield only: the branch names need the room
     const chip = popover.locator("[data-testid=outgoing-branch][data-branch-name=ABC-123]").getByTestId("patronus-chip")
     await expect(chip).toHaveAccessibleName("Safe Push: Failed")

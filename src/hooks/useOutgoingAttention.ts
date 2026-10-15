@@ -1,15 +1,15 @@
 import { useMemo } from "react"
 import type { OutgoingAttention } from "@/lib/outgoing-attention"
 import { collectOutgoingAttention } from "@/lib/outgoing-attention"
-import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
-import { useRepositoryRobots } from "@/stores/patronus"
+import { useBranchTableRows } from "@/stores/branch-sync"
 import { useRepositoryPullRequests } from "@/stores/pull-requests"
 
-/** The branches that wait for their author (pull request, Patronus robot), in the table order, for the outgoing indicator */
+/**
+ * The branches whose pull request waits for their author, in the table order, for the outgoing indicator; a failed
+ * robot is the robots indicator's
+ */
 export function useOutgoingAttention(): readonly OutgoingAttention[] {
   const rows = useBranchTableRows()
-  const branches = useBranchSync(state => state.branches)
   const { pullRequests } = useRepositoryPullRequests()
-  const robots = useRepositoryRobots()
-  return useMemo(() => collectOutgoingAttention(rows, branches, pullRequests, robots), [rows, branches, pullRequests, robots])
+  return useMemo(() => collectOutgoingAttention(rows, pullRequests), [rows, pullRequests])
 }

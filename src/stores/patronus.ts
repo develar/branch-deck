@@ -262,6 +262,12 @@ export function useRobotNeedsReview(robotId: string | undefined): boolean {
   return useStore(patronusStore, state => robotId !== undefined && state.repositories[key]?.needsReview[robotId] === true)
 }
 
+/** By robot id, the failed robots of the branches that failed for missing code-owner approvals; re-renders only when they change */
+export function useRobotsNeedingReview(): Readonly<Record<string, boolean>> {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => state.repositories[key]?.needsReview ?? EMPTY.needsReview)
+}
+
 /** Non-hook variant of `useRobotNeedsReview`, for menus built on open */
 export function isRobotNeedingReview(robotId: string): boolean {
   const key = currentKey()

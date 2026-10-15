@@ -566,13 +566,12 @@ reports in it and closes it once merged.
 
 - The [outgoing overview](../repository/outgoing.spec.md) shows the chip next to the pull request chip of each row, as
   the shield alone (the state is its accessible name and in its popover): the branch names need the room.
-- The indicator gets a `destructive` dot when a robot failed on the branch as it is (the local tip, or the same commits
-  before a sync rebuilt them on a newer baseline, [above](#chip)), and the overview a line that says why: "ABC-123
-  needs attention: failed Safe Push" ([Outgoing Commits](../repository/outgoing.spec.md)). A branch changed since (a
-  fix) needs no attention.
-  [@test] ../../src/lib/patronus.test.ts (`names a failed robot of the branch as it is, also after a sync rebuilt the branch`)
-  [@test] ../../src/lib/outgoing-attention.test.ts (`names what each branch waits for, in the table order, a branch once`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column and a dot for a robot that failed on the branch tip`)
+- A robot that failed on the branch as it is (the local tip, or the same commits before a sync rebuilt them on a newer
+  baseline, [above](#safe-push-slot)) needs the user: the robots indicator after the outgoing indicator says "1 failed"
+  ("1 needs review"), its list has the robot, the Dock its badge ([Robots Indicator](../repository/robots-indicator.spec.md)).
+  The outgoing indicator has no dot for it: it is told once. A branch changed since (a fix) needs no attention.
+  [@test] ../../src/lib/patronus.test.ts (`needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the chips in a column, and leave a robot that failed on the branch tip to the robots indicator`)
 - The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button (a full list), named "Refresh
   Patronus". When Patronus can't answer, the line is a quiet hint instead: "Run ./safePush.cmd once to log in to
@@ -643,7 +642,8 @@ reports in it and closes it once merged.
   a Large Scale Change runs longer than the median says. Half of the robots run past the median, so "usually ~40m"
   shows near the end of many runs.
 - The changed-since rule replaces a finished robot in the slot with "Safe Push…" as soon as the branch has a commit
-  the robot didn't test: its result (a failure to fix) is then only in the preview and the outgoing overview.
+  the robot didn't test: its result is then only in the preview, the outgoing overview and the list of the robots
+  indicator, under "Last 24 hours".
 
 ## References
 
@@ -651,6 +651,7 @@ reports in it and closes it once merged.
   details
 - [Pull Requests](pull-requests.spec.md): the other review status, the same chip and refresh gate
 - [Outgoing Commits](../repository/outgoing.spec.md)
+- [Robots Indicator](../repository/robots-indicator.spec.md): the running and failed robots in the header and the Dock
 - [Branch Preview](branch-preview.spec.md)
 - [Remote Status for Virtual Branches](../../docs/design/remote-status.md): the pushed tip
 - Patronus REST API: YouTrack PAT-A-11; Safe Push CLI: PAT-A-51

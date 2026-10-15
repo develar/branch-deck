@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAttention, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -128,17 +128,17 @@ describe("formatRobotCommitNotice", () => {
   })
 })
 
-describe("formatPatronusAttention", () => {
-  it("names a failed robot of the branch as it is, also after a sync rebuilt the branch", () => {
-    expect(formatPatronusAttention(robot({ status: "failure" }), "tip", null)).toBe("failed Safe Push")
-    expect(formatPatronusAttention(robot({ status: "failure", pushMode: "dryRun" }), "tip", null)).toBe("failed Dry Run")
-    expect(formatPatronusAttention(robot({ status: "failure" }), "rebuilt", rebuiltOnRobot)).toBe("failed Safe Push")
+describe("needsRobotAttention", () => {
+  it("needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch", () => {
+    expect(needsRobotAttention(robot({ status: "failure" }), "tip", null)).toBe(true)
+    expect(needsRobotAttention(robot({ status: "failure", pushMode: "dryRun" }), "tip", null)).toBe(true)
+    expect(needsRobotAttention(robot({ status: "failure" }), "rebuilt", rebuiltOnRobot)).toBe(true)
     // fixed since: the branch changed
-    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed", unpushedOnRobot)).toBeNull()
-    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed", testRemoteStatus({ remoteTip: "fixed" }))).toBeNull()
+    expect(needsRobotAttention(robot({ status: "failure" }), "fixed", unpushedOnRobot)).toBe(false)
+    expect(needsRobotAttention(robot({ status: "failure" }), "fixed", testRemoteStatus({ remoteTip: "fixed" }))).toBe(false)
     // the remote status is not loaded yet
-    expect(formatPatronusAttention(robot({ status: "failure" }), "fixed", null)).toBeNull()
-    expect(formatPatronusAttention(robot({ status: "running" }), "tip", null)).toBeNull()
+    expect(needsRobotAttention(robot({ status: "failure" }), "fixed", null)).toBe(false)
+    expect(needsRobotAttention(robot({ status: "running" }), "tip", null)).toBe(false)
   })
 })
 

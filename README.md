@@ -80,6 +80,10 @@ repositories: all operations run through the Git CLI.
   count and Patronus closes it once merged. When a Safe Push merged,
   a toast (or an OS notification in the background) says so and fetches the baseline on request. Uses the token of the
   Safe Push CLI.
+- **Running robots at a glance**: the header says "2 running" while Safe Pushes run and "1 failed" when one failed on
+  the branch as it is; its list has each robot with its time and progress, the failed ones and those of the last day,
+  and a click shows the branch. The Dock shows the progress of the robot nearest to finishing, and a badge only for
+  what needs you (a failed robot, a conflict).
 - **Commit editing**: preview a commit or a whole branch with Space, reword a message, amend uncommitted changes into a
   branch, split or unapply a branch.
 - **At home next to IntelliJ**: the colours and the density of the IntelliJ Islands themes, light and dark, and the

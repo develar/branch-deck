@@ -4,7 +4,7 @@ import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, Pa
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, pushOutcome, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
@@ -22,16 +22,6 @@ const START_OPTIONS: PatronusStartOptions = {
     { id: "dry-only", name: "Dry Only", description: null, allowedPushModes: ["dryRun"] },
   ],
   defaultProfileId: null,
-}
-
-/** The issue_links repository with these robots; the unassigned commits card renders after the branches and would move the rows away from the pointer */
-async function setupRobots(page: Page, setupRepo: (template: string, options: { patronus: unknown }) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>, ...robots: PatronusRobot[]) {
-  await setupRepo("issue_links", { patronus: availableRobots(...robots) })
-  await syncAndWaitForBranches()
-  await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-  // the robots load after the sync, with the answer that shows the Safe Push slots: a push before they did would not
-  // know that one runs
-  await expect(page.getByTestId("safe-push-slot").first()).toBeVisible()
 }
 
 /** Answers the question about the running Safe Push of JIRA-456 with Back: Escape, once the dialog has the focus */
