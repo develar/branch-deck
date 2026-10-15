@@ -112,7 +112,7 @@ pub fn suggest_branch_names_with(
 /// up per request, so a `claude` installed while the app runs is found.
 pub fn find_claude() -> Option<PathBuf> {
   static LOGIN_SHELL_PATH: OnceLock<Option<OsString>> = OnceLock::new();
-  let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+  let home = std::env::home_dir();
   find_claude_in(home.as_deref(), std::env::var_os("PATH").as_deref()).or_else(|| find_executable("claude", LOGIN_SHELL_PATH.get_or_init(login_shell_path).as_deref()?))
 }
 

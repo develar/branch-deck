@@ -42,7 +42,7 @@ impl Environment {
       settings_file: dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER).join(SETTINGS_FILE_NAME)),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
-      home: dirs::home_dir(),
+      home: std::env::home_dir(),
       executable: std::env::current_exe().ok(),
       appimage: std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()).map(PathBuf::from),
       path: std::env::var_os("PATH"),

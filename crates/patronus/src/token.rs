@@ -77,6 +77,6 @@ pub fn find_token(home: Option<&Path>, env_token: Option<String>, now: u32) -> T
 
 /// `find_token` for the current user
 pub fn find_user_token(now: u32) -> TokenLookup {
-  let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+  let home = std::env::home_dir();
   find_token(home.as_deref(), std::env::var(TOKEN_ENV).ok(), now)
 }
