@@ -141,6 +141,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
           summary={branch.summary}
+          descriptionTitle={branch.descriptionTitle}
           expanded={expanded}
           canExpand={branch.commitCount > 0 || branch.hasError}
           onToggleExpanded={toggle}

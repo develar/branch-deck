@@ -64,6 +64,8 @@ export interface Branch {
   readonly autoScrollRequested: boolean
   readonly latestCommitTime: number
   readonly summary: string
+  /** The title of the branch's description (`bd describe`), shown as written instead of the summary; null without one */
+  readonly descriptionTitle: string | null
   /** null = not yet loaded */
   readonly remoteStatus: RemoteStatus | null
   readonly allCommitsHaveIssueReferences: boolean
@@ -728,6 +730,7 @@ function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStat
     autoScrollRequested: false,
     latestCommitTime: info.latestCommitTime,
     summary: info.summary,
+    descriptionTitle: info.descriptionTitle ?? null,
     remoteStatus,
     allCommitsHaveIssueReferences: info.allCommitsHaveIssueReferences,
     myEmail: info.myEmail ?? null,

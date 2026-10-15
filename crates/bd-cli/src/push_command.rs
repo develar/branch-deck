@@ -10,11 +10,11 @@
 //! compares with, the remote status of the pushed branches is computed the same way against that remote.
 
 use crate::context::RepoContext;
-use crate::describe::read_descriptions;
 use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
 use crate::sync_command::{RemoteSummary, SyncState, SyncedBranch, lock, sync_locked};
+use git_ops::branch_description::read_descriptions;
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -281,7 +281,7 @@ pub fn push(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliErr
     return Err(lease_rejected(context, &remote, &synced.baseline, &rejected, args.dry_run));
   }
 
-  let descriptions = read_descriptions(context)?;
+  let descriptions = read_descriptions(&context.git, &context.repository)?;
   let repository_option = github_repository_option(context)?;
   let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
   let branches = candidates

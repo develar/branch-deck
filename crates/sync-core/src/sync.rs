@@ -13,6 +13,7 @@ use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::concurrency::max_parallel_git_processes;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::branch_description::read_descriptions;
 use git_ops::cache::TreeIdCache;
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
 use git_ops::model::{BranchError, BranchKind, BranchSyncStatus, strip_branch_namespace, to_final_branch_name};
@@ -120,11 +121,12 @@ fn branch_issue_key(branch_name: &str, origin: BranchOrigin, commits: &[Commit])
 }
 
 /// Prepare grouped commits for UI display with sorting and metadata; `stacks` places the branches with stacked
-/// branches on
+/// branches on, `description_titles` (branch -> title) are the titles of their descriptions
 pub(crate) fn prepare_branches_for_ui(
   grouped_commits: &IndexMap<String, Vec<Commit>>,
   branch_emails: &HashMap<String, Option<String>>,
   stacks: Option<&IndexMap<String, BranchStack>>,
+  description_titles: &HashMap<String, String>,
 ) -> Vec<GroupedBranchInfo> {
   let mut grouped_branches_for_ui = Vec::with_capacity(grouped_commits.len());
 
@@ -153,6 +155,7 @@ pub(crate) fn prepare_branches_for_ui(
       name: branch_name.clone(),
       latest_commit_time,
       summary,
+      description_title: description_titles.get(branch_name).cloned(),
       all_commits_have_issue_references: {
         if commits.is_empty() {
           false
@@ -268,10 +271,13 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     commits: unassigned.into_iter().rev().collect(),
   })?;
 
-  let branch_refs = if branches.is_empty() {
-    HashMap::new()
+  let (branch_refs, description_titles) = if branches.is_empty() {
+    (HashMap::new(), HashMap::new())
   } else {
-    read_branch_refs(git_executor, repository_path, branch_prefix)?
+    (
+      read_branch_refs(git_executor, repository_path, branch_prefix)?,
+      read_description_titles(git_executor, repository_path, branch_prefix)?,
+    )
   };
   let stacks = match forest {
     Some(forest) => {
@@ -287,7 +293,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
 
   progress.send(SyncEvent::BranchesGrouped {
-    branches: prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref()),
+    branches: prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref(), &description_titles),
     baseline_branch: baseline_branch.clone(),
     stacks: stacks.is_some(),
     issue_groups: grouping.issue_groups.entries,
@@ -312,6 +318,20 @@ fn read_branch_refs(git_executor: &GitCommandExecutor, repository_path: &str, br
     lines
       .iter()
       .filter_map(|line| line.split_once(' ').map(|(tip, name)| (name.to_string(), tip.to_string())))
+      .collect(),
+  )
+}
+
+/// Branch -> the title of its description (`bd describe`), for each virtual branch under `{branch_prefix}/` that has
+/// one, with one `git config --get-regexp`
+fn read_description_titles(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<HashMap<String, String>> {
+  Ok(
+    read_descriptions(git_executor, repository_path)?
+      .into_iter()
+      .filter_map(|(reference, description)| {
+        let name = strip_branch_namespace(reference.strip_prefix("refs/heads/")?, branch_prefix, BranchKind::Virtual)?;
+        (!description.title.is_empty()).then(|| (name.to_string(), description.title))
+      })
       .collect(),
   )
 }

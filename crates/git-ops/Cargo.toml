@@ -21,6 +21,8 @@ memchr = "2.8"
 tempfile.workspace = true
 
 specta = { workspace = true, optional = true }
+# `Description` in the JSON schemas of the `bd` output
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }
@@ -30,6 +32,7 @@ test-log = { workspace = true }
 [features]
 default = []
 specta = ["dep:specta", "object-cache/specta"]
+schemars = ["dep:schemars"]
 
 [lints]
 workspace = true

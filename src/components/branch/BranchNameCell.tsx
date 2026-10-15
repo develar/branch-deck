@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { formatFixupCount } from "@/lib/autosquash"
-import { getSimpleBranchName } from "@/lib/branch"
-import { splitSubjectPrefix } from "@/lib/commit"
+import { getBranchSummary, getSimpleBranchName } from "@/lib/branch"
+import type { SubjectParts } from "@/lib/commit"
 
 export interface BranchNameCellProps {
   name: string
   summary?: string
+  /** The title of the branch's description, shown as written instead of the summary */
+  descriptionTitle?: string | null
   expanded: boolean
   canExpand?: boolean
   /** Archived branches: show only the last path segment */
@@ -30,8 +32,9 @@ export interface BranchNameCellProps {
   onToggleExpanded: () => void
 }
 
-export function BranchNameCell({ name, summary, expanded, canExpand = true, simplified = false, depth = 0, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
+export function BranchNameCell({ name, summary = "", descriptionTitle = null, expanded, canExpand = true, simplified = false, depth = 0, issueKey = null, fixupCount = 0, mark, onToggleExpanded }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
+  const shownSummary = getBranchSummary(summary, descriptionTitle)
   const content = (
     // the rule spans the row height, under the icon of the row above (`--bd-nesting-step` in index.css)
     <div className={cn("flex min-w-0 items-center gap-2", depth > 0 && "bd-nesting-leaf")} data-testid={depth > 0 ? "nesting-rule" : undefined}>
@@ -64,9 +67,9 @@ export function BranchNameCell({ name, summary, expanded, canExpand = true, simp
       {fixupCount > 0 && <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">{formatFixupCount(fixupCount)}</Badge>}
       {mark}
       {/* the rest of the row; below 6rem the summary would be a letter or two, so it drops out */}
-      {summary && (
+      {shownSummary !== null && (
         <span className="@container min-w-0 flex-1" data-testid="branch-summary-slot">
-          <BranchSummary summary={summary} className="hidden @min-[6rem]:block" />
+          <BranchSummary summary={shownSummary} className="hidden @min-[6rem]:block" />
         </span>
       )}
     </div>
@@ -101,9 +104,8 @@ export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
   )
 }
 
-/** Latest commit subject of the branch, with its issue links; a conventional-commit prefix is dimmed as in the commit rows. */
-export function BranchSummary({ summary, className }: { summary: string, className?: string }) {
-  const { prefix, text } = splitSubjectPrefix(summary)
+/** The summary of a branch (`getBranchSummary`) with its issue links; a prefix is dimmed as in the commit rows. */
+export function BranchSummary({ summary: { prefix, text }, className }: { summary: SubjectParts, className?: string }) {
   return (
     <span className={cn("truncate text-xs text-muted-foreground", className)} data-testid="branch-summary">
       {prefix != null && <span className="font-mono text-muted-foreground/70">{`${prefix} `}</span>}

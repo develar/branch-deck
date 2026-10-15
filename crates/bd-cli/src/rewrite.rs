@@ -3,7 +3,6 @@
 //! descriptions of a plan and, with --sync, the sync
 
 use crate::context::RepoContext;
-use crate::describe::Description;
 use crate::error::{CliError, ErrorBody, ErrorCode};
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
@@ -11,6 +10,7 @@ use crate::status::read_head;
 use crate::sync_command::{SyncOutput, lock, sync_locked};
 use crate::text_input::read_text;
 use crate::update_command::undo_update;
+use git_ops::branch_description::Description;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;

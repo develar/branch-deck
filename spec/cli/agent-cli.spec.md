@@ -25,6 +25,7 @@ targets:
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/group_plan.rs
   - ../../crates/bd-cli/src/describe.rs
+  - ../../crates/git-ops/src/branch_description.rs
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/bd-cli/src/fold_command.rs

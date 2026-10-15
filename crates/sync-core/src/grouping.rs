@@ -74,7 +74,8 @@ pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, reposi
     _ => None,
   };
   Ok(BranchGrouping {
-    branches: prepare_branches_for_ui(&branches, &branch_emails, placements.as_ref()),
+    // bd reads the whole descriptions where it prints them
+    branches: prepare_branches_for_ui(&branches, &branch_emails, placements.as_ref(), &HashMap::new()),
     baseline_branch,
     unassigned: unassigned.into_iter().rev().collect(),
     commit_ids,

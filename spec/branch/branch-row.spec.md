@@ -37,6 +37,8 @@ targets:
   - ../../src/lib/status-chip.ts
   - ../../src/lib/ui-types.ts
   - ../../src/stores/branch-sync.ts
+  - ../../src/lib/branch.ts
+  - ../../crates/sync-core/src/sync.rs
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
   - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
@@ -94,11 +96,18 @@ parent's commits runs into the rule of its children.
 
 - The name cell must show, in this order: the folder button that expands the commits, the branch name with its issue
   keys as links, the issue chip of a branch whose issue has no row above it, the fixup count, a mark (the archived
-  "New"), then the latest subject, muted, with its conventional-commit prefix dimmed.
+  "New"), then the summary, muted.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in branch names`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
+- The summary must be the title of the branch's description (`branch.<name>.description`, which `bd describe` and the
+  `descriptions` of a `bd group` plan write) as written, read by the sync. Without one, a branch of an issue shows its
+  latest subject that is not a cleanup, refactor or format commit, after the issue key, with its conventional-commit
+  prefix dimmed; any other branch shows nothing.
+  [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`shows the description title of a branch as written, in the row and the preview`)
+  [@test] ../../src/lib/branch.test.ts (`shows the description title as written, prefix and all`, `splits the conventional-commit prefix off a subject, to be dimmed`)
+  [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_carries_the_description_titles`)
 - A branch without commits and without an error must have no folder button.
 
 ### Tree
@@ -283,8 +292,8 @@ parent's commits runs into the rule of its children.
 - The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
 - An expanded row fades its commits in (150ms, opacity only).
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
-  repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the subject
-  `text-xs text-muted-foreground`, its prefix `font-mono text-muted-foreground/70`.
+  repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the summary
+  `text-xs text-muted-foreground`, the prefix of a subject `font-mono text-muted-foreground/70`.
 - The tree rules and the commit rail are neutral `border-l border-border` lines (`bd-nesting-level`,
   `bd-nesting-leaf` and `--bd-nesting-step` in `src/index.css`).
 - The commit count is `text-sm text-muted-foreground`.

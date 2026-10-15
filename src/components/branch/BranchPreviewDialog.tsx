@@ -31,6 +31,7 @@ import { useLandedIn } from "@/hooks/useLandedIn"
 import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
 import { getPushButtonState } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
+import { getBranchSummary } from "@/lib/branch"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
@@ -83,6 +84,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const pullRequest = usePullRequest(currentName ?? "")
   // as the branch menu offers it: a pushed branch without a live pull request, on GitHub
   const newPullRequestUrl = branch === undefined ? null : getNewPullRequestUrl(branch)
+  const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)
   const patronusAvailable = usePatronusAvailable()
 
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -127,7 +129,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               <StackBaseLabel name={branch.name} />
               {/* an issue branch is named after its issue */}
               {branch.issueKey !== null && branch.issueKey !== branch.name && <BranchIssueBadge issueKey={branch.issueKey} />}
-              {branch.summary && <BranchSummary summary={branch.summary} />}
+              {summary !== null && <BranchSummary summary={summary} />}
             </div>
             <BranchPreviewMeta branch={branch} />
           </PreviewDialogHeader>

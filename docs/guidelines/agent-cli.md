@@ -714,7 +714,8 @@ Prints or sets the pull request text of a branch in git's own `branch.<prefix>/v
 as `title`, a blank line and the body, as `git branch --edit-description` writes it. Without options it prints
 `{…,"branch","ref","description":{"title","body"}|null,"changed":false}`. `--title` or `--body` replace only that part;
 `--body-file -` reads stdin; `--clear` removes it. The branch must be a current group. The `descriptions` of a
-`bd group` plan set the texts of several branches in the same call as the rewrite.
+`bd group` plan set the texts of several branches in the same call as the rewrite. The app shows the title after the
+branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 

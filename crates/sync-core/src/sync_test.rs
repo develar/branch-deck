@@ -5,7 +5,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_log::test;
@@ -557,6 +557,37 @@ async fn test_zero_commit_sync_clears_branch_set() -> anyhow::Result<()> {
   Ok(())
 }
 
+#[tokio::test]
+async fn test_branches_grouped_carries_the_description_titles() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  test_repo.create_commit("(vm-lane-daemon) Start the daemon", "daemon.txt", "daemon");
+  test_repo.create_commit("(docs) fix typo", "docs.txt", "docs");
+  // as `bd describe` writes it, under the full name of the virtual branch
+  test_repo
+    .set_config("branch.test/virtual/vm-lane-daemon.description", "vm: the guest agent runs the lane daemon\n\nThe body.\n")
+    .unwrap();
+  // the same name under another prefix and a plain branch are other branches
+  test_repo.set_config("branch.other/virtual/docs.description", "Not this one\n").unwrap();
+  test_repo.set_config("branch.docs.description", "Nor this one\n").unwrap();
+
+  let events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
+  let titles: BTreeMap<String, Option<String>> = events
+    .iter()
+    .find_map(|e| match e {
+      SyncEvent::BranchesGrouped { branches, .. } => Some(branches.iter().map(|b| (b.name.clone(), b.description_title.clone())).collect()),
+      _ => None,
+    })
+    .unwrap();
+  assert_eq!(
+    titles,
+    BTreeMap::from([
+      ("docs".to_string(), None),
+      ("vm-lane-daemon".to_string(), Some("vm: the guest agent runs the lane daemon".to_string())),
+    ])
+  );
+  Ok(())
+}
+
 #[test]
 fn test_detect_baseline_branch_scenarios() {
   let test_repo = TestRepo::new();
@@ -623,7 +654,7 @@ fn test_prepare_branches_for_ui_issue_references() {
   branch_emails.insert("BAZEL-2158".to_string(), Some("test@example.com".to_string()));
 
   // Call the function
-  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails, None);
+  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails, None, &HashMap::new());
 
   // Sort by name for consistent testing
   let mut result = result;
@@ -666,7 +697,7 @@ fn test_prepare_branches_for_ui_mixed_commits() {
   branch_emails.insert("feature-auth".to_string(), Some("test@example.com".to_string()));
 
   // Call the function
-  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails, None);
+  let result = prepare_branches_for_ui(&grouped_commits, &branch_emails, None, &HashMap::new());
 
   assert_eq!(result.len(), 1);
   let branch = &result[0];

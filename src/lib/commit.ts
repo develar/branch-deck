@@ -46,11 +46,17 @@ const SUBJECT_PREFIX = /^([a-z][a-z0-9-]*(?:\([^)]+\)| [a-z][\w./-]*)?!?:)\s+(\S
 // Branch Deck grouping prefix of a commit that is not stripped by the backend (missing commits): "(feature-auth) …"
 const GROUPING_PREFIX = /^\(([^()\s]+)\)\s+(\S.*)$/
 
+/** A subject with its prefix split off; `prefix` is null if there is none */
+export interface SubjectParts {
+  prefix: string | null
+  text: string
+}
+
 /**
  * Splits a prefix off the subject: a grouping prefix (`(feature-auth) …`, returned without the parentheses) or a
  * conventional-commit prefix (with its colon). `prefix` is null if there is none.
  */
-export function splitSubjectPrefix(subject: string): { prefix: string | null, text: string } {
+export function splitSubjectPrefix(subject: string): SubjectParts {
   const match = GROUPING_PREFIX.exec(subject) ?? SUBJECT_PREFIX.exec(subject)
   return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
 }

@@ -2113,6 +2113,7 @@ dependencies = [
  "memchr",
  "object-cache",
  "pretty_assertions",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "specta",

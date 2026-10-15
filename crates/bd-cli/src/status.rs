@@ -1,8 +1,8 @@
 use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
-use crate::describe::read_descriptions;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
+use git_ops::branch_description::read_descriptions;
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -323,7 +323,11 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
 
   // the brief view prints neither
   let tips = if args.brief { HashMap::new() } else { read_virtual_tips(context)? };
-  let descriptions = if args.brief { HashMap::new() } else { read_descriptions(context)? };
+  let descriptions = if args.brief {
+    HashMap::new()
+  } else {
+    read_descriptions(&context.git, &context.repository)?
+  };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
   let short = context.short_ids(

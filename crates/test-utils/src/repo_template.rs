@@ -322,11 +322,13 @@ pub mod templates {
   }
 
   /// Branches with long names and long commit subjects, for checking that the branch table
-  /// gives the commit title the free width and truncates only the title (issue #72).
+  /// gives the commit title the free width and truncates only the title (issue #72). `docs` has a description, as
+  /// `bd describe` writes it
   pub fn long_subjects() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("long_subjects")
       .branch_prefix("user-name")
+      .config("branch.user-name/virtual/docs.description", "docs: fix the typo in the README\n\nThe heading said Dosc.\n")
       .commit_with_timestamp(
         "(IJPL-219027) SettingSyncPluginManager: add setting sync plugin manager that installs, enables and reconciles plugins across machines",
         &[("plugin-manager.kt", "class SettingSyncPluginManager")],

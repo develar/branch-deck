@@ -733,6 +733,10 @@ Virtual branches never touch HEAD, the index or the working tree.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
    one notes commit by one `fast-import` (`N inline <oid>` on the default notes ref, `from <ref>^0`).
 
+Before the copies, a sync with branches reads their descriptions (`bd describe`) with one
+`git config -z --get-regexp '^branch\..*\.description$'`, the read `bd` uses too
+(`crates/git-ops/src/branch_description.rs`), and sends the title of each with the grouped branches.
+
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/notes.rs`,
 `crates/sync-core/src/branch_processor.rs`. The integration-detection cache writes its notes in one `fast-import` as
 well (`crates/branch-integration/src/cache.rs`).

@@ -131,6 +131,11 @@ pub struct GroupedBranchInfo {
   pub commits: Vec<Commit>,
   pub latest_commit_time: u32,
   pub summary: String,
+  /// The title of the branch's description (`branch.<name>.description`, which `bd describe` writes), shown instead of
+  /// the summary; `None` without one, and from `group_commits_ahead_of_baseline`, whose callers read the whole
+  /// descriptions themselves. Optional in TypeScript, as `stack`
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub description_title: Option<String>,
   pub all_commits_have_issue_references: bool,
   /// Most frequent author email in this branch's commits
   pub my_email: Option<String>,

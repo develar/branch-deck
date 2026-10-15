@@ -1,4 +1,5 @@
 pub mod amend_operations;
+pub mod branch_description;
 pub mod cache;
 pub mod cherry_pick;
 pub mod commit_files;
@@ -24,6 +25,9 @@ pub mod worktree_update;
 
 #[cfg(test)]
 mod amend_operations_test;
+
+#[cfg(test)]
+mod branch_description_test;
 
 #[cfg(test)]
 mod cherry_pick_test_utils;

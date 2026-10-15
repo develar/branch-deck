@@ -585,6 +585,12 @@ export type GroupedBranchInfo = {
 	commits: Commit[],
 	latestCommitTime: number,
 	summary: string,
+	/**
+	 *  The title of the branch's description (`branch.<name>.description`, which `bd describe` writes), shown instead of
+	 *  the summary; `None` without one, and from `group_commits_ahead_of_baseline`, whose callers read the whole
+	 *  descriptions themselves. Optional in TypeScript, as `stack`
+	 */
+	descriptionTitle?: string | null,
 	allCommitsHaveIssueReferences: boolean,
 	/**  Most frequent author email in this branch's commits */
 	myEmail: string | null,

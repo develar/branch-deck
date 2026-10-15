@@ -31,6 +31,7 @@ export function testBranch(name: string, parent: string | null, overrides: Parti
     autoScrollRequested: false,
     latestCommitTime: 0,
     summary: "",
+    descriptionTitle: null,
     remoteStatus: null,
     allCommitsHaveIssueReferences: false,
     myEmail: null,

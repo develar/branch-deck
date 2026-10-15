@@ -2,8 +2,9 @@
 //! itself after the rewrite, under the same repository lock
 
 use crate::context::RepoContext;
-use crate::describe::{Description, description_key, read_descriptions, write_description};
+use crate::describe::{description_key, write_description};
 use crate::error::{CliError, ErrorCode};
+use git_ops::branch_description::{Description, read_descriptions};
 use std::collections::{BTreeMap, BTreeSet};
 use sync_core::regroup::{RegroupError, RegroupPlan, RegroupedCommit};
 
@@ -87,7 +88,7 @@ pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMa
   if descriptions.is_empty() {
     return Ok(Vec::new());
   }
-  let mut current = read_descriptions(context)?;
+  let mut current = read_descriptions(&context.git, &context.repository)?;
   let mut changed = Vec::new();
   for (branch, description) in descriptions {
     let (reference, key) = description_key(context, branch)?;

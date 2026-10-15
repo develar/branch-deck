@@ -67,8 +67,10 @@ The arrows step through the branches of the table, and P pushes the shown branch
 
 ### Content
 
-- The header must show the branch name, the issue of a prefix branch as a chip, and the summary of the row.
+- The header must show the branch name, the issue of a prefix branch as a chip, and the summary of the row (the title
+  of the branch's description, [Branch Row](branch-row.spec.md#name-cell)).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the issue of a prefix branch`)
+  [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`shows the description title of a branch as written, in the row and the preview`)
 - The meta line must show the commit count, the time of the latest commit, the status of the row and the time of the
   last push, if the branch was pushed.
 - The status must show its full description on hover, as the status column does.

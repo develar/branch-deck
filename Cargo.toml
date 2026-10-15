@@ -42,6 +42,9 @@ axum = "0.8.9"
 # Caching
 moka = { version = "0.12", features = ["sync"] }
 
+# JSON schemas of the `bd` output
+schemars = "1.2"
+
 # Specta for type generation (most comprehensive feature set)
 specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 

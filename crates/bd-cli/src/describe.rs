@@ -6,10 +6,10 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::status::read_grouping;
 use crate::text_input::read_text;
+use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Serialize;
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Args)]
@@ -46,50 +46,6 @@ pub struct DescribeOutput {
   pub changed: bool,
 }
 
-/// Also a value of `descriptions` in a `bd group` plan
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Description {
-  pub title: String,
-  /// Omitted when empty
-  #[serde(default, skip_serializing_if = "String::is_empty")]
-  pub body: String,
-}
-
-impl Description {
-  /// The first line is the title, the text after the blank line the body
-  pub fn parse(text: &str) -> Self {
-    let text = text.trim();
-    let (title, body) = text.split_once('\n').unwrap_or((text, ""));
-    Self {
-      title: title.trim().to_string(),
-      body: body.trim().to_string(),
-    }
-  }
-
-  /// The title and the body without the white space around them
-  #[must_use]
-  pub fn trimmed(&self) -> Self {
-    Self {
-      title: self.title.trim().to_string(),
-      body: self.body.trim().to_string(),
-    }
-  }
-
-  /// A pull request needs a title of one line
-  pub fn has_valid_title(&self) -> bool {
-    !self.title.is_empty() && !self.title.contains(['\n', '\r'])
-  }
-
-  fn to_text(&self) -> String {
-    if self.body.is_empty() {
-      format!("{}\n", self.title)
-    } else {
-      format!("{}\n\n{}\n", self.title, self.body)
-    }
-  }
-}
-
 /// The virtual branch ref of `branch` and its `branch.<name>.description` key
 pub fn description_key(context: &RepoContext, branch: &str) -> Result<(String, String), CliError> {
   let name = to_final_branch_name(&context.prefix, branch).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
@@ -102,36 +58,11 @@ pub fn write_description(context: &RepoContext, key: &str, description: &Descrip
   Ok(())
 }
 
-/// Full ref -> description of every branch that has one, from one `git config --get-regexp`
-pub fn read_descriptions(context: &RepoContext) -> Result<HashMap<String, Description>, CliError> {
-  let (output, exit_code) = context
-    .git
-    .execute_command_with_status(&["config", "-z", "--get-regexp", r"^branch\..*\.description$"], &context.repository)?;
-  // 1: no description at all
-  if exit_code == 1 {
-    return Ok(HashMap::new());
-  }
-  if exit_code != 0 {
-    return Err(CliError::new(ErrorCode::GitError, format!("Cannot read the branch descriptions: {output}")));
-  }
-  // `branch.<name>.description` LF `<value>` NUL
-  Ok(
-    output
-      .split('\0')
-      .filter_map(|entry| {
-        let (key, value) = entry.split_once('\n')?;
-        let name = key.trim().strip_prefix("branch.")?.strip_suffix(".description")?;
-        Some((format!("refs/heads/{name}"), Description::parse(value)))
-      })
-      .collect(),
-  )
-}
-
 pub fn describe(context: &RepoContext, args: &DescribeArgs) -> Result<DescribeOutput, CliError> {
   // only a current branch can be described
   read_grouping(context, Some(&args.branch))?;
   let (reference, key) = description_key(context, &args.branch)?;
-  let current = read_descriptions(context)?.remove(&reference);
+  let current = read_descriptions(&context.git, &context.repository)?.remove(&reference);
 
   let body = match &args.body_file {
     Some(path) => Some(read_text(path, "the body")?),
