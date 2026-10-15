@@ -1,6 +1,6 @@
 use crate::clustering::{
-  ANONYMOUS_MARKER, Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, FileLines, Link, MAX_REPAIR_ROUNDS, Repaired, Warning, anonymize,
-  cluster, cluster_change, cluster_with_repair, is_issue_only, name_clusters, subject_words, why,
+  ANONYMOUS_MARKER, Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, FileLines, Link, MAX_REPAIR_ROUNDS, Placement, Repaired, Restack,
+  Warning, anonymize, cluster, cluster_change, cluster_with_repair, is_issue_only, name_clusters, place_clusters, stack_clusters, subject_words, why,
 };
 use pretty_assertions::assert_eq;
 use serde_json::Value;
@@ -51,7 +51,16 @@ fn mentioning(mut commit: CommitFeatures, keys: &[&str]) -> CommitFeatures {
 fn input(commits: Vec<CommitFeatures>) -> ClusterInput {
   ClusterInput {
     commits,
-    dependencies: Vec::new(),
+    ..ClusterInput::default()
+  }
+}
+
+/// `input` with stacked branches on
+fn stacked(commits: Vec<CommitFeatures>, dependencies: Vec<[usize; 2]>) -> ClusterInput {
+  ClusterInput {
+    commits,
+    dependencies,
+    stacks: true,
   }
 }
 
@@ -253,6 +262,147 @@ fn repair_joins_a_conflicting_commit_to_what_it_needs() {
   );
 }
 
+/// The placements of a clustering, named as `name_clusters` names it
+fn placements(input: &ClusterInput, clustering: &Clustering) -> Vec<Placement> {
+  let leaves = name_clusters(input, clustering, &HashSet::new());
+  place_clusters(input, clustering, &leaves, false)
+}
+
+fn placed(path: &str, parent: Option<&str>, restack: Option<Restack>) -> Placement {
+  Placement {
+    path: path.to_string(),
+    parent: parent.map(str::to_string),
+    restack,
+  }
+}
+
+#[test]
+fn with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them() {
+  let input = stacked(
+    vec![
+      prefixed("r", "r/one.txt"),
+      prefixed("a", "a/one.txt"),
+      prefixed("a/b", "b/one.txt"),
+      // its own issue: a branch on the two stacks it needs
+      keyed("K-1", "k/one.txt"),
+      // a follow-up without a key joins the branch it depends on, though it shares no path with it
+      touching("q/two.txt"),
+    ],
+    vec![[2, 1], [3, 2], [3, 0], [4, 2]],
+  );
+  let clustering = cluster(&input, &ClusterOptions::default());
+  assert_eq!(groups(&clustering), [vec![0], vec![1], vec![2, 4], vec![3]]);
+  assert_eq!(clustering.dependencies, [[2, 1], [3, 0], [3, 2]]);
+  assert_eq!(
+    (clustering.warnings.as_slice(), clustering.clusters[2].links.as_slice()),
+    ([].as_slice(), [Link::Dependency].as_slice())
+  );
+  // the stacks of r and b become one, the older first; b keeps the parent it declares
+  assert_eq!(
+    placements(&input, &clustering),
+    [
+      placed("r", None, None),
+      placed("r/a", Some("r"), Some(Restack::ForAbove)),
+      placed("a/b", Some("a"), None),
+      placed("b/K-1", Some("b"), Some(Restack::Needs)),
+    ]
+  );
+
+  // without stacked branches the dependencies join the units: K-1 joins the first prefix it meets, and the others warn
+  let flat = ClusterInput { stacks: false, ..input };
+  let clustering = cluster(&flat, &ClusterOptions::default());
+  assert_eq!(groups(&clustering), [vec![0], vec![1], vec![2, 3, 4]]);
+  assert_eq!(clustering.warnings.len(), 2);
+  assert!(placements(&flat, &clustering).iter().all(|placement| placement.parent.is_none()));
+}
+
+#[test]
+fn a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes() {
+  let input = stacked(
+    vec![
+      CommitFeatures {
+        key: Some("A-1".to_string()),
+        ..prefixed("a", "x/a.txt")
+      },
+      prefixed("b", "y/b.txt"),
+      // the mention would merge it into a, but it needs b, and b needs a
+      mentioning(keyed("A-2", "z/c.txt"), &["A-1"]),
+      // a declared parent without commits
+      prefixed("gone/c", "w/d.txt"),
+    ],
+    vec![[1, 0], [2, 1]],
+  );
+  let clustering = cluster(&input, &ClusterOptions::default());
+  assert_eq!(groups(&clustering), [vec![0], vec![1], vec![2], vec![3]]);
+  assert_eq!(
+    placements(&input, &clustering),
+    [
+      placed("a", None, None),
+      placed("a/b", Some("a"), Some(Restack::Needs)),
+      placed("b/A-2", Some("b"), Some(Restack::Needs)),
+      placed("c", None, Some(Restack::ParentWithoutCommits)),
+    ]
+  );
+  // `fresh` declares no parent, so the leaf is the branch
+  let leaves = name_clusters(&input, &clustering, &HashSet::new());
+  assert_eq!(place_clusters(&input, &clustering, &leaves, true)[3], placed("c", None, None));
+}
+
+#[test]
+fn a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason() {
+  // the older branch a wins a tie, but a merge into a would turn the declared stack around
+  let input = stacked(
+    vec![prefixed("a", "a/one.txt"), prefixed("a/b", "b/one.txt"), prefixed("z", "z/one.txt"), touching("q/two.txt")],
+    vec![[3, 0], [3, 1]],
+  );
+  let clustering = cluster(&input, &ClusterOptions::default());
+  assert_eq!(groups(&clustering), [vec![0], vec![1, 3], vec![2]]);
+  assert_eq!(
+    placements(&input, &clustering),
+    [placed("a", None, None), placed("a/b", Some("a"), None), placed("z", None, None)]
+  );
+
+  // a self-parent declares no parent, and a parent whose commits went into another cluster is named so
+  let input = stacked(vec![prefixed("b/b", "b/one.txt"), keyed("K-1", "k/one.txt"), prefixed("K-1/c", "c/one.txt")], Vec::new());
+  let clustering = manual(vec![single(vec![0]), single(vec![1]), single(vec![2])]);
+  let leaves = ["b".to_string(), "xyz".to_string(), "c".to_string()];
+  assert_eq!(
+    place_clusters(&input, &clustering, &leaves, false),
+    [placed("b", None, None), placed("xyz", None, None), placed("c", None, Some(Restack::ParentMerged))]
+  );
+}
+
+#[test]
+fn stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle() {
+  // a declared parent that covers the dependencies stays, though a dependency is lower
+  assert_eq!(stack_clusters(&[[1, 0], [2, 0]], &[None, None, Some(1)]), [None, Some(0), Some(1)]);
+  // the declared parent of 1 depends on it: the declared parent gives way
+  assert_eq!(stack_clusters(&[[0, 1]], &[None, Some(0)]), [Some(1), None]);
+  // a cycle of dependencies: the oldest goes first, and the turned dependency is left out
+  assert_eq!(stack_clusters(&[[0, 1], [1, 0]], &[None, None]), [None, Some(0)]);
+  // two unrelated stacks become one for a branch that needs both; the other children keep their parents
+  assert_eq!(
+    stack_clusters(&[[1, 0], [3, 2], [4, 1], [4, 3], [5, 0]], &[None; 6]),
+    [None, Some(0), Some(1), Some(2), Some(3), Some(0)]
+  );
+}
+
+#[test]
+fn with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays() {
+  let pair = stacked(vec![keyed("ABC-1", "one/a.txt"), keyed("XYZ-1", "two/b.txt")], Vec::new());
+  // the stack resolves the conflict
+  let repaired = cluster_with_repair(&pair, &ClusterOptions::default(), |clustering| {
+    let stacked = clustering.dependencies.contains(&[1, 0]);
+    Ok::<_, Infallible>(if stacked { Vec::new() } else { vec![Conflict { commit: 1, needs: vec![0] }] })
+  })
+  .unwrap();
+  assert_eq!((groups(&repaired.clustering), repaired.rounds), (vec![vec![0], vec![1]], 1));
+  assert_eq!(placements(&pair, &repaired.clustering)[1], placed("ABC-1/XYZ-1", Some("ABC-1"), Some(Restack::Needs)));
+  // the conflict stays on the stack: the next round joins the units
+  let repaired = repair_until_joined(&pair);
+  assert_eq!((groups(&repaired.clustering), repaired.rounds), (vec![vec![0, 1]], 2));
+}
+
 /// A clustering made by hand, without its units
 fn manual(clusters: Vec<Cluster>) -> Clustering {
   Clustering {
@@ -260,6 +410,7 @@ fn manual(clusters: Vec<Cluster>) -> Clustering {
     warnings: Vec::new(),
     unit_of: Vec::new(),
     unit_anchors: Vec::new(),
+    dependencies: Vec::new(),
   }
 }
 

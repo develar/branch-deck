@@ -538,11 +538,17 @@ branch tips), their changes from the object cache without lock files, generated 
 1. Hard units, joined with union-find: the dependency edges, a fixup and its target, the commits with the same
    `(prefix)` or of the same issue group (an anchor), and the commits without a prefix that have the same issue key.
    `--fresh` ignores the anchors. A dependency between two anchors joins nothing: it is an `anchor_dependency`
-   warning.
+   warning. With stacked branches (`branchdeck.stacks`), the anchor of a prefix is the leaf of its path, and a
+   dependency joins nothing either: it stays an edge between two units, for the stack (step 4). Only the edges of a
+   cycle of units join them (Kosaraju), because no stack builds a cycle. The commits without a prefix of an issue key
+   that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch.
 2. A score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are exact:
-   - R, the links: a body names an issue key of the other side (0.9); both sides name a third key (0.7), unless more
-     than max(10, units / 3) units name it; the same conventional scope (0.8 without issue keys, 0.5 with them). A
-     scope is read from `type(scope):` and from `type scope:`, as in `setup vm:` (`parse_semantic_prefix`).
+   - R, the links: with stacked branches, a dependency between the two sides when a side without an anchor has no
+     issue key (0.95): a follow-up joins the branch it needs, and a commit with its own key stacks on it instead; a
+     body names an issue key of the other side (0.9); both sides name a third key (0.7); the same conventional scope
+     (0.8 without issue keys, 0.5 with them). A key that more than max(10, units / 3) units name links nothing: it is
+     the key of a series. A scope is read from `type(scope):` and from `type scope:`, as in `setup vm:`
+     (`parse_semantic_prefix`).
    - P, the paths: the IDF-weighted Jaccard similarity of the areas (the first 3 directories, weight 0.5), the modules
      (the directories before the first `src`, `testSrc`, `test`, `tests`, `resources` or `gen`), the packages (the
      directories after it) and the files. A feature of more than max(4, units / 4) units weighs 0. A file under 5 % of
@@ -551,10 +557,20 @@ branch tips), their changes from the object cache without lock files, generated 
      have scopes and none in common. Kp: 0.7 when the keys differ in the same project.
    - adj: 0.05 when the two sides have neighbouring commits in the log and R or P is not 0.
 3. Merges, the best pair first and on a tie the oldest, until the best score is under 0.40 (`MERGE_THRESHOLD`). Two
-   anchors never merge, and no merge makes a cluster of more than `--max-commits` commits (default 40). Each row of
+   anchors never merge, no merge makes a cluster of more than `--max-commits` commits (default 40), and no merge
+   makes a cycle: a pair where one side reaches the other through a third, over the dependencies and the declared
+   parents, waits. So a follow-up of a branch and its parent joins the branch, not the parent. Each row of
    the score matrix keeps its best column, so a merge rescores one row and one column. On synthetic input of commits
    that all merge, 300 commits take 0.3 s and 1000 take 6.9 s in a debug build (1.1 s in a release build); commits
    that don't merge take 16 ms and 0.14 s.
+
+4. With stacked branches, `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
+   ancestor (`stack_clusters`). The clusters go in a topological order of their dependencies and declared parents,
+   the oldest first on a tie. Each takes the parent its prefixes declare when that parent covers what it needs, else
+   the deepest cluster it needs that covers the others. When the clusters it needs lie on two stacks, those stacks
+   become one chain in that order, which only adds ancestors, so the clusters placed before keep theirs. In a cycle the
+   declared parent gives way first, then the oldest cluster goes first. A declared parent that is no cluster goes,
+   because the sync blocks on it, and `--fresh` declares no parent.
 
 Each cluster then gets a name, the first of: its prefix; the branch its commits come from, when it holds the most
 commits of that branch (so `--fresh` keeps the names of the branches it finds again); its single issue key; a scope of
@@ -562,11 +578,17 @@ at least 60 % of its commits; `<area leaf>-<word>`, for the subject word of at l
 TF-IDF (issue keys and the conventional prefix are not words); its most frequent key; `cluster-N`. When another cluster, a group now or an existing virtual branch has the name (in any case), and the
 cluster's commits don't come from it, the name gets `-2`, `-3`, and so on.
 
+The name of a stacked cluster is its leaf, and the plan names it `parent/leaf`, and a root by its leaf. A prefix path of
+more levels, as `(a/b/c)`, also declares the parent of its parent, which the placement may have moved, so the plan
+rewrites it to `b/c`. The keys of a stacked cluster leave their issue group (`ungroup_issues`), because an issue
+group can't name a parent.
+
 The trial sync builds the plan. A conflict joins the conflicting commit to its `missing_commits` as hard edges, or to
 the newest older commit outside its branch that changes a conflicting file when there are none, and the clustering
 runs again, at most 5 times. An edge joins two hard units, also two of one cluster that build apart (an issue group,
 below): the joined unit then goes into the plan. A repair never joins two anchors, so a conflict between two prefixes
-stays.
+stays. With stacked branches, a conflict on a commit of another cluster first stacks the two clusters; only when the
+same conflict comes again does the next round join their units.
 
 ```json
 {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
@@ -585,13 +607,16 @@ stays.
 - Per cluster: `change` against the groups now in `from` (`kept`: one whole branch under its name; `renamed`: one
   whole branch under another name; `merged`: two or more whole branches, or one with unassigned commits; `split`: a
   part of one branch; `new`: anything else), `why` (one line to
-  quote to the user, with the repair rounds), `weak` (a merge by paths near the threshold, or one that adjacency
-  decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`).
+  quote to the user, with the repair rounds and a new parent), `weak` (a merge by paths near the threshold, or one
+  that adjacency decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`). With stacked
+  branches also `parent` (the branch it builds on) and `restacked` (the parent changes).
+- A stacked cluster never goes into `issue_groups`, because an issue group can't name a parent.
 - A cluster of two or more whole issue branches goes into `issue_groups` of the plan, marked `"via":"issue_group"`:
   its subjects keep their keys, and `rewritten` stays 0 for it. `--rewrite-issues` gives its commits a prefix instead.
   An issue group is an anchor, as a prefix is: it stays one branch unless `--fresh`.
 - `rewritten` counts the subjects the plan changes. `check` has the `bd check` result of each branch and the
-  `repair_rounds`. `warnings` lists `anchor_dependency` and `unresolved_conflict`, with the branches.
+  `repair_rounds`. `warnings` lists `anchor_dependency` (with stacked branches only a cycle between two prefixes) and
+  `unresolved_conflict`, with the branches.
 - The exit code is 1 when a branch of the plan still conflicts, as for `bd check`.
 - On the 74 commits and 12 branches of a large monorepo branch it keeps the 12 branches with an empty plan, in 0.27 s
   warm (a debug build). With `--fresh` it finds the grouping a human made there with a pairwise precision of 1.0 and

@@ -1,4 +1,4 @@
-use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines};
+use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement};
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use crate::suggest::{SuggestPlan, plan_of};
 use git_ops::rewrite_plan::short_id;
@@ -42,6 +42,18 @@ fn clusters(output: &Value) -> BTreeMap<String, (String, u64, Option<String>)> {
 
 fn entry(change: &str, commit_count: u64, via: Option<&str>) -> (String, u64, Option<String>) {
   (change.to_string(), commit_count, via.map(str::to_string))
+}
+
+/// Apply the plan of a suggestion with `bd group`, and suggest again: the new suggestion has an empty plan
+fn apply_and_suggest(repo: &TestRepo, output: &Value) -> Value {
+  let plan = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(plan.path(), output["plan"].to_string()).unwrap();
+  let (exit_code, grouped) = run_in(repo, &["group", "--plan", plan.path().to_str().unwrap()]);
+  assert_eq!(exit_code, 0, "{grouped}");
+  let (exit_code, again) = run_in(repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{again}");
+  assert_eq!(again["plan"], json!({ "branches": {}, "unassign": [] }));
+  again
 }
 
 /// Refs and HEAD: a suggestion changes neither
@@ -108,13 +120,7 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   assert_eq!((rewriting["plan"].get("issue_groups"), &rewriting["rewritten"]), (None, &json!(4)));
 
   // applied, the suggestion suggests nothing more
-  let plan = tempfile::NamedTempFile::new().unwrap();
-  std::fs::write(plan.path(), output["plan"].to_string()).unwrap();
-  let (exit_code, grouped) = run_in(&repo, &["group", "--plan", plan.path().to_str().unwrap()]);
-  assert_eq!(exit_code, 0, "{grouped}");
-  let (exit_code, again) = run_in(&repo, &["suggest"]);
-  assert_eq!(exit_code, 0, "{again}");
-  assert_eq!(again["plan"], json!({ "branches": {}, "unassign": [] }));
+  let again = apply_and_suggest(&repo, &output);
   assert_eq!(again["rewritten"], json!(0));
   assert_eq!(clusters(&again)["vm"], entry("kept", 2, None));
   // the issue group is an anchor now, kept under its name
@@ -255,6 +261,101 @@ fn prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1() {
     .map(|warning| (warning["kind"].as_str().unwrap(), &warning["branches"]))
     .collect();
   assert_eq!(warnings, [("anchor_dependency", &json!(["b", "a"])), ("unresolved_conflict", &json!(["b"]))]);
+  // without stacked branches the warning names the setting that stacks them
+  let message = output["warnings"][0]["message"].as_str().unwrap();
+  assert!(message.contains("git config branchdeck.stacks true"), "{message}");
+}
+
+#[test_log::test]
+fn with_stacked_branches_a_branch_stacks_on_the_branch_it_needs() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let ids = commits(
+    &repo,
+    &[
+      ("(a) Add shared", &[("shared.txt", "one\n")]),
+      ("(b) Change shared", &[("shared.txt", "two\n")]),
+      ("(gone/c) Add other", &[("other.txt", "other\n")]),
+    ],
+  );
+  let (exit_code, output) = run_in(&repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["plan"], json!({ "branches": { "a/b": [short(&ids[1])], "c": [short(&ids[2])] }, "unassign": [] }));
+  let named = |name: &str| {
+    output["clusters"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|cluster| cluster["name"] == json!(name))
+      .unwrap()
+      .clone()
+  };
+  let b = named("a/b");
+  assert_eq!((&b["change"], &b["parent"], &b["restacked"]), (&json!("kept"), &json!("a"), &json!(true)));
+  assert_eq!(b["why"], json!("prefix (b); 1 unit; area .; stacked on a, whose commits it needs"));
+  assert_eq!(named("c")["why"], json!("prefix (c); 1 unit; area .; unstacked, because its parent has no commits"));
+  assert_eq!((&output["check"]["ok"], output.get("warnings")), (&json!(true), None));
+
+  // applied, the suggestion suggests nothing more
+  let again = apply_and_suggest(&repo, &output);
+  assert_eq!(
+    clusters(&again),
+    BTreeMap::from([
+      ("a".to_string(), entry("kept", 1, None)),
+      ("a/b".to_string(), entry("kept", 1, None)),
+      ("c".to_string(), entry("kept", 1, None)),
+    ])
+  );
+  assert!(again["clusters"].as_array().unwrap().iter().all(|cluster| cluster.get("restacked").is_none()), "{again}");
+}
+
+/// A repository with stacked branches on and these commits
+fn stacked_repo(subjects: &[(&str, &[(&str, &str)])]) -> (TestRepo, Vec<String>) {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let ids = commits(&repo, subjects);
+  (repo, ids)
+}
+
+/// Suggest, expect a checked plan, apply it and expect that the next suggestion changes nothing
+fn suggest_checked_and_stable(repo: &TestRepo, plan: &Value) {
+  let (exit_code, output) = run_in(repo, &["suggest"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["plan"], &output["check"]["ok"]), (plan, &json!(true)), "{output}");
+  apply_and_suggest(repo, &output);
+}
+
+#[test_log::test]
+fn a_stacked_plan_ungroups_an_issue_group_and_rewrites_a_deeper_path() {
+  // an issue group that needs another branch leaves the group for a stacked prefix
+  let (repo, ids) = stacked_repo(&[("(a) Add shared", &[("shared.txt", "one\n")]), ("XA-1 Change shared", &[("shared.txt", "two\n")])]);
+  let plan = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(plan.path(), json!({ "branches": {}, "unassign": [], "issue_groups": { "grp": ["XA-1"] } }).to_string()).unwrap();
+  let (exit_code, grouped) = run_in(&repo, &["group", "--plan", plan.path().to_str().unwrap()]);
+  assert_eq!(exit_code, 0, "{grouped}");
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "a/grp": [short(&ids[1])] }, "unassign": [], "ungroup_issues": ["XA-1"] }));
+
+  // a path of three levels declares the parent of its parent too, so it becomes `parent/leaf`
+  let (repo, ids) = stacked_repo(&[
+    ("(a) Add a", &[("a.txt", "a\n")]),
+    ("(x) Add shared", &[("shared.txt", "one\n")]),
+    ("(a/b) Change shared", &[("shared.txt", "two\n")]),
+    ("(a/b/c) Add c", &[("c.txt", "c\n")]),
+  ]);
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "x/b": [short(&ids[2])], "b/c": [short(&ids[3])] }, "unassign": [] }));
+  let (repo, ids) = stacked_repo(&[("(gone/a) Add a", &[("a.txt", "a\n")]), ("(gone/a/b) Add b", &[("b.txt", "b\n")])]);
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "a": [short(&ids[0])], "a/b": [short(&ids[1])] }, "unassign": [] }));
+}
+
+#[test_log::test]
+fn a_follow_up_that_joins_an_issue_branch_stays_there_once_applied() {
+  let (repo, ids) = stacked_repo(&[
+    ("K-1 Add parser", &[("shared.txt", "one\n"), ("parser/a.rs", "a\n")]),
+    ("Tune shared", &[("shared.txt", "two\n"), ("ui/b.rs", "b\n")]),
+  ]);
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "K-1": [short(&ids[1])] }, "unassign": [] }));
+  let (_, again) = run_in(&repo, &["suggest"]);
+  assert_eq!(clusters(&again), BTreeMap::from([("K-1".to_string(), entry("kept", 2, None))]));
 }
 
 #[test_log::test]
@@ -308,7 +409,7 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
       commit(None, Some("XYZ-1"), None),
       commit(None, Some("XYZ-2"), None),
     ],
-    dependencies: Vec::new(),
+    ..ClusterInput::default()
   };
   let cluster = |commits: Vec<usize>, keys: &[&str], units: usize, issue_units: usize| Cluster {
     commits,
@@ -329,9 +430,10 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
     warnings: Vec::new(),
     unit_of: Vec::new(),
     unit_anchors: Vec::new(),
+    dependencies: Vec::new(),
   };
-  let names = ["feat".to_string(), "ABC-1".to_string(), "xyz".to_string()];
-  let plan = plan_of(&input, &clustering, &names, false);
+  let mut placements = vec![Placement::root("feat"), Placement::root("ABC-1"), Placement::root("xyz")];
+  let plan = plan_of(&input, &clustering, &placements, false);
   assert_eq!(
     (plan.branches, plan.unassign, plan.issue_groups),
     (
@@ -340,8 +442,12 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
       BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string(), "XYZ-2".to_string()])])
     )
   );
-  let plan = plan_of(&input, &clustering, &names, true);
+  let plan = plan_of(&input, &clustering, &placements, true);
   assert_eq!((plan.branches["xyz"].as_slice(), plan.issue_groups.len()), ([5, 6].as_slice(), 0));
+  // a stacked branch is named by its path, which an issue group can't hold
+  placements[2].path = "feat/xyz".to_string();
+  let plan = plan_of(&input, &clustering, &placements, false);
+  assert_eq!((plan.branches["feat/xyz"].as_slice(), plan.issue_groups.len()), ([5, 6].as_slice(), 0));
 
   // the printed plan is what `bd group` and `bd check` read
   let plan = SuggestPlan {

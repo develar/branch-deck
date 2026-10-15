@@ -4,19 +4,22 @@
 //!
 //! 1. Hard units (union-find): the dependency edges, fixup -> target, the same explicit prefix or issue group (an
 //!    anchor, unless `fresh`), and the same issue key of the subject among the commits without a prefix. An edge
-//!    between two anchors joins nothing: it is an `anchor_dependency` warning.
+//!    between two anchors joins nothing: it is an `anchor_dependency` warning. With stacked branches a dependency
+//!    joins nothing either: it is an edge between units, and only the edges of a cycle join.
 //! 2. A soft score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are
 //!    exact. R links by issue keys and scopes, P by shared paths (IDF-weighted Jaccard), K lowers both when the issue
 //!    projects or the scopes disagree, and adj adds a little for neighbours in the log.
 //! 3. Agglomerative merges, the best pair first and on a tie the oldest; two anchors never merge, no merge goes over
-//!    `max_commits`, and the merging stops under `MERGE_THRESHOLD`.
+//!    `max_commits`, no merge makes a cycle of dependencies, and the merging stops under `MERGE_THRESHOLD`.
+//! 4. With stacked branches, `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
+//!    ancestor (`stack_clusters`).
 
 use crate::areas::{DEFAULT_AREA_DEPTH, area_lines, area_of};
 use git_ops::model::sanitize_branch_name;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::hash::BuildHasher;
 use sync_core::move_commits::validate_branch_name;
 use sync_utils::issue_pattern::issue_keys_in;
@@ -33,6 +36,9 @@ pub const DEFAULT_MAX_COMMITS: usize = 40;
 /// How many times `cluster_with_repair` clusters again after a conflict
 pub const MAX_REPAIR_ROUNDS: usize = 5;
 
+/// R, with stacked branches: a commit of one side depends on a commit of the other, and a side without an anchor has
+/// no issue key, so the commit follows up on the other side; a commit with a key stacks on it instead
+const DEPENDENCY: u32 = 9_500;
 /// R: a body names an issue key of the other side
 const MENTION: u32 = 9_000;
 /// R: both sides name a third key
@@ -78,6 +84,10 @@ pub struct ClusterInput {
   /// `[from, to]`: `from` (the newer) depends on `to`
   #[serde(default)]
   pub dependencies: Vec<[usize; 2]>,
+  /// Stacked branches are on (`branchdeck.stacks`): a prefix path is an anchor by its leaf, and a dependency between
+  /// two units stacks one cluster on the other instead of joining them
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub stacks: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +154,9 @@ pub struct RepairEdge {
   pub commit: usize,
   pub needs: usize,
   pub round: usize,
+  /// The edge stacks the cluster of `commit` on the cluster of `needs`, as a dependency does with stacked branches,
+  /// instead of joining their units
+  pub stack: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +168,8 @@ pub struct Clustering {
   pub unit_of: Vec<usize>,
   /// The anchor of each hard unit, ordered by their oldest commit
   pub unit_anchors: Vec<Option<String>>,
+  /// `[from, to]` between clusters, sorted: a commit of `from` depends on a commit of `to`, or a repair stacked them
+  pub dependencies: Vec<[usize; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +195,8 @@ pub struct Cluster {
 /// What a soft merge went by
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Link {
+  /// A commit of one side depends on a commit of the other
+  Dependency,
   /// A body names this issue key of the other side
   Mention(String),
   /// Both sides name this key
@@ -230,7 +247,8 @@ pub enum ClusterChange {
 /// Cluster `input`, then check the result with `check` and, while it finds conflicts, join each conflicting commit to
 /// the commits it needs as hard edges and cluster again, at most `MAX_REPAIR_ROUNDS` times. An edge is added only
 /// between two hard units, so also inside a cluster whose units build apart (an issue group), and never between two
-/// anchors, so such a conflict stays
+/// anchors, so such a conflict stays. With stacked branches, a commit that needs a commit of another cluster first
+/// stacks its cluster on that one; only when the same conflict comes again do their units join
 pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mut check: impl FnMut(&Clustering) -> Result<Vec<Conflict>, E>) -> Result<Repaired, E> {
   let mut options = options.clone();
   let mut rounds = 0;
@@ -241,21 +259,37 @@ pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mu
       return Ok(Repaired { clustering, rounds, conflicts });
     }
     let count = clustering.unit_of.len();
+    let mut cluster_of = vec![usize::MAX; count];
+    for (index, cluster) in clustering.clusters.iter().enumerate() {
+      for &commit in &cluster.commits {
+        cluster_of[commit] = index;
+      }
+    }
     let joinable = |a: usize, b: usize| {
       let (a, b) = (clustering.unit_of[a], clustering.unit_of[b]);
       a != b && !(clustering.unit_anchors[a].is_some() && clustering.unit_anchors[b].is_some())
     };
-    // one edge per pair of units: each joins two units, so the rounds end
-    let mut pairs: BTreeSet<(usize, usize)> = BTreeSet::new();
+    let stacked_before = |commit: usize, needs: usize| options.repairs.iter().any(|repair| repair.stack && repair.commit == commit && repair.needs == needs);
+    // one edge per pair of units: each joins or stacks two units, so the rounds end
+    let mut pairs: BTreeSet<(usize, usize, bool)> = BTreeSet::new();
     let added: Vec<RepairEdge> = conflicts
       .iter()
       .flat_map(|conflict| conflict.needs.iter().map(|&needs| (conflict.commit, needs)))
-      .filter(|&(commit, needs)| commit < count && needs < count && joinable(commit, needs))
-      .filter(|&(commit, needs)| {
-        let (a, b) = (clustering.unit_of[commit], clustering.unit_of[needs]);
-        pairs.insert((a.min(b), a.max(b)))
+      .filter(|&(commit, needs)| commit < count && needs < count)
+      .filter_map(|(commit, needs)| {
+        let stack = input.stacks && cluster_of[commit] != cluster_of[needs] && !stacked_before(commit, needs);
+        (stack || joinable(commit, needs)).then_some((commit, needs, stack))
       })
-      .map(|(commit, needs)| RepairEdge { commit, needs, round: rounds + 1 })
+      .filter(|&(commit, needs, stack)| {
+        let (a, b) = (clustering.unit_of[commit], clustering.unit_of[needs]);
+        pairs.insert((a.min(b), a.max(b), stack))
+      })
+      .map(|(commit, needs, stack)| RepairEdge {
+        commit,
+        needs,
+        round: rounds + 1,
+        stack,
+      })
       .collect();
     if added.is_empty() {
       return Ok(Repaired { clustering, rounds, conflicts });
@@ -269,7 +303,12 @@ pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mu
 pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
   let mut features = FeatureTable::default();
   let commit_features: Vec<Vec<(u32, f64)>> = input.commits.iter().map(|commit| features.of_commit(&commit.files)).collect();
-  let (mut groups, warnings) = hard_units(input, options, &commit_features);
+  let HardUnits {
+    mut groups,
+    warnings,
+    dependencies: unit_edges,
+    declared,
+  } = hard_units(input, options, &commit_features);
   let mut unit_of = vec![0; input.commits.len()];
   for (unit, group) in groups.iter().enumerate() {
     for &commit in &group.commits {
@@ -280,10 +319,25 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
   let scorer = Scorer::new(&groups, &features, options.max_commits);
 
   let count = groups.len();
+  // the groups each group depends on: with stacked branches, the dependencies that joined no units; and the groups
+  // each group must build on, also by the parents its prefixes declare
+  let mut needs: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); count];
+  for [from, to] in unit_edges {
+    needs[from].insert(to);
+  }
+  let mut below = needs.clone();
+  for [from, to] in declared {
+    below[from].insert(to);
+  }
+  let linked = |needs: &[BTreeSet<usize>], a: usize, b: usize| needs[a].contains(&b) || needs[b].contains(&a);
   let mut alive = vec![true; count];
   // scores[i][j] for i < j, and the best score of each row with its column, the lowest on a tie
   let mut scores: Vec<Vec<Option<Scored>>> = (0..count)
-    .map(|i| (0..count).map(|j| if i < j { scorer.score(&groups[i], &groups[j]) } else { None }).collect())
+    .map(|i| {
+      (0..count)
+        .map(|j| if i < j { scorer.score(&groups[i], &groups[j], linked(&needs, i, j)) } else { None })
+        .collect()
+    })
     .collect();
   let row_best = |scores: &[Vec<Option<Scored>>], alive: &[bool], row: usize| {
     let mut best: Option<(u32, usize)> = None;
@@ -309,15 +363,23 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
       }
     }
     let Some((_, i, j)) = pick else { break };
+    // a merge with a path through a third group makes a cycle, and no stack builds a cycle
+    if reaches_through(&below, i, j) || reaches_through(&below, j, i) {
+      scores[i][j] = None;
+      best[i] = row_best(&scores, &alive, i);
+      continue;
+    }
     let scored = scores[i][j].take().expect("the best pair has a score");
-    let link = scorer.link(&groups[i], &groups[j], &scored);
+    let link = scorer.link(&groups[i], &groups[j], linked(&needs, i, j), &scored);
     let other = std::mem::take(&mut groups[j]);
     groups[i].absorb(other, link, scored.weak);
+    absorb_edges(&mut needs, i, j);
+    absorb_edges(&mut below, i, j);
     alive[j] = false;
     best[j] = None;
     for k in (0..count).filter(|&k| alive[k] && k != i) {
       let (low, high) = (i.min(k), i.max(k));
-      scores[low][high] = scorer.score(&groups[low], &groups[high]);
+      scores[low][high] = scorer.score(&groups[low], &groups[high], linked(&needs, low, high));
     }
     best[i] = row_best(&scores, &alive, i);
     for k in (0..i).filter(|&k| alive[k]) {
@@ -336,6 +398,16 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
     }
   }
 
+  let mut cluster_of = vec![usize::MAX; count];
+  for (index, group) in (0..count).filter(|&group| alive[group]).enumerate() {
+    cluster_of[group] = index;
+  }
+  let mut dependencies: Vec<[usize; 2]> = (0..count)
+    .filter(|&group| alive[group])
+    .flat_map(|group| needs[group].iter().map(move |&needed| (group, needed)))
+    .map(|(group, needed)| [cluster_of[group], cluster_of[needed]])
+    .collect();
+  dependencies.sort_unstable();
   let clusters = groups
     .into_iter()
     .zip(alive)
@@ -347,7 +419,35 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
     warnings,
     unit_of,
     unit_anchors,
+    dependencies,
   }
+}
+
+/// The edges of group `j` become edges of group `i`, which absorbed it
+fn absorb_edges(edges: &mut [BTreeSet<usize>], i: usize, j: usize) {
+  let absorbed = std::mem::take(&mut edges[j]);
+  edges[i].extend(absorbed);
+  for targets in edges.iter_mut() {
+    if targets.remove(&j) {
+      targets.insert(i);
+    }
+  }
+  edges[i].remove(&i);
+}
+
+/// Whether `from` reaches `to` over the edges through at least one other group
+fn reaches_through(needs: &[BTreeSet<usize>], from: usize, to: usize) -> bool {
+  let mut seen: HashSet<usize> = HashSet::new();
+  let mut stack: Vec<usize> = needs[from].iter().copied().filter(|&needed| needed != to).collect();
+  while let Some(group) = stack.pop() {
+    if group == to {
+      return true;
+    }
+    if seen.insert(group) {
+      stack.extend(needs[group].iter().copied());
+    }
+  }
+  false
 }
 
 /// The interned path features, with the area each one comes from
@@ -522,25 +622,57 @@ impl Sets {
   }
 }
 
-/// The anchor of a commit: its prefix, else the issue group of its key; none with `fresh`
-fn anchor_of(commit: &CommitFeatures, fresh: bool) -> Option<&str> {
-  if fresh { None } else { commit.prefix.as_deref().or(commit.issue_group.as_deref()) }
+/// The anchor of a commit: its prefix (the leaf of its path with stacked branches), else the issue group of its key;
+/// none with `fresh`
+fn anchor_of(commit: &CommitFeatures, fresh: bool, stacks: bool) -> Option<&str> {
+  if fresh {
+    None
+  } else {
+    commit.prefix.as_deref().map(|prefix| prefix_anchor(prefix, stacks)).or(commit.issue_group.as_deref())
+  }
 }
 
-/// The hard units, ordered by their oldest commit, and the warnings for edges between anchors
-fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &[Vec<(u32, f64)>]) -> (Vec<Group>, Vec<Warning>) {
+/// The branch a prefix names: with stacked branches the leaf of its path
+fn prefix_anchor(prefix: &str, stacks: bool) -> &str {
+  if stacks { leaf_of_path(prefix) } else { prefix }
+}
+
+/// The last level of a stack path
+fn leaf_of_path(path: &str) -> &str {
+  path.rsplit('/').next().unwrap_or(path)
+}
+
+/// The level before the last of a stack path: the parent it declares
+fn parent_of_path(path: &str) -> Option<&str> {
+  path.rsplit('/').nth(1)
+}
+
+/// What `hard_units` finds: the units, ordered by their oldest commit, the warnings for edges between anchors, and with
+/// stacked branches the edges between the units, `[from, to]` by unit
+struct HardUnits {
+  groups: Vec<Group>,
+  warnings: Vec<Warning>,
+  /// The dependencies that joined no units
+  dependencies: Vec<[usize; 2]>,
+  /// A unit and the parent its prefix paths declare
+  declared: Vec<[usize; 2]>,
+}
+
+fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &[Vec<(u32, f64)>]) -> HardUnits {
   let count = input.commits.len();
-  let anchor_of = |commit| anchor_of(commit, options.fresh);
+  let anchor_of = |commit| anchor_of(commit, options.fresh, input.stacks);
   let mut sets = Sets {
     parents: (0..count).collect(),
     anchors: input.commits.iter().map(|commit| anchor_of(commit).map(str::to_string)).collect(),
   };
-  // the same anchor, then the same issue key among the commits without one
+  // the same anchor, then the same issue key among the commits without one; a key that names an anchor is that
+  // branch, so its commits join the anchor
+  let anchors: HashSet<&str> = input.commits.iter().filter_map(anchor_of).collect();
   let mut first_with: HashMap<(bool, &str), usize> = HashMap::new();
   for (position, commit) in input.commits.iter().enumerate() {
     let label = match (anchor_of(commit), &commit.key) {
       (Some(anchor), _) => Some((true, anchor)),
-      (None, Some(key)) => Some((false, key.as_str())),
+      (None, Some(key)) => Some((anchors.contains(key.as_str()), key.as_str())),
       _ => None,
     };
     if let Some(label) = label {
@@ -551,6 +683,14 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
   }
 
   let mut warnings = Vec::new();
+  let warn = |warnings: &mut Vec<Warning>, anchors: [String; 2], fixup: bool| {
+    let warning = Warning::AnchorDependency { anchors, fixup };
+    if !warnings.contains(&warning) {
+      warnings.push(warning);
+    }
+  };
+  // with stacked branches a dependency is an edge of the stack, not a join
+  let mut stack_edges: Vec<[usize; 2]> = Vec::new();
   let edges = input
     .dependencies
     .iter()
@@ -564,17 +704,24 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     )
     .filter(|&(from, to, _)| from < count && to < count);
   for (from, to, fixup) in edges {
-    if let Err(anchors) = sets.union(from, to) {
-      let warning = Warning::AnchorDependency { anchors, fixup };
-      if !warnings.contains(&warning) {
-        warnings.push(warning);
-      }
+    if input.stacks && !fixup {
+      stack_edges.push([from, to]);
+    } else if let Err(anchors) = sets.union(from, to) {
+      warn(&mut warnings, anchors, fixup);
     }
   }
   let mut joined_in: Vec<(usize, usize)> = Vec::new();
   for repair in options.repairs.iter().filter(|repair| repair.commit < count && repair.needs < count) {
-    if sets.union(repair.commit, repair.needs).is_ok() {
+    if repair.stack {
+      stack_edges.push([repair.commit, repair.needs]);
+    } else if sets.union(repair.commit, repair.needs).is_ok() {
       joined_in.push((repair.commit, repair.round));
+    }
+  }
+  // no stack builds a cycle of units: its edges join, as without stacked branches
+  for [from, to] in cyclic_edges(&mut sets, &stack_edges) {
+    if let Err(anchors) = sets.union(from, to) {
+      warn(&mut warnings, anchors, false);
     }
   }
 
@@ -594,6 +741,33 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
       group.repair_rounds.insert(round);
     }
   }
+  let unit_of_root: HashMap<usize, usize> = by_root.keys().enumerate().map(|(unit, &root)| (root, unit)).collect();
+  let mut unit_edges: Vec<[usize; 2]> = stack_edges
+    .iter()
+    .map(|&[from, to]| [unit_of_root[&sets.root(from)], unit_of_root[&sets.root(to)]])
+    .filter(|[from, to]| from != to)
+    .collect();
+  unit_edges.sort_unstable();
+  unit_edges.dedup();
+  let unit_of_anchor: HashMap<String, usize> = by_root.keys().enumerate().filter_map(|(unit, &root)| Some((sets.anchors[root].clone()?, unit))).collect();
+  let mut declared: Vec<[usize; 2]> = Vec::new();
+  if input.stacks {
+    for (position, prefix) in input
+      .commits
+      .iter()
+      .enumerate()
+      .filter_map(|(position, commit)| Some((position, commit.prefix.as_deref()?)))
+    {
+      let unit = unit_of_root[&sets.root(position)];
+      if let Some(&parent) = parent_of_path(prefix).and_then(|parent| unit_of_anchor.get(parent))
+        && parent != unit
+      {
+        declared.push([unit, parent]);
+      }
+    }
+  }
+  declared.sort_unstable();
+  declared.dedup();
   let groups = by_root
     .into_iter()
     .map(|(root, mut group)| {
@@ -605,7 +779,78 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
       group
     })
     .collect();
-  (groups, warnings)
+  HardUnits {
+    groups,
+    warnings,
+    dependencies: unit_edges,
+    declared,
+  }
+}
+
+/// The edges whose two ends are in one strongly connected component of the graph of their sets: a cycle that no
+/// stack builds
+fn cyclic_edges(sets: &mut Sets, edges: &[[usize; 2]]) -> Vec<[usize; 2]> {
+  let roots: Vec<[usize; 2]> = edges.iter().map(|&[from, to]| [sets.root(from), sets.root(to)]).collect();
+  let component = components(sets.parents.len(), &roots);
+  edges
+    .iter()
+    .zip(&roots)
+    .filter(|(_, [from, to])| from != to && component[*from] == component[*to])
+    .map(|(&edge, _)| edge)
+    .collect()
+}
+
+/// The strongly connected component of each node of a directed graph (Kosaraju, without recursion)
+fn components(count: usize, edges: &[[usize; 2]]) -> Vec<usize> {
+  let mut successors: Vec<Vec<usize>> = vec![Vec::new(); count];
+  let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); count];
+  for &[from, to] in edges {
+    successors[from].push(to);
+    predecessors[to].push(from);
+  }
+  let mut visited = vec![false; count];
+  let mut finished: Vec<usize> = Vec::with_capacity(count);
+  for start in 0..count {
+    if visited[start] {
+      continue;
+    }
+    visited[start] = true;
+    // the node and the index of its next successor
+    let mut stack = vec![(start, 0)];
+    while let Some(&(node, next)) = stack.last() {
+      if let Some(&successor) = successors[node].get(next) {
+        if let Some(top) = stack.last_mut() {
+          top.1 += 1;
+        }
+        if !visited[successor] {
+          visited[successor] = true;
+          stack.push((successor, 0));
+        }
+      } else {
+        finished.push(node);
+        stack.pop();
+      }
+    }
+  }
+  let mut component = vec![usize::MAX; count];
+  let mut next_component = 0;
+  for &start in finished.iter().rev() {
+    if component[start] != usize::MAX {
+      continue;
+    }
+    component[start] = next_component;
+    let mut stack = vec![start];
+    while let Some(node) = stack.pop() {
+      for &predecessor in &predecessors[node] {
+        if component[predecessor] == usize::MAX {
+          component[predecessor] = next_component;
+          stack.push(predecessor);
+        }
+      }
+    }
+    next_component += 1;
+  }
+  component
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -662,11 +907,12 @@ impl<'f> Scorer<'f> {
     }
   }
 
-  fn score(&self, a: &Group, b: &Group) -> Option<Scored> {
+  /// The score of `a` and `b`, of which one depends on the other when `linked`
+  fn score(&self, a: &Group, b: &Group, linked: bool) -> Option<Scored> {
     if (a.anchor.is_some() && b.anchor.is_some()) || a.commits.len() + b.commits.len() > self.max_commits {
       return None;
     }
-    let (relation, _) = self.relation(a, b);
+    let (relation, _) = self.relation(a, b, linked);
     let (paths, heaviest) = self.paths(a, b);
 
     let both_keys = !a.keys.is_empty() && !b.keys.is_empty();
@@ -698,22 +944,34 @@ impl<'f> Scorer<'f> {
   }
 
   /// What the merge of `a` and `b` went by
-  fn link(&self, a: &Group, b: &Group, scored: &Scored) -> Link {
-    match self.relation(a, b) {
+  fn link(&self, a: &Group, b: &Group, linked: bool, scored: &Scored) -> Link {
+    match self.relation(a, b, linked) {
       (_, Some(link)) if !scored.by_paths => link,
       _ => Link::Paths(scored.heaviest.map_or_else(String::new, |id| self.features.areas[id as usize].clone())),
     }
   }
 
-  /// R and its link: the strongest of a mention of the other side's key, the same scope and a third key both name
-  fn relation(&self, a: &Group, b: &Group) -> (u32, Option<Link>) {
+  /// R and its link: the strongest of a dependency of a follow-up, a mention of the other side's key, the same scope
+  /// and a third key both name
+  fn relation(&self, a: &Group, b: &Group, linked: bool) -> (u32, Option<Link>) {
     let mut best: (u32, Option<Link>) = (0, None);
     let mut consider = |score: u32, link: Link| {
       if score > best.0 {
         best = (score, Some(link));
       }
     };
-    if let Some(key) = a.mentions.intersection(&b.keys).chain(b.mentions.intersection(&a.keys)).min() {
+    let follows_up = |group: &Group| group.anchor.is_none() && group.keys.is_empty();
+    if linked && (follows_up(a) || follows_up(b)) {
+      consider(DEPENDENCY, Link::Dependency);
+    }
+    // a key that too many units name is the key of a series, not of the other side
+    if let Some(key) = a
+      .mentions
+      .intersection(&b.keys)
+      .chain(b.mentions.intersection(&a.keys))
+      .filter(|key| !self.ignored_mentions.contains(*key))
+      .min()
+    {
       consider(MENTION, Link::Mention(key.clone()));
     }
     if let Some(scope) = a.scopes.intersection(&b.scopes).next() {
@@ -881,16 +1139,16 @@ pub fn name_clusters(input: &ClusterInput, clustering: &Clustering, taken: &Hash
   names
 }
 
-/// The path of a group the cluster takes over: the prefix its commits have (a stack path with stacked branches on),
-/// else the group, an issue key
+/// The name of a group the cluster takes over: the prefix its commits have (the leaf of the path with stacked
+/// branches on, which `place_clusters` stacks), else the group, an issue key
 fn inherited_name(input: &ClusterInput, cluster: &Cluster, group: &str) -> String {
   cluster
     .commits
     .iter()
     .map(|&commit| &input.commits[commit])
     .find(|commit| commit.group.as_deref() == Some(group))
-    .and_then(|commit| commit.prefix.clone())
-    .unwrap_or_else(|| group.to_string())
+    .and_then(|commit| commit.prefix.as_deref())
+    .map_or_else(|| group.to_string(), |prefix| prefix_anchor(prefix, input.stacks).to_string())
 }
 
 /// The name of a candidate, or `None` when it can't be a branch name
@@ -1009,6 +1267,206 @@ pub fn cluster_change<'a>(input: &'a ClusterInput, cluster: &Cluster, name: &str
   (change, groups)
 }
 
+/// Where a cluster builds
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+  /// The branch of the plan: `parent/leaf`, or the leaf of a root
+  pub path: String,
+  /// The branch it builds on; `None` for a root
+  pub parent: Option<String>,
+  /// Why the parent changes; `None` when it stays
+  pub restack: Option<Restack>,
+}
+
+/// Why the parent of a cluster changes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Restack {
+  /// It needs commits of its new parent
+  Needs,
+  /// A branch above it needs both it and its new parent, so their stacks became one
+  ForAbove,
+  /// Its declared parent depends on it
+  ParentNeedsIt,
+  /// Its declared parent has no commits, so the sync would block it
+  ParentWithoutCommits,
+  /// The commits of its declared parent went into a cluster of another name
+  ParentMerged,
+}
+
+impl Placement {
+  /// A branch without a parent
+  pub fn root(leaf: &str) -> Self {
+    Self {
+      path: leaf.to_string(),
+      parent: None,
+      restack: None,
+    }
+  }
+
+  /// The plan names a stacked branch by its path; an issue group can't
+  pub fn is_stacked(&self) -> bool {
+    self.path.contains('/')
+  }
+}
+
+/// Where each cluster named `leaves` builds. Without stacked branches each one is a root under its leaf. With them,
+/// the parent its prefixes declare stays when it holds every cluster it depends on as an ancestor (`stack_clusters`);
+/// a declared parent that is no cluster goes, as the sync would block on it, and `fresh` declares no parent
+pub fn place_clusters(input: &ClusterInput, clustering: &Clustering, leaves: &[String], fresh: bool) -> Vec<Placement> {
+  if !input.stacks {
+    return leaves.iter().map(|leaf| Placement::root(leaf)).collect();
+  }
+  // the parent that the prefix path of the leaf declares in its oldest commit; not the leaf itself
+  let declared_names: Vec<Option<&str>> = clustering
+    .clusters
+    .iter()
+    .zip(leaves)
+    .map(|(cluster, leaf)| {
+      let path = cluster
+        .commits
+        .iter()
+        .filter_map(|&commit| input.commits[commit].prefix.as_deref())
+        .find(|prefix| leaf_of_path(prefix) == leaf);
+      path.and_then(parent_of_path).filter(|parent| !fresh && parent != leaf)
+    })
+    .collect();
+  let index_of: HashMap<&str, usize> = leaves.iter().enumerate().map(|(index, leaf)| (leaf.as_str(), index)).collect();
+  let declared: Vec<Option<usize>> = declared_names.iter().map(|name| name.and_then(|name| index_of.get(name).copied())).collect();
+  let parents = stack_clusters(&clustering.dependencies, &declared);
+  leaves
+    .iter()
+    .enumerate()
+    .map(|(index, leaf)| {
+      let parent = parents[index].map(|parent| leaves[parent].clone());
+      let restack = match parents[index] {
+        _ if parent.as_deref() == declared_names[index] => None,
+        Some(parent) if clustering.dependencies.binary_search(&[index, parent]).is_ok() => Some(Restack::Needs),
+        Some(_) => Some(Restack::ForAbove),
+        None if declared[index].is_some() => Some(Restack::ParentNeedsIt),
+        None if input.commits.iter().any(|commit| commit.group.as_deref() == declared_names[index]) => Some(Restack::ParentMerged),
+        None => Some(Restack::ParentWithoutCommits),
+      };
+      // a path of more levels would declare more parents, which the placement may have moved
+      let path = parent.as_ref().map_or_else(|| leaf.clone(), |parent| format!("{parent}/{leaf}"));
+      Placement { path, parent, restack }
+    })
+    .collect()
+}
+
+/// The parent of each cluster, so that every cluster it depends on (`[from, to]`) is an ancestor. In the order of the
+/// dependencies and the declared parents (`stack_order`), each cluster takes its declared parent when that one covers
+/// them, else the deepest one it depends on that covers the others; when they lie on two stacks, those stacks become
+/// one chain in that order. A chain only adds ancestors, so the clusters placed before keep theirs. A dependency
+/// that a cycle turned around is left out
+pub fn stack_clusters(dependencies: &[[usize; 2]], declared: &[Option<usize>]) -> Vec<Option<usize>> {
+  let count = declared.len();
+  let mut needs: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); count];
+  for &[from, to] in dependencies.iter().filter(|&&[from, to]| from != to && from < count && to < count) {
+    needs[from].insert(to);
+  }
+  let order = stack_order(&needs, declared);
+  let mut rank = vec![0; count];
+  for (position, &cluster) in order.iter().enumerate() {
+    rank[cluster] = position;
+  }
+  let mut parents: Vec<Option<usize>> = vec![None; count];
+  for &cluster in &order {
+    let needed: Vec<usize> = needs[cluster].iter().copied().filter(|&needed| rank[needed] < rank[cluster]).collect();
+    let preferred = declared[cluster].filter(|&parent| parent < count && rank[parent] < rank[cluster]);
+    let covers = |parents: &[Option<usize>], candidate: usize| {
+      let line = lineage(parents, candidate);
+      needed.iter().all(|needed| line.contains(needed))
+    };
+    let parent = preferred
+      .filter(|&parent| covers(&parents, parent))
+      .or_else(|| needed.iter().copied().find(|&candidate| covers(&parents, candidate)));
+    let parent = if parent.is_some() {
+      parent
+    } else {
+      // the stacks of what it needs, and of its declared parent, become one chain
+      let members: BTreeSet<usize> = needed.iter().chain(&preferred).flat_map(|&member| lineage(&parents, member)).collect();
+      let mut chain: Vec<usize> = members.into_iter().collect();
+      chain.sort_unstable_by_key(|&member| rank[member]);
+      for pair in chain.windows(2) {
+        parents[pair[1]] = Some(pair[0]);
+      }
+      chain.last().copied()
+    };
+    parents[cluster] = parent;
+  }
+  parents
+}
+
+/// The cluster and its ancestors
+fn lineage(parents: &[Option<usize>], cluster: usize) -> Vec<usize> {
+  let mut line = vec![cluster];
+  let mut current = cluster;
+  while let Some(parent) = parents[current] {
+    line.push(parent);
+    current = parent;
+  }
+  line
+}
+
+/// The clusters in an order where each comes after the clusters it depends on and after its declared parent, on a
+/// tie the oldest first. In a cycle the declared parents give way first, then the oldest cluster of the rest goes first
+fn stack_order(needs: &[BTreeSet<usize>], declared: &[Option<usize>]) -> Vec<usize> {
+  let count = needs.len();
+  // per cluster the clusters that wait for it, each with whether it waits only as a declared child
+  let mut waiting: Vec<Vec<(usize, bool)>> = vec![Vec::new(); count];
+  let mut pending = vec![0usize; count];
+  let mut declared_waits = vec![false; count];
+  for (cluster, needed) in needs.iter().enumerate() {
+    for &needed in needed {
+      waiting[needed].push((cluster, false));
+      pending[cluster] += 1;
+    }
+    if let Some(parent) = declared[cluster].filter(|&parent| parent < count && parent != cluster && !needed.contains(&parent)) {
+      waiting[parent].push((cluster, true));
+      pending[cluster] += 1;
+      declared_waits[cluster] = true;
+    }
+  }
+  let mut ready: BinaryHeap<Reverse<usize>> = (0..count).filter(|&cluster| pending[cluster] == 0).map(Reverse).collect();
+  let mut placed = vec![false; count];
+  let mut order = Vec::with_capacity(count);
+  while order.len() < count {
+    let next = if let Some(Reverse(cluster)) = ready.pop() {
+      cluster
+    } else {
+      let giving_way: Vec<usize> = (0..count)
+        .filter(|&cluster| !placed[cluster] && declared_waits[cluster] && declared[cluster].is_some_and(|parent| !placed[parent]))
+        .collect();
+      if !giving_way.is_empty() {
+        for cluster in giving_way {
+          declared_waits[cluster] = false;
+          pending[cluster] -= 1;
+          if pending[cluster] == 0 {
+            ready.push(Reverse(cluster));
+          }
+        }
+        continue;
+      }
+      (0..count).find(|&cluster| !placed[cluster]).expect("a cluster is left")
+    };
+    if placed[next] {
+      continue;
+    }
+    placed[next] = true;
+    order.push(next);
+    for &(waiter, as_declared) in &waiting[next] {
+      if placed[waiter] || (as_declared && !declared_waits[waiter]) {
+        continue;
+      }
+      pending[waiter] -= 1;
+      if pending[waiter] == 0 {
+        ready.push(Reverse(waiter));
+      }
+    }
+  }
+  order
+}
+
 /// Whether the cluster is the commits of two or more issue keys, all without a prefix: the issue groups make it one
 /// branch without a rewrite. A unit holds every commit without a prefix of its key, so the issue branches are whole
 pub fn is_issue_only(input: &ClusterInput, cluster: &Cluster) -> bool {
@@ -1025,13 +1483,16 @@ pub fn why(input: &ClusterInput, cluster: &Cluster) -> String {
   let commits: Vec<&CommitFeatures> = cluster.commits.iter().map(|&commit| &input.commits[commit]).collect();
   let mut parts: Vec<String> = Vec::new();
   if let Some(anchor) = &cluster.anchor {
-    let prefixed = commits.iter().any(|commit| commit.prefix.as_ref() == Some(anchor));
+    let prefixed = commits
+      .iter()
+      .any(|commit| commit.prefix.as_deref().map(|prefix| prefix_anchor(prefix, input.stacks)) == Some(anchor.as_str()));
     parts.push(if prefixed { format!("prefix ({anchor})") } else { format!("issue group {anchor}") });
   }
   let issue = if cluster.issue_units == cluster.units { "issue " } else { "" };
   parts.push(format!("{} {issue}unit{}", cluster.units, if cluster.units == 1 { "" } else { "s" }));
   for link in &cluster.links {
     let part = match link {
+      Link::Dependency => "a dependency".to_string(),
       Link::Mention(key) | Link::CoMention(key) => {
         let bodies = commits.iter().filter(|commit| commit.mentions.contains(key)).count();
         format!("{key} named in {bodies} bod{}", if bodies == 1 { "y" } else { "ies" })
@@ -1104,6 +1565,7 @@ pub fn anonymize(input: &ClusterInput, keys: &impl BuildHasher) -> ClusterInput 
       })
       .collect(),
     dependencies: input.dependencies.clone(),
+    stacks: input.stacks,
   }
 }
 

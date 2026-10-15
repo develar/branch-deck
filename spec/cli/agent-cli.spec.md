@@ -310,17 +310,37 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd suggest` must print a plan for `bd group` with only the commits whose branch changes (a fixup that follows its
   target left out, a prefixed commit that goes to its own issue branch in `unassign`), the clusters with their name,
   commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `from`, `why`, `weak`, issue keys
-  and areas, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
+  and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
 - Hard units must join the dependencies, a fixup and its target, the commits of one prefix (unless `--fresh`) and the
   commits without a prefix of one issue key. Two prefixes must never join, and a dependency between them must be an
-  `anchor_dependency` warning.
+  `anchor_dependency` warning that names `git config branchdeck.stacks true`.
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`hard_units_join_dependencies_fixups_prefixes_and_keys`, `an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+- With stacked branches, a prefix must be an anchor by the leaf of its path, and a dependency must join no units: it
+  must be an edge between two clusters, and only the dependencies of a cycle of units may join them. A cycle between
+  two prefixes must stay an `anchor_dependency` warning. The commits without a prefix of an issue key that a prefix
+  names must join that prefix, because they are one branch.
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_follow_up_that_joins_an_issue_branch_stays_there_once_applied`)
+- With stacked branches, each cluster must get a parent so that every cluster it depends on is an ancestor: the parent
+  its prefixes declare when that parent covers them; else the deepest cluster it depends on that covers the others;
+  else the stacks of the clusters it needs must become one chain, in the order of the dependencies and the oldest
+  cluster first, which only adds ancestors. A declared parent that is no cluster must go, a cluster must not be its own
+  parent, `--fresh` must declare no parent, and in a cycle the declared parent must give way first. The plan must name
+  a stacked cluster `parent/leaf` and a root by its leaf, so that a path of more levels declares no parent that the
+  placement moved. A stacked cluster must never be an issue group: its keys must leave their issue group. `why` must
+  name a new parent and its reason.
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_ungroups_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
-  best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40.
+  best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40. A key that more
+  than max(10, units / 3) units name must link nothing. With stacked branches, a dependency must link a cluster
+  without a prefix and an issue key to the cluster it depends on, and no merge may make a cycle of the dependencies
+  and the declared parents.
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak`, `the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
   [@test] ../../crates/sync-utils/src/issue_pattern.rs (`semantic_prefixes_with_and_without_parentheses`, `issue_keys_anywhere_in_a_text`)
 - With `--fresh`, on the anonymized input of a large monorepo branch, the clusters must match the grouping a human
@@ -329,8 +349,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`golden_monorepo_branch`)
 - A conflict of the check must join the hard unit of the conflicting commit to the units it needs, also inside an
   issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
-  still conflicts.
-  [@test] ../../crates/bd-cli/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`)
+  still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
+  clusters, and join their units only when the same conflict comes again.
+  [@test] ../../crates/bd-cli/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_conflict_inside_an_issue_group_puts_it_into_the_plan`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
   single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or

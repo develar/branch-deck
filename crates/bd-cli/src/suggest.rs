@@ -1,13 +1,13 @@
 //! `bd suggest`: a grouping of the commits ahead of the baseline into branches, as a plan for `bd group`, already
-//! checked. It reads the commits once (`CheckSession`), clusters them (`clustering.rs`) and checks the plan with a trial
-//! sync; a conflict joins the commits it needs and clusters again. It writes git objects and the cache only
-//! (docs/guidelines/agent-cli.md)
+//! checked. It reads the commits once (`CheckSession`), clusters them (`clustering.rs`), with stacked branches stacks
+//! each cluster on the clusters it needs, and checks the plan with a trial sync; a conflict stacks on or joins the
+//! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::check_command::{CheckedBranch, changed_files, checked_branches, missing_commits};
 use crate::clustering::{
-  ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Warning, anonymize, cluster_change,
-  cluster_with_repair, is_issue_only, name_clusters, subject_words, why,
+  ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning, anonymize,
+  cluster_change, cluster_with_repair, is_issue_only, name_clusters, place_clusters, subject_words, why,
 };
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
@@ -26,7 +26,7 @@ use std::hash::RandomState;
 use sync_core::check::{CheckOutcome, CheckReport, CheckSession};
 use sync_core::commit_grouper::parse_subject;
 use sync_core::regroup::{RegroupPlan, Snapshot};
-use sync_core::stack::stack_path;
+use sync_core::stack::{STACKS_CONFIG_KEY, stack_path};
 use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic_prefix};
 
 #[derive(Debug, clap::Args)]
@@ -96,6 +96,12 @@ pub struct SuggestedCluster {
   /// (`--rewrite-issues` gives them a prefix instead)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub via: Option<String>,
+  /// With stacked branches: the branch it builds on, so that every branch it needs is an ancestor
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub parent: Option<String>,
+  /// The parent changes: another one, a new one, or none any more
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub restacked: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -110,8 +116,8 @@ pub struct SuggestCheck {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SuggestWarning {
-  /// `anchor_dependency`: commits of two prefixes depend on each other, and prefixes stay apart; `unresolved_conflict`:
-  /// a branch still conflicts after the repair
+  /// `anchor_dependency`: a commit of one prefix depends on a commit of another, and prefixes stay apart (with stacked
+  /// branches only in a cycle, which no stack builds); `unresolved_conflict`: a branch still conflicts after the repair
   pub kind: String,
   pub branches: Vec<String>,
   pub message: String,
@@ -142,9 +148,9 @@ impl Reading {
   }
 }
 
-/// The names, the plan (positions) and the check of the clustering the repair loop checked last
+/// The placements, the plan (positions) and the check of the clustering the repair loop checked last
 struct Checked {
-  names: Vec<String>,
+  placements: Vec<Placement>,
   positions: PlanPositions,
   report: CheckReport,
 }
@@ -180,8 +186,9 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   };
   let mut last: Option<Checked> = None;
   let repaired = cluster_with_repair(&input, &options, |clustering| {
-    let names = name_clusters(&input, clustering, &taken);
-    let positions = plan_of(&input, clustering, &names, args.rewrite_issues);
+    let leaves = name_clusters(&input, clustering, &taken);
+    let placements = place_clusters(&input, clustering, &leaves, args.fresh);
+    let positions = plan_of(&input, clustering, &placements, args.rewrite_issues);
     let plan = RegroupPlan {
       branches: positions
         .branches
@@ -194,10 +201,10 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     };
     let report = session.check(Some(&plan)).map_err(regroup_error)?;
     let conflicts = conflicts_of(&report, &files_of, &position_of);
-    last = Some(Checked { names, positions, report });
+    last = Some(Checked { placements, positions, report });
     Ok::<_, CliError>(conflicts)
   })?;
-  let Checked { names, positions, report } = last.expect("the check ran");
+  let Checked { placements, positions, report } = last.expect("the check ran");
 
   let short = context.short_ids(commit_ids.iter().copied().chain([snapshot.head.as_str()]));
   let short_of = |commit: usize| short.get(commit_ids[commit]).to_string();
@@ -206,25 +213,27 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     .clustering
     .clusters
     .iter()
-    .zip(&names)
-    .map(|(cluster, name)| {
-      let (change, from) = cluster_change(&input, cluster, name);
-      let via = (!args.rewrite_issues && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
+    .zip(&placements)
+    .map(|(cluster, placement)| {
+      let (change, from) = cluster_change(&input, cluster, &placement.path);
+      let via = (!args.rewrite_issues && !placement.is_stacked() && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
       SuggestedCluster {
-        name: name.clone(),
+        name: placement.path.clone(),
         commit_count: cluster.commits.len(),
         change,
         from: from.into_iter().map(str::to_string).collect(),
-        why: why(&input, cluster),
+        why: stacked_why(why(&input, cluster), placement),
         weak: cluster.weak,
         issue_keys: cluster.keys.clone(),
         areas: top_areas(cluster.commits.iter().flat_map(|&commit| &linked[commit].files), DEFAULT_AREA_DEPTH),
         via,
+        parent: placement.parent.clone(),
+        restacked: placement.restack.is_some(),
       }
     })
     .collect();
   let checked = checked_branches(&report, &files_of, &short);
-  let mut warnings = warnings_of(&repaired.clustering);
+  let mut warnings = warnings_of(&repaired.clustering, input.stacks);
   for (branch, result) in report.branches.iter().zip(&checked).filter(|(_, checked)| checked.result != "ok") {
     let conflict = match &branch.outcome {
       CheckOutcome::Conflict { commit, .. } => position_of
@@ -235,7 +244,8 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     let reason = match conflict {
       Some(conflict) if conflict.needs.is_empty() => "no older commit ahead of the baseline changes the conflicting files".to_string(),
       Some(_) if repaired.rounds == MAX_REPAIR_ROUNDS => format!("the {MAX_REPAIR_ROUNDS} repair rounds ran out"),
-      Some(_) => "the commits it needs have another prefix: stack the branch on theirs, or move them".to_string(),
+      Some(_) if input.stacks => "it still conflicts on the branch of the commits it needs, and two prefixes never join: move the commits".to_string(),
+      Some(_) => format!("the commits it needs have another prefix: turn on stacked branches (`git config {STACKS_CONFIG_KEY} true`) to stack the branch on theirs, or move them"),
       None => format!("the repair joins only conflicting commits, and the branch is {}", result.result),
     };
     warnings.push(SuggestWarning {
@@ -331,7 +341,24 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs) -> ClusterInput {
     })
     .collect();
   let dependencies = compute_dependencies(linked).into_iter().map(|edge| [edge.from, edge.to]).collect();
-  ClusterInput { commits, dependencies }
+  ClusterInput {
+    commits,
+    dependencies,
+    stacks: snapshot.grouping.stacks,
+  }
+}
+
+/// `why` with the new parent of a restacked cluster
+fn stacked_why(why: String, placement: &Placement) -> String {
+  let parent = placement.parent.as_deref().unwrap_or_default();
+  match placement.restack {
+    None => why,
+    Some(Restack::Needs) => format!("{why}; stacked on {parent}, whose commits it needs"),
+    Some(Restack::ForAbove) => format!("{why}; stacked on {parent}, because a branch above needs both"),
+    Some(Restack::ParentNeedsIt) => format!("{why}; unstacked, because its parent needs it"),
+    Some(Restack::ParentWithoutCommits) => format!("{why}; unstacked, because its parent has no commits"),
+    Some(Restack::ParentMerged) => format!("{why}; unstacked, because the commits of its parent went into another branch"),
+  }
 }
 
 /// The words of a subject after its conventional prefix, without its issue keys: `fix(vm): ABC-1 x` gives `x`
@@ -353,17 +380,19 @@ pub(crate) struct PlanPositions {
   pub ungroup_issues: Vec<String>,
 }
 
-/// The plan of a clustering: per branch name the commits that move there, the commits that lose their prefix to fall
-/// back to their own issue branch, and the changes of the issue groups. A commit already grouped by that name stays
-/// out, and so does a fixup that follows its target. A cluster of whole issue branches becomes an issue group unless
-/// `rewrite_issues`; a commit of an issue group that goes to the branch of its own key loses the group
-pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, names: &[String], rewrite_issues: bool) -> PlanPositions {
+/// The plan of a clustering: per branch path the commits that move there, the commits that lose their prefix to fall
+/// back to their own issue branch, and the changes of the issue groups. A commit already grouped by that path stays
+/// out, and so does a fixup that follows its target. A cluster of whole issue branches that is no stacked branch
+/// becomes an issue group unless `rewrite_issues`; a commit of an issue group that goes to the branch of its own key,
+/// or into a stacked branch, loses the group
+pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements: &[Placement], rewrite_issues: bool) -> PlanPositions {
   let mut plan = PlanPositions::default();
   let mut ungroup: BTreeSet<&str> = BTreeSet::new();
   // commit -> where the plan puts it: `Some(name)` or `None` for unassign
   let mut destination: HashMap<usize, Option<&str>> = HashMap::new();
-  for (cluster, name) in clustering.clusters.iter().zip(names) {
-    if !rewrite_issues && is_issue_only(input, cluster) {
+  for (cluster, placement) in clustering.clusters.iter().zip(placements) {
+    let name = &placement.path;
+    if !rewrite_issues && !placement.is_stacked() && is_issue_only(input, cluster) {
       for key in &cluster.keys {
         let now = cluster
           .commits
@@ -382,8 +411,15 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, names: &[St
       let commit = &input.commits[position];
       let own_key = commit.key.as_deref() == Some(name.as_str());
       match &commit.prefix {
-        // without a prefix, the commit is in its issue group, else in the branch of its key
         Some(prefix) if prefix == name => {}
+        // only a prefix names a stacked branch, and an issue group can't be stacked: the commit leaves its group
+        None if placement.is_stacked() => {
+          if commit.issue_group.is_some() {
+            ungroup.extend(commit.key.as_deref());
+          }
+          destination.insert(position, Some(name.as_str()));
+        }
+        // without a prefix, the commit is in its issue group, else in the branch of its key
         None if commit.issue_group.as_deref().or(commit.key.as_deref()) == Some(name.as_str()) => {}
         // the branch of its own key: the commit loses its issue group
         None if own_key => ungroup.extend(commit.key.as_deref()),
@@ -446,21 +482,28 @@ fn conflicts_of(report: &CheckReport, files_of: &HashMap<String, HashSet<String>
   conflicts
 }
 
-fn warnings_of(clustering: &Clustering) -> Vec<SuggestWarning> {
+fn warnings_of(clustering: &Clustering, stacks: bool) -> Vec<SuggestWarning> {
   clustering
     .warnings
     .iter()
     .map(|warning| match warning {
-      Warning::AnchorDependency { anchors, fixup } => SuggestWarning {
-        kind: "anchor_dependency".to_string(),
-        branches: anchors.to_vec(),
-        message: format!(
-          "A commit of {} {} a commit of {}, but commits with different prefixes stay in their branches: stack them, or move one",
-          anchors[0],
-          if *fixup { "is a fixup of" } else { "depends on" },
-          anchors[1]
-        ),
-      },
+      Warning::AnchorDependency { anchors, fixup } => {
+        let [first, second] = anchors;
+        let message = if *fixup {
+          format!("A commit of {first} is a fixup of a commit of {second}, but commits with different prefixes stay in their branches: move one")
+        } else if stacks {
+          format!("A commit of {first} depends on a commit of {second}, and {second} depends on {first}: no stack builds both, and prefixes stay apart: move one")
+        } else {
+          format!(
+            "A commit of {first} depends on a commit of {second}, but commits with different prefixes stay in their branches: turn on stacked branches (`git config {STACKS_CONFIG_KEY} true`) to stack them, or move one"
+          )
+        };
+        SuggestWarning {
+          kind: "anchor_dependency".to_string(),
+          branches: anchors.to_vec(),
+          message,
+        }
+      }
     })
     .collect()
 }
