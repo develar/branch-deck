@@ -19,8 +19,9 @@ repositories: all operations run through the Git CLI.
   their target.
 - **Stacked branches** (opt-in, `git config branchdeck.stacks true`): `(auth/login) Add form` builds `login` on top of
   `auth`, and the branch table shows the stack as a tree. Stack a branch on another one, unstack it or rename a parent
-  from the branch menu; Move to… takes `auth/login`. A branch whose parent has a conflict or is missing is blocked
-  instead of moved.
+  from the branch menu; Move to… takes `auth/login`. Push Stack pushes a branch after its parents, Push with Children
+  a parent with the branches stacked on it. A branch whose parent has a conflict or is missing is blocked instead of
+  moved.
 - **Issue groups**: one branch for the commits of several issues, without a rewrite. `ABC-1 Parse lists` and
   `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
   name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and

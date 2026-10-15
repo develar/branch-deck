@@ -92,4 +92,24 @@ describe("getPushButtonState", () => {
       .toBe("login has commits the remote lacks. Pushing oauth alone works; a pull request includes them until login is pushed.")
     expect(stacked({}).action).toBeNull()
   })
+
+  it("offers Push with Children while branches stacked on it have work for the remote", () => {
+    const push = state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushCount: 2 } })
+    // the push alone stays as it is
+    expect(push).toMatchObject({ text: "Create Remote (1)", disabled: false, action: null })
+    expect(push.childrenAction).toMatchObject({ description: "oauth is stacked on login and has commits to push.", label: "Push with Children (2 branches)" })
+    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session"], pushCount: 3 } }).childrenAction?.description)
+      .toBe("oauth and session are stacked on login and have commits to push.")
+    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session", "guide"], pushCount: 4 } }).childrenAction?.description)
+      .toBe("oauth and 2 more branches are stacked on login and have commits to push.")
+    // an up to date branch offers it only in its menu: its button is disabled
+    expect(state({}, { unpushedChildren: { names: ["oauth"], pushCount: 1 } }).childrenAction).toBeNull()
+    expect(state({ commitsAhead: 1 }).childrenAction).toBeNull()
+  })
+
+  it("offers Push Stack before Push with Children for a branch in the middle of a stack", () => {
+    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2 }, unpushedChildren: { names: ["device"], pushCount: 2 } })
+    expect(push.action?.label).toBe("Push Stack (2 branches)")
+    expect(push.childrenAction?.label).toBe("Push with Children (2 branches)")
+  })
 })

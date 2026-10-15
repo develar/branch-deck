@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { StackBranchInfo } from "@/lib/stack"
 import { summarizePushState } from "@/lib/push-summary"
-import { describePrefixChange, pullRequestBaseOf, stackPushOrder } from "@/lib/stack"
+import { describePrefixChange, pullRequestBaseOf, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -74,5 +74,20 @@ describe("pull request bases of stacked branches", () => {
   it("pushes the ancestors that have work for the remote first, root first", () => {
     expect(stackPushOrder("oauth", name => branches[name])).toEqual(["auth", "oauth"])
     expect(stackPushOrder("auth", name => branches[name])).toEqual(["auth"])
+  })
+
+  it("pushes the branch and its children that have work for the remote, parents first", () => {
+    const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false }
+    const tree: Record<string, Branch> = {
+      ...branches,
+      session: testBranch("session", "auth", { remoteStatus: unpushed, status: "Blocked" }),
+      guide: testBranch("guide", "auth", { remoteStatus: dropping }),
+    }
+    const descendants = ["login", "session", "guide", "oauth"]
+    // login is pushed, session is blocked, a push of guide drops remote commits: it asks first in its row
+    expect(stackChildrenPushOrder("auth", descendants, name => tree[name])).toEqual(["auth", "oauth"])
+    // a pushed branch pushes only its children
+    expect(stackChildrenPushOrder("login", ["oauth"], name => tree[name])).toEqual(["oauth"])
+    expect(stackChildrenPushOrder("oauth", [], name => tree[name])).toEqual(["oauth"])
   })
 })

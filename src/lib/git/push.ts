@@ -9,11 +9,11 @@ import { formatPushMode, isPushIntoRobotRisky } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
-import { stackPushOrder } from "@/lib/stack"
+import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { recordPush } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackDescendants, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, toRemoteStatus } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchRobot, restartPatronusRobot } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
@@ -194,7 +194,16 @@ function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, re
 
 /** Pushes the ancestors of a stacked branch that have work for the remote, root first, then the branch; stops at a failure */
 export async function pushStack(branchName: string): Promise<void> {
-  for (const name of stackPushOrder(branchName, getBranch)) {
+  await pushInOrder(stackPushOrder(branchName, getBranch))
+}
+
+/** Pushes a branch and the branches stacked on it that have work for the remote, parents first; stops at a failure */
+export async function pushWithChildren(branchName: string): Promise<void> {
+  await pushInOrder(stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch))
+}
+
+async function pushInOrder(names: readonly string[]): Promise<void> {
+  for (const name of names) {
     if (!await pushBranch(name)) {
       return
     }

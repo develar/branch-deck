@@ -274,8 +274,8 @@ function branchTableRowsIn(state: BranchSyncState): BranchTableRow[] {
   return rows
 }
 
-/** The branches stacked on `name`, directly or further down */
-function stackDescendantsIn(state: BranchSyncState, name: string): string[] {
+/** The branches stacked on `name`, directly or further down, each after its parent */
+export function stackDescendantsIn(state: BranchSyncState, name: string): string[] {
   const descendants: string[] = []
   const pending = [name]
   while (pending.length > 0) {

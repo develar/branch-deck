@@ -209,6 +209,27 @@ test.describe("Stacked branches", () => {
     await expect.poll(() => readClipboard(page)).toBe("master")
   })
 
+  test("should push a parent with its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+
+    // auth alone may go; its description offers its children too
+    const button = getPushButton(findBranchRow(page, "auth"))
+    await expect(button).toHaveText("Create Remote (1)")
+    await button.hover()
+    const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
+    await expect(alternative).toHaveCount(1)
+    await expect(alternative).toContainText("session and 2 more branches are stacked on auth and have commits to push.")
+
+    await alternative.getByRole("button", { name: "Push with Children (4 branches)" }).click()
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "session", "login", "oauth"])
+    // every branch is on the remote: the menu offers nothing more to push with auth
+    await openContextMenu(page, findBranchRow(page, "auth"))
+    await expect(page.getByRole("menuitem", { name: "Stack On…" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: /^Push with Children/ })).toHaveCount(0)
+  })
+
   test("should offer to retarget a pull request whose base is not the parent", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the pull request of login still targets master, e.g. it was opened before login was stacked on auth
     await setupRepo("stacked_branches", { pullRequests: availablePullRequests(pullRequest("login", 801, { baseRefName: "master" })) })

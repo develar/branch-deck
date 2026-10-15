@@ -171,6 +171,18 @@ renames branches.
   the branch, and stop at a failure.
   [@test] ../../src/lib/stack.test.ts (`pushes the ancestors that have work for the remote first, root first`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
+- The push button of a branch whose descendants have work for the remote must stay as it is too: it pushes only the
+  branch. Its description must offer the children below a rule: "oauth is stacked on login and has commits to push."
+  ("oauth and session are …", "session and 2 more branches are … and have commits to push."), then a
+  `Push with Children (4 branches)` button, named as in the branch menu. A branch whose own push is up to date offers
+  it only in the menu. Below Push Stack when both apply.
+  [@test] ../../src/hooks/usePushButton.test.ts (`offers Push with Children while branches stacked on it have work for the remote`, `offers Push Stack before Push with Children for a branch in the middle of a stack`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
+- "Push with Children" must push the branch if it has work for the remote, then its descendants that have work,
+  parents first, and stop at a failure. A descendant whose push drops remote commits is left out: it asks first in its
+  own row.
+  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
 
 ### Messages
 

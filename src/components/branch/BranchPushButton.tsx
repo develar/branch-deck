@@ -6,6 +6,7 @@ import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
+import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch } from "@/lib/git/push"
@@ -148,28 +149,34 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget }
                     {push.text}
                   </Button>
                 )}
-                {push.action !== null && (
-                  <div data-testid="push-alternative" className="flex flex-col gap-2 border-t border-border pt-2">
-                    <span className="break-words">{push.action.description}</span>
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      className="self-start"
-                      disabled={disabled}
-                      onClick={() => {
-                        close()
-                        push.action?.run()
-                      }}
-                    >
-                      <UploadIcon data-icon="inline-start" />
-                      {push.action.label}
-                    </Button>
-                  </div>
-                )}
+                {push.action !== null && <PushAlternative action={push.action} disabled={disabled} close={close} />}
+                {push.childrenAction !== null && <PushAlternative action={push.childrenAction} disabled={disabled} close={close} />}
               </>
             )}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** Another push the description offers below a rule: its text, then its button */
+function PushAlternative({ action, disabled, close }: { action: PushButtonAction, disabled: boolean, close: () => void }) {
+  return (
+    <div data-testid="push-alternative" className="flex flex-col gap-2 border-t border-border pt-2">
+      <span className="break-words">{action.description}</span>
+      <Button
+        variant="outline"
+        size="xs"
+        className="self-start"
+        disabled={disabled}
+        onClick={() => {
+          close()
+          action.run()
+        }}
+      >
+        <UploadIcon data-icon="inline-start" />
+        {action.label}
+      </Button>
+    </div>
   )
 }
 

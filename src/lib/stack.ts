@@ -1,5 +1,5 @@
 import { groupFor } from "@/lib/commit"
-import { getPushAction } from "@/lib/push-summary"
+import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that is missing); null if not blocked */
@@ -115,7 +115,36 @@ export function stackPushOrder(name: string, branchOf: (name: string) => Branch 
   return chain.reverse()
 }
 
+/**
+ * The branches a "Push with Children" of `name` pushes, parents first: the branch if it has work for the remote, then
+ * its `descendants` (parents before children) that have work. A child whose push drops remote commits is left out: it
+ * asks first in its own row.
+ */
+export function stackChildrenPushOrder(name: string, descendants: readonly string[], branchOf: (name: string) => Branch | undefined): string[] {
+  const order: string[] = []
+  const branch = branchOf(name)
+  if (branch !== undefined && needsPush(branch)) {
+    order.push(name)
+  }
+  for (const descendant of descendants) {
+    const child = branchOf(descendant)
+    if (child?.remoteStatus != null && needsPush(child) && !dropsRemoteCommits(child.remoteStatus)) {
+      order.push(descendant)
+    }
+  }
+  return order
+}
+
+function formatBranchCount(branchCount: number): string {
+  return branchCount === 1 ? "1 branch" : `${branchCount} branches`
+}
+
 /** "Push Stack (3 branches)": the branch menu and the description of the push button name the action alike */
 export function formatPushStackLabel(branchCount: number): string {
-  return `Push Stack (${branchCount} branches)`
+  return `Push Stack (${formatBranchCount(branchCount)})`
+}
+
+/** "Push with Children (3 branches)": the branch menu and the description of the push button name the action alike */
+export function formatPushWithChildrenLabel(branchCount: number): string {
+  return `Push with Children (${formatBranchCount(branchCount)})`
 }

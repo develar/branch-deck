@@ -3,11 +3,11 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { restackBranch } from "@/hooks/useStackActions"
-import { pushStack } from "@/lib/git/push"
+import { pushStack, pushWithChildren } from "@/lib/git/push"
 import { copyText } from "@/lib/clipboard"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { getPullRequestBase, getRetargetCommand } from "@/lib/git/stacked-push-toast"
-import { formatBlockedReason, formatPushStackLabel, stackPushOrder } from "@/lib/stack"
+import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -194,7 +194,8 @@ const STACK_TARGET_LIMIT = 20
 /** "Stack On…" (any other branch that isn't stacked on this one) and "Unstack" */
 function getStackMenuItems(branch: Branch): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
-  const excluded = new Set([branch.name, ...getStackDescendants(branch.name)])
+  const descendants = getStackDescendants(branch.name)
+  const excluded = new Set([branch.name, ...descendants])
   const targets = branchSyncStore.getState().branchOrder.filter(name => !excluded.has(name) && name !== parent).slice(0, STACK_TARGET_LIMIT)
   const items: MenuItem[] = [
     {
@@ -212,6 +213,11 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
   const pushOrder = stackPushOrder(branch.name, getBranch)
   if (pushOrder.length > 1) {
     items.push({ label: formatPushStackLabel(pushOrder.length), icon: UploadIcon, disabled: branch.status === "Blocked", onSelect: () => void pushStack(branch.name) })
+  }
+  // the children are built on the branch: a push of it alone leaves their remote branches on its old head
+  const childrenPushOrder = stackChildrenPushOrder(branch.name, descendants, getBranch)
+  if (childrenPushOrder.some(name => name !== branch.name)) {
+    items.push({ label: formatPushWithChildrenLabel(childrenPushOrder.length), icon: UploadIcon, onSelect: () => void pushWithChildren(branch.name) })
   }
   return items
 }
