@@ -71,6 +71,15 @@ describe("formatForcePushLine", () => {
     expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
     expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 1, commitsBehind: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
   })
+
+  it("starts the description of a force push with it, and doesn't repeat the older versions it names", () => {
+    const restacked = testRemoteStatus({ commitsAhead: 4, myCommitsAhead: 4, commitsRestacked: 2, fastForward: false })
+    expect(buildRemoteStatusTexts(restacked, "auth", { forcePush: true }).tooltip).toBe("Force push replaces the older versions of auth's commits.\n4 commits to push.")
+    // beside a drop the push replaces the remote branch, and every line says what it has
+    expect(buildRemoteStatusTexts({ ...restacked, commitsBehind: 1, droppedCommits: dropped("Ann") }, "auth", { forcePush: true }).tooltip).toBe(
+      "Force push replaces the remote branch.\n4 commits to push.\nRebuilt on the new auth: the remote has older versions of 2 of its commits.\nThe remote has 1 commit your branch doesn't (by Ann).",
+    )
+  })
 })
 
 describe("formatAuthors", () => {

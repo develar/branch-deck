@@ -159,8 +159,8 @@ Key components:
   `restacked` (nothing of its own to push), `1↑ · 1 amended · 2↓`. The description says "The remote has an older
   version of 1 commit amended here." and "Rebuilt on the new auth: the remote has older versions of 2 of its
   commits."; the Force Push button starts with what it replaces, "Force push replaces 1 commit amended here." or
-  "Force push replaces the older versions of auth's commits.", and its toast says "replaced 1 amended commit" or
-  "replaced the parent's older commits".
+  "Force push replaces the older versions of auth's commits.", instead of those lines, and its toast says "replaced 1
+  amended commit" or "replaced the parent's older commits".
 
 ### Colours
 One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`),

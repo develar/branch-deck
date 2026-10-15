@@ -210,16 +210,16 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
   [branch preview](../branch/branch-preview.spec.md) says it.
   [@test] ../../src/lib/remote-status.test.ts (`says what the remote has that the branch lacks, and by whom`, `says that everything is pushed in one sentence, and when it was pushed`, `says that the push creates a branch not on the remote`)
   [@test] ../../src/hooks/usePushButton.test.ts (`says that everything is pushed, and when, for an up to date branch`)
-- The older versions must read as such, never as commits the branch lacks: "The remote has an older version of 1
-  commit amended here.", "Rebuilt on the new auth: the remote has older versions of 2 of its commits." (`auth` is the
-  branch it is built on). A force push that drops nothing starts with what it replaces, "Force push replaces 1 commit
-  amended here.", "Force push replaces the older versions of auth's commits." (both joined by "and"), pushes on the
-  click and lists no dropped commits; with dropped commits beside them it starts with "Force push replaces the remote
-  branch." and asks as below. A remote that moved to older versions says "The remote has older versions of the
-  branch's commits. Nothing was pushed."
-  [@test] ../../src/lib/remote-status.test.ts (`says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`, `names what a force push replaces when it drops nothing`, `offers the push the button would show when the remote lacks nothing of the branch`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
+- The older versions must read as such, never as commits the branch lacks: "The remote has an older version of 1 commit
+  amended here.", "Rebuilt on the new auth: the remote has older versions of 2 of its commits." (`auth` is the branch it
+  is built on). A force push that drops nothing starts with what it replaces, "Force push replaces 1 commit amended
+  here.", "Force push replaces the older versions of auth's commits." (both joined by "and"), which the lines below
+  don't repeat, pushes on the click and lists no dropped commits; with dropped commits beside them it starts with "Force
+  push replaces the remote branch." and asks as below. A remote that moved to older versions says "The remote has older
+  versions of the branch's commits. Nothing was pushed."
+  [@test] ../../src/lib/remote-status.test.ts (`says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`, `names what a force push replaces when it drops nothing`, `starts the description of a force push with it, and doesn't repeat the older versions it names`, `offers the push the button would show when the remote lacks nothing of the branch`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
 - A push that went through is a `success` toast in the words of its [Activity](activity.spec.md) entry, from the
   remote status the push was made against (`describePush`): "Pushed JIRA-456" / "3 commits · created the remote
   branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies", "1 commit ·

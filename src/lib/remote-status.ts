@@ -66,11 +66,19 @@ function formatRestacked(count: number, parent: string | null): string {
   return `Rebuilt on the new ${parent ?? "parent"}: the remote has ${olderVersions(count, `${count} of its commits`)}.`
 }
 
+export interface RemoteStatusTextOptions {
+  /**
+   * The description of a Force Push: it starts with what the push replaces (`formatForcePushLine`), and the older
+   * versions it names there are not repeated below
+   */
+  forcePush?: boolean
+}
+
 /**
  * The texts of a remote status. `parent`: the branch a stacked branch is built on (`effectiveBase`), which the remote
  * has older versions of commits of when the branch is restacked
  */
-export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null): RemoteStatusTexts {
+export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null, { forcePush = false }: RemoteStatusTextOptions = {}): RemoteStatusTexts {
   const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, lastPushTime, fastForward } = remote
   const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
 
@@ -90,14 +98,16 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
     return { text: "not pushed", tooltip: withPushTime(lines) }
   }
 
-  const lines: string[] = []
+  const lines: string[] = forcePush ? [formatForcePushLine(remote, parent)] : []
+  // the first line of a force push that drops nothing names the older versions it replaces
+  const olderVersionsNamed = forcePush && commitsBehind === 0
   if (commitsAhead > 0) {
     lines.push(formatCommitsToPush(mine, commitsAhead))
   }
-  if (commitsAmended > 0) {
+  if (commitsAmended > 0 && !olderVersionsNamed) {
     lines.push(formatAmended(commitsAmended))
   }
-  if (commitsRestacked > 0) {
+  if (commitsRestacked > 0 && !olderVersionsNamed) {
     lines.push(formatRestacked(commitsRestacked, parent))
   }
   if (commitsBehind > 0) {

@@ -59,10 +59,12 @@ describe("getPushButtonState", () => {
   })
 
   it("says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour", () => {
+    // when it was pushed stays last
+    expect(state({ commitsRestacked: 1, fastForward: false, lastPushTime: 1704139200 }).tooltip).toMatch(/^Force push replaces the older versions of the parent's commits\.\n\nPushed /)
     expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false })).toMatchObject({
       text: "Force Push (1)",
       color: "primary",
-      tooltip: "Force push replaces 1 commit amended here.\n1 commit to push.\nThe remote has an older version of 1 commit amended here.",
+      tooltip: "Force push replaces 1 commit amended here.\n1 commit to push.",
       dropped: null,
       confirm: false,
     })
@@ -71,7 +73,7 @@ describe("getPushButtonState", () => {
     expect(getPushButtonState(restacked)).toMatchObject({
       text: "Force Push",
       color: "primary",
-      tooltip: "Force push replaces the older versions of login's commits.\nRebuilt on the new login: the remote has older versions of 2 of its commits.",
+      tooltip: "Force push replaces the older versions of login's commits.",
       dropped: null,
       confirm: false,
       disabled: false,
