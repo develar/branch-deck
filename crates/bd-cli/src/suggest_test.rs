@@ -1,6 +1,6 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement};
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
-use crate::suggest::{SuggestPlan, plan_of};
+use crate::suggest::{SuggestPlan, name_words, plan_of};
 use git_ops::rewrite_plan::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -461,4 +461,10 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
     (parsed.branches, parsed.unassign, parsed.issue_groups, parsed.ungroup_issues),
     (plan.branches, plan.unassign, plan.issue_groups, plan.ungroup_issues)
   );
+}
+
+#[test]
+fn an_issue_key_is_cut_where_it_is_not_inside_another_word() {
+  assert_eq!(name_words("XABC-1x ABC-1 cache"), name_words("XABC-1x cache"));
+  assert_eq!(name_words("ABC-1 cache ABC-2"), name_words("cache"));
 }

@@ -362,8 +362,17 @@ fn stacked_why(why: String, placement: &Placement) -> String {
 }
 
 /// The words of a subject after its conventional prefix, without its issue keys: `fix(vm): ABC-1 x` gives `x`
-fn name_words(text: &str) -> Vec<String> {
-  let without_keys = issue_keys_in(text).fold(text.to_string(), |text, key| text.replacen(key, " ", 1));
+pub(crate) fn name_words(text: &str) -> Vec<String> {
+  // cut by position: the same key text may also sit inside a word (`ABC-1` in `XABC-1`)
+  let mut without_keys = String::with_capacity(text.len());
+  let mut copied = 0;
+  for key in issue_keys_in(text) {
+    let start = key.as_ptr().addr() - text.as_ptr().addr();
+    without_keys.push_str(&text[copied..start]);
+    without_keys.push(' ');
+    copied = start + key.len();
+  }
+  without_keys.push_str(&text[copied..]);
   subject_words(&without_keys)
 }
 
