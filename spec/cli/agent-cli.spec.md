@@ -277,7 +277,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
 - A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
   the undo.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`, `a_switch_during_the_move_fails_on_the_head_lock`)
 - A conflict must print `state: "conflict"` with the likely conflicting files, the local commits and the upstream
   commits that change them, change nothing, and exit with 1.
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_conflict_reports_the_files_and_commits_and_changes_nothing`)

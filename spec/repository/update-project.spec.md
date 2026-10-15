@@ -146,6 +146,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   refuse the move (and its undo) with nothing changed.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
+- A `git switch` while the move holds the lock of HEAD must fail on `HEAD.lock`; the move commits on the checked
+  branch.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_during_the_move_fails_on_the_head_lock`)
 - The working tree is written by `crates/git-ops/src/worktree_update.rs` only, called only from `update_branch.rs`
   (the update and the undo that only `check_update_undo` builds); the safety scan fails on any other `read-tree -u`, `--reset` or `checkout-index`, and on
   a change of the number of exempt argument lists.

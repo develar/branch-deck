@@ -1,7 +1,7 @@
 use crate::fixture_test::{assert_error, environment, git, run_in, run_json, write};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
-use serde_json::json;
+use serde_json::{Value, json};
 use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 
@@ -229,54 +229,102 @@ fn update_outputs_match_the_schema() {
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of an update");
 }
 
-/// A git that switches HEAD to `peer`, at the same commit, right before the first `update-ref --stdin` once `mark`
-/// exists: what a peer's `git switch` does between bd's check and its move
+/// A fetched upstream change and a branch `peer` at HEAD, in `clone`; bd runs a git wrapper whose `case "$*"` arm, built by
+/// `arm` from the directory of the wrapper and the repository, runs before the real git: a peer's `git switch` at a
+/// chosen moment
 #[cfg(unix)]
-fn git_switching_to_peer_before_the_move(directory: &std::path::Path) -> (String, std::path::PathBuf) {
-  let mark = directory.join("switch-once");
-  let script = directory.join("git-switching");
-  let text = format!(
-    "#!/bin/sh\ncase \" $* \" in *\" update-ref \"*\"--stdin\"*) if [ -f '{0}' ]; then rm -f '{0}'; git symbolic-ref HEAD refs/heads/peer; fi;; esac\nexec git \"$@\"\n",
-    mark.display()
-  );
-  std::fs::write(&script, text).unwrap();
-  std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-  (script.to_str().unwrap().to_string(), mark)
+struct SwitchSetup {
+  clone: TestRepo,
+  head: String,
+  new_head: String,
+  directory: tempfile::TempDir,
+  environment: crate::context::Environment,
+  _upstream: TestRepo,
 }
 
 #[cfg(unix)]
-#[test_log::test]
-fn a_switch_between_the_check_and_the_move_moves_no_branch() {
-  let (upstream, clone) = clone_of_upstream();
-  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
-  git(&clone, &["fetch", "-q", "origin"]);
-  let head = clone.head();
-  git(&clone, &["branch", "peer"]);
-  let directory = tempfile::tempdir().unwrap();
-  let (wrapper, mark) = git_switching_to_peer_before_the_move(directory.path());
-  let mut environment = environment(clone.path());
-  environment.git = Some(wrapper);
-  let run = |args: &[&str]| {
+impl SwitchSetup {
+  fn new(arm: impl FnOnce(&std::path::Path, &std::path::Path) -> String) -> Self {
+    let (upstream, clone) = clone_of_upstream();
+    let new_head = upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+    git(&clone, &["fetch", "-q", "origin"]);
+    git(&clone, &["branch", "peer"]);
+    let directory = tempfile::tempdir().unwrap();
+    let script = directory.path().join("git");
+    let text = format!("#!/bin/sh\ncase \" $* \" in {}\nesac\nexec git \"$@\"\n", arm(directory.path(), clone.path()));
+    std::fs::write(&script, text).unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut environment = environment(clone.path());
+    environment.git = Some(script.to_str().unwrap().to_string());
+    Self {
+      head: clone.head(),
+      clone,
+      new_head,
+      directory,
+      environment,
+      _upstream: upstream,
+    }
+  }
+
+  fn run(&self, args: &[&str]) -> (i32, Value) {
     let mut all = vec!["--prefix", "test-user"];
     all.extend_from_slice(args);
-    run_json(&environment, &all)
-  };
+    run_json(&self.environment, &all)
+  }
+}
+
+/// The switch right before the first `update-ref --stdin` once the file `switch-once` exists: between bd's check and
+/// its move
+#[cfg(unix)]
+#[test_log::test]
+fn a_switch_between_the_check_and_the_move_moves_no_branch() {
+  let setup = SwitchSetup::new(|directory, _| {
+    let mark = directory.join("switch-once");
+    format!(
+      "*\" update-ref \"*\"--stdin\"*) if [ -f '{0}' ]; then rm -f '{0}'; git symbolic-ref HEAD refs/heads/peer; fi;;",
+      mark.display()
+    )
+  });
+  let SwitchSetup { clone, head, .. } = &setup;
+  let mark = setup.directory.path().join("switch-once");
 
   std::fs::write(&mark, "").unwrap();
-  let (exit_code, output) = run(&["update", "--no-fetch"]);
+  let (exit_code, output) = setup.run(&["update", "--no-fetch"]);
   assert_error(&output, exit_code, (3, "head_moved"));
-  assert_eq!(git(&clone, &["symbolic-ref", "--short", "HEAD"]), "peer");
-  assert_eq!(git(&clone, &["rev-parse", "master", "peer"]), format!("{head}\n{head}"));
-  assert_eq!(read(&clone, "shared.txt"), SHARED);
+  assert_eq!(git(clone, &["symbolic-ref", "--short", "HEAD"]), "peer");
+  assert_eq!(git(clone, &["rev-parse", "master", "peer"]), format!("{head}\n{head}"));
+  assert_eq!(read(clone, "shared.txt"), SHARED);
 
   // the same for the undo: back on master, update, then the switch before the move back
-  git(&clone, &["symbolic-ref", "HEAD", "refs/heads/master"]);
-  let (exit_code, output) = run(&["update", "--no-fetch"]);
+  git(clone, &["symbolic-ref", "HEAD", "refs/heads/master"]);
+  let (exit_code, output) = setup.run(&["update", "--no-fetch"]);
   assert_eq!(exit_code, 0, "{output}");
-  let updated = clone.head();
-  git(&clone, &["branch", "-f", "peer", &updated]);
+  git(clone, &["branch", "-f", "peer", &setup.new_head]);
   std::fs::write(&mark, "").unwrap();
-  let (exit_code, undo) = run(&["undo", output["undo_token"].as_str().unwrap()]);
+  let (exit_code, undo) = setup.run(&["undo", output["undo_token"].as_str().unwrap()]);
   assert_error(&undo, exit_code, (4, "undo_stale"));
-  assert_eq!(git(&clone, &["rev-parse", "master", "peer"]), format!("{updated}\n{updated}"));
+  assert_eq!(git(clone, &["rev-parse", "master", "peer"]), format!("{0}\n{0}", setup.new_head));
+}
+
+/// The switch at the first `symbolic-ref` while `HEAD.lock` exists, which is bd's check under the locks of the prepared
+/// transaction: it fails, and the move commits on the checked branch
+#[cfg(unix)]
+#[test_log::test]
+fn a_switch_during_the_move_fails_on_the_head_lock() {
+  let setup = SwitchSetup::new(|directory, repository| {
+    format!(
+      "*\" symbolic-ref \"*) if [ -f '{0}' ] && [ ! -f '{1}' ]; then git symbolic-ref HEAD refs/heads/peer 2>/dev/null; echo $? > '{1}'; fi;;",
+      repository.join(".git/HEAD.lock").display(),
+      directory.join("switch-status").display()
+    )
+  });
+  let SwitchSetup { clone, head, new_head, .. } = &setup;
+
+  let (exit_code, output) = setup.run(&["update", "--no-fetch"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("fast_forward")), "{output}");
+  let switch_status = std::fs::read_to_string(setup.directory.path().join("switch-status")).expect("the switch ran while HEAD.lock was held");
+  assert_ne!(switch_status.trim(), "0", "the switch must fail on HEAD.lock");
+  assert_eq!(git(clone, &["symbolic-ref", "--short", "HEAD"]), "master");
+  assert_eq!(git(clone, &["rev-parse", "master", "peer"]), format!("{new_head}\n{head}"));
+  assert_eq!(read(clone, "shared.txt"), "one\nTWO\nthree\n");
 }
