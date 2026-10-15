@@ -87,21 +87,20 @@ function likelyConflictLines(state: ConflictState): string[] {
  */
 function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state: ConflictState, fetchTime: number | null, bd: AgentCliCommand): string {
   const { branch, upstream } = check
-  const run = (args: string) => `\`${bd.command} ${args}\``
   const fetched = fetchTime === null ? "" : ` (fetched ${new Date(fetchTime).toISOString()})`
   return [
     `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.`,
-    `bd is \`${bd.command}\`${bd.powershell ? "; run it in PowerShell" : ""}. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. ${run("help update")} explains each field.`,
+    `bd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. \`bd help update\` explains each field.`,
     `State${fetched}:\n${bullets([
       `HEAD (${branch}): ${check.head}`,
       `${upstream}: ${check.upstreamHead}`,
       ...likelyConflictLines(state),
     ])}`,
     `Steps:\n${numbered([
-      `${run("update --no-fetch")}.`,
-      "Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, use `--take` or `--delete` as its `hint` says.",
-      `${run("update --continue --round <session.round>")}. Exit 1 is the next commit: go to step 2. Exit 2: fix the files of \`error.paths\` and run it again.`,
-      `Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as \`fixup! <subject>\` and run ${run("fold")}, or run ${run("undo <undo_token>")} and tell me.`,
+      "`bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
+      "Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, add `--take` or `--delete` to the command of step 3, as its `hint` says. A change the commit needs outside the conflict blocks waits for a `fixup!` commit after step 4.",
+      "`bd update --continue --round <session.round>`. Exit 1 is the next commit: go to step 2 (`state: pending`: run `session.next`). Exit 2: `error.message` says what to fix (the copies of `error.paths`; `round_moved`: go to step 1; `empty_resolution`: ask me).",
+      "Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as `fixup! <subject>` and run `bd fold`, or run `bd undo <undo_token>` and tell me.",
       "Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
     ])}`,
     `Rules:\n${bullets([

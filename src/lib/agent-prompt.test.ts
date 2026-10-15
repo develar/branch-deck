@@ -112,11 +112,10 @@ describe("buildAgentPrompt", () => {
 
   it("with bd, resolves a conflict in bd's session, outside the working tree", () => {
     const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: Date.UTC(2026, 9, 14, 7, 30), bd })
-    const run = (args: string) => `\`${bd.command} ${args}\``
     expect(prompt).toBe([
       "Update the branch `master` of the Git repository at /work/repo onto `origin/master` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.",
       "",
-      `bd is \`${bd.command}\`. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. ${run("help update")} explains each field.`,
+      `bd is \`${bd.command}\`; below, \`bd\` stands for it. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. \`bd help update\` explains each field.`,
       "",
       "State (fetched 2026-10-14T07:30:00.000Z):",
       `- HEAD (master): ${H}`,
@@ -125,10 +124,10 @@ describe("buildAgentPrompt", () => {
       "- Likely conflict: src/config.txt (upstream: cccccccc Change line 2 upstream, Dana Lee)",
       "",
       "Steps:",
-      `1. ${run("update --no-fetch")}.`,
-      "2. Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, use `--take` or `--delete` as its `hint` says.",
-      `3. ${run("update --continue --round <session.round>")}. Exit 1 is the next commit: go to step 2. Exit 2: fix the files of \`error.paths\` and run it again.`,
-      `4. Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as \`fixup! <subject>\` and run ${run("fold")}, or run ${run("undo <undo_token>")} and tell me.`,
+      "1. `bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
+      "2. Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, add `--take` or `--delete` to the command of step 3, as its `hint` says. A change the commit needs outside the conflict blocks waits for a `fixup!` commit after step 4.",
+      "3. `bd update --continue --round <session.round>`. Exit 1 is the next commit: go to step 2 (`state: pending`: run `session.next`). Exit 2: `error.message` says what to fix (the copies of `error.paths`; `round_moved`: go to step 1; `empty_resolution`: ask me).",
+      "4. Exit 0: build and run the tests of the code you touched. On a failure, commit the fix as `fixup! <subject>` and run `bd fold`, or run `bd undo <undo_token>` and tell me.",
       "5. Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
       "",
       "Rules:",
@@ -140,12 +139,13 @@ describe("buildAgentPrompt", () => {
       "- Exit 3: run the same command again. Exit 4: stop and show me the error.",
     ].join("\n"))
     expect(prompt).not.toContain("--expect-head")
+    // the command once, not per step
+    expect(prompt.split(bd.command).length - 1).toBe(1)
   })
 
   it("names PowerShell for a conflict on Windows", () => {
     const powershell = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "C:\\work\\repo", check: conflict, fetchTime: null, bd: powershell })
-    expect(prompt).toContain(`bd is \`${powershell.command}\`; run it in PowerShell.`)
-    expect(prompt).toContain(`1. \`${powershell.command} update --no-fetch\`.`)
+    expect(prompt).toContain(`bd is \`${powershell.command}\`, run in PowerShell; below, \`bd\` stands for it.`)
   })
 })

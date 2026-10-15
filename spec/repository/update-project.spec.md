@@ -293,14 +293,22 @@ The header shows whether an update would apply cleanly, from a check that every 
   changes with the upstream needs the same merge as a conflict.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - With a bd command, the conflict prompt must send the agent to bd's resolve session and keep it out of the working
-  tree: the repository path, the branch and the upstream; bd as the command to run as written (in PowerShell on
-  Windows), one JSON object per run, and `bd help update`; the state lines the user saw (HEAD and the upstream with
-  their ids, the fetch time, and per likely conflicting file "Likely conflict: <path> (mine: <ids>; upstream: <id>
-  <subject>, <author>)"); the steps: `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because
-  peers commit meanwhile), on exit 1 edit each file at `edit` keeping the change of `onto` and the intent of the
-  commit, `--take` or `--delete` for modify/delete, `bd update --continue --round <session.round>` until exit 0, then
-  build and test, and on a failure a `fixup! <subject>` commit with `bd fold`, or `bd undo <undo_token>`; report each
-  resolution with its dropped lines. The rules: other sessions work in the tree, so never `git rebase`, `git stash`,
+  tree: the repository path, the branch and the upstream; bd once, as the command to run as written (in PowerShell on
+  Windows), with "bd is `<command>`; below, `bd` stands for it", one JSON object per run, and `bd help update`; the
+  state lines the user saw (HEAD and the upstream with their ids, the fetch time, and per likely conflicting file
+  "Likely conflict: <path> (mine: <ids>; upstream: <id> <subject>, <author>)"); the steps:
+  1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); with
+     `session.blocked_paths`, ask the user about those files first;
+  2. on exit 1, edit each file at `edit`, keeping the change of `onto` and the intent of the commit; for
+     modify/delete, add `--take` or `--delete` to the command of step 3; a change the commit needs outside the
+     conflict blocks waits for a `fixup!` commit after step 4;
+  3. `bd update --continue --round <session.round>`: exit 1 is the next commit (`state: pending`: run
+     `session.next`); on exit 2, `error.message` says what to fix (the copies of `error.paths`; `round_moved`: step 1
+     again; `empty_resolution`: ask the user);
+  4. on exit 0, build and test, and on a failure a `fixup! <subject>` commit with `bd fold`, or `bd undo <undo_token>`;
+  5. report each resolution with its dropped lines.
+
+  The rules: other sessions work in the tree, so never `git rebase`, `git stash`,
   `git checkout` or `git reset`; edit only the files at `edit`, never the same path in the working tree; keep every
   message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push; exit 3 retries, exit 4 stops
   and shows the error.
