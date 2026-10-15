@@ -1,7 +1,7 @@
 use crate::commit_list::*;
 use pretty_assertions::assert_eq;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, git_command};
 
 /// A repo with an initial commit and `origin/master` pointing at it
 fn repo_with_origin_master() -> TestRepo {
@@ -224,7 +224,7 @@ fn test_git_log_format_debug() {
   let _commit2 = test_repo.create_commit("Second feature", "feature2.txt", "content2");
 
   // Run the actual git log command to see the output
-  let output = std::process::Command::new("git")
+  let output = git_command()
     .args([
       "--no-pager",
       "log",

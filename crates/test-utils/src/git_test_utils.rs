@@ -1,6 +1,7 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use tempfile::TempDir;
 
 // Constants for test Git user configuration
@@ -12,10 +13,42 @@ const TEST_USER_EMAIL: &str = "test@example.com";
 /// "failed to copy file to '.git/objects/maintenance.lock'"
 pub const NO_BACKGROUND_MAINTENANCE: [(&str, &str); 2] = [("maintenance.auto", "false"), ("gc.auto", "0")];
 
+/// The repository-local variables of git (`git rev-parse --local-env-vars`). A test run inherits them from
+/// `git rebase --exec` (`GIT_DIR`) or a hook (`GIT_INDEX_FILE`), and a fixture command would then write into that
+/// repository instead of the fixture: `pnpm e2e` under `rebase --exec` once set `core.bare`, the test user and the
+/// template refs in the developer's clone
+const REPOSITORY_ENV: [&str; 15] = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+/// `git` without the inherited `REPOSITORY_ENV`, so it finds the repository from its `current_dir`. Fixture commands
+/// start here, never from `Command::new("git")` (`git_command_test` scans for it)
+pub fn git_command() -> Command {
+  let mut command = Command::new("git");
+  for name in REPOSITORY_ENV {
+    command.env_remove(name);
+  }
+  command
+}
+
 /// Apply `NO_BACKGROUND_MAINTENANCE` to the repository (bare or not) at `repo_path`, right after it is created or cloned
 pub fn disable_background_maintenance(repo_path: &Path) {
   for (key, value) in NO_BACKGROUND_MAINTENANCE {
-    let output = std::process::Command::new("git")
+    let output = git_command()
       .args(["config", key, value])
       .current_dir(repo_path)
       .output()

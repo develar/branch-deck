@@ -4,9 +4,9 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::git_command;
 use tracing::instrument;
 
 /// Content of files at one revision; a file absent there has empty content
@@ -289,7 +289,7 @@ fn test_find_missing_commits_with_author_and_committer_times() {
   test_repo.create_commit("Second commit", "file1.txt", "content2");
 
   // Amend the commit to get different committer time
-  Command::new("git")
+  git_command()
     .args(["commit", "--amend", "--no-edit", "--date=2023-01-01T12:00:00"])
     .current_dir(test_repo.path())
     .output()
@@ -332,14 +332,10 @@ fn test_different_author_and_committer_times() {
 
   // Create a file to commit
   std::fs::write(test_repo.path().join("test.txt"), "test content").unwrap();
-  Command::new("git")
-    .args(["add", "test.txt"])
-    .current_dir(test_repo.path())
-    .output()
-    .expect("Failed to add file");
+  git_command().args(["add", "test.txt"]).current_dir(test_repo.path()).output().expect("Failed to add file");
 
   // Create a commit with a specific author date
-  let output = Command::new("git")
+  let output = git_command()
     .args([
       "-c",
       "user.name=Test Author",
@@ -414,7 +410,7 @@ fn test_cherry_pick_preserves_author_time() {
   let source_commit = test_repo.rev_parse("HEAD").unwrap();
 
   // Get the original author time
-  let output = Command::new("git")
+  let output = git_command()
     .args(["show", "-s", "--format=%at", &source_commit])
     .current_dir(test_repo.path())
     .output()
@@ -433,7 +429,7 @@ fn test_cherry_pick_preserves_author_time() {
   std::thread::sleep(std::time::Duration::from_millis(500));
 
   // Cherry-pick the source commit
-  let output = Command::new("git")
+  let output = git_command()
     .args(["cherry-pick", &source_commit])
     .current_dir(test_repo.path())
     .output()
@@ -482,7 +478,7 @@ fn test_rebase_changes_committer_time_only() {
   // Create feature commits
   std::thread::sleep(std::time::Duration::from_millis(100));
   test_repo.create_commit("Feature 1", "feature1.txt", "feature1");
-  let original_author_time_cmd = Command::new("git")
+  let original_author_time_cmd = git_command()
     .args(["show", "-s", "--format=%at", "HEAD"])
     .current_dir(test_repo.path())
     .output()
@@ -496,11 +492,7 @@ fn test_rebase_changes_committer_time_only() {
   std::thread::sleep(std::time::Duration::from_millis(1000));
 
   // Rebase onto base2
-  let output = Command::new("git")
-    .args(["rebase", &base2])
-    .current_dir(test_repo.path())
-    .output()
-    .expect("Failed to rebase");
+  let output = git_command().args(["rebase", &base2]).current_dir(test_repo.path()).output().expect("Failed to rebase");
 
   assert!(output.status.success(), "Rebase failed: {}", String::from_utf8_lossy(&output.stderr));
 
@@ -693,7 +685,7 @@ fn test_author_names_with_spaces() {
   let initial_commit = test_repo.create_commit("Initial commit", "initial.txt", "initial content");
 
   // Set a multi-word author name
-  Command::new("git")
+  git_command()
     .args(["config", "user.name", "Mary Jane Watson"])
     .current_dir(test_repo.path())
     .output()

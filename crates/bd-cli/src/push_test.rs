@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use sync_core::push::{PushBranchParams, PushOutcome, push_branch};
 use tempfile::TempDir;
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_command};
 
 const AUTH: &str = "test-user/virtual/auth";
 
@@ -21,7 +21,7 @@ fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
 }
 
 fn remote_tip(remote: &TempDir, branch: &str) -> String {
-  let output = std::process::Command::new("git")
+  let output = git_command()
     .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
     .current_dir(remote.path())
     .output()
@@ -139,7 +139,7 @@ fn their_change(subject: &str) -> (String, String) {
 fn push_from_elsewhere(remote: &TempDir, subject: &str) -> String {
   let elsewhere = tempfile::tempdir().unwrap();
   let run = |args: &[&str]| {
-    let status = std::process::Command::new("git").args(args).current_dir(elsewhere.path()).output().unwrap();
+    let status = git_command().args(args).current_dir(elsewhere.path()).output().unwrap();
     assert!(status.status.success(), "{args:?}: {}", String::from_utf8_lossy(&status.stderr));
   };
   run(&["clone", "-q", "--branch", AUTH, remote.path().to_str().unwrap(), "."]);

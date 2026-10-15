@@ -1,8 +1,7 @@
-use crate::git_test_utils::disable_background_maintenance;
+use crate::git_test_utils::{disable_background_maintenance, git_command};
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 /// A builder for creating test repository templates
 pub struct RepoTemplate {
@@ -75,20 +74,20 @@ impl RepoTemplate {
     fs::create_dir_all(output_path)?;
 
     // Initialize git repository
-    Command::new("git").args(["init", "--initial-branch=master"]).current_dir(output_path).output()?;
+    git_command().args(["init", "--initial-branch=master"]).current_dir(output_path).output()?;
     disable_background_maintenance(output_path);
 
     // Configure git
-    Command::new("git").args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
+    git_command().args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
 
-    Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
+    git_command().args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
 
     // Set branch prefix if specified
     if let Some(prefix) = &self.branch_prefix {
-      Command::new("git").args(["config", "branchdeck.branchPrefix", prefix]).current_dir(output_path).output()?;
+      git_command().args(["config", "branchdeck.branchPrefix", prefix]).current_dir(output_path).output()?;
     }
     for (key, value) in &self.config {
-      Command::new("git").args(["config", key, value]).current_dir(output_path).output()?;
+      git_command().args(["config", key, value]).current_dir(output_path).output()?;
     }
 
     // Track if we have any commits
@@ -104,14 +103,14 @@ impl RepoTemplate {
         }
         fs::write(&full_path, content)?;
       }
-      Command::new("git")
+      git_command()
         .args(["add", "--"])
         .args(commit.files.iter().map(|(file_path, _)| file_path))
         .current_dir(output_path)
         .output()?;
 
       // Commit with optional timestamp
-      let mut cmd = Command::new("git");
+      let mut cmd = git_command();
 
       // If timestamp is provided, set GIT_AUTHOR_DATE and GIT_COMMITTER_DATE
       if let Some(ts) = commit.timestamp {
@@ -130,19 +129,19 @@ impl RepoTemplate {
     }
 
     // Add a fake origin remote pointing to self for testing
-    Command::new("git").args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
+    git_command().args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
 
     // For templates that simulate existing repositories with history,
     // create origin/master at the initial commit. This is needed for
     // sync_branches to work properly.
     if has_commits {
       // Get the initial commit
-      let output = Command::new("git").args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?;
+      let output = git_command().args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?;
 
       let initial_commit = String::from_utf8(output.stdout)?.trim().to_string();
 
       // Create origin/master at the initial commit
-      Command::new("git")
+      git_command()
         .args(["update-ref", "refs/remotes/origin/master", &initial_commit])
         .current_dir(output_path)
         .output()?;
@@ -155,7 +154,7 @@ impl RepoTemplate {
 /// Point `refs/branch-deck/issue-groups` at a root commit whose file `issue-groups` has `content`
 fn write_issue_groups(output_path: &Path, content: &str) -> Result<()> {
   let run = |args: &[&str], input: &str| -> Result<String> {
-    let mut child = Command::new("git")
+    let mut child = git_command()
       .args(args)
       .current_dir(output_path)
       .stdin(std::process::Stdio::piped())
@@ -174,11 +173,10 @@ fn write_issue_groups(output_path: &Path, content: &str) -> Result<()> {
 /// Pre-defined test repository templates
 pub mod templates {
   use super::RepoTemplate;
-  use crate::git_test_utils::disable_background_maintenance;
+  use crate::git_test_utils::{disable_background_maintenance, git_command};
   use anyhow::Result;
   use std::fs;
   use std::path::Path;
-  use std::process::Command;
 
   // File contents of the conflict scenarios, successive versions of one Kotlin project
   const BUILD_GRADLE: &str = include_str!("../fixtures/conflict/build.gradle.kts");
@@ -605,7 +603,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   }
 
   fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
-    let output = Command::new("git").args(args).current_dir(dir).output()?;
+    let output = git_command().args(args).current_dir(dir).output()?;
     anyhow::ensure!(output.status.success(), "git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr));
     Ok(())
   }
@@ -660,7 +658,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       )?;
 
       // Stage the new file
-      Command::new("git").args(["add", "src/utils.js"]).current_dir(output_path).output()?;
+      git_command().args(["add", "src/utils.js"]).current_dir(output_path).output()?;
 
       Ok(())
     }
@@ -710,7 +708,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       fs::create_dir_all(output_path)?;
       // `dates`: the author and the committer time
       let git = |args: &[&str], dates: Option<(i64, i64)>| -> Result<()> {
-        let mut command = Command::new("git");
+        let mut command = git_command();
         if let Some((author_time, committer_time)) = dates {
           command
             .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
@@ -778,7 +776,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         ] {
           write(path, content)?;
           git(&["add", "--", path], None)?;
-          let output = Command::new("git")
+          let output = git_command()
             .args(["commit", "-q", "-m", message])
             .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
             .env("GIT_COMMITTER_DATE", "1704175800 +0000")
@@ -824,14 +822,11 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     pub fn build(self, output_path: &Path) -> Result<()> {
       // Initialize repo
       fs::create_dir_all(output_path)?;
-      Command::new("git").args(["init", "--initial-branch=main"]).current_dir(output_path).output()?;
+      git_command().args(["init", "--initial-branch=main"]).current_dir(output_path).output()?;
       disable_background_maintenance(output_path);
-      Command::new("git").args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
-      Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
-      Command::new("git")
-        .args(["config", "branchdeck.branchPrefix", "user-name"])
-        .current_dir(output_path)
-        .output()?;
+      git_command().args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
+      git_command().args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
+      git_command().args(["config", "branchdeck.branchPrefix", "user-name"]).current_dir(output_path).output()?;
 
       // Helper closures
       let write_file = |rel: &str, content: &str| -> Result<()> {
@@ -843,12 +838,12 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         Ok(())
       };
       let git_add_all = || -> Result<()> {
-        Command::new("git").args(["add", "."]).current_dir(output_path).output()?;
+        git_command().args(["add", "."]).current_dir(output_path).output()?;
         Ok(())
       };
       let git_commit = |message: &str, ts: i64| -> Result<()> {
         let date_str = format!("{ts} +0000");
-        let mut cmd = Command::new("git");
+        let mut cmd = git_command();
         cmd.env("GIT_AUTHOR_DATE", &date_str);
         cmd.env("GIT_COMMITTER_DATE", &date_str);
         cmd.args(["commit", "-m", message]).current_dir(output_path).output()?;
@@ -883,10 +878,10 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       git_commit("partial step 1", t3)?;
 
       // Add origin remote and set origin/main to HEAD (current state with all commits)
-      Command::new("git").args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
-      let current_head = String::from_utf8(Command::new("git").args(["rev-parse", "HEAD"]).current_dir(output_path).output()?.stdout)?;
+      git_command().args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
+      let current_head = String::from_utf8(git_command().args(["rev-parse", "HEAD"]).current_dir(output_path).output()?.stdout)?;
       let current_head = current_head.trim();
-      Command::new("git")
+      git_command()
         .args(["update-ref", "refs/remotes/origin/main", current_head])
         .current_dir(output_path)
         .output()?;
@@ -897,16 +892,16 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       // helper: checkout a detached state at initial commit
       let co_initial = || -> Result<()> {
         // get initial
-        let init = String::from_utf8(Command::new("git").args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?.stdout)?;
+        let init = String::from_utf8(git_command().args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?.stdout)?;
         let init = init.trim().to_string();
-        Command::new("git").args(["checkout", "-f", &init]).current_dir(output_path).output()?;
+        git_command().args(["checkout", "-f", &init]).current_dir(output_path).output()?;
         Ok(())
       };
       let create_archived_from = |branch_name: &str, steps: &[(&str, &str, &str, i64)]| -> Result<()> {
         co_initial()?;
         // create a temp branch
         let tmp = format!("tmp-{branch_name}");
-        Command::new("git").args(["checkout", "-b", &tmp]).current_dir(output_path).output()?;
+        git_command().args(["checkout", "-b", &tmp]).current_dir(output_path).output()?;
         for (path, content, message, ts) in steps {
           write_file(path, content)?;
           git_add_all()?;
@@ -914,18 +909,18 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         }
         // Use the expected archived prefix as per E2E docs and snapshots
         let full_ref = format!("user-name/archived/{date}/{branch_name}");
-        Command::new("git").args(["branch", &full_ref, "HEAD"]).current_dir(output_path).output()?;
+        git_command().args(["branch", &full_ref, "HEAD"]).current_dir(output_path).output()?;
         // return to master
-        Command::new("git").args(["checkout", "-f", "main"]).current_dir(output_path).output()?;
+        git_command().args(["checkout", "-f", "main"]).current_dir(output_path).output()?;
         // delete temp branch
-        Command::new("git").args(["branch", "-D", &tmp]).current_dir(output_path).output()?;
+        git_command().args(["branch", "-D", &tmp]).current_dir(output_path).output()?;
         Ok(())
       };
 
       // feature-full archived (fully integrated): point archived ref to current main HEAD
       // This results in zero right-side commits relative to main
       let archived_full_ref = format!("user-name/archived/{date}/feature-full");
-      Command::new("git").args(["branch", &archived_full_ref, "HEAD"]).current_dir(output_path).output()?;
+      git_command().args(["branch", &archived_full_ref, "HEAD"]).current_dir(output_path).output()?;
 
       // feature-partial archived: first commit matches baseline P1, second is new
       let p1a = 1704118500; // align with P1

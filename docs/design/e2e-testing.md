@@ -100,6 +100,10 @@ Template system:
 - **Templates**: `simple`, `unassigned`, `conflict_*`, `NO_REPO`, `empty-non-git`
 - **Location**: Created in `tests/test-repos/` at server startup
 - **Usage**: Copied to unique directory per test
+- **Git**: fixture code runs git through `git_command` (`crates/test-utils/src/git_test_utils.rs`), which removes the
+  repository-local variables (`git rev-parse --local-env-vars`). Under `git rebase --exec` or a hook, an inherited
+  `GIT_DIR` would otherwise send every template command into the developer's clone; `git_command_test` scans the test
+  code for a raw `Command::new("git")`.
 
 Mock implementation:
 - **IPC Interception**: `mockIPC` redirects all Tauri commands
