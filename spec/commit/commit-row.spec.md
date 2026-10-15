@@ -271,7 +271,8 @@ The commit hash popover shows the same header and body.
 
 ### Collapsed row
 
-- The subject uses `text-sm font-medium text-foreground`.
+- The subject uses `text-sm text-foreground` in regular weight: weight marks names and titles, so a long list does not
+  outweigh the branch names ([UI Theme](../../docs/design/ui-theme.md#rules-for-ui-changes), "Type hierarchy").
 - The prefix uses `font-mono text-xs text-muted-foreground`.
 - The meta line uses `text-xs text-muted-foreground`. The hashes use the monospace font.
 - The message button follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
@@ -282,7 +283,8 @@ The commit hash popover shows the same header and body.
 ### Commit preview
 
 - The preview is a centered dialog on the blurred backdrop, at most 56rem wide and `min(80vh, 48rem)` high.
-- The header shows the whole subject, without the two-line clamp, above the meta line. A `border-border` rule separates it.
+- The header shows the whole subject in `font-medium`, the title of the dialog, without the two-line clamp, above the
+  meta line. A `border-border` rule separates it.
 - Only the body scrolls. The body has the focus, so PageUp and PageDown scroll it. ↑ and ↓ belong to the navigation.
 - A newly shown commit starts at the top of its body.
 - The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,

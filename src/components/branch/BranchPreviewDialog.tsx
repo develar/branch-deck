@@ -247,7 +247,7 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
     <li data-testid="branch-preview-commit" className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-1">
         <div className="flex items-start gap-2">
-          <CommitSubject subject={subject} clamp={false} />
+          <CommitSubject subject={subject} clamp={false} className="font-medium" />
           {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
         </div>
         <CommitMetadata

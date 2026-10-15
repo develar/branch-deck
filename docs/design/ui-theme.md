@@ -241,6 +241,13 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
   is `data-status` (`data-status="upToDate"` on Update Project, `data-status="force"` on an outgoing row).
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
+- **Type hierarchy**: weight marks titles and names, never content, so the names stand out in a long list:
+  - `font-semibold`: a card title (`SectionCardHeader`, the Landed header);
+  - `font-medium`: a name, the identity of a row (the branch name in `BranchNameCell`, an issue key, a landed
+    branch), and a commit subject only where it is a title (the commit preview header, a commit of the branch preview);
+  - regular `text-foreground`: content, the commit subject of every list (`CommitSubject` in `CommitHeader`), as the
+    IntelliJ Git log shows subjects;
+  - `text-xs text-muted-foreground`: meta (the commit meta line, the subject next to a branch name, column headers).
 - **Spacing**:
   - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in
     `BranchCreator` and `ConflictWindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main

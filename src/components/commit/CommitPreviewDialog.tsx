@@ -151,7 +151,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         <>
           <PreviewDialogHeader>
             <DialogTitle className="leading-5">
-              <CommitSubject subject={subject} clamp={false} />
+              <CommitSubject subject={subject} clamp={false} className="font-medium" />
             </DialogTitle>
             <CommitMetadata
               hash={hash}

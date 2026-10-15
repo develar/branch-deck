@@ -21,10 +21,12 @@ function SubjectText({ subject, prefixClassName }: { subject: string, prefixClas
 /**
  * Commit subject with issue links; a conventional-commit prefix (`docs air:`, `feat(model):`) is kept but dimmed.
  * Wraps to two lines at most unless `clamp` is false (the commit preview shows it whole).
+ * Regular weight: in a list the subject is content, and weight marks names and titles. A preview, where the subject is
+ * the title, passes `font-medium` in `className`; the prefix stays regular.
  */
-export function CommitSubject({ subject, clamp = true }: { subject: string, clamp?: boolean }) {
+export function CommitSubject({ subject, clamp = true, className }: { subject: string, clamp?: boolean, className?: string }) {
   return (
-    <span className={cn(clamp && "line-clamp-2", "text-sm font-medium text-pretty text-foreground")}>
+    <span className={cn(clamp && "line-clamp-2", "text-sm text-pretty text-foreground", className)}>
       <SubjectText subject={subject} prefixClassName="font-mono text-xs font-normal text-muted-foreground" />
     </span>
   )
