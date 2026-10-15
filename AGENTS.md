@@ -99,9 +99,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
   (`spec/repository/activity.spec.md`).
-- **Commit files**: "3 files · +42 −7" on the commit meta line, the Files section with on-demand diffs in the commit
-  preview (`F`), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per list, cached by commit id in the object
-  cache (`spec/commit/commit-files.spec.md`).
+- **Commit files**: "3 files · +42 −7" on the commit meta line, the Files section of the commit preview (`F`) as a
+  directory tree (compacted chains, roving focus) with diffs on @pierre/diffs (word diff, IntelliJ syntax colours,
+  expandable context), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per list, cached by commit id in the
+  object cache; one `diff-tree -p --full-index` per commit for its diffs, one `cat-file --batch` by blob id to expand
+  (`spec/commit/commit-files.spec.md`, `docs/design/diff-view.md`).
 - **Title bar**: the toolbar is the title bar, as in the IntelliJ new UI: beside the macOS traffic lights (overlay),
   with its own window buttons on Windows (no decorations), below the native title bar on Linux; the page learns the kind
   from `window.__BD_TITLE_BAR__` (`spec/repository/title-bar.spec.md`).
@@ -315,6 +317,7 @@ src/
 │   ├── unassigned/  # Unassigned commits card and inline branch creator
 │   ├── conflict/    # Conflict and missing-commits views
 │   ├── diff/        # Diff views on @pierre/diffs (lazy chunk)
+│   ├── files/       # The directory tree of changed files
 │   ├── ai/          # AI branch name suggestions (Claude Code)
 │   └── settings/    # Settings dialogs
 ├── hooks/           # React hooks (useX.ts)

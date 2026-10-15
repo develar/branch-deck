@@ -80,8 +80,9 @@ repositories: all operations run through the Git CLI.
 - **Zoom**: View → Zoom In (⌘+, also ⌘=), Zoom Out (⌘−) and Actual Size (⌘0), from 67% to 150%, in every window and kept
   after a restart; the toolbar keeps the size of a title bar.
 - **Commit files**: every commit row says how many files and lines it changes ("3 files · +42 −7"). The commit
-  preview lists the files after the message, each expanding to its diff (`F` hides them), and the context menu copies
-  the changed paths.
+  preview lists the files after the message as a directory tree, single-child folders merged into one row, each file
+  expanding to its diff (`F` hides them): the changed words marked, the code in the IntelliJ editor colours, the
+  unchanged lines between hunks a click away. The context menu copies the changed paths.
 - **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation
   (`.idea/vcs.xml`).
 - **Agent CLI** (`branch-deck cli`, or the binary symlinked as `bd`; `bd.exe` next to the app on Windows): a coding

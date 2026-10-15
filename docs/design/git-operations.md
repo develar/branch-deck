@@ -807,15 +807,31 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   back, so a commit seen once costs no process again, also in a later session. A commit the output doesn't list (no
   changes, or not fetched yet) is not cached. The app resolves `--git-common-dir` once per repository
   (`RepositoryStateCache`) to open the cache; outside a repository the cache is disabled and the read still runs.
-- **Diffs on demand.** `get_commit_file_diff` runs one `diff-tree -p --no-commit-id -U3 <commit> -- :(literal)<path>
-  [:(literal)<old path>]` when a file is first expanded: both paths of a rename, so `-M` pairs them and the patch
-  shows the changes, and literal pathspecs, so `*.rs` names only itself. The whole patch is the hunk text of the diff
-  view, as for an uncommitted file.
+- **The patch of a commit, once.** `get_commit_patch` runs one `diff-tree -p --no-commit-id --full-index -U3
+  --src-prefix=a/ --dst-prefix=b/` with the options above, without a pathspec, when the preview first shows a diff of
+  the commit: every other file of the commit then costs nothing. The output streams into a splitter that cuts it at
+  the `diff --git` lines (inside a hunk every line starts with ` `, `+`, `-` or `\`, so a cut never falls into a
+  file's content). A file over 1 MiB or 10 000 lines, and every file after the first 16 MiB, keeps only its header
+  and the count of the lines left out, so memory is bounded by the limits, not by the commit. The paths are not
+  parsed in Rust: the diff view reads them from the `---`/`+++` lines, C-quoted where git quotes them. The patch is
+  read untrimmed: trimming would drop a last context line of a blank line. The frontend keeps the patches of the last
+  8 commits in memory (at most 32 MiB of text, `src/stores/commit-patch.ts`); they are not cached on disk, because one
+  `diff-tree` is cheap and a patch is large.
+- **The unchanged lines, by blob id.** `--full-index` puts both blob ids on the `index` line. When a diff expands the
+  lines between its hunks, `get_blob_contents` reads both sides with one `cat-file --batch --buffer -Z`, by id, at most
+  16 ids: no path to quote, and a root commit needs no `<commit>^`. A blob with a NUL in its first 8000 bytes (git's
+  test) is binary, one over 8 MiB is too large, an id that is not a blob is missing; only text is sent, decoded as
+  UTF-8 with invalid sequences replaced. `cat-file` writes a large blob whole before it is refused, which a desktop app
+  accepts. The `-Z` output is parsed by `parse_batch_output` (`crates/git-ops/src/cat_file_batch.rs`), shared with the
+  conflict analysis.
+- **Uncommitted file.** `get_file_content_for_diff` (the amend card) runs `diff HEAD -U3 --no-ext-diff --no-textconv
+  --src-prefix=a/ --dst-prefix=b/ -- :(literal)<path>`, untrimmed: the user's diff config must not change the patch the
+  diff view parses.
 - The frontend keeps the files by commit id in memory (`src/stores/commit-files.ts`) and asks only for the ids it
   doesn't have; a second request for an id waits for the one in flight.
 
-Code: `crates/git-ops/src/commit_files.rs`, `crates/object-cache/src/commit_files.rs`,
-`src-tauri/src/commands/commit_files.rs`, `src-tauri/src/repository_state.rs`.
+Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
+`crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `src-tauri/src/repository_state.rs`.
 
 #### Trial sync (check)
 

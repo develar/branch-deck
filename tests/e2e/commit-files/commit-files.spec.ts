@@ -70,16 +70,20 @@ testWithIssueLinks.describe("Commit files", () => {
 
     const files = preview.getByRole("region", { name: "Files" })
     await expect(files).toHaveAttribute("data-testid", "commit-files")
-    const file = files.getByRole("button", { name: "db/pool.js" })
-    await expect(file).toBeVisible()
-    await expect(files.getByText("modified")).toBeVisible()
+    // grouped by directory: `db/`, then the file by its name, the status and the counts in its description
+    await expect(files.getByRole("treeitem", { name: "db" })).toHaveAttribute("aria-level", "1")
+    const file = files.getByRole("treeitem", { name: "pool.js" })
+    await expect(file).toHaveAttribute("aria-level", "2")
+    await expect(file).toHaveAttribute("aria-description", "modified, +1 −1")
+    await expect(file).toHaveAttribute("aria-expanded", "false")
     await expect(files.getByTestId("file-line-counts")).toHaveText("+1 −1")
     // the diff view mode of the conflict viewer
     await expect(files.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
 
     // the highlighted diff splits a line into tokens: match the text of the section
     await expect(files).not.toContainText("size: 50")
-    await file.click()
+    await file.getByText("pool.js").click()
+    await expect(file).toHaveAttribute("aria-expanded", "true")
     await expect(files).toContainText("size: 50")
 
     // the next commit shows its own files, collapsed
@@ -111,7 +115,46 @@ testWithIssueLinks.describe("Commit files", () => {
 
     await toggle.click()
     await expect(files).toBeVisible()
-    await expect(files.getByRole("button", { name: "db/pool.js" })).toBeVisible()
+    await expect(files.getByRole("treeitem", { name: "pool.js" })).toBeVisible()
+  })
+
+  testWithIssueLinks("should move through the tree with the keyboard and switch commits with Alt", async ({ page }) => {
+    await expandIssueBranch(page)
+    const preview = await openPreview(page, getBranchCommitRow(page, BRANCH, POOL_SIZE))
+    const heading = preview.getByRole("heading", { level: 2 })
+    const files = preview.getByTestId("commit-files")
+    const directory = files.getByRole("treeitem", { name: "db" })
+    const file = files.getByRole("treeitem", { name: "pool.js" })
+
+    // one row is in the tab order
+    await expect(directory).toHaveAttribute("tabindex", "0")
+    await expect(file).toHaveAttribute("tabindex", "-1")
+    await directory.focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(file).toBeFocused()
+    // the arrows stay in the tree, also past its last row: the commit stays
+    await page.keyboard.press("ArrowDown")
+    await expect(file).toBeFocused()
+    await expect(heading).toHaveText(/increase pool size to 50/)
+
+    await page.keyboard.press("ArrowRight")
+    await expect(file).toHaveAttribute("aria-expanded", "true")
+    await expect(files).toContainText("size: 50")
+    await page.keyboard.press("ArrowLeft")
+    await expect(file).toHaveAttribute("aria-expanded", "false")
+    await page.keyboard.press("ArrowLeft")
+    await expect(directory).toBeFocused()
+    await page.keyboard.press("ArrowLeft")
+    await expect(directory).toHaveAttribute("aria-expanded", "false")
+    await expect(file).toHaveCount(0)
+    // Space toggles a row, the preview stays open
+    await page.keyboard.press("Space")
+    await expect(directory).toHaveAttribute("aria-expanded", "true")
+    await expect(preview).toBeVisible()
+
+    // Alt with an arrow is the dialog's: the next commit
+    await page.keyboard.press("Alt+ArrowDown")
+    await expect(heading).toHaveText("Fix database connection pool timeout")
   })
 
   testWithIssueLinks("should copy the changed paths of the commits from the context menu", async ({ page }) => {
@@ -128,5 +171,51 @@ testWithIssueLinks.describe("Commit files", () => {
     await openContextMenu(page, poolSize)
     await clickContextMenuItem(page, "Copy Changed Paths of 3 Commits")
     await expect.poll(async () => (await readClipboard(page)).split("\n").sort()).toEqual(["db/pool.js", "db/retry.js"])
+  })
+})
+
+simpleTest.describe("Commit files in nested directories", () => {
+  simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("commit_tree")
+    await syncAndWaitForBranches()
+  })
+
+  simpleTest("should group the files by directory and expand the unchanged lines of a diff", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, "session"))
+    const preview = await openPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
+    const tree = preview.getByRole("tree", { name: "Changed files" })
+    const rows = tree.getByRole("treeitem")
+    // a directory that holds one directory only is merged with it; directories first
+    await expect.poll(async () => {
+      const outline: string[] = []
+      for (const row of await rows.all()) {
+        outline.push(`${await row.getAttribute("aria-level")} ${await row.getAttribute("aria-label")}`)
+      }
+      return outline
+    }).toEqual([
+      "1 plugins/air",
+      "2 backend/session",
+      "3 catalog",
+      "4 src",
+      "5 RowMapper.kt",
+      "4 testSrc",
+      "5 RowMapperTest.kt",
+      "3 projection/src",
+      "4 Reducer.kt",
+      "2 build.gradle.kts",
+      "1 README.md",
+    ])
+    // a directory sums the lines of its files
+    await expect(tree.getByRole("treeitem", { name: "catalog" })).toHaveAttribute("aria-description", "2 files, +8 −2")
+    await expect(tree.getByRole("treeitem", { name: "RowMapperTest.kt" })).toHaveAttribute("aria-description", "added, +6 −0")
+
+    // two hunks with 14 unchanged lines between them: expanding reads both versions of the file
+    const mapper = tree.getByRole("treeitem", { name: "RowMapper.kt" })
+    await mapper.getByText("RowMapper.kt").click()
+    await expect(mapper).toContainText("SessionRowMapper")
+    await expect(mapper).not.toContainText("field10")
+    // the separator spans the gutter and the code: its first button
+    await mapper.locator("[data-expand-both]").first().click()
+    await expect(mapper).toContainText("val field10 = 10")
   })
 })

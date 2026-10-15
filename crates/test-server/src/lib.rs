@@ -118,7 +118,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
     .route("/invoke/get_commit_files", post(tauri_command_bridge::get_commit_files))
     .route("/invoke/get_commits_files", post(tauri_command_bridge::get_commits_files))
-    .route("/invoke/get_commit_file_diff", post(tauri_command_bridge::get_commit_file_diff))
+    .route("/invoke/get_commit_patch", post(tauri_command_bridge::get_commit_patch))
+    .route("/invoke/get_blob_contents", post(tauri_command_bridge::get_blob_contents))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
     // Menu command endpoints
@@ -199,6 +200,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     ("issue_combine", templates::issue_combine()),
     ("fixups", templates::fixups()),
     ("long_subjects", templates::long_subjects()),
+    ("commit_tree", templates::commit_tree()),
     ("stacked_branches", templates::stacked_branches()),
     ("stacked_conflict", templates::stacked_conflict()),
   ];
@@ -311,6 +313,8 @@ pub enum RepositoryTemplate {
   Fixups,
   #[serde(rename = "long_subjects")]
   LongSubjects,
+  #[serde(rename = "commit_tree")]
+  CommitTree,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
   #[serde(rename = "stacked_conflict")]
@@ -352,6 +356,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::IssueCombine => "issue_combine",
       RepositoryTemplate::Fixups => "fixups",
       RepositoryTemplate::LongSubjects => "long_subjects",
+      RepositoryTemplate::CommitTree => "commit_tree",
       RepositoryTemplate::StackedBranches => "stacked_branches",
       RepositoryTemplate::StackedConflict => "stacked_conflict",
       RepositoryTemplate::ArchivedBranches => "archived_branches",

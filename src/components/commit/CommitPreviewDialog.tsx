@@ -22,7 +22,7 @@ import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { isMac } from "@/lib/platform"
-import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
+import { handlePreviewItemSwitchKey, handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { useBranchSync } from "@/stores/branch-sync"
 import { toggleCommitFilesSection, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
 
@@ -42,8 +42,8 @@ export interface CommitPreviewDialogProps {
 
 /**
  * Centered preview of one commit of a list, as Quick Look shows a file: the whole subject, the meta line, the body and
- * the changed files. ↑/↓ show the previous or next commit of the list, Space and Escape close it, E edits the message,
- * F shows or hides the files.
+ * the changed files. ↑/↓ show the previous or next commit of the list (⌥↑/⌥↓ also from the file tree), Space and Escape
+ * close it, E edits the message, F shows or hides the files.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -105,11 +105,18 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    // a key the content handled: an arrow or Space in the file tree
+    if (event.defaultPrevented) {
+      return
+    }
     if (isEditing) {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
         void save()
       }
+      return
+    }
+    if (handlePreviewItemSwitchKey(event, currentIndex, commits.length, onIndexChange)) {
       return
     }
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, currentIndex, commits.length, onIndexChange, close)) {

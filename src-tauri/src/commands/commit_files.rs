@@ -2,8 +2,10 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::{CommitFiles, GetCommitFileDiffParams, GetCommitFilesParams, GetCommitsFilesParams, read_commit_file_diff, read_commit_files_cached};
-use git_ops::conflict_analysis::FileDiff;
+use git_ops::commit_files::{
+  BlobContents, CommitFiles, CommitPatch, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, PATCH_LIMITS, read_blob_contents,
+  read_commit_files_cached, read_commit_patch,
+};
 use tauri::State;
 use tracing::instrument;
 
@@ -52,11 +54,20 @@ async fn read_files(
   .await
 }
 
-/// The patch of one file of a commit, when the file is expanded in the commit preview
+/// The patch of a commit, when the preview first shows a diff of it: one `diff-tree -p`, cut into files
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor))]
-pub async fn get_commit_file_diff(git_executor: State<'_, GitCommandExecutor>, params: GetCommitFileDiffParams) -> Result<FileDiff, CommandError> {
+pub async fn get_commit_patch(git_executor: State<'_, GitCommandExecutor>, params: GetCommitPatchParams) -> Result<CommitPatch, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || read_commit_file_diff(&git, &params.repository_path, &params.commit_id, &params.path, params.old_path.as_deref())).await
+  run_blocking(move || read_commit_patch(&git, &params.repository_path, &params.commit_id, &PATCH_LIMITS)).await
+}
+
+/// The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch`
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(git_executor))]
+pub async fn get_blob_contents(git_executor: State<'_, GitCommandExecutor>, params: GetBlobContentsParams) -> Result<Vec<BlobContents>, CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || read_blob_contents(&git, &params.repository_path, &params.object_ids)).await
 }

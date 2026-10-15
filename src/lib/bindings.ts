@@ -152,8 +152,10 @@ export const commands = {
 	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_commit_files", { params })),
 	/**  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses */
 	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], CommandError>(__TAURI_INVOKE("get_commits_files", { params })),
-	/**  The patch of one file of a commit, when the file is expanded in the commit preview */
-	getCommitFileDiff: (params: GetCommitFileDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_commit_file_diff", { params })),
+	/**  The patch of a commit, when the preview first shows a diff of it: one `diff-tree -p`, cut into files */
+	getCommitPatch: (params: GetCommitPatchParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_commit_patch", { params })),
+	/**  The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch` */
+	getBlobContents: (params: GetBlobContentsParams) => typedError<BlobContents[], CommandError>(__TAURI_INVOKE("get_blob_contents", { params })),
 	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
 	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
 	/**
@@ -239,6 +241,17 @@ export type AutosquashScope = { type: "all" } |
 { type: "unassigned" } | 
 /**  Only this fixup commit, into its target */
 { type: "fixup"; value: string };
+
+/**  The contents of a blob for the diff view */
+export type BlobContents = 
+/**  The bytes as UTF-8, an invalid sequence replaced */
+{ kind: "text"; objectId: string; content: string } | 
+/**  A NUL in the first 8000 bytes, as git decides */
+{ kind: "binary"; objectId: string } | 
+/**  Over `MAX_BLOB_BYTES` */
+{ kind: "tooLarge"; objectId: string; size: number } | 
+/**  Not a blob of the repository */
+{ kind: "missing"; objectId: string };
 
 /**  Why a branch is not rebuilt: its parent can't be built on */
 export type BlockReason = 
@@ -395,6 +408,13 @@ export type CommitInfo = {
 	message: string,
 };
 
+/**  The patch of a commit against its first parent, one section per file */
+export type CommitPatch = {
+	commitId: string,
+	/**  In git's order (by path), a section per `diff --git` line */
+	files: FilePatch[],
+};
+
 export type CommitRewrite = {
 	/**  The commit on the current branch (the original commit of a virtual branch commit) */
 	commitId: string,
@@ -499,6 +519,20 @@ export type FileInfo = {
 	content: string,
 };
 
+/**  The patch of one file of a commit */
+export type FilePatch = {
+	/**
+	 *  The section as git prints it, from its `diff --git` line; only the lines before the first hunk when
+	 *  `omitted_lines` is set
+	 */
+	patch: string,
+	/**
+	 *  The hunk lines left out: the file passed `PatchLimits::file_bytes` or `file_lines`, or the commit passed
+	 *  `total_bytes` before it
+	 */
+	omittedLines: number | null,
+};
+
 /**  How a file changed, from the status letter of `--raw` */
 export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | 
 /**  A file became a symlink or a submodule, or the other way round */
@@ -517,20 +551,22 @@ export type GetAutosquashPlanParams = {
 	repositoryPath: string,
 };
 
+export type GetBlobContentsParams = {
+	repositoryPath: string,
+	/**  Full blob ids, at most `MAX_BLOB_IDS` */
+	objectIds: string[],
+};
+
 export type GetBranchPrefixParams = {
 	repositoryPath: string,
 };
 
-export type GetCommitFileDiffParams = {
+export type GetCommitFilesParams = {
 	repositoryPath: string,
 	commitId: string,
-	/**  The path after the commit */
-	path: string,
-	/**  The path before a rename or copy, so the patch shows the changes and not a new file */
-	oldPath: string | null,
 };
 
-export type GetCommitFilesParams = {
+export type GetCommitPatchParams = {
 	repositoryPath: string,
 	commitId: string,
 };

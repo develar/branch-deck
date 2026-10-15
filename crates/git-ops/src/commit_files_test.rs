@@ -1,4 +1,7 @@
-use crate::commit_files::{CommitFiles, parse_commit_files, read_commit_file_diff, read_commit_files, read_commit_files_cached};
+use crate::commit_files::{
+  BlobContents, CommitFiles, MAX_BLOB_IDS, PATCH_LIMITS, PatchLimits, PatchSplitter, parse_commit_files, read_blob_contents, read_commit_files, read_commit_files_cached,
+  read_commit_patch,
+};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
 use pretty_assertions::assert_eq;
@@ -120,7 +123,8 @@ fn refuses_what_is_not_an_object_id() {
   let head = repo.create_commit("Initial", "README.md", "# Test\n");
   for id in ["HEAD", "--output=x", &head[..7]] {
     assert!(read_commit_files(repo.git_executor(), repo_path(&repo), &[id.to_string()]).is_err(), "{id}");
-    assert!(read_commit_file_diff(repo.git_executor(), repo_path(&repo), id, "README.md", None).is_err(), "{id}");
+    assert!(read_commit_patch(repo.git_executor(), repo_path(&repo), id, &PATCH_LIMITS).is_err(), "{id}");
+    assert!(read_blob_contents(repo.git_executor(), repo_path(&repo), &[id.to_string()]).is_err(), "{id}");
   }
 }
 
@@ -157,33 +161,136 @@ fn rejects_output_it_does_not_understand() {
   assert!(parse_commit_files(&[]).unwrap().is_empty());
 }
 
-#[test]
-fn file_diff_of_a_rename_shows_the_changed_lines() {
-  let (repo, _, second) = repo_with_all_statuses();
-  let renamed = read_commit_file_diff(repo.git_executor(), repo_path(&repo), &second, "c.txt", Some("a.txt")).unwrap();
-  assert_eq!((renamed.old_file.file_name.as_str(), renamed.new_file.file_name.as_str()), ("a.txt", "c.txt"));
-  assert_eq!(renamed.hunks.len(), 1);
-  let patch = &renamed.hunks[0];
-  assert!(patch.starts_with("diff --git a/a.txt b/c.txt\n"), "{patch}");
-  assert!(patch.contains("rename from a.txt\nrename to c.txt\n"), "{patch}");
-  assert!(patch.ends_with(" three\n+four\n"), "{patch}");
-
-  // without the old path, the file is new
-  let added = read_commit_file_diff(repo.git_executor(), repo_path(&repo), &second, "c.txt", None).unwrap();
-  assert!(added.hunks[0].contains("new file mode"), "{}", added.hunks[0]);
+/// The full blob ids of the `index <old>..<new>` line of a patch section
+fn index_ids(patch: &str) -> (String, String) {
+  let range = patch.lines().find_map(|line| line.strip_prefix("index ")).unwrap();
+  let range = range.split(' ').next().unwrap();
+  let (old, new) = range.split_once("..").unwrap();
+  (old.to_string(), new.to_string())
 }
 
 #[test]
-fn file_diff_takes_the_path_literally() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial", &[("*.txt", "star\n"), ("a.txt", "a\n")]);
-  let head = repo.create_commit_with_files("Change both", &[("*.txt", "star 2\n"), ("a.txt", "a 2\n")]);
-  let diff = read_commit_file_diff(repo.git_executor(), repo_path(&repo), &head, "*.txt", None).unwrap();
-  assert_eq!(diff.new_file.file_lang, "txt");
-  assert!(diff.hunks[0].contains("+star 2\n"), "{}", diff.hunks[0]);
-  assert!(!diff.hunks[0].contains("a.txt"), "{}", diff.hunks[0]);
+fn commit_patch_has_a_section_per_file_in_git_order() {
+  let (repo, root, second) = repo_with_all_statuses();
+  let patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &second, &PATCH_LIMITS).unwrap();
+  assert_eq!(patch.commit_id, second);
+  let starts: Vec<&str> = patch.files.iter().map(|file| file.patch.lines().next().unwrap()).collect();
+  // git sorts by path; a path with a tab is quoted
+  assert_eq!(
+    starts,
+    [
+      "diff --git a/b.txt b/b.txt",
+      "diff --git a/bin.dat b/bin.dat",
+      "diff --git a/a.txt b/c.txt",
+      "diff --git \"a/dir name/ü\\tx.txt\" \"b/dir name/ü\\tx.txt\"",
+    ]
+  );
+  assert!(patch.files.iter().all(|file| file.omitted_lines.is_none()));
+  assert!(patch.files[1].patch.contains("Binary files /dev/null and b/bin.dat differ"), "{}", patch.files[1].patch);
 
-  // a path the commit didn't change has no patch
-  let unchanged = read_commit_file_diff(repo.git_executor(), repo_path(&repo), &head, "missing.txt", None).unwrap();
-  assert_eq!(unchanged.hunks, Vec::<String>::new());
+  // the root commit adds every file
+  let root_patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &root, &PATCH_LIMITS).unwrap();
+  assert_eq!(root_patch.files.len(), 2);
+  assert!(root_patch.files[0].patch.contains("new file mode"), "{}", root_patch.files[0].patch);
+}
+
+#[test]
+fn commit_patch_of_a_rename_shows_the_changed_lines_with_full_blob_ids() {
+  let (repo, _, second) = repo_with_all_statuses();
+  let patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &second, &PATCH_LIMITS).unwrap();
+  let renamed = &patch.files[2].patch;
+  assert!(renamed.contains("rename from a.txt\nrename to c.txt\n"), "{renamed}");
+  // untrimmed: the section ends with its last line and its newline
+  assert!(renamed.ends_with(" three\n+four\n"), "{renamed}");
+
+  let (old, new) = index_ids(renamed);
+  assert_eq!((old.len(), new.len()), (40, 40));
+  let blobs = read_blob_contents(repo.git_executor(), repo_path(&repo), &[old.clone(), new.clone()]).unwrap();
+  assert_eq!(
+    blobs,
+    [
+      BlobContents::Text {
+        object_id: old,
+        content: "one\ntwo\nthree\n".to_string()
+      },
+      BlobContents::Text {
+        object_id: new,
+        content: "one\ntwo\nthree\nfour\n".to_string()
+      },
+    ]
+  );
+}
+
+#[test]
+fn commit_patch_keeps_only_the_header_of_a_file_over_a_limit() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("big.txt", "a\n"), ("small.txt", "s\n")]);
+  let big: String = (0..50).map(|i| format!("line {i}\n")).collect();
+  let head = repo.create_commit_with_files("Grow", &[("big.txt", &big), ("small.txt", "s 2\n")]);
+  let limits = PatchLimits { file_lines: 20, ..PATCH_LIMITS };
+  let patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &head, &limits).unwrap();
+  // 1 deleted and 50 added lines
+  assert_eq!(patch.files[0].omitted_lines, Some(51));
+  assert!(patch.files[0].patch.ends_with("+++ b/big.txt\n"), "{}", patch.files[0].patch);
+  assert!(!patch.files[0].patch.contains("@@"), "{}", patch.files[0].patch);
+  assert_eq!(patch.files[1].omitted_lines, None);
+  assert!(patch.files[1].patch.contains("+s 2\n"), "{}", patch.files[1].patch);
+}
+
+#[test]
+fn commit_patch_leaves_out_the_hunks_after_the_total_limit() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("a.txt", "a\n"), ("b.txt", "b\n")]);
+  let head = repo.create_commit_with_files("Change both", &[("a.txt", "a 2\n"), ("b.txt", "b 2\n")]);
+  let full = read_commit_patch(repo.git_executor(), repo_path(&repo), &head, &PATCH_LIMITS).unwrap();
+  let limits = PatchLimits {
+    total_bytes: full.files[0].patch.len() + 10,
+    ..PATCH_LIMITS
+  };
+  let patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &head, &limits).unwrap();
+  assert_eq!(patch.files[0], full.files[0]);
+  assert_eq!(patch.files[1].omitted_lines, Some(2));
+  assert!(patch.files[1].patch.starts_with("diff --git a/b.txt b/b.txt\n"), "{}", patch.files[1].patch);
+  assert!(!patch.files[1].patch.contains("@@"), "{}", patch.files[1].patch);
+}
+
+#[test]
+fn patch_splitter_cuts_at_diff_headers_across_chunk_boundaries() {
+  let input = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-diff --git a/y b/y\n+x\n\\ No newline at end of file\ndiff --git a/z b/z\n@@ -0,0 +1 @@\n+z";
+  for size in 1..=7 {
+    let mut splitter = PatchSplitter::new(PATCH_LIMITS);
+    for chunk in input.as_bytes().chunks(size) {
+      splitter.push(chunk);
+    }
+    let files = splitter.finish();
+    let patches: Vec<&str> = files.iter().map(|file| file.patch.as_str()).collect();
+    // a deleted line that reads like a header stays in its hunk
+    assert_eq!(
+      patches,
+      [
+        "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-diff --git a/y b/y\n+x\n\\ No newline at end of file\n",
+        "diff --git a/z b/z\n@@ -0,0 +1 @@\n+z",
+      ],
+      "chunks of {size}"
+    );
+  }
+}
+
+#[test]
+fn blob_contents_tells_text_from_binary_missing_and_too_many() {
+  let (repo, _, second) = repo_with_all_statuses();
+  let patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &second, &PATCH_LIMITS).unwrap();
+  let (_, binary) = index_ids(&patch.files[1].patch);
+  let absent = "0123456789012345678901234567890123456789".to_string();
+  let blobs = read_blob_contents(repo.git_executor(), repo_path(&repo), &[binary.clone(), absent.clone(), second.clone()]).unwrap();
+  assert_eq!(
+    blobs,
+    [
+      BlobContents::Binary { object_id: binary },
+      BlobContents::Missing { object_id: absent },
+      // a commit is not a blob
+      BlobContents::Missing { object_id: second.clone() },
+    ]
+  );
+  assert!(read_blob_contents(repo.git_executor(), repo_path(&repo), &vec![second; MAX_BLOB_IDS + 1]).is_err());
 }

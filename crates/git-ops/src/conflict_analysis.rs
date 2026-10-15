@@ -1,3 +1,4 @@
+use crate::cat_file_batch::parse_batch_output;
 use crate::commit_list::Commit;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -513,35 +514,18 @@ pub(crate) fn get_files_content_at_revisions(
     return Ok(result);
   }
 
+  let names_len = names.len();
   let bytes = git_executor
     .execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repo_path, &input)
     .map_err(|e| anyhow!("Failed to cat-file batch: {e}"))?;
 
-  // With -Z, every entry is `<oid> <type> <size>\0<content>\0`, or `<name> missing\0` for an absent file
-  let mut i = 0;
-  for (rev, file_path) in names {
-    let end = memchr::memchr(0, &bytes[i..]).map(|pos| i + pos).ok_or_else(|| anyhow!("truncated cat-file output"))?;
-    let header = String::from_utf8_lossy(&bytes[i..end]).into_owned();
-    i = end + 1;
-    let mut fields = header.rsplitn(3, ' ');
-    let (Some(size), Some(kind)) = (fields.next(), fields.next()) else {
-      return Err(anyhow!("Failed to parse git cat-file header: {header:?}"));
-    };
-    let Ok(size) = size.parse::<usize>() else {
-      // `missing` or `ambiguous`
-      debug!(header, "object missing");
-      continue;
-    };
-    let content = bytes
-      .get(i..i + size)
-      .ok_or_else(|| anyhow!("Insufficient data for content: expected {size} bytes, but only {} remaining", bytes.len() - i))?;
-    if kind == "blob"
+  for ((rev, file_path), object) in names.into_iter().zip(parse_batch_output(&bytes, names_len)?) {
+    if let Some(object) = object
+      && object.kind == "blob"
       && let Some(contents) = result.get_mut(rev)
     {
-      contents.insert(file_path.to_string(), String::from_utf8_lossy(content).into_owned());
+      contents.insert(file_path.to_string(), String::from_utf8_lossy(object.content).into_owned());
     }
-    // skip the content and its NUL terminator
-    i += size + 1;
   }
   Ok(result)
 }

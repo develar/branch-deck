@@ -1,6 +1,6 @@
 ---
 name: Commit Files
-description: Requirements for the changed files of a commit, the file and line counts on its meta line, the Files section with the diffs in the commit preview, and Copy Changed Paths.
+description: Requirements for the changed files of a commit, the file and line counts on its meta line, the Files section with its directory tree and the diffs in the commit preview, and Copy Changed Paths.
 style: plain-1
 targets:
   - ../../crates/git-ops/src/commit_files.rs
@@ -15,7 +15,14 @@ targets:
   - ../../src/components/commit/CommitList.tsx
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/branch/BranchPreviewDialog.tsx
-  - ../../src/components/conflict/OnDemandFileDiffList.tsx
+  - ../../src/components/commit/InlineCommitFileDiff.tsx
+  - ../../src/components/files/FileTree.tsx
+  - ../../src/lib/file-tree.ts
+  - ../../src/stores/commit-patch.ts
+  - ../../src/lib/diff/commit-patch.ts
+  - ../../src/lib/preview-keys.ts
+  - ../../crates/git-ops/src/cat_file_batch.rs
+  - ../../crates/test-utils/src/repo_template.rs
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
   - ../../src/components/diff/FileDiffView.tsx
   - ../../src/components/diff/LazyDiffViews.tsx
@@ -37,7 +44,8 @@ Date: 2026-10-14
 
 A commit row says what is in the commit: its meta line ends with the number of changed files and the added and deleted
 lines, "3 files · +42 −7".
-The commit preview lists the files after the message. A file expands to its diff, read when it is first expanded.
+The commit preview lists the files after the message, grouped by directory as IntelliJ and Space show the changes of a
+commit. A file expands to its diff; the first one read the patch of the whole commit with one git process.
 The context menu of a commit copies the paths it changed.
 Everything is read with read-only plumbing, one git process for a whole list, and cached by commit id.
 
@@ -77,6 +85,28 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`refuses_what_is_not_an_object_id`)
 - Nothing must write to a ref, the index or the working tree.
 
+### Reading the diffs
+
+- The patch of a commit must be read whole, by one `diff-tree -p --full-index` process with the options of the files
+  (first parent, renames, no external diff or textconv), when the preview first shows a diff of it, never before.
+  The patch must be cut into a section per file at its `diff --git` lines, as it streams, and kept untrimmed.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_has_a_section_per_file_in_git_order`, `commit_patch_of_a_rename_shows_the_changed_lines_with_full_blob_ids`, `patch_splitter_cuts_at_diff_headers_across_chunk_boundaries`)
+- A file over 1 MiB or 10 000 lines of patch, and every file after the first 16 MiB of a commit, must keep only its
+  header and the count of the lines left out: a huge commit costs the limits, not its size.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_keeps_only_the_header_of_a_file_over_a_limit`, `commit_patch_leaves_out_the_hunks_after_the_total_limit`)
+- The app must keep the patches of the last 8 commits it showed, at most 32 MiB of text, and read a commit once while
+  it is being read; a failed read is tried again with the next diff shown.
+  [@test] ../../src/stores/commit-patch.test.ts (`reads a commit once, also when asked again while it loads`, `keeps a failure as an error and tries again on the next load`, `evicts the least recently loaded patch over the limit`)
+- A file's diff is its section of the patch, found by its path after the commit; the same file gives the same parsed
+  diff, so lines it expanded stay expanded.
+  [@test] ../../src/lib/diff/commit-patch.test.ts (`finds the section of each file by its path after the commit`, `parses a patch once: the same diff for the same file, which an expansion fills in place`, `has no diff for a file the patch does not list`)
+- The unchanged lines between hunks must expand: both versions of the file are read by their blob ids from the
+  patch's `index` line, with one `cat-file --batch` process, at most 16 blobs. A binary blob, a blob over 8 MiB and an
+  id that is not a blob are told apart, never sent as text; the side a file does not exist on is not asked for.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`blob_contents_tells_text_from_binary_missing_and_too_many`)
+  [@test] ../../src/lib/diff/commit-patch.test.ts (`reads both sides by the blob ids of the patch`, `does not ask for the side a file does not exist on`, `shows why a side cannot be read, and fails the expansion`)
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
+
 ### Meta line
 
 - A list must load the files of its commits with one call when it is shown or gets other commits, and only for the
@@ -95,12 +125,27 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 ### Files section
 
 - The commit preview must show a "Files" section after the message, unless the message is being edited.
-- Each file must show its path (`old → new` for a rename or a copy), its line counts and its status badge.
-- A file must expand to its diff. The diff must be read when the file is first expanded, never before.
-- The diff of a renamed file must show the changed lines, not a new file.
-- A path must be taken literally, never as a pattern.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`file_diff_of_a_rename_shows_the_changed_lines`, `file_diff_takes_the_path_literally`)
-- A binary file must show "Binary file", and a file without changed lines "No changed lines", instead of a diff.
+- The files must be a tree grouped by directory. A directory that holds nothing but one directory must be one row
+  with the joined name (`plugins/air/backend/session`). Directories come before files, names in a human order
+  (`file2` before `file10`, case-insensitive). A directory row shows the sums of the line counts of its subtree.
+  [@test] ../../src/lib/file-tree.test.ts (`merges a chain of directories with one subdirectory into one row`, `sums the files and the line counts of each directory over its subtree`, `puts directories first and sorts names as a person reads them`, `keeps the files of a directory with one subdirectory apart from it`, `takes a path with spaces and letters beyond ASCII as it is`, `lists the files in the order of the tree`)
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
+- Every directory starts open; in a commit with more than 100 files the directories below the top level start
+  collapsed. A collapsed directory hides its rows.
+  [@test] ../../src/lib/file-tree.test.ts (`hides the rows below a collapsed directory`, `collapses the directories below the top level of a large commit only`, `opens the directories above a row to reveal it, and only those`)
+- A file row must show its name in the colour of its status, where a renamed or copied file came from (relative to
+  the directory both paths share), its line counts and the status letter (M, A, D, R, C, T). Its accessible name is
+  the file name, its description the status and the counts.
+  [@test] ../../src/lib/file-tree.test.ts (`names a file by its name in its directory`, `names where a renamed file came from, relative to the directory both paths share`)
+- A file must expand to its diff under its row.
+- The tree must be one tab stop (roving focus): ↑/↓ move between the rows and never leave the tree, Home and End go
+  to the first and the last row, → opens a row (a directory, a file's diff) or goes to the first child, ← closes it or
+  goes to the parent, Space and Enter toggle it. ⌥↑/⌥↓ switch the commit from anywhere in the preview; the letters (F,
+  E) keep working in the tree.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should move through the tree with the keyboard and switch commits with Alt`)
+- A binary file must show "Binary file", and a file without changed lines "No changed lines", instead of a diff; a
+  file the patch left out shows "Too large to show: 12,345 changed lines", and a file with more than 2,000 changed
+  lines waits for `Show Diff`, as its diff is not virtualized under its row.
 - The diff must mark the changed words of a changed line, and highlight the code as the IntelliJ editor does, in the
   light and the dark scheme. Kotlin, Gradle (`.gradle`, `.gradle.kts`), Rust, TypeScript, Java and the other common
   languages must be read by their grammar; an unknown file is plain text.
@@ -142,26 +187,36 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - A `border-border` rule above the section separates it from the message. The section title "Files" is
   `text-sm font-medium`, with the `Unified`/`Split` toggle on its right.
-- Each file is a `rounded-lg border` panel: the path in `font-mono text-xs` muted, the copy button on hover (as in
-  the amend card), then on the right the coloured `+/−` counts in `text-xs` and the status badge in the subtle badge
-  colour of its status (added `success`, modified `info`, deleted `destructive`, the others neutral) and the chevron.
-  A long path is cut with "…"; the counts and the badge never wrap or shrink.
+- The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 1rem per level, a `ring-2 ring-ring/50`
+  inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open).
+- A directory shows `FolderIcon` (`FolderOpenIcon` when open, `size-4` muted), its name (truncated, the full path in
+  its title) and its counts muted in `text-xs`.
+- A file shows its name in its status colour, IntelliJ's: added `text-success`, deleted muted and struck through, the
+  others `text-primary`. A rename adds `← api/Old.kt` muted in `text-xs`. On the right: the copy button on hover (after
+  a delay, as in the amend card), the coloured `+/−` counts in `text-xs` and the status letter in `font-mono text-xs`
+  in the status colour. A long name is cut with "…"; the counts never wrap or shrink. A zero count is not coloured.
+- The diff of an expanded file is a `rounded-lg border` panel under its row, at the row's indent.
 - The diff is JetBrains Mono at 12px on the `card` background, added lines `success`, deleted `destructive`, a bar in
   the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
-- Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading file content…".
+- Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
+  read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.
 - The footer shows a ghost `xs` button `F Files` (pressed while the section is shown) before `E Edit`.
 
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
   `src-tauri/src/repository_state_test.rs`.
-- `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/stores/commit-files.test.ts`, `src/lib/diff/*.test.ts`.
-- `pnpm e2e`: `tests/e2e/commit-files`. The test server runs the commands on the fixture repositories without the
-  object cache.
+- `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
+  `src/stores/commit-patch.test.ts`, `src/lib/diff/*.test.ts`.
+- `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin
+  file with two hunks). The test server runs the commands on the fixture repositories without the object cache.
 
 ## Open Questions / Risks
 
-- A commit with thousands of files renders a header per file in the preview; nothing caps the list yet.
+- A commit with thousands of files renders a row per file in the preview, its directories collapsed; the tree is not
+  virtualized.
+- The patch of a commit is read whole for its first diff. One `diff-tree -p` of a large commit costs more than the
+  patch of one file did, but every other file of the commit costs nothing.
 - The counts are those of the original commit. A virtual copy that git merged differently may differ slightly.
 - No e2e test covers a rename, a binary file or a failed read: the templates have none.
 - The Activity entry of a push does not count files yet.

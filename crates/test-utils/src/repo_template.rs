@@ -175,6 +175,7 @@ pub mod templates {
   use super::RepoTemplate;
   use crate::git_test_utils::{disable_background_maintenance, git_command};
   use anyhow::Result;
+  use std::fmt::Write;
   use std::fs;
   use std::path::Path;
 
@@ -191,6 +192,15 @@ pub mod templates {
   const ROLES: &str = include_str!("../fixtures/conflict/Roles.kt");
 
   const ISSUE_LINKS_VCS_XML: &str = include_str!("../fixtures/issue_links/vcs.xml");
+
+  /// A Kotlin file whose class name is on its first line and in its last function, 20 lines apart
+  fn row_mapper(class_name: &str) -> String {
+    let fields = (1..=20).fold(String::new(), |mut fields, i| {
+      let _ = writeln!(fields, "  val field{i} = {i}");
+      fields
+    });
+    format!("class {class_name}Mapper {{\n{fields}  fun map(state: String): {class_name} = {class_name}(state)\n}}\n")
+  }
 
   /// Simple repository with 2 commits using branch prefix
   pub fn simple() -> RepoTemplate {
@@ -355,6 +365,43 @@ pub mod templates {
         Some(1704124800),
       )
       .commit_with_timestamp("(docs) fix typo", &[("README.md", "# Docs")], Some(1704126600))
+  }
+
+  /// One commit that changes files in nested directories (Kotlin, a Gradle script, the README), for the directory tree
+  /// of the commit preview: `RowMapper.kt` has two hunks with 20 unchanged lines between them, which a diff can expand
+  pub fn commit_tree() -> RepoTemplate {
+    RepoTemplate::new("commit_tree")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("README.md", "# Air\n\nSessions of the agent.\n"),
+          ("plugins/air/build.gradle.kts", "plugins {\n  kotlin(\"jvm\")\n}\n"),
+          ("plugins/air/backend/session/catalog/src/RowMapper.kt", &row_mapper("Row")),
+          (
+            "plugins/air/backend/session/projection/src/Reducer.kt",
+            "class Reducer {\n  fun reduce(state: Int): Int = state\n}\n",
+          ),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(session) a prompt that waits for its turn keeps the session row running",
+        &[
+          ("README.md", "# Air\n\nSessions of the agent, one row each.\n"),
+          ("plugins/air/build.gradle.kts", "plugins {\n  kotlin(\"jvm\")\n  id(\"air.session\")\n}\n"),
+          ("plugins/air/backend/session/catalog/src/RowMapper.kt", &row_mapper("SessionRow")),
+          (
+            "plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt",
+            "class RowMapperTest {\n  @Test\n  fun keepsTheRowRunning() {\n    assertEquals(\"running\", map(\"waiting\"))\n  }\n}\n",
+          ),
+          (
+            "plugins/air/backend/session/projection/src/Reducer.kt",
+            "class Reducer {\n  fun reduce(state: Int): Int = state + 1\n}\n",
+          ),
+        ],
+        Some(1704119400),
+      )
   }
 
   /// An issue branch whose commits are independent, so any of them can be split off into its own branch,

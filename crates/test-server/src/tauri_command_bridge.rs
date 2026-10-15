@@ -7,8 +7,10 @@ use axum::{
   },
 };
 use futures::stream::{Stream, StreamExt};
-use git_ops::commit_files::{CommitFiles, GetCommitFileDiffParams, GetCommitFilesParams, GetCommitsFilesParams, read_commit_file_diff, read_commit_files_cached};
-use git_ops::conflict_analysis::FileDiff;
+use git_ops::commit_files::{
+  BlobContents, CommitFiles, CommitPatch, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, PATCH_LIMITS, read_blob_contents,
+  read_commit_files_cached, read_commit_patch,
+};
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -595,11 +597,20 @@ pub async fn get_commits_files(State(state): State<Arc<AppState>>, Json(params):
   .await
 }
 
-pub async fn get_commit_file_diff(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFileDiffParams>) -> CommandResult<FileDiff> {
+pub async fn get_commit_patch(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitPatchParams>) -> CommandResult<CommitPatch> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("read the diff of a commit file", move || {
-    read_commit_file_diff(&git_executor, &params.repository_path, &params.commit_id, &params.path, params.old_path.as_deref())
+  run_command("read the patch of a commit", move || {
+    read_commit_patch(&git_executor, &params.repository_path, &params.commit_id, &PATCH_LIMITS)
+  })
+  .await
+}
+
+pub async fn get_blob_contents(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobContentsParams>) -> CommandResult<Vec<BlobContents>> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the contents of blobs", move || {
+    read_blob_contents(&git_executor, &params.repository_path, &params.object_ids)
   })
   .await
 }

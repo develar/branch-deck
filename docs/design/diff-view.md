@@ -28,8 +28,8 @@ has the file contents, and has a virtualized multi-file view. It renders into th
 
 ```mermaid
 flowchart LR
-    V["OnDemandFileDiffList, FileDiffList, GitDiffMergeView"] --> L["LazyFileDiffView / LazyFileContentView"]
-    L -. "own chunk" .-> F["FileDiffView, FileContentView"]
+    V["CommitFilesSection, OnDemandFileDiffList, FileDiffList, GitDiffMergeView"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyFileContentView"]
+    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, FileContentView"]
     F --> A["toFileDiffMetadata (file-diff.ts)"]
     F --> E["diff-engine.ts: themes, languages, worker pool"]
     E --> W["Shiki workers"]
@@ -45,6 +45,12 @@ flowchart LR
 - **Contents.** A missing commit and the 3-way view also send both file contents, from the same two versions as the
   patch. With `withContents` the parsed diff is complete, and its hunk separators expand the unchanged lines without a
   request. Without the contents the separators only count the lines.
+- **Commit files.** The files of a commit in its preview come from the patch of the whole commit
+  (`get_commit_patch`, one `diff-tree -p --full-index`, kept for the last 8 commits by `src/stores/commit-patch.ts`).
+  `getCommitFileDiff` (`src/lib/diff/commit-patch.ts`) parses its sections once per patch and finds a file's section by
+  its path; `CommitFileDiffView` shows it with `loadCommitFileContents` as the loader, which reads both blobs by the ids
+  of the `index` line (`get_blob_contents`) when the unchanged lines expand. A failed load is a `notifyError` toast:
+  Pierre only logs it. The parsed diff keeps its identity, so the lines it expanded stay expanded.
 - **Conflict markers.** `getConflictAnnotations` (`src/lib/diff/conflict-annotations.ts`) finds the added lines with
   `<<<<<<<`, `|||||||`, `=======` and `>>>>>>>` and annotates them at their new-file line;
   `ConflictMarkerExtension` renders an annotation in light DOM, slotted under the line.

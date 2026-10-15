@@ -35,6 +35,36 @@ export function getFileStatusColor(status: string): UIColor {
   }
 }
 
+/** The letter of a file status in the file tree, as git prints it in `--name-status` */
+export function getFileStatusLetter(status: FileStatus): string {
+  switch (status) {
+    case "added":
+      return "A"
+    case "deleted":
+      return "D"
+    case "renamed":
+      return "R"
+    case "copied":
+      return "C"
+    case "typeChanged":
+      return "T"
+    default:
+      return "M"
+  }
+}
+
+/** The colour of a file name in the file tree, as IntelliJ colours a change: added green, deleted struck through, the rest blue */
+export function getFileStatusTextClass(status: FileStatus): string {
+  switch (status) {
+    case "added":
+      return "text-success"
+    case "deleted":
+      return "text-muted-foreground line-through"
+    default:
+      return "text-primary"
+  }
+}
+
 /** The badge text of a file status */
 export function formatFileStatus(status: FileStatus): string {
   return status === "typeChanged" ? "type changed" : status

@@ -1,7 +1,8 @@
 //! The changed files of commits, read-only: the files with their statuses and line counts of many commits from one
-//! `diff-tree --stdin --raw --numstat -z` process, through the object cache, and the patch of one file on demand.
+//! `diff-tree --stdin --raw --numstat -z` process, through the object cache; the patch of a whole commit from one
+//! `diff-tree -p`, and the contents of the blobs a diff expands from one `cat-file --batch`.
 
-use crate::conflict_analysis::{FileDiff, FileInfo};
+use crate::cat_file_batch::parse_batch_output;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -29,13 +30,18 @@ pub struct GetCommitsFilesParams {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct GetCommitFileDiffParams {
+pub struct GetCommitPatchParams {
   pub repository_path: String,
   pub commit_id: String,
-  /// The path after the commit
-  pub path: String,
-  /// The path before a rename or copy, so the patch shows the changes and not a new file
-  pub old_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetBlobContentsParams {
+  pub repository_path: String,
+  /// Full blob ids, at most `MAX_BLOB_IDS`
+  pub object_ids: Vec<String>,
 }
 
 /// The changed files of a commit against its first parent, with the sums of their line counts
@@ -207,34 +213,253 @@ fn split_numstat(field: &[u8]) -> Option<(Option<u32>, Option<u32>, &[u8])> {
   Some((count(added)?, count(deleted)?, path))
 }
 
-/// The patch of one file of a commit against its first parent, in the shape the diff view takes: the whole
-/// `diff-tree -p` output of the file as one hunk text, as for an uncommitted file
-#[instrument(skip(git))]
-pub fn read_commit_file_diff(git: &GitCommandExecutor, repository_path: &str, commit_id: &str, path: &str, old_path: Option<&str>) -> Result<FileDiff> {
+/// The patch of a commit against its first parent, one section per file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CommitPatch {
+  pub commit_id: String,
+  /// In git's order (by path), a section per `diff --git` line
+  pub files: Vec<FilePatch>,
+}
+
+/// The patch of one file of a commit
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FilePatch {
+  /// The section as git prints it, from its `diff --git` line; only the lines before the first hunk when
+  /// `omitted_lines` is set
+  pub patch: String,
+  /// The hunk lines left out: the file passed `PatchLimits::file_bytes` or `file_lines`, or the commit passed
+  /// `total_bytes` before it
+  pub omitted_lines: Option<u32>,
+}
+
+/// How much of a patch is kept: a file over a limit, and every file after the commit's total, keeps only its header
+#[derive(Debug, Clone, Copy)]
+pub struct PatchLimits {
+  pub file_bytes: usize,
+  pub file_lines: u32,
+  pub total_bytes: usize,
+}
+
+pub const PATCH_LIMITS: PatchLimits = PatchLimits {
+  file_bytes: 1 << 20,
+  file_lines: 10_000,
+  total_bytes: 16 << 20,
+};
+
+/// The patch of `commit_id` against its first parent from one `diff-tree -p` process, read as it streams, so a huge
+/// commit costs the limits, not its size. `--full-index` gives the blob ids that `read_blob_contents` reads to expand
+/// the unchanged lines. The paths are left to the diff view, which reads the `---`/`+++` lines
+#[instrument(skip(git, limits))]
+pub fn read_commit_patch(git: &GitCommandExecutor, repository_path: &str, commit_id: &str, limits: &PatchLimits) -> Result<CommitPatch> {
   if !is_object_id(commit_id) {
     bail!("Not a commit id: {commit_id}");
   }
-  let mut args = vec!["diff-tree", "-p", "--no-commit-id", "--unified=3", "--src-prefix=a/", "--dst-prefix=b/"];
+  let mut args = vec![
+    "diff-tree",
+    "-p",
+    "--no-commit-id",
+    "--full-index",
+    "--unified=3",
+    "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+  ];
   args.extend(DIFF_OPTIONS);
-  // literal pathspecs: a path such as `:(glob)*` or `*.rs` names only itself
-  let pathspecs: Vec<String> = std::iter::once(path).chain(old_path).map(|path| format!(":(literal){path}")).collect();
-  args.extend(["--end-of-options", commit_id, "--"]);
-  args.extend(pathspecs.iter().map(String::as_str));
-  // untrimmed: the last line of a patch may be a context line of a blank line, a single space
-  let patch = git.execute_command_raw(&args, repository_path)?;
-
-  let file_lang = std::path::Path::new(path).extension().and_then(|ext| ext.to_str()).unwrap_or("txt").to_string();
-  Ok(FileDiff {
-    old_file: FileInfo {
-      file_name: old_path.unwrap_or(path).to_string(),
-      file_lang: file_lang.clone(),
-      content: String::new(),
-    },
-    new_file: FileInfo {
-      file_name: path.to_string(),
-      file_lang,
-      content: String::new(),
-    },
-    hunks: if patch.trim().is_empty() { Vec::new() } else { vec![patch] },
+  args.extend(["--end-of-options", commit_id]);
+  let mut splitter = PatchSplitter::new(*limits);
+  git.execute_command_streaming(&args, repository_path, |chunk| {
+    splitter.push(chunk);
+    Ok(())
+  })?;
+  Ok(CommitPatch {
+    commit_id: commit_id.to_string(),
+    files: splitter.finish(),
   })
+}
+
+/// Cuts a patch into its file sections at `diff --git` lines, as the bytes arrive. Inside a hunk every line starts
+/// with ` `, `+`, `-` or `\`, so a cut never falls into the content of a file
+pub struct PatchSplitter {
+  limits: PatchLimits,
+  files: Vec<FilePatch>,
+  section: Option<Section>,
+  /// The bytes after the last newline
+  partial_line: Vec<u8>,
+  /// The bytes kept so far, of all sections
+  total: usize,
+}
+
+struct Section {
+  bytes: Vec<u8>,
+  /// The length of the header (the lines before the first hunk), once a hunk started
+  header_len: Option<usize>,
+  hunk_lines: u32,
+  omitted: bool,
+}
+
+impl PatchSplitter {
+  pub fn new(limits: PatchLimits) -> Self {
+    Self {
+      limits,
+      files: Vec::new(),
+      section: None,
+      partial_line: Vec::new(),
+      total: 0,
+    }
+  }
+
+  pub fn push(&mut self, mut chunk: &[u8]) {
+    while let Some(newline) = memchr::memchr(b'\n', chunk) {
+      let (line, rest) = chunk.split_at(newline + 1);
+      if self.partial_line.is_empty() {
+        self.push_line(line);
+      } else {
+        let mut joined = std::mem::take(&mut self.partial_line);
+        joined.extend_from_slice(line);
+        self.push_line(&joined);
+      }
+      chunk = rest;
+    }
+    self.partial_line.extend_from_slice(chunk);
+  }
+
+  pub fn finish(mut self) -> Vec<FilePatch> {
+    if !self.partial_line.is_empty() {
+      let line = std::mem::take(&mut self.partial_line);
+      self.push_line(&line);
+    }
+    self.close_section();
+    self.files
+  }
+
+  fn push_line(&mut self, line: &[u8]) {
+    if line.starts_with(b"diff --git ") {
+      self.close_section();
+      self.total += line.len();
+      self.section = Some(Section {
+        bytes: line.to_vec(),
+        header_len: None,
+        hunk_lines: 0,
+        omitted: false,
+      });
+      return;
+    }
+    let limits = self.limits;
+    let Some(section) = self.section.as_mut() else {
+      // nothing before the first section: --no-commit-id prints no commit line
+      return;
+    };
+    if section.header_len.is_none() {
+      if !line.starts_with(b"@@") {
+        // the header is kept whatever the limits: it names the file and says what changed
+        section.bytes.extend_from_slice(line);
+        self.total += line.len();
+        return;
+      }
+      section.header_len = Some(section.bytes.len());
+    }
+    if !line.starts_with(b"@@") && !line.starts_with(b"\\") {
+      section.hunk_lines += 1;
+    }
+    if section.omitted {
+      return;
+    }
+    let over = section.bytes.len() + line.len() > limits.file_bytes || section.hunk_lines > limits.file_lines || self.total + line.len() > limits.total_bytes;
+    if over {
+      // all or nothing: a file shows its hunks whole, or its header alone
+      let header_len = section.header_len.unwrap_or(section.bytes.len());
+      self.total -= section.bytes.len() - header_len;
+      section.bytes.truncate(header_len);
+      section.omitted = true;
+    } else {
+      section.bytes.extend_from_slice(line);
+      self.total += line.len();
+    }
+  }
+
+  fn close_section(&mut self) {
+    if let Some(section) = self.section.take() {
+      self.files.push(FilePatch {
+        patch: String::from_utf8_lossy(&section.bytes).into_owned(),
+        omitted_lines: section.omitted.then_some(section.hunk_lines),
+      });
+    }
+  }
+}
+
+/// The most blobs one `read_blob_contents` reads: the two sides of a few files
+pub const MAX_BLOB_IDS: usize = 16;
+
+/// The largest blob whose text is sent to the diff view
+pub const MAX_BLOB_BYTES: usize = 8 << 20;
+
+/// The bytes git checks for a NUL to call a file binary
+const BINARY_CHECK_BYTES: usize = 8000;
+
+/// The contents of a blob for the diff view
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BlobContents {
+  /// The bytes as UTF-8, an invalid sequence replaced
+  Text { object_id: String, content: String },
+  /// A NUL in the first 8000 bytes, as git decides
+  Binary { object_id: String },
+  /// Over `MAX_BLOB_BYTES`
+  TooLarge { object_id: String, size: u32 },
+  /// Not a blob of the repository
+  Missing { object_id: String },
+}
+
+/// The contents of blobs by full id, in this order, from one `cat-file --batch` process. Ids, not `<rev>:<path>`
+/// names: no path is quoted, and the root commit has no parent to name
+#[instrument(skip(git, object_ids), fields(blobs = object_ids.len()))]
+pub fn read_blob_contents(git: &GitCommandExecutor, repository_path: &str, object_ids: &[String]) -> Result<Vec<BlobContents>> {
+  if object_ids.len() > MAX_BLOB_IDS {
+    bail!("Too many blobs: {} (at most {MAX_BLOB_IDS})", object_ids.len());
+  }
+  if let Some(id) = object_ids.iter().find(|id| !is_object_id(id)) {
+    bail!("Not an object id: {id}");
+  }
+  if object_ids.is_empty() {
+    return Ok(Vec::new());
+  }
+  let input = object_ids.iter().fold(String::new(), |mut input, id| {
+    input.push_str(id);
+    input.push('\0');
+    input
+  });
+  let output = git.execute_command_with_input_raw(&["cat-file", "--batch", "--buffer", "-Z"], repository_path, &input)?;
+  let objects = parse_batch_output(&output, object_ids.len())?;
+  Ok(
+    object_ids
+      .iter()
+      .zip(objects)
+      .map(|(id, object)| {
+        let object_id = id.clone();
+        match object {
+          Some(object) if object.kind == "blob" => {
+            if object.content.len() > MAX_BLOB_BYTES {
+              BlobContents::TooLarge {
+                object_id,
+                size: u32::try_from(object.content.len()).unwrap_or(u32::MAX),
+              }
+            } else if memchr::memchr(0, &object.content[..object.content.len().min(BINARY_CHECK_BYTES)]).is_some() {
+              BlobContents::Binary { object_id }
+            } else {
+              BlobContents::Text {
+                object_id,
+                content: String::from_utf8_lossy(object.content).into_owned(),
+              }
+            }
+          }
+          _ => BlobContents::Missing { object_id },
+        }
+      })
+      .collect(),
+  )
 }
