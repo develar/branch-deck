@@ -5,6 +5,7 @@ use crate::commit_files::{
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
 use pretty_assertions::assert_eq;
+use std::fmt::Write as _;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -225,7 +226,10 @@ fn commit_patch_of_a_rename_shows_the_changed_lines_with_full_blob_ids() {
 fn commit_patch_keeps_only_the_header_of_a_file_over_a_limit() {
   let repo = TestRepo::new();
   repo.create_commit_with_files("Initial", &[("big.txt", "a\n"), ("small.txt", "s\n")]);
-  let big: String = (0..50).map(|i| format!("line {i}\n")).collect();
+  let big = (0..50).fold(String::new(), |mut text, i| {
+    let _ = writeln!(text, "line {i}");
+    text
+  });
   let head = repo.create_commit_with_files("Grow", &[("big.txt", &big), ("small.txt", "s 2\n")]);
   let limits = PatchLimits { file_lines: 20, ..PATCH_LIMITS };
   let patch = read_commit_patch(repo.git_executor(), repo_path(&repo), &head, &limits).unwrap();
