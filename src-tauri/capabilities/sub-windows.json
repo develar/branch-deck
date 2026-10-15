@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "sub-windows",
-  "description": "Capability for all sub-windows (missing commits, conflicting files, etc.)",
+  "description": "Capability for all sub-windows (missing commits, conflicting files, branch review)",
   "windows": [
     "missing-commits",
-    "conflicting-files"
+    "conflicting-files",
+    "branch-review"
   ],
   "permissions": [
     "core:event:default",

@@ -1,16 +1,20 @@
 import { useState } from "react"
-import { CircleCheckIcon, ExternalLinkIcon, GitPullRequestCreateIcon, RefreshCwIcon } from "lucide-react"
+import { ChevronRightIcon, CircleCheckIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestCreateIcon, RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { Callout } from "@/components/shared/Callout"
 import type { ReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
-import type { PullRequest } from "@/lib/bindings"
+import type { PatronusReviewerGroup, PatronusReviewRequirement, PullRequest } from "@/lib/bindings"
+import { openBranchReview, toReviewGroups } from "@/lib/branch-review-window"
 import { notifyError } from "@/lib/errors"
-import { formatReviewerGroup } from "@/lib/patronus"
+import { formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
 
 export interface PatronusReviewBlockProps {
+  /** The branch of the Safe Push: its review window shows the files of a group */
+  branchName: string
   review: ReviewRequirement
   /**
    * The branches are reviewed on GitHub (`RepositoryPatronus.githubRepository`), with the pull request of the branch if
@@ -29,7 +33,7 @@ export interface PatronusReviewBlockProps {
  * open or to create, and Recheck. A Safe Push without the approvals fails, but the start stays possible: approvals may
  * arrive while it runs up to its review check.
  */
-export function PatronusReviewBlock({ review, github, onCreateMergeRequest, onCreatePullRequest }: PatronusReviewBlockProps) {
+export function PatronusReviewBlock({ branchName, review, github, onCreateMergeRequest, onCreatePullRequest }: PatronusReviewBlockProps) {
   const { state } = review
   if (state.status === "loading") {
     return (
@@ -58,7 +62,7 @@ export function PatronusReviewBlock({ review, github, onCreateMergeRequest, onCr
   }
 
   if (github !== null) {
-    return <GitHubReviewCallout review={review} pullRequest={github.pullRequest} onCreatePullRequest={onCreatePullRequest} />
+    return <GitHubReviewCallout branchName={branchName} review={review} pullRequest={github.pullRequest} onCreatePullRequest={onCreatePullRequest} />
   }
 
   return (
@@ -68,9 +72,7 @@ export function PatronusReviewBlock({ review, github, onCreateMergeRequest, onCr
       data-testid="patronus-review"
       data-status="required"
     >
-      <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
-        {requirement.groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}
-      </ul>
+      <ReviewerGroups branchName={branchName} requirement={requirement} />
       <p>A Safe Push fails without these approvals.</p>
       {/* the review may happen on GitHub, but only the Space merge request counts (PAT-A-109): say which system */}
       <p>Patronus counts code-owner approvals in a Space merge request.</p>
@@ -99,6 +101,7 @@ export function PatronusReviewBlock({ review, github, onCreateMergeRequest, onCr
                 {`Open ${mergeRequest.reviewKey}`}
               </Button>
             )}
+        <ReviewChangesButton branchName={branchName} requirement={requirement} />
         <RecheckButton review={review} />
       </div>
     </Callout>
@@ -106,23 +109,83 @@ export function PatronusReviewBlock({ review, github, onCreateMergeRequest, onCr
 }
 
 /**
+ * The groups that still have to approve, each with the files it reviews (a group Patronus names without them and that
+ * owns no file by its name in the `OWNERSHIP` files is only named); a file opens the review window at it
+ */
+function ReviewerGroups({ branchName, requirement }: { branchName: string, requirement: PatronusReviewRequirement }) {
+  return (
+    <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
+      {requirement.groups.map(group => <ReviewerGroupItem key={group.name} branchName={branchName} group={group} requirement={requirement} />)}
+    </ul>
+  )
+}
+
+function ReviewerGroupItem({ branchName, group, requirement }: { branchName: string, group: PatronusReviewerGroup, requirement: PatronusReviewRequirement }) {
+  const files = formatReviewerGroupFiles(group)
+  // the files of a group, from where Patronus checks them: the whole stack down to the baseline
+  const open = (path: string | null) => void openBranchReview(branchName, { range: "all", group: group.name, path, groups: toReviewGroups(requirement) })
+  if (files === null) {
+    return <li data-testid="patronus-review-group" data-name={group.name}>{formatReviewerGroup(group)}</li>
+  }
+  if (group.branchWide) {
+    return (
+      <li data-testid="patronus-review-group" data-name={group.name}>
+        {formatReviewerGroup(group)}
+        <button type="button" className="ml-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" onClick={() => open(null)}>{`· ${files}`}</button>
+      </li>
+    )
+  }
+  return (
+    <li data-testid="patronus-review-group" data-name={group.name}>
+      <Collapsible className="flex flex-col gap-0.5">
+        <CollapsibleTrigger className="group flex w-fit items-center gap-1 text-left" data-testid="patronus-review-group-toggle">
+          <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
+          <span>{formatReviewerGroup(group)}</span>
+          <span className="text-muted-foreground">{`· ${files}`}</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <ul className="flex flex-col pl-5 text-xs" data-testid="patronus-review-group-files">
+            {group.paths.map(path => (
+              <li key={path} className="min-w-0">
+                <button type="button" className="max-w-full truncate text-left text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" title={`Review ${path}`} onClick={() => open(path)}>
+                  {path}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+    </li>
+  )
+}
+
+/** Opens the review window of the branch with everything Patronus checks, the reviewer groups as filters */
+function ReviewChangesButton({ branchName, requirement }: { branchName: string, requirement: PatronusReviewRequirement }) {
+  return (
+    <Button variant="outline" size="xs" data-testid="patronus-review-changes" onClick={() => void openBranchReview(branchName, { range: "all", groups: toReviewGroups(requirement) })}>
+      <FileDiffIcon data-icon="inline-start" />
+      Review Changes
+    </Button>
+  )
+}
+
+/**
  * The approvals missing on GitHub: the check before the start can't take a pull request (it never sees its approvals),
  * so the approvals the pull request already has are named, and the Safe Push from the pull request counts them
  */
-function GitHubReviewCallout({ review, pullRequest, onCreatePullRequest }: {
+function GitHubReviewCallout({ branchName, review, pullRequest, onCreatePullRequest }: {
+  branchName: string
   review: ReviewRequirement
   pullRequest: PullRequest | undefined
   onCreatePullRequest: () => Promise<void>
 }) {
   const [isCreating, setCreating] = useState(false)
-  const groups = review.state.status === "loaded" ? review.state.requirement.groups : []
+  const requirement = review.state.status === "loaded" ? review.state.requirement : null
   const open = pullRequest?.state === "open" ? pullRequest : undefined
   const approvers = open?.reviewers.filter(reviewer => reviewer.state === "approved").map(reviewer => reviewer.login) ?? []
   return (
     <Callout tone="warning" title="Needs review by the code owners" data-testid="patronus-review" data-status="required">
-      <ul className="flex flex-col gap-0.5 text-foreground" data-testid="patronus-review-groups">
-        {groups.map(group => <li key={group.name}>{formatReviewerGroup(group)}</li>)}
-      </ul>
+      {requirement !== null && <ReviewerGroups branchName={branchName} requirement={requirement} />}
       {approvers.length > 0 && (
         <p data-testid="patronus-review-github-approvals">{`Approved on GitHub by ${approvers.join(", ")}; the Safe Push counts them, the check before it can't.`}</p>
       )}
@@ -154,6 +217,7 @@ function GitHubReviewCallout({ review, pullRequest, onCreatePullRequest }: {
                 {`Open Pull Request #${open.number}`}
               </Button>
             )}
+        {requirement !== null && <ReviewChangesButton branchName={branchName} requirement={requirement} />}
         <RecheckButton review={review} />
       </div>
     </Callout>

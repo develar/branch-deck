@@ -462,6 +462,24 @@ pub async fn get_range_patch(State(state): State<Arc<AppState>>, Json(params): J
   .await
 }
 
+pub async fn get_branch_review(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::branch_review::GetBranchReviewParams>,
+) -> CommandResult<sync_core::branch_review::BranchReview> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the review of a branch", move || sync_core::branch_review::get_branch_review(&git_executor, &params)).await
+}
+
+pub async fn get_file_owners(State(state): State<Arc<AppState>>, Json(params): Json<git_ops::ownership::GetFileOwnersParams>) -> CommandResult<Vec<git_ops::ownership::FileOwner>> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the owners of files", move || {
+    git_ops::ownership::read_file_owners(&git_executor, &params.repository_path, &params.baseline_branch, &params.paths)
+  })
+  .await
+}
+
 /// The fixture set by `POST /repositories/{id}/patronus`; Patronus is never called in E2E
 pub async fn get_patronus_robots(
   State(state): State<Arc<AppState>>,

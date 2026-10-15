@@ -17,6 +17,7 @@ targets:
   - ../../src/stores/commit-files.ts
   - ../../src/lib/commit-files.ts
   - ../../src/components/review/PullRequestReviewDialog.tsx
+  - ../../src/pages/BranchReviewPage.tsx
 ---
 
 # Commit Review
@@ -59,7 +60,8 @@ changes. Escape goes back to the preview of the same commit.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 
 - The review has a subject: a commit, or the range `base..head` of a pull request that waits for the user's review
-  ([Review Requests](../repository/review-requests.spec.md#review-dialog)). The same view shows both: the loading line,
+  ([Review Requests](../repository/review-requests.spec.md#review-dialog)) or of a branch in its review window
+  ([Branch Review](../branch/branch-review.spec.md)). The same view shows both: the loading line,
   the error ("Cannot read the changes of the commit", "… of the pull request") and the empty state are one. A range is
   keyed `<base>..<head>` in the stores of the files and the patches and dropped when its dialog closes.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
@@ -88,6 +90,10 @@ changes. Escape goes back to the preview of the same commit.
   changed lines must start collapsed; the chevron of the header expands them.
 - The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
 - The Unified/Split toggle of the tree pane must switch the layout; it is the setting of the Files section.
+- A review may show a part of its files (the branch review filters by code owner: by the path or the old path of a
+  rename) and the owner of each file, muted after the name in the tree row and in the header; a filter that keeps
+  nothing says why ("No files of Air Plugin in this range").
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 
 ## User Experience
 

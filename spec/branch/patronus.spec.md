@@ -509,7 +509,15 @@ reports in it and closes it once merged.
   code owners" or "Waiting for approval in IJ-CR-7", the groups with the available reviewers Patronus suggests ("Air
   Plugin Release Team (suggested: Alice)"), "A Safe Push fails without these approvals.", "Patronus counts code-owner
   approvals in a Space merge request.", "Create Space Merge Request" (the branch is pushed first, without a push
-  toast; the merge request opens in the browser) or "Open IJ-CR-7", and Recheck. Start stays possible.
+  toast; the merge request opens in the browser) or "Open IJ-CR-7", "Review Changes", and Recheck. Start stays
+  possible.
+- Each group names the files it has to review ("· 2 files", a disclosure of the paths; "· all files" for a branch-wide
+  group): `paths` and `branchWide` of the group when Patronus sends them, else the changed paths whose owner by the
+  `OWNERSHIP` files of the baseline has the name of the group; a group Patronus delegates to, or names as the reviewer
+  of another owner, stays without files. A path and "Review Changes" open the review window of the branch on the whole
+  stack, the groups as filters ([Branch Review](branch-review.spec.md#the-files-of-each-reviewer-group-safe-push-form)).
+  [@test] ../../crates/sync-core/src/patronus_test.rs (`the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and open them in the review window`)
 - The UI must name the system a review button creates or opens in: the user may review on GitHub, while only the Space
   merge request counts.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)

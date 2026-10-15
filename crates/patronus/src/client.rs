@@ -249,6 +249,12 @@ pub struct ReviewerGroupDto {
   pub group_name: String,
   #[serde(default)]
   pub reviewers: Vec<ReviewerDto>,
+  /// The changed paths the group has to review; absent on a server without the feature
+  #[serde(default)]
+  pub paths: Option<Vec<String>>,
+  /// Any change of the branch needs the group
+  #[serde(default)]
+  pub branch_wide: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

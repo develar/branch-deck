@@ -6,7 +6,7 @@ import { invokeCommand } from "@/lib/command"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, withoutIds } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
-import { getSelectedProject } from "@/stores/repository"
+import { getDiffRepositoryPath } from "@/stores/repository"
 
 export type CommitPatchEntry = { kind: "loading" } | { kind: "error", message: string } | { kind: "loaded", patch: CommitPatch }
 
@@ -51,7 +51,7 @@ export function loadSubjectPatch(subject: DiffSubject): void {
     commitPatchStore.setState(state => ({ byCommit: withEntry(state.byCommit, commitId, entry) }))
     return
   }
-  const repositoryPath = getSelectedProject()?.path
+  const repositoryPath = getDiffRepositoryPath()
   if (!repositoryPath) {
     return
   }

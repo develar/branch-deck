@@ -4,7 +4,7 @@ import type { BlobContents, CommitFile, CommitPatch, FilePatch } from "@/lib/bin
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
-import { getSelectedProject } from "@/stores/repository"
+import { getDiffRepositoryPath } from "@/stores/repository"
 
 /** A file of a commit with its parsed diff, or why it shows none */
 export interface CommitFileDiff {
@@ -65,7 +65,7 @@ function isNullObjectId(id: string | undefined): boolean {
  * the diff expands the unchanged lines. Pierre only logs a failed load, so it is shown here.
  */
 export const loadCommitFileContents: FileDiffContentsLoader = async (fileDiff) => {
-  const repositoryPath = getSelectedProject()?.path ?? ""
+  const repositoryPath = getDiffRepositoryPath() ?? ""
   const ids = [fileDiff.prevObjectId, fileDiff.newObjectId].filter((id): id is string => !isNullObjectId(id))
   const result = await invokeCommand(() => commands.getBlobContents({ repositoryPath, objectIds: ids }))
   const title = `Cannot show the unchanged lines of ${fileDiff.name}`

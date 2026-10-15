@@ -14,6 +14,7 @@ pub mod merge_memo;
 pub mod merge_tree_output;
 pub mod model;
 pub mod notes;
+pub mod ownership;
 pub mod ref_transaction;
 pub mod resolve_check;
 pub mod reword_commits;
@@ -53,6 +54,9 @@ mod merge_conflict_tests;
 
 #[cfg(test)]
 mod notes_test;
+
+#[cfg(test)]
+mod ownership_test;
 
 #[cfg(test)]
 mod rewrite_plan_test;

@@ -1,4 +1,4 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FlaskConicalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FileDiffIcon, FlaskConicalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -8,6 +8,8 @@ import { copyText } from "@/lib/clipboard"
 import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
+import { branchReviewBlocker } from "@/lib/branch-review"
+import { openBranchReview } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -29,7 +31,7 @@ const MAX_MENU_TARGETS = 8
  * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
  * rename (name an issue branch; an issue group is renamed without a rewrite), move to another branch (with the other
  * selected branches, if the row is selected) and ungroup, then commit actions (issue
- * reference, amend, unapply), then history (squash fixups, open or create the pull request), then Patronus (Safe Push,
+ * reference, amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then Patronus (Safe Push,
  * Dry Run, Create Space Merge Request unless the branches are reviewed on GitHub, the robot of the branch). An item that opens a form ends with "…". The right-click on
  * the row and the "⋯" of its Actions cell show it.
  */
@@ -119,7 +121,15 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   ]
   groups.push(commitActions)
 
-  const historyActions: MenuItem[] = []
+  const reviewBlocker = branchReviewBlocker(branch)
+  const historyActions: MenuItem[] = [{
+    label: "Review Changes",
+    icon: FileDiffIcon,
+    kbds: ["d"],
+    disabled: reviewBlocker !== null,
+    description: reviewBlocker ?? "The diff of the branch in its own window, the parts of its stack, the files of each code owner",
+    onSelect: () => void openBranchReview(branch.name),
+  }]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {
     historyActions.push({
@@ -136,9 +146,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     historyActions.push(openPullRequestItem)
   }
   historyActions.push(...getCreatePullRequestItems(branch))
-  if (historyActions.length > 0) {
-    groups.push(historyActions)
-  }
+  groups.push(historyActions)
   if (isPatronusAvailable()) {
     groups.push(getPatronusMenuItems(branch, robot, openRobotItem))
   }

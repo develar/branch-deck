@@ -3,6 +3,7 @@ pub mod agent_cli;
 pub mod amend_to_branch;
 pub mod archived_branches;
 pub mod branch_prefix;
+pub mod branch_review;
 pub mod commit_files;
 pub mod fetch_baseline;
 pub mod menu_commands;

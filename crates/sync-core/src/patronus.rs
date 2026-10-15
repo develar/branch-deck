@@ -4,6 +4,9 @@
 use crate::remote_url::{parse_remote_url, split_owner_and_name};
 use crate::update_project::resolve_baseline_upstream;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::ownership::OwnershipRules;
+use std::collections::BTreeSet;
+use sync_types::patronus::{PatronusReviewRequirement, ReviewPathsSource};
 
 /// The git host of Space
 pub const SPACE_GIT_HOST: &str = "git.jetbrains.team";
@@ -127,4 +130,33 @@ fn parse_review_commits(output: &str) -> Vec<ReviewCommit> {
       Some(ReviewCommit { changed_paths, ..commit })
     })
     .collect()
+}
+
+/// Every path the commits change, sorted and distinct: what the code owners of a branch review
+pub fn review_paths(commits: &[ReviewCommit]) -> Vec<String> {
+  let paths: BTreeSet<&str> = commits.iter().flat_map(|commit| commit.changed_paths.iter().map(String::as_str)).collect();
+  paths.into_iter().map(str::to_string).collect()
+}
+
+/// Whether some group of the requirement lacks the paths it owes, so the `OWNERSHIP` files are worth reading
+pub fn needs_ownership_paths(requirement: &PatronusReviewRequirement) -> bool {
+  requirement.groups.iter().any(|group| group.paths_source == ReviewPathsSource::Unknown)
+}
+
+/// Give each group Patronus sent without paths the changed paths whose owner by the `OWNERSHIP` files has its name
+/// (trimmed, case-insensitive, as Patronus resolves an owner to a group). A group that owns none by name stays
+/// `Unknown`: Patronus delegated its review, or `review-rules.yaml` names it as the reviewer of another owner.
+pub fn attribute_paths_by_ownership(requirement: &mut PatronusReviewRequirement, rules: &OwnershipRules, paths: &[String]) {
+  let owners: Vec<(String, &str)> = paths
+    .iter()
+    .filter_map(|path| rules.owner_of(path).map(|owner| (owner.owner.trim().to_lowercase(), path.as_str())))
+    .collect();
+  for group in requirement.groups.iter_mut().filter(|group| group.paths_source == ReviewPathsSource::Unknown) {
+    let name = group.name.trim().to_lowercase();
+    let owned: Vec<String> = owners.iter().filter(|(owner, _)| *owner == name).map(|(_, path)| (*path).to_string()).collect();
+    if !owned.is_empty() {
+      group.paths = owned;
+      group.paths_source = ReviewPathsSource::Ownership;
+    }
+  }
 }

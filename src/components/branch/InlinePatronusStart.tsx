@@ -264,6 +264,7 @@ export function InlinePatronusStart({ branchName, mode }: { branchName: string, 
       )}
       {mode === "rebaseAutosquash" && options?.supported === true && (
         <PatronusReviewBlock
+          branchName={branchName}
           review={review}
           github={githubRepository === null ? null : { pullRequest }}
           onCreateMergeRequest={async () => (await pushIfNeeded()) ? (await review.createMergeRequest()).url : null}

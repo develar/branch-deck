@@ -114,6 +114,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`setBadgeSource`); the review dialog fetches the pull request into `refs/branch-deck/review/<n>/…` and reviews
   `base..head` in the commit review (a range subject); Settings… (⌘,) holds the notification and badge switches
   (`spec/repository/review-requests.spec.md`).
+- **Branch Review**: Review Changes (D) opens a branch in the `branch-review` sub-window: the stack as segments (own part,
+  Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its
+  commits, the commit review of the range, owners by the `OWNERSHIP` files of the baseline (`ownership.rs`, one
+  `cat-file --batch`) as labels and filter chips; the Safe Push form lists the files of each reviewer group (`paths` from
+  Patronus when it sends them, else by owner name) (`spec/branch/branch-review.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).

@@ -50,6 +50,8 @@ export interface CommitReviewCodeProps {
   initialPath: string | null
   /** The file whose header is at the top, as the diffs scroll */
   onVisibleFileChange: (path: string) => void
+  /** The code owner of a file by its path, in its header */
+  fileOwners?: ReadonlyMap<string, string>
 }
 
 /** Why a file shows no lines, under its header */
@@ -74,7 +76,7 @@ function startsCollapsed(entry: CommitFileDiff): boolean {
  * The diffs of all files of a commit in one virtualized view (Pierre's `CodeView`): a sticky header per file, the
  * unchanged lines expandable, lock and generated files and files over 1,000 changed lines collapsed.
  */
-export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath, onVisibleFileChange }: CommitReviewCodeProps) {
+export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath, onVisibleFileChange, fileOwners }: CommitReviewCodeProps) {
   const entries = useMemo(() => getCommitFileDiffs(patch, files).filter(entry => entry.fileDiff !== undefined), [patch, files])
   const byPath = useMemo(() => new Map(entries.map(entry => [entry.file.path, entry])), [entries])
   const initiallyCollapsed = useMemo(() => new Set(entries.filter(startsCollapsed).map(entry => entry.file.path)), [entries])
@@ -222,7 +224,7 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
         onScroll={handleScroll}
         renderCustomHeader={(item) => {
           const entry = byPath.get(item.id)
-          return entry === undefined ? null : <ReviewFileHeader entry={entry} collapsed={isCollapsed(item.id)} onToggle={toggleFile} />
+          return entry === undefined ? null : <ReviewFileHeader entry={entry} owner={fileOwners?.get(entry.file.path)} collapsed={isCollapsed(item.id)} onToggle={toggleFile} />
         }}
       />
     </WorkerPoolContext.Provider>
@@ -231,12 +233,13 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
 
 interface ReviewFileHeaderProps {
   entry: CommitFileDiff
+  owner: string | undefined
   collapsed: boolean
   onToggle: (path: string) => void
 }
 
 /** The sticky header of a file: what the tree row says, with the path in full */
-function ReviewFileHeader({ entry, collapsed, onToggle }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ entry, owner, collapsed, onToggle }: ReviewFileHeaderProps) {
   const { file } = entry
   const notice = getNotice(entry)
   const label = formatTreeFileLabel(file)
@@ -269,6 +272,7 @@ function ReviewFileHeader({ entry, collapsed, onToggle }: ReviewFileHeaderProps)
       />
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
         {notice !== null && <span className="text-muted-foreground">{notice}</span>}
+        {owner !== undefined && <span data-testid="review-file-owner" className="text-muted-foreground" title={`Owned by ${owner}`}>{owner}</span>}
         {(file.additions > 0 || file.deletions > 0) && <LineCounts additions={file.additions} deletions={file.deletions} colored />}
       </span>
     </div>

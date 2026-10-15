@@ -15,6 +15,8 @@ interface FileTreeBaseProps {
   "collapsed": ReadonlySet<string>
   /** Must keep its identity: the rows are memoized */
   "onToggleDirectory": (key: string) => void
+  /** The code owner of a file by its path, shown after its name */
+  "fileOwners"?: ReadonlyMap<string, string>
 }
 
 /** A file row expands its diff under it (the commit preview) */
@@ -50,7 +52,7 @@ const INDENT_REM = 1
  * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it.
  */
 export function FileTree(props: FileTreeProps) {
-  const { "nodes": nodes, "aria-label": label, collapsed, onToggleDirectory, mode } = props
+  const { "nodes": nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null
@@ -171,6 +173,7 @@ export function FileTree(props: FileTreeProps) {
           rowElements={rowElements}
           onToggle={toggle}
           onFocusRow={setFocusedKey}
+          owner={node.kind === "file" ? fileOwners?.get(node.file.path) : undefined}
           content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
@@ -195,11 +198,13 @@ interface FileTreeRowProps {
   rowElements: RefObject<Map<string, HTMLElement>>
   onToggle: (node: FileTreeNode) => void
   onFocusRow: (key: string) => void
+  /** The code owner of a file */
+  owner: string | undefined
   /** The diff under an expanded file */
   content: ReactNode
 }
 
-const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabOrder, rowElements, onToggle, onFocusRow, content }: FileTreeRowProps) {
+const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabOrder, rowElements, onToggle, onFocusRow, owner, content }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
   const description = node.kind === "directory"
     ? `${node.fileCount === 1 ? "1 file" : `${node.fileCount} files`}, +${node.additions} −${node.deletions}`
@@ -241,7 +246,7 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
           // a file of a navigation tree opens nothing: the space keeps the names aligned
           ? <span className="size-3.5 shrink-0" />
           : <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />}
-        {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} />}
+        {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} owner={owner} />}
       </div>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -265,15 +270,17 @@ function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory, isOpen
   )
 }
 
-function FileRowContent({ node }: { node: FileTreeFile }) {
+function FileRowContent({ node, owner }: { node: FileTreeFile, owner: string | undefined }) {
   const { file } = node
   const label = formatTreeFileLabel(file)
   return (
     <>
-      <span className="flex min-w-0 flex-1 items-baseline gap-1.5" title={file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`}>
+      {/* the name keeps its width before the owner after it does: both shrink from their text, the owner first */}
+      <span className="flex min-w-0 flex-auto items-baseline gap-1.5" title={file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`}>
         <span className={cn("truncate", getFileStatusTextClass(file.status))}>{label.name}</span>
         {label.from !== null && <span className="min-w-0 truncate text-xs text-muted-foreground">{`← ${label.from}`}</span>}
       </span>
+      {owner !== undefined && <span data-testid="file-owner" className="ml-auto min-w-0 shrink-[4] truncate text-xs text-muted-foreground" title={`Owned by ${owner}`}>{owner}</span>}
       <CopyButton
         text={() => file.path}
         tooltip="Copy path"

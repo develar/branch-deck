@@ -32,6 +32,8 @@ import { ClosePreviewContext } from "@/hooks/useOpenRowForm"
 import { canPushNow } from "@/hooks/usePushButton"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import { getBranchSummary } from "@/lib/branch"
+import { branchReviewBlocker } from "@/lib/branch-review"
+import { openBranchReview } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { getNewPullRequestUrl, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
@@ -60,7 +62,8 @@ export interface BranchPreviewDialogProps {
  * Centered preview of one branch, as the commit preview shows a commit: the name and the meta line, then the commits
  * newest first with their whole messages, so it reads like the description of a pull request.
  * ↑/↓ show the previous or next branch of the table, P pushes (a push that drops remote commits asks first, in the
- * description of the footer's push button), O opens the pull request, Space and Escape close it.
+ * description of the footer's push button), O opens the pull request, D the review window of the branch, Space and Escape
+ * close it.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -86,6 +89,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const newPullRequestUrl = branch === undefined ? null : getNewPullRequestUrl(branch)
   const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)
   const patronusAvailable = usePatronusAvailable()
+  const canReview = branch !== undefined && branchReviewBlocker(branch) === null
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files
@@ -103,6 +107,10 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     else if (event.code === "KeyO" && pullRequest !== undefined) {
       event.preventDefault()
       openPullRequest(pullRequest)
+    }
+    else if (event.code === "KeyD" && canReview) {
+      event.preventDefault()
+      void openBranchReview(branch!.name)
     }
   }
 
@@ -146,6 +154,12 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
           <PreviewDialogFooter start={<span data-testid="branch-preview-position" className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}>
             <PreviewNavigationHints count={names.length} />
+            {canReview && (
+              <Button variant="ghost" size="xs" data-testid="branch-preview-review" onClick={() => void openBranchReview(branch.name)}>
+                <Kbd>D</Kbd>
+                Review Changes
+              </Button>
+            )}
             {newPullRequestUrl !== null
               ? (
                   <Button variant="ghost" size="xs" onClick={() => openNewPullRequest(newPullRequestUrl)}>

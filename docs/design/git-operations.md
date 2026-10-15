@@ -1001,6 +1001,33 @@ the paths they change ([Patronus](../../spec/branch/patronus.spec.md)):
   A deleted path stays in the list. `--no-relative` ignores a `diff.relative` setting.
 - 501 commits mean "too many": the check is skipped, as the IDE skips it at 500.
 - Starting a robot pushes nothing itself: the branch is pushed by `push_branch` first, then Patronus is asked over HTTP.
+- When Patronus names a reviewer group without its paths, the union of the paths of that log is given to the code
+  owners (below), and a group gets the paths whose owner has its name.
+
+#### Code owners (OWNERSHIP)
+
+Read-only, generic: a repository without `OWNERSHIP` files has no owners. `read_ownership` in
+`crates/git-ops/src/ownership.rs` reads, for a set of paths, the `OWNERSHIP` file of the root and of every ancestor
+directory in the tree of the baseline in one `cat-file --batch --buffer -Z` of `<baseline>:<dir>/OWNERSHIP` names (a
+missing one answers `missing`): only those files can match the paths, their rules are anchored at their directory.
+
+- A file is sections of `/pattern` lines closed by `owner 'Name'` (none is `/**`), `#` comments, blank lines; a file
+  that doesn't parse is skipped with a warning, its parents still decide.
+- The rules are ordered by the depth of their file, then its path, then their order; the last match wins, as
+  Patronus resolves owners (`OwnershipMappingBuilder`, `OwnershipMapping.getMatch`). The matcher is jgit's
+  `FastIgnoreRule.isMatch(path, false)`: a rule matches the path or a parent directory of it, `**` is any number of
+  segments (a trailing one at least one), a trailing `/` a directory.
+- Callers: the Patronus pre-check (above) and `get_file_owners` of the branch review window, once per path.
+
+#### Branch review
+
+Read-only. The review window of a branch ([Branch Review](../../spec/branch/branch-review.spec.md)) diffs parts of its
+stack: `get_branch_review` (`crates/sync-core/src/branch_review.rs`) runs one `for-each-ref` of the virtual branches
+of the chain (root first) for their tips, then one `git log --first-parent --max-count=2001 ^<baseline> <last tip>`
+and cuts it at the tips: a child is built on the head of its parent (`release_children` of the sync), so the log
+passes through every parent's tip. The base of the root is the first parent of the oldest commit, the range the
+pre-check reads. A tip missing from the log is a child built on an older head of its parent: an error that asks for a
+sync. The diffs of a part are `DiffSubject::Range` (`get_range_files`, `get_range_patch`), never cached.
 
 ### Index policy
 

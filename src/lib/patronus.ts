@@ -441,3 +441,14 @@ export function formatReviewerGroup(group: PatronusReviewerGroup): string {
   const suggested = group.reviewers.filter(reviewer => reviewer.suggested && reviewer.available).map(reviewer => reviewer.fullName)
   return suggested.length === 0 ? group.name : `${group.name} (suggested: ${suggested.join(", ")})`
 }
+
+/** "3 files", "1 file", "all files" for a group that reviews every change; null when nobody tells which */
+export function formatReviewerGroupFiles(group: PatronusReviewerGroup): string | null {
+  if (group.branchWide) {
+    return "all files"
+  }
+  if (group.pathsSource === "unknown" || group.paths.length === 0) {
+    return null
+  }
+  return group.paths.length === 1 ? "1 file" : `${group.paths.length} files`
+}

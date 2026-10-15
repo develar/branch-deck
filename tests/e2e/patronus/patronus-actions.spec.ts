@@ -8,7 +8,9 @@ import { availableRobots, robot, setupRobots } from "../helpers/patronus-helpers
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, pushOutcome, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
+import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
+import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -260,20 +262,63 @@ test.describe("Patronus actions", () => {
     await expect(popover.getByTestId("patronus-problems")).toHaveText("Tests failed")
   })
 
+  /** One group must approve, without the files it reviews: Patronus doesn't say, no OWNERSHIP file names it */
+  const REVIEW_REQUIRED: PatronusReviewRequirement = {
+    required: true,
+    mergeRequest: null,
+    groups: [{ name: "Air Plugin Release Team", reviewers: [{ fullName: "Alice", username: "alice", available: true, suggested: true }], paths: [], branchWide: false, pathsSource: "unknown" }],
+    skipped: false,
+  }
+
   test.describe("code-owner review", () => {
     const MERGE_REQUEST: PatronusMergeRequest = { projectKey: "IJ", reviewKey: "IJ-CR-7", url: "https://jetbrains.team/p/ij/reviews/7" }
-    const REQUIRED: PatronusReviewRequirement = {
-      required: true,
-      mergeRequest: null,
-      groups: [{ name: "Air Plugin Release Team", reviewers: [{ fullName: "Alice", username: "alice", available: true, suggested: true }] }],
-      skipped: false,
-    }
+
+    test("should list the files of each group and open them in the review window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      await routeCommand(page, "get_patronus_review_requirement", () => ({
+        ...REVIEW_REQUIRED,
+        groups: [
+          { ...REVIEW_REQUIRED.groups[0]!, paths: ["plugins/air/A.kt", "plugins/air/B.kt"], pathsSource: "patronus" },
+          { name: "Bazel QA", reviewers: [], paths: [], branchWide: true, pathsSource: "patronus" },
+          { name: "Delegated Team", reviewers: [], paths: [], branchWide: false, pathsSource: "unknown" },
+        ],
+      } satisfies PatronusReviewRequirement))
+
+      await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Safe Push…" }).click()
+      const review = page.getByTestId("patronus-review")
+      await expect(review.getByTestId("patronus-review-group")).toHaveText([
+        "Air Plugin Release Team (suggested: Alice)· 2 files",
+        "Bazel QA· all files",
+        // Patronus doesn't tell, and no owner has its name
+        "Delegated Team",
+      ])
+      await review.getByTestId("patronus-review-group-toggle").click()
+      const files = review.getByTestId("patronus-review-group-files")
+      await expect(files.getByRole("button")).toHaveText(["plugins/air/A.kt", "plugins/air/B.kt"])
+
+      // a file opens the review window at it, with what Patronus checks: the whole stack, the files of the group
+      await files.getByRole("button", { name: "plugins/air/B.kt" }).click()
+      await review.getByRole("button", { name: "Review Changes" }).click()
+      const opened = await getOpenedSubWindows<BranchReviewWindowData>(page)
+      expect(opened.map(it => [it.windowId, it.title, it.data.range, it.data.group, it.data.path])).toEqual([
+        ["branch-review", "Review JIRA-456", "all", "Air Plugin Release Team", "plugins/air/B.kt"],
+        ["branch-review", "Review JIRA-456", "all", null, null],
+      ])
+      expect(opened[0]!.data.chain).toEqual(["JIRA-456"])
+      expect(opened[0]!.data.groups.map(group => [group.name, group.paths.length, group.branchWide])).toEqual([
+        ["Air Plugin Release Team", 2, false],
+        ["Bazel QA", 0, true],
+        ["Delegated Team", 0, false],
+      ])
+    })
 
     test("should name the missing approvals, create the merge request and start with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      const checks = await routeCommand(page, "get_patronus_review_requirement", params => params.recheck === true ? { ...REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REQUIRED)
+      const checks = await routeCommand(page, "get_patronus_review_requirement", params => params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REVIEW_REQUIRED)
       const creates = await routeCommand(page, "create_patronus_merge_request", () => MERGE_REQUEST)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
 
@@ -303,7 +348,7 @@ test.describe("Patronus actions", () => {
     test("should not check the review of a dry run", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      const checks = await routeCommand(page, "get_patronus_review_requirement", () => REQUIRED)
+      const checks = await routeCommand(page, "get_patronus_review_requirement", () => REVIEW_REQUIRED)
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await page.getByRole("menuitem", { name: "Dry Run…" }).click()
       await expect(page.getByTestId("patronus-start-explanation")).toContainText("without pushing into master")
@@ -339,12 +384,6 @@ test.describe("Patronus actions", () => {
   })
 
   test.describe("branches reviewed in GitHub pull requests", () => {
-    const REVIEW_REQUIRED: PatronusReviewRequirement = {
-      required: true,
-      mergeRequest: null,
-      groups: [{ name: "Air Plugin Release Team", reviewers: [{ fullName: "Alice", username: "alice", available: true, suggested: true }] }],
-      skipped: false,
-    }
     const NO_REVIEW: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
 
     /** issue_links mirrored to the GitHub repository `acme/monorepo`, with these pull requests */

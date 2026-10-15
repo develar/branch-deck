@@ -1,0 +1,148 @@
+---
+name: Branch Review
+description: Requirements for the review window of a branch: its diff from its parent or from the baseline, the parts of its stack, its commits, and its files by code owner, with the files each reviewer group of the Patronus code-owner check has to review.
+style: plain-1
+targets:
+  - ../../src/pages/BranchReviewPage.tsx
+  - ../../src/components/review/BranchReviewStackBar.tsx
+  - ../../src/lib/branch-review.ts
+  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-owners.ts
+  - ../../src/hooks/useBranchReviewNotifier.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/useBranchRowKeys.ts
+  - ../../src/components/branch/BranchPreviewDialog.tsx
+  - ../../src/components/branch/PatronusReviewBlock.tsx
+  - ../../src/stores/repository.ts
+  - ../../src/types/sub-window.ts
+  - ../../src/router.ts
+  - ../../src-tauri/capabilities/sub-windows.json
+  - ../../src-tauri/src/commands/branch_review.rs
+  - ../../crates/sync-core/src/branch_review.rs
+  - ../../crates/git-ops/src/ownership.rs
+---
+
+# Branch Review
+
+Status: Implemented
+Date: 2026-10-15
+
+## Summary
+
+"Review Changes" (D) opens the changes of a branch in a window of its own: what the branch adds on top of its parent,
+the diff of all its files in the [commit review](../commit/commit-review.spec.md), beside the list of its commits. A
+stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
+parent, Shift+click extends the part, "Whole Stack" shows everything from the baseline, which is what Patronus checks.
+The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
+reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push form names the files each
+group has to review; a file opens the window at it.
+
+## Goals
+
+- Look at what a branch changes before a push, a Safe Push or a pull request, without leaving the app.
+- See a stacked branch alone and with its parents: a reviewer reads the child on its parent, Patronus checks all.
+- Know which files need whose approval, and look at exactly those.
+
+## Non-goals
+
+- No comments and no approvals: the review happens in the pull request or the merge request.
+- No diff in the branch preview itself: its footer opens the window ([Branch Preview](branch-preview.spec.md)).
+- No review of the children of a branch: each has its own window, with this branch as a segment.
+- No group membership: "my files" needs the members of a group, which the repository doesn't hold.
+
+## Requirements
+
+### Opening
+
+- "Review Changes" of the branch menu (key D), D on a branch row and D or the footer button of the branch preview must
+  open the review window of the branch. It is disabled, with the reason, for a branch without commits, one that failed
+  to sync and a blocked one (its virtual branch is not built on its parent).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+  [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
+- The window is one sub-window (`branch-review`, titled "Review <branch>"), reused for the next branch: opening it
+  again replaces what it shows. It reads the repository it was opened for, not the one selected later in the main
+  window (`getDiffRepositoryPath`).
+- The window gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, the part
+  to show (the branch itself, or the whole stack from the code-owner block), the reviewer groups of the last code-owner
+  check of the branch at its current head, the group and the file to show first.
+
+### The stack and the commits
+
+- The stack bar must show the baseline, then a segment per branch of the chain with its number of commits. The
+  branch itself is selected at first. A click selects one segment, Shift+click extends the part to the clicked
+  segment; "Whole Stack" selects all of them. The diff is from the base of the first segment of the part (the head of
+  its parent, the commit the root is built on) to the head of its last one.
+  [@test] ../../src/lib/branch-review.test.ts (`diffs the base of the first segment to the head of the last one`, `selects one segment, or extends the range to the clicked one with Shift`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- The segments come from the virtual branches: one `for-each-ref` for the tips, one `git log --first-parent` from
+  the baseline to the last tip, cut at the tips of the parents. A parent whose head is not below its child, or a
+  branch without a virtual branch, is an error that asks for a sync.
+  [@test] ../../crates/sync-core/src/branch_review_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
+- The commit column must list "All Changes" with the number of commits of the part, then its commits newest first,
+  under the name of their branch when the part has several; a commit shows only its own changes.
+- A sync that moves a tip of the chain must read the stack again and keep the part by the names of its ends (the
+  reviewed branch alone when an end left the chain): the main window broadcasts the tips (`branch-tips-changed`) after
+  every sync that changed them.
+  [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
+
+### Code owners
+
+- The owner of a file is the last matching rule of the `OWNERSHIP` files of the baseline in the ancestor directories
+  of the file, ordered by the depth of the file, then its path, then the order in it; a `/pattern` line is relative to
+  its directory with gitignore semantics, `owner 'Name'` closes a section, a section without patterns owns `/**`. The
+  owners are read once per path for the window, in one `cat-file --batch`. A repository without `OWNERSHIP` files
+  shows no owners and no owner chips.
+  [@test] ../../crates/git-ops/src/ownership_test.rs (`patterns_match_as_jgit_fast_ignore_rule_with_path_match_false`, `the_last_match_wins_by_depth_then_file_then_order`, `reads_the_ownership_files_of_the_ancestor_directories_of_a_tree`)
+- The tree row and the header of a file must show its owner, muted, after the name.
+- The chips must be "All", the reviewer groups the code-owner check asks for (a warning shield; the number of their
+  files in the part, all of them for a branch-wide group, disabled when nobody tells which files), the other owners
+  most files first, and "No Owner". A chip filters the tree and the diffs; a file of a group matches by its path or by
+  the old path of a rename. A filter that keeps nothing says "No files of <group> in this range".
+  [@test] ../../src/lib/review-owners.test.ts (`lists all files, the groups the check asks for, then the other owners and the files without one`, `keeps the files of a group (a rename by its old path), of an owner, or without an owner`)
+
+### The files of each reviewer group (Safe Push form)
+
+- Each group of "Needs review by the code owners" must name its files: "· 2 files" with a disclosure listing their
+  paths, "· all files" for a group that reviews every change, nothing for a group whose files nobody tells. A path
+  opens the review window at the file, on the whole stack, filtered to the group; "Review Changes" beside the
+  callout's buttons opens it on the whole stack with the groups as chips.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and open them in the review window`)
+- The files come from Patronus when it sends them (`paths`, `branchWide` of a reviewer group); otherwise a group gets
+  the changed paths whose owner by the `OWNERSHIP` files has its name (trimmed, case-insensitive). A delegated review
+  or other reviewers named by `review-rules.yaml` are known only to Patronus: such a group stays without files.
+  [@test] ../../crates/sync-core/src/patronus_test.rs (`the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them`)
+  [@test] ../../src/lib/patronus.test.ts (`counts the files of a group, all of them for a branch-wide one, nothing when nobody tells`)
+
+## User Experience
+
+- The window is the canvas with two islands: the header card (the stack bar, then the chips) and the review card (a
+  `w-64` commit column with a `border-r`, then the commit review), and "File 2 / 5" in muted `text-xs` below.
+- A segment and a chip are outline `xs` buttons; the selected ones are `border-primary/50 bg-primary/10
+  text-primary`. "Whole Stack" is a ghost button with a tooltip: "From origin/master: 3 commits, what Patronus checks ·
+  Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
+  "Needs approval for a Safe Push".
+- In the Safe Push form a group is a disclosure (`ChevronRightIcon`, the line of the group, "· 2 files" muted), its
+  paths in `text-xs` muted, underlined on hover.
+
+## Testing / Local Run
+
+- `cargo nextest run`: `git-ops` (`ownership_test`), `sync-core` (`branch_review_test`, `patronus_test`).
+- `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`.
+- `pnpm e2e`: `tests/e2e/branch-review/branch-review.spec.ts` on the `stacked_ownership` template, and the code-owner
+  review of `tests/e2e/patronus/patronus-actions.spec.ts`. The mock records `open_sub_window`; the test then shows the
+  route in the same page with the recorded data (`openSubWindowPage`), labelled `main`.
+
+## Open Questions / Risks
+
+- Until Patronus sends `paths` per group, a group named in `review-rules.yaml` as the reviewer of another owner, or
+  one Patronus delegates to, shows no files.
+- The tips the main window broadcasts are the heads it synced; a `bd` sync in a terminal moves the virtual branches
+  without telling the window until the app syncs.
+
+## References
+
+- [Commit Review](../commit/commit-review.spec.md)
+- [Patronus](patronus.spec.md) ("Code-owner review")
+- [Stacked Branches](stacked-branches.spec.md)
+- [Git Operations](../../docs/design/git-operations.md) ("Branch review", "Code owners")

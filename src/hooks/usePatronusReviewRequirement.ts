@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import type { PatronusMergeRequest, PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { rememberReviewGroups } from "@/lib/branch-review-window"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { createPatronusMergeRequest, patronusRequest } from "@/stores/patronus"
 
@@ -39,7 +40,14 @@ export function usePatronusReviewRequirement(branchName: string, enabled: boolea
     const params = { ...patronusRequest(), baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branchName, recheck: generation > 0 }
     commands.getPatronusReviewRequirement(params).then((result) => {
       if (current) {
-        setState(result.status === "ok" ? { status: "loaded", requirement: result.data } : { status: "error", message: result.error.message })
+        if (result.status === "ok") {
+          // a review window opened from the row shows the groups too
+          rememberReviewGroups(branchName, result.data)
+          setState({ status: "loaded", requirement: result.data })
+        }
+        else {
+          setState({ status: "error", message: result.error.message })
+        }
       }
     }, (error: unknown) => {
       if (current) {

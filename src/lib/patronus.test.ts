@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { SafePushSlotInput } from "@/lib/patronus"
-import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
+import { allowsPushMode, canCancelRobot, canRestartRobot, canStartRobot, describeRobot, findBranchRobot, findLandingAncestor, findLandingDescendants, findMergedRobots, formatMergedRobotTitle, formatPatronusAvailabilityHint, formatReviewerGroup, formatReviewerGroupFiles, formatRobotCommitNotice, getPatronusChipState, getPullRequestStart, getRobotRestartAction, getSafePushSlot, isPushIntoRobotRisky, isStartBlocked, needsRobotAttention } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -253,9 +253,12 @@ describe("actions", () => {
   })
 })
 
+const NO_PATHS = { paths: [] as string[], branchWide: false, pathsSource: "unknown" as const }
+
 describe("formatReviewerGroup", () => {
   it("names the group and the available reviewers Patronus suggests", () => {
     expect(formatReviewerGroup({
+      ...NO_PATHS,
       name: "Air Plugin Release Team",
       reviewers: [
         { fullName: "Alice", username: "alice", available: true, suggested: true },
@@ -263,7 +266,17 @@ describe("formatReviewerGroup", () => {
         { fullName: "Carol", username: "carol", available: true, suggested: false },
       ],
     })).toBe("Air Plugin Release Team (suggested: Alice)")
-    expect(formatReviewerGroup({ name: "Bazel QA", reviewers: [] })).toBe("Bazel QA")
+    expect(formatReviewerGroup({ ...NO_PATHS, name: "Bazel QA", reviewers: [] })).toBe("Bazel QA")
+  })
+})
+
+describe("formatReviewerGroupFiles", () => {
+  it("counts the files of a group, all of them for a branch-wide one, nothing when nobody tells", () => {
+    const group = { ...NO_PATHS, name: "Air Plugin", reviewers: [] }
+    expect(formatReviewerGroupFiles({ ...group, paths: ["a.kt", "b.kt"], pathsSource: "patronus" })).toBe("2 files")
+    expect(formatReviewerGroupFiles({ ...group, paths: ["a.kt"], pathsSource: "ownership" })).toBe("1 file")
+    expect(formatReviewerGroupFiles({ ...group, branchWide: true, pathsSource: "patronus" })).toBe("all files")
+    expect(formatReviewerGroupFiles(group)).toBeNull()
   })
 })
 

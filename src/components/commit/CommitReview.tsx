@@ -8,7 +8,7 @@ import { LazyCommitReviewCode } from "@/components/diff/LazyDiffViews"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
-import type { CommitFile, CommitFiles, CommitPatch } from "@/lib/bindings"
+import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
@@ -23,6 +23,14 @@ export interface CommitReviewProps {
   initialPath: string | null
   /** "File 3 / 12": the selected file, for the footer */
   onPositionChange: (position: string) => void
+  /** Only these files (by the path or the old path of a rename); all files without it */
+  pathFilter?: ReadonlySet<string> | null
+  /** What an empty filter result says, e.g. "No files of Air Plugin in this range" */
+  filteredEmptyText?: string
+  /** The code owner of a file by its path, beside its name */
+  fileOwners?: ReadonlyMap<string, string>
+  /** What the range is, in the error: "Cannot read the changes of the pull request" */
+  rangeNoun?: string
 }
 
 /**
@@ -31,11 +39,12 @@ export interface CommitReviewProps {
  * The tree follows the diffs as they scroll, a file selected in the tree scrolls the diffs to it. J and K step through
  * the files, N and P through the blocks of changed lines.
  */
-export function CommitReview({ subject, initialPath, onPositionChange }: CommitReviewProps) {
+export function CommitReview({ subject, initialPath, onPositionChange, pathFilter = null, filteredEmptyText, fileOwners, rangeNoun = "pull request" }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
   const entry = useCommitPatch(subjectId)
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
+  const shownFiles = useMemo(() => commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter), [commitFiles, pathFilter])
 
   // by the id: the subject object may be new on every render
   useEffect(() => {
@@ -51,11 +60,11 @@ export function CommitReview({ subject, initialPath, onPositionChange }: CommitR
   if (filesFailed === subjectId || entry?.kind === "error") {
     return (
       <div className="p-6">
-        <Callout tone="destructive" title={subject.kind === "commit" ? "Cannot read the changes of the commit" : "Cannot read the changes of the pull request"}>{entry?.kind === "error" ? entry.message : null}</Callout>
+        <Callout tone="destructive" title={`Cannot read the changes of the ${subject.kind === "commit" ? "commit" : rangeNoun}`}>{entry?.kind === "error" ? entry.message : null}</Callout>
       </div>
     )
   }
-  if (commitFiles === undefined || entry?.kind !== "loaded") {
+  if (shownFiles === undefined || entry?.kind !== "loaded") {
     return (
       <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
         <Spinner className="size-4" />
@@ -63,27 +72,44 @@ export function CommitReview({ subject, initialPath, onPositionChange }: CommitR
       </p>
     )
   }
-  if (commitFiles.files.length === 0) {
-    return <p className="p-6 text-sm text-muted-foreground">No changed files</p>
+  if (shownFiles.length === 0) {
+    return <p className="p-6 text-sm text-muted-foreground">{pathFilter !== null && filteredEmptyText !== undefined && commitFiles !== undefined && commitFiles.files.length > 0 ? filteredEmptyText : "No changed files"}</p>
   }
-  // keyed by the subject: the selection and the collapsed directories belong to one commit or range
-  return <ReviewLayout key={subjectId} commitFiles={commitFiles} patch={entry.patch} initialPath={initialPath} onPositionChange={onPositionChange} />
+  // keyed by the subject: the selection and the collapsed directories belong to one commit or range, and to one filter
+  return (
+    <ReviewLayout
+      key={pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`}
+      commitFiles={shownFiles}
+      patch={entry.patch}
+      initialPath={initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null}
+      onPositionChange={onPositionChange}
+      fileOwners={fileOwners}
+    />
+  )
+}
+
+function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<string> | null): readonly CommitFile[] {
+  if (pathFilter === null) {
+    return files
+  }
+  return files.filter(file => pathFilter.has(file.path) || (file.oldPath !== null && pathFilter.has(file.oldPath)))
 }
 
 interface ReviewLayoutProps {
-  commitFiles: CommitFiles
+  commitFiles: readonly CommitFile[]
   patch: CommitPatch
   initialPath: string | null
   onPositionChange: (position: string) => void
+  fileOwners: ReadonlyMap<string, string> | undefined
 }
 
 // the tree takes a quarter until the divider is dragged
 const initialLayout = { tree: 25, code: 75 }
 
-function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange }: ReviewLayoutProps) {
+function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange, fileOwners }: ReviewLayoutProps) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "commit-review", storage: localStorage, onlySaveAfterUserInteractions: true })
-  const nodes = useMemo(() => buildFileTree(commitFiles.files), [commitFiles])
+  const nodes = useMemo(() => buildFileTree(commitFiles), [commitFiles])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => {
     const initial = getInitiallyCollapsed(nodes, files.length)
@@ -156,6 +182,7 @@ function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange }: Rev
                 onToggleDirectory={toggleDirectory}
                 selectedKey={selectedPath}
                 onSelectFile={selectInTree}
+                fileOwners={fileOwners}
               />
             </div>
           </div>
@@ -163,7 +190,7 @@ function ReviewLayout({ commitFiles, patch, initialPath, onPositionChange }: Rev
         <ResizableHandle />
         <ResizablePanel id="code" minSize="40">
           <div data-testid="commit-review-code" className="h-full">
-            <LazyCommitReviewCode ref={code} patch={patch} files={files} diffViewMode={diffViewMode} initialPath={initialPath} onVisibleFileChange={select} />
+            <LazyCommitReviewCode ref={code} patch={patch} files={files} diffViewMode={diffViewMode} initialPath={initialPath} onVisibleFileChange={select} fileOwners={fileOwners} />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

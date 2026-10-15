@@ -6,7 +6,7 @@ import type { CommandResult } from "@/lib/command"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, withoutIds } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
-import { getSelectedProject } from "@/stores/repository"
+import { getDiffRepositoryPath } from "@/stores/repository"
 
 export interface CommitFilesState {
   /**
@@ -91,7 +91,7 @@ function load(commitIds: readonly string[], fetch: (repositoryPath: string, miss
       missing.push(id)
     }
   }
-  const repositoryPath = getSelectedProject()?.path
+  const repositoryPath = getDiffRepositoryPath()
   if (missing.length > 0 && repositoryPath) {
     const request = fetchInto(repositoryPath, missing, fetch)
     for (const id of missing) {

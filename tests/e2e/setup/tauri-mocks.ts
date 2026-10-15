@@ -460,6 +460,13 @@ export const tauriMockScript = () => {
     "plugin:log": () => null, // Ignore log commands
     // the notification plugin goes through the browser's `Notification`; its permission check never notifies
     "plugin:notification": () => false,
+    // a sub-window is a page of its own in the app: record what opens it (`window.__e2eSubWindows`, with the parsed data);
+    // a test opens the page itself with the recorded data (`openSubWindowPage` in sub-window-helpers)
+    "open_sub_window": (_cmd: string, payload: any) => {
+      const params = payload?.params
+      ;((window as any).__e2eSubWindows ??= []).push({ windowId: params.windowId, url: params.url, title: params.title, data: JSON.parse(params.data) })
+      return null
+    },
     // links open in the browser: record them for the test (`window.__OPENED_URLS__`)
     "plugin:opener": (_cmd: string, payload: any) => {
       ;((window as any).__OPENED_URLS__ ??= []).push(payload?.url)

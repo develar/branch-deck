@@ -3,6 +3,7 @@ import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { DockStatus } from "@/components/repository/DockStatus"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
+import { useBranchReviewNotifier } from "@/hooks/useBranchReviewNotifier"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 
 /**
@@ -14,6 +15,8 @@ export function IndexPage() {
   useAutoUpdate()
   // the "Install Agent CLI…" menu item
   useInstallAgentCli()
+  // a sync moves the tips the review window shows
+  useBranchReviewNotifier()
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />

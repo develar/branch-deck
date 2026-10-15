@@ -322,6 +322,26 @@ pub struct PatronusReviewerGroup {
   /// e.g. "Air Plugin Release Team"
   pub name: String,
   pub reviewers: Vec<PatronusReviewer>,
+  /// The changed paths whose review the group owes, sorted; empty when `paths_source` is `Unknown` or the group
+  /// reviews every change (`branch_wide`)
+  pub paths: Vec<String>,
+  /// Any change of the branch needs the group, not only the paths it owns
+  pub branch_wide: bool,
+  pub paths_source: ReviewPathsSource,
+}
+
+/// Who told which paths a reviewer group owes
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewPathsSource {
+  /// Patronus, from the rules it checked
+  Patronus,
+  /// The `OWNERSHIP` files of the baseline: the paths whose owner has the name of the group
+  Ownership,
+  /// Neither: Patronus sends no paths and no path is owned by the group by name (a delegated review, or other
+  /// reviewers named by `review-rules.yaml`)
+  Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

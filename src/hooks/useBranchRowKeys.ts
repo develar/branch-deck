@@ -1,5 +1,7 @@
 import type { KeyboardEvent, RefObject } from "react"
 import { canPushNow } from "@/hooks/usePushButton"
+import { branchReviewBlocker } from "@/lib/branch-review"
+import { openBranchReview } from "@/lib/branch-review-window"
 import { neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { pushOrConfirm } from "@/lib/git/push"
 import { canStartRobot } from "@/lib/patronus"
@@ -49,11 +51,19 @@ function openSafePush(name: string): void {
   }
 }
 
+/** D: opens the review window of the branch, as "Review Changes" of its menu, when that is enabled */
+function reviewRow(name: string): void {
+  const branch = getBranch(name)
+  if (branch !== undefined && branchReviewBlocker(branch) === null) {
+    void openBranchReview(name)
+  }
+}
+
 /**
  * The keys of the focused branch row, for a key without a modifier pressed on the row (one of its buttons too) or on
  * the table: ↑/↓ move the focus between the branch rows (from the table to the first or the last), → expands the row,
  * ← collapses it or moves to the branch it is nested under, Enter on the row itself toggles it, P pushes it, S opens
- * its Safe Push form. A handled key is `preventDefault`ed.
+ * its Safe Push form, D opens its review window. A handled key is `preventDefault`ed.
  */
 export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef }: BranchRowKeysOptions): BranchRowKeys {
   const branchNames = rows.flatMap(it => it.kind === "branch" ? [it.name] : [])
@@ -105,6 +115,10 @@ export function useBranchRowKeys({ tableRef, rows, expandedKeys, setExpanded, to
     else if (event.code === "KeyS") {
       event.preventDefault()
       openSafePush(name)
+    }
+    else if (event.code === "KeyD") {
+      event.preventDefault()
+      reviewRow(name)
     }
   }
 

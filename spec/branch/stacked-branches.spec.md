@@ -295,6 +295,9 @@ menu stacks, unstacks and renames branches.
   stack starts at lane 0, so separate stacks share no line. Without a branch stacked on another, no row has lanes.
   [@test] ../../src/lib/stack-lanes.test.ts (`keeps a straight chain on lane 0`, `continues the longest chain on the parent's lane and forks the others off it, shortest first`, `opens a lane per fork inside a side subtree, and frees it after the subtree`, `keeps the given order of children with chains of the same length: the oldest is the main line`)
   [@test] ../../src/stores/branch-table-rows.test.ts (`keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `starts each stack on lane 0, so separate stacks share no line`, `has no lanes while no branch is stacked on another`)
+- The review window of a stacked branch must show its stack from the baseline as segments: the branch on its parent
+  first, Shift+click extends the part, "Whole Stack" shows what Patronus checks ([Branch Review](branch-review.spec.md#the-stack-and-the-commits)).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - Issue families must be formed from the stack roots only; a family member and the stack on it are indented one
   level (`familyIndent`), and the stack keeps its lanes inside it: lanes mean "built on", the indent "belongs to the
   issue". A stacked branch of another issue than its parent shows its issue as a chip, unless the branch is named

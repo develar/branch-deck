@@ -488,6 +488,35 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
   }
 
+  /// Stacked branches on, with code owners: `OWNERSHIP` files in the baseline name a team per directory; `login` stacks
+  /// on `auth` and changes files of both teams and of the root owner
+  pub fn stacked_ownership() -> RepoTemplate {
+    RepoTemplate::new("stacked_ownership")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("README.md", "# Auth\n"),
+          ("OWNERSHIP", "owner 'Monorepo'\n"),
+          ("auth/OWNERSHIP", "owner 'Auth Team'\n"),
+          ("ui/OWNERSHIP", "/*.css\nowner 'Design'\n\n/*.js\nowner 'UI Team'\n"),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp("(auth) Add the token", &[("auth/token.js", "export const token = 1\n")], Some(1704119400))
+      .commit_with_timestamp(
+        "(auth/login) Add the login form",
+        &[("auth/token.js", "export const token = 2\n"), ("ui/login.js", "export function login() {}\n")],
+        Some(1704121200),
+      )
+      .commit_with_timestamp(
+        "(login) Style the form",
+        &[("ui/login.css", "form {}\n"), ("README.md", "# Auth and login\n")],
+        Some(1704123000),
+      )
+  }
+
   /// Stacked branches on, with a parent (`auth`) that changes a file only an unassigned commit creates: its copy
   /// conflicts, so its child (`login`) is blocked
   pub fn stacked_conflict() -> RepoTemplate {

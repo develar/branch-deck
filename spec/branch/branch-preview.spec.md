@@ -39,7 +39,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 ## Non-goals
 
 - The preview does not show a diff or a file list. The meta line of each commit counts its files and lines, as in a
-  commit row ([Commit Files](../commit/commit-files.spec.md)).
+  commit row ([Commit Files](../commit/commit-files.spec.md)); D and the footer's "Review Changes" open the review
+  window of the branch ([Branch Review](branch-review.spec.md)).
 - The preview does not edit the commit messages; the commit preview does.
 - The preview does not resolve a merge conflict; the expanded row shows the conflict viewer.
 
@@ -117,7 +118,8 @@ The arrows step through the branches of the table, and P pushes the shown branch
 - The commits are separated by `border-border` rules. Each subject is `text-md font-medium`, the size of its
   body, and the bodies use the 14/22px reading text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
-- The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close` and a ghost `xs` button `P Push` on
+- The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close`, a ghost `xs` button `D Review
+  Changes` (not for a branch that can't be reviewed) and a ghost `xs` button `P Push` on
   the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
   pushing, the button shows a spinner instead of the key and the label of the row's push button, "Pushing 45%".
 - The preview is loaded on its first use.

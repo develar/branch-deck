@@ -1,5 +1,7 @@
-use crate::patronus::{MAX_REVIEW_COMMITS, SpaceRepository, find_target_branch, parse_space_repository, read_review_commits};
+use crate::patronus::{MAX_REVIEW_COMMITS, SpaceRepository, attribute_paths_by_ownership, find_target_branch, needs_ownership_paths, parse_space_repository, read_review_commits};
+use git_ops::ownership::OwnershipRules;
 use std::fmt::Write;
+use sync_types::patronus::{PatronusReviewRequirement, PatronusReviewerGroup, ReviewPathsSource};
 use test_utils::git_test_utils::TestRepo;
 
 #[test]
@@ -99,5 +101,46 @@ fn does_not_read_a_branch_with_too_many_commits() {
   assert_eq!(
     read_review_commits(git, path, &base, "refs/heads/long~1").unwrap().map(|commits| commits.len()),
     Some(MAX_REVIEW_COMMITS)
+  );
+}
+
+fn group(name: &str, paths: &[&str], paths_source: ReviewPathsSource) -> PatronusReviewerGroup {
+  PatronusReviewerGroup {
+    name: name.to_string(),
+    reviewers: Vec::new(),
+    paths: paths.iter().map(|path| path.to_string()).collect(),
+    branch_wide: false,
+    paths_source,
+  }
+}
+
+#[test]
+fn the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them() {
+  let rules = OwnershipRules::from_files([
+    ("OWNERSHIP", "owner 'Monorepo'\n"),
+    ("plugins/air/OWNERSHIP", "owner 'Air Plugin'\n"),
+    ("build/OWNERSHIP", "owner 'IJ Build Scripts Maintainers'\n"),
+  ]);
+  let paths = ["build/a.kts", "plugins/air/A.kt", "plugins/air/B.kt", "README.md"].map(str::to_string);
+  let mut requirement = PatronusReviewRequirement {
+    required: true,
+    merge_request: None,
+    groups: vec![
+      group(" air plugin", &[], ReviewPathsSource::Unknown),
+      group("IJ Build Scripts Maintainers", &["build/a.kts"], ReviewPathsSource::Patronus),
+      group("Kotlin Build Tools & Kotlin IntelliJ Plugin", &[], ReviewPathsSource::Unknown),
+    ],
+    skipped: false,
+  };
+  assert!(needs_ownership_paths(&requirement));
+  attribute_paths_by_ownership(&mut requirement, &rules, &paths);
+  assert_eq!(
+    requirement.groups,
+    vec![
+      group(" air plugin", &["plugins/air/A.kt", "plugins/air/B.kt"], ReviewPathsSource::Ownership),
+      group("IJ Build Scripts Maintainers", &["build/a.kts"], ReviewPathsSource::Patronus),
+      // a reviewer group of another owner: only Patronus knows its paths
+      group("Kotlin Build Tools & Kotlin IntelliJ Plugin", &[], ReviewPathsSource::Unknown),
+    ]
   );
 }

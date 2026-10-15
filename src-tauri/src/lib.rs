@@ -22,6 +22,7 @@ use commands::agent_cli::{agent_cli_command, install_agent_cli};
 use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
+use commands::branch_review::{get_branch_review, get_file_owners};
 use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_patch, get_commits_files};
 use commands::fetch_baseline::fetch_baseline;
 use commands::menu_commands::update_menu_checkbox;
@@ -72,6 +73,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     prune_review_refs,
     get_range_files,
     get_range_patch,
+    get_branch_review,
+    get_file_owners,
     get_patronus_robots,
     poll_patronus_robots,
     get_patronus_robot_details,

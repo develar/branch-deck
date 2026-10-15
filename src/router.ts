@@ -2,7 +2,7 @@ import { createBrowserRouter } from "react-router"
 import { App } from "@/App"
 import { IndexPage } from "@/pages/IndexPage"
 
-// Sub-windows are opened by the backend as `WebviewUrl::App("/conflicting-files")` and `/missing-commits`.
+// Sub-windows are opened by the backend as `WebviewUrl::App("/conflicting-files")`, `/missing-commits` and `/branch-review`.
 // The main window may carry `?repoId=` (E2E); the browser router keeps search params untouched.
 export const router = createBrowserRouter([
   {
@@ -16,6 +16,12 @@ export const router = createBrowserRouter([
         path: "conflicting-files",
         lazy: {
           Component: async () => (await import("@/pages/ConflictingFilesPage")).ConflictingFilesPage,
+        },
+      },
+      {
+        path: "branch-review",
+        lazy: {
+          Component: async () => (await import("@/pages/BranchReviewPage")).BranchReviewPage,
         },
       },
       {

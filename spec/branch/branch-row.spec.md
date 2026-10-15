@@ -304,7 +304,9 @@ under it. The commits of an expanded branch sit on its lane.
   push, `canStartRobot`, no inline action running); otherwise nothing happens and the button's hover says why. The form
   focuses its start button, so Enter starts the robot.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push form of the focused row with S and start it with Enter`)
-- P and S work in any keyboard layout (the physical key). The hover of "Safe Push…" in the row and the "Safe Push…" item
+- D must open the review window of the focused row when its "Review Changes" is enabled; otherwise nothing happens.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- P, S and D work in any keyboard layout (the physical key). The hover of "Safe Push…" in the row and the "Safe Push…" item
   of the branch menu show `S`.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
 
@@ -312,10 +314,13 @@ under it. The commits of an expanded branch sit on its lane.
 
 - The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", with stacked branches "Copy PR
   Base" and "Copy Retarget Command"), the name ("Rename…" or "Name This Branch…", "Ungroup"), the stack, the commits
-  ("Add Issue Reference…", "Amend Changes…", "Unapply…"), the history ("Squash Fixups (N)…", "Open Pull Request") and
+  ("Add Issue Reference…", "Amend Changes…", "Unapply…"), the history ("Review Changes", "Squash Fixups (N)…", "Open
+  Pull Request") and
   Patronus ("Safe Push…", "Dry Run…", "Restart Safe Push", "Cancel Safe Push", "Open in Patronus").
 - An item that opens a form must end with "…"; an item that acts at once must not.
-- "Open Pull Request" must show `O`, its key in the branch preview; "Safe Push…" `S`, its key on the focused row.
+- "Open Pull Request" must show `O`, its key in the branch preview; "Safe Push…" `S` and "Review Changes" `D`, their
+  keys on the focused row. "Review Changes" opens the review window of the branch ([Branch Review](branch-review.spec.md)),
+  disabled with the reason for a branch without commits, a failed or a blocked one.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)
 

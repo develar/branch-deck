@@ -104,6 +104,10 @@ repositories: all operations run through the Git CLI.
 - **Commit review**: `D` in the commit preview opens the commit window-sized: the directory tree beside the diffs of all
   its files in one scrolling view with sticky file headers; `J`/`K` step through the files, `N`/`P` through the
   changes, `⌥↑`/`⌥↓` through the commits.
+- **Branch review**: `D` on a branch (or "Review Changes") opens its changes in a window of its own: a stacked branch
+  on its parent, Shift+click a parent to add it, "Whole Stack" for everything from the baseline; its commits one by
+  one; the code owner of every file from the `OWNERSHIP` files, and chips that show the files of one owner. The Safe
+  Push form lists the files each reviewer group has to approve, each a click from its diff.
 - **Issue links**: issue keys in commit subjects link to your tracker, configured with IntelliJ IDEA issue navigation
   (`.idea/vcs.xml`).
 - **Agent CLI** (`branch-deck cli`, or the binary symlinked as `bd`; `bd.exe` next to the app on Windows): a coding

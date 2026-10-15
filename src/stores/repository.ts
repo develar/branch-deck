@@ -49,6 +49,19 @@ export function getSelectedProject(): ProjectMetadata | null {
   return getRecentProjects()[0] ?? null
 }
 
+/**
+ * The repository whose commits the diffs read: the one a sub-window was opened for (`repositoryPath` of its
+ * `__INIT_DATA__`, read at call time, so a reused window follows its new data), otherwise the selected project. A sub-window
+ * never follows the project switched in the main window.
+ */
+export function getDiffRepositoryPath(): string | undefined {
+  const data = window.__INIT_DATA__
+  if (typeof data === "object" && data !== null && "repositoryPath" in data && typeof data.repositoryPath === "string") {
+    return data.repositoryPath
+  }
+  return getSelectedProject()?.path
+}
+
 export function useSelectedProject(): ProjectMetadata | null {
   return useRecentProjects(projects => projects[0] ?? null)
 }

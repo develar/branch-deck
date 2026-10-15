@@ -8,7 +8,7 @@ use crate::actions::{ActionError, availability_message};
 use crate::client::{MergeRequestDto, PatronusError, PreMergeCheckRequest, PreMergeCheckResponse, PreMergeCommitDto};
 use crate::service::PatronusService;
 use std::time::{Duration, Instant};
-use sync_types::patronus::{PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, PatronusReviewerGroup};
+use sync_types::patronus::{PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, PatronusReviewerGroup, ReviewPathsSource};
 use tracing::instrument;
 
 /// No approval needed: holds until the commits change
@@ -133,6 +133,13 @@ fn to_requirement(response: &PreMergeCheckResponse, merge_request: Option<MergeR
         .iter()
         .map(|group| PatronusReviewerGroup {
           name: group.group_name.clone(),
+          paths: group.paths.as_ref().map_or_default(|paths| sorted_paths(paths)),
+          branch_wide: group.branch_wide.unwrap_or(false),
+          paths_source: if group.paths.is_some() || group.branch_wide == Some(true) {
+            ReviewPathsSource::Patronus
+          } else {
+            ReviewPathsSource::Unknown
+          },
           reviewers: group
             .reviewers
             .iter()
@@ -150,6 +157,13 @@ fn to_requirement(response: &PreMergeCheckResponse, merge_request: Option<MergeR
     },
     skipped: false,
   }
+}
+
+fn sorted_paths(paths: &[String]) -> Vec<String> {
+  let mut paths = paths.to_vec();
+  paths.sort_unstable();
+  paths.dedup();
+  paths
 }
 
 fn to_merge_request(merge_request: MergeRequestDto) -> PatronusMergeRequest {

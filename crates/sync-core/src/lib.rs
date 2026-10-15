@@ -6,6 +6,7 @@ pub mod baseline_fetch;
 pub mod branch_name_suggestion;
 pub mod branch_prefix;
 mod branch_processor;
+pub mod branch_review;
 pub mod check;
 pub mod commit_grouper;
 pub mod commit_ids;
@@ -50,6 +51,8 @@ mod baseline_test;
 mod branch_name_suggestion_test;
 #[cfg(test)]
 mod branch_prefix_test;
+#[cfg(test)]
+mod branch_review_test;
 #[cfg(test)]
 mod git_setup_test;
 #[cfg(test)]

@@ -2,13 +2,16 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::to_final_branch_name;
+use git_ops::ownership::read_ownership;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient, PreMergeCommitDto};
 use patronus::review::ReviewSubject;
 use patronus::service::PatronusService;
 use patronus::token::find_user_token;
 use std::time::Duration;
-use sync_core::patronus::{ReviewCommit, SpaceRepository, find_space_repository, find_target_branch, read_review_commits};
+use sync_core::patronus::{
+  ReviewCommit, SpaceRepository, attribute_paths_by_ownership, find_space_repository, find_target_branch, needs_ownership_paths, read_review_commits, review_paths,
+};
 use sync_core::pull_requests::{GH_TIMEOUT, GitHubRepository, find_gh, resolve_github_repository};
 use sync_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusBranchParams, PatronusCommandComment, PatronusCommandReply, PatronusMergeRequest,
@@ -214,6 +217,7 @@ pub async fn get_patronus_review_requirement(
       skipped: true,
     });
   };
+  let paths = review_paths(&commits);
   let commits: Vec<PreMergeCommitDto> = commits.into_iter().map(to_pre_merge_commit).collect();
   let subject = ReviewSubject {
     project_key: &repository.project_key,
@@ -224,7 +228,20 @@ pub async fn get_patronus_review_requirement(
     commits: &commits,
     reviewed_on_github: hosts.github.is_some(),
   };
-  patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)
+  let mut requirement = patronus.service.review_requirement(&subject, params.recheck).await.map_err(CommandError::new)?;
+  if needs_ownership_paths(&requirement) {
+    // the code owners of the target branch decide, as for Patronus
+    let git = (*git_executor).clone();
+    let path = params.repository_path.clone();
+    let baseline = params.baseline_branch.clone();
+    let rules = run_blocking(move || read_ownership(&git, &path, &baseline, &paths).map(|rules| (rules, paths))).await;
+    match rules {
+      Ok((rules, paths)) => attribute_paths_by_ownership(&mut requirement, &rules, &paths),
+      // the groups are still right without their paths
+      Err(error) => tracing::warn!(error = %error.message, "cannot read the OWNERSHIP files"),
+    }
+  }
+  Ok(requirement)
 }
 
 /// Opens the merge request of the branch on Space, by Patronus for the user

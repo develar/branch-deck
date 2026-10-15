@@ -46,6 +46,16 @@ export const commands = {
 	/**  The patch of `base..head`: one `diff-tree -p` of the two commits, cut into files */
 	getRangePatch: (params: GetRangeParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_range_patch", { params })),
 	/**
+	 *  The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
+	 *  commits, from one `for-each-ref` and one `git log`
+	 */
+	getBranchReview: (params: GetBranchReviewParams) => typedError<BranchReview, CommandError>(__TAURI_INVOKE("get_branch_review", { params })),
+	/**
+	 *  The code owners of paths by the `OWNERSHIP` files of the baseline, from one `cat-file --batch`; a path without an
+	 *  owner is left out
+	 */
+	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], CommandError>(__TAURI_INVOKE("get_file_owners", { params })),
+	/**
 	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
 	 *  `since`. When Patronus can't be asked, the availability says why.
 	 */
@@ -324,6 +334,27 @@ export type BranchOrigin =
  */
 "IssueGroup";
 
+export type BranchReview = {
+	/**  In the order of the chain: the root first */
+	segments: BranchReviewSegment[],
+};
+
+export type BranchReviewCommit = {
+	id: string,
+	subject: string,
+	authorTime: number,
+};
+
+/**  A branch of the chain: its commits on top of its parent (the baseline for the root) */
+export type BranchReviewSegment = {
+	name: string,
+	/**  The head of the parent, or the commit the root is built on */
+	base: string,
+	head: string,
+	/**  Newest first */
+	commits: BranchReviewCommit[],
+};
+
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
 export type BranchStack = {
 	declaredParent: string | null,
@@ -550,6 +581,16 @@ export type FileInfo = {
 	content: string,
 };
 
+/**  The owner of a path and the rule that names it */
+export type FileOwner = {
+	path: string,
+	owner: string,
+	/**  The pattern relative to the repository root, e.g. `plugins/air/**` */
+	rule: string,
+	/**  The `OWNERSHIP` file of the rule, e.g. `plugins/air/OWNERSHIP` */
+	sourceFile: string,
+};
+
 /**  The patch of one file of a commit */
 export type FilePatch = {
 	/**
@@ -592,6 +633,18 @@ export type GetBranchPrefixParams = {
 	repositoryPath: string,
 };
 
+export type GetBranchReviewParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
+	/**
+	 *  The branches from the root of the stack to the reviewed branch, without the `{prefix}/virtual/` namespace; one
+	 *  name for a branch outside a stack
+	 */
+	chain: string[],
+};
+
 export type GetCommitFilesParams = {
 	repositoryPath: string,
 	commitId: string,
@@ -610,6 +663,13 @@ export type GetCommitsFilesParams = {
 export type GetFileContentForDiffParams = {
 	repositoryPath: string,
 	filePath: string,
+};
+
+export type GetFileOwnersParams = {
+	repositoryPath: string,
+	/**  The tree whose `OWNERSHIP` files decide, the branch the changes are pushed into (e.g. `origin/master`) */
+	baselineBranch: string,
+	paths: string[],
 };
 
 export type GetPatronusRobotsParams = {
@@ -961,6 +1021,14 @@ export type PatronusReviewerGroup = {
 	/**  e.g. "Air Plugin Release Team" */
 	name: string,
 	reviewers: PatronusReviewer[],
+	/**
+	 *  The changed paths whose review the group owes, sorted; empty when `paths_source` is `Unknown` or the group
+	 *  reviews every change (`branch_wide`)
+	 */
+	paths: string[],
+	/**  Any change of the branch needs the group, not only the paths it owns */
+	branchWide: boolean,
+	pathsSource: ReviewPathsSource,
 };
 
 /**  One Patronus run: it rebases the source branch onto the target, runs the checks and, unless it is a dry run, pushes */
@@ -1300,6 +1368,18 @@ export type ReviewHeadState =
 "diverged" | 
 /**  The commit the pull request shows could not be fetched: the review shows the source branch */
 "missing";
+
+/**  Who told which paths a reviewer group owes */
+export type ReviewPathsSource = 
+/**  Patronus, from the rules it checked */
+"patronus" | 
+/**  The `OWNERSHIP` files of the baseline: the paths whose owner has the name of the group */
+"ownership" | 
+/**
+ *  Neither: Patronus sends no paths and no path is owned by the group by name (a delegated review, or other
+ *  reviewers named by `review-rules.yaml`)
+ */
+"unknown";
 
 /**  What the review of a pull request diffs: `base..head`, as GitHub's "Files changed" */
 export type ReviewRange = {

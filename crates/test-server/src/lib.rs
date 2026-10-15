@@ -116,6 +116,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/prune_review_refs", post(tauri_command_bridge::prune_review_refs))
     .route("/invoke/get_range_files", post(tauri_command_bridge::get_range_files))
     .route("/invoke/get_range_patch", post(tauri_command_bridge::get_range_patch))
+    .route("/invoke/get_branch_review", post(tauri_command_bridge::get_branch_review))
+    .route("/invoke/get_file_owners", post(tauri_command_bridge::get_file_owners))
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
     .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
@@ -210,6 +212,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("commit_tree", |path| templates::commit_tree().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
   spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
+  spawn("stacked_ownership", |path| templates::stacked_ownership().build(path));
   spawn("branch_filter", |path| templates::branch_filter().build(path));
   spawn("empty-non-git", |path| templates::empty_non_git().build(path));
   spawn("empty_git", |path| templates::empty_git().build(path));
@@ -265,6 +268,8 @@ pub enum RepositoryTemplate {
   StackedBranches,
   #[serde(rename = "stacked_conflict")]
   StackedConflict,
+  #[serde(rename = "stacked_ownership")]
+  StackedOwnership,
   #[serde(rename = "branch_filter")]
   BranchFilter,
   #[serde(rename = "archived_branches")]
@@ -307,6 +312,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::CommitTree => "commit_tree",
       RepositoryTemplate::StackedBranches => "stacked_branches",
       RepositoryTemplate::StackedConflict => "stacked_conflict",
+      RepositoryTemplate::StackedOwnership => "stacked_ownership",
       RepositoryTemplate::BranchFilter => "branch_filter",
       RepositoryTemplate::ArchivedBranches => "archived_branches",
       RepositoryTemplate::AmendChanges => "amend_changes",
