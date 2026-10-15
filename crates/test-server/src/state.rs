@@ -6,7 +6,8 @@ use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
 use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
 use sync_types::patronus::PatronusRobotsResult;
-use sync_types::pull_request::PullRequestsResult;
+use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+use sync_types::review_request::ReviewRequestsResult;
 
 pub struct AppState {
   pub repositories: DashMap<String, TestRepository>,
@@ -27,6 +28,13 @@ pub struct TestRepository {
   pub pull_requests: RwLock<PullRequestsResult>,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
+  /// What `get_review_requests` answers and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a
+  /// test sets it
+  pub review_requests: RwLock<ReviewRequestsFixture>,
+  /// How often the app asked for review requests, fetched a review and pruned the review refs
+  pub review_request_calls: AtomicU32,
+  pub review_fetch_calls: AtomicU32,
+  pub review_prune_calls: AtomicU32,
   /// What `get_patronus_robots` answers (E2E never calls Patronus); not on Space until a test sets it
   pub patronus: RwLock<PatronusRobotsResult>,
   /// How often the app listed and polled the robots, so a test can check the request policy
@@ -36,6 +44,27 @@ pub struct TestRepository {
   pub branch_name_suggestions: RwLock<BranchNameSuggestionFixture>,
   /// How often the app asked for branch names: nothing may leave before the user enabled AI
   pub branch_name_suggestion_calls: AtomicU32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRequestsFixture {
+  /// An empty `headRefOid` or `baseRefOid` of a request is resolved by `fetch_review_head`: the tip of `HEAD`, the
+  /// baseline
+  #[serde(flatten)]
+  pub result: ReviewRequestsResult,
+  /// The error `fetch_review_head` fails with; None: it answers the range of the test repository
+  #[serde(default)]
+  pub fetch_error: Option<String>,
+}
+
+impl Default for ReviewRequestsFixture {
+  fn default() -> Self {
+    Self {
+      result: ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+      fetch_error: None,
+    }
+  }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

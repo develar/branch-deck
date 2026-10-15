@@ -29,6 +29,9 @@ mod commit_files_test;
 mod repository_lifecycle_test;
 
 #[cfg(test)]
+mod review_requests_test;
+
+#[cfg(test)]
 mod test_support;
 
 #[cfg(test)]
@@ -82,6 +85,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(set_branch_name_suggestions).get(get_branch_name_suggestion_fixture),
     )
     .route("/repositories/{id}/patronus", post(set_patronus).get(get_patronus_fixture))
+    .route("/repositories/{id}/review-requests", post(set_review_requests).get(get_review_request_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -105,6 +109,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/dismiss_landed", post(tauri_command_bridge::dismiss_landed))
     .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
+    .route("/invoke/get_review_requests", post(tauri_command_bridge::get_review_requests))
+    .route("/invoke/fetch_review_head", post(tauri_command_bridge::fetch_review_head))
+    .route("/invoke/cancel_review_fetch", post(tauri_command_bridge::cancel_review_fetch))
+    .route("/invoke/prune_review_refs", post(tauri_command_bridge::prune_review_refs))
+    .route("/invoke/get_range_files", post(tauri_command_bridge::get_range_files))
+    .route("/invoke/get_range_patch", post(tauri_command_bridge::get_range_patch))
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
     .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
@@ -415,6 +425,10 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     store,
     pull_requests: std::sync::RwLock::new(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
+    review_requests: std::sync::RwLock::default(),
+    review_request_calls: std::sync::atomic::AtomicU32::new(0),
+    review_fetch_calls: std::sync::atomic::AtomicU32::new(0),
+    review_prune_calls: std::sync::atomic::AtomicU32::new(0),
     patronus: std::sync::RwLock::new(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
@@ -517,6 +531,28 @@ pub async fn get_patronus_fixture(axum::extract::Path(id): axum::extract::Path<S
   Ok(Json(
     serde_json::json!({ "listCalls": repo.patronus_list_calls.load(ordering), "pollCalls": repo.patronus_poll_calls.load(ordering) }),
   ))
+}
+
+/// Sets what `get_review_requests` answers for the repository and how `fetch_review_head` fails (`fetchError`)
+pub async fn set_review_requests(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(fixture): Json<state::ReviewRequestsFixture>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  *repo.review_requests.write().expect("review request fixture lock") = fixture;
+  Ok(StatusCode::OK)
+}
+
+/// How often the app asked for review requests, fetched a review and pruned the review refs
+pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let ordering = std::sync::atomic::Ordering::SeqCst;
+  Ok(Json(serde_json::json!({
+    "calls": repo.review_request_calls.load(ordering),
+    "fetchCalls": repo.review_fetch_calls.load(ordering),
+    "pruneCalls": repo.review_prune_calls.load(ordering),
+  })))
 }
 
 /// How often the app asked for pull requests

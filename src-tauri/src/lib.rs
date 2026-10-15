@@ -34,7 +34,7 @@ use commands::patronus::{
 use commands::pull_requests::{close_pull_request, get_pull_requests, retarget_pull_request};
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
-use commands::review_requests::{cancel_review_fetch, fetch_review_head, get_range_files, get_range_patch, get_review_requests, prune_review_refs};
+use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_range_patch, get_review_requests, prune_review_refs};
 use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
@@ -188,6 +188,7 @@ pub fn run() {
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
       app.manage(BranchNameSuggestionState::default());
+      app.manage(ReviewFetchState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir));
       }
