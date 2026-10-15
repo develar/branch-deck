@@ -30,7 +30,7 @@ export function SyncButton() {
         render={(
           <Button
             size="sm"
-            variant={syncError ? "destructive" : "default"}
+            variant={syncError ? "destructive" : "ghost"}
             // a running sync keeps the full colour beside its spinner, as Update does; a repository that can't sync dims it
             className={cn(!canSync && "opacity-50")}
             disabled={isSyncing || !canSync}

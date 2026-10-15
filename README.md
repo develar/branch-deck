@@ -112,8 +112,8 @@ repositories: all operations run through the Git CLI.
   `bd help agent` prints the workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
   `~/.agents/skills`, so coding agents know when to use it.
-- Auto-sync when the window gets focus (off by default, in the sync settings next to Sync), auto-update, light and
-  dark theme.
+- Sync when the window opens a repository synced before, auto-sync when the window gets focus (off by default, in the
+  sync settings next to Sync), auto-update, light and dark theme.
 
 ## How It Works
 

@@ -9,6 +9,7 @@ targets:
   - ../../src/components/repository/GitSetupAlert.tsx
   - ../../src/components/repository/BranchPrefixHelp.tsx
   - ../../src/components/repository/SyncButton.tsx
+  - ../../src/hooks/useSyncOnOpen.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/unassigned/UnassignedCommitsHelpPopover.tsx
   - ../../src/components/shared/CommandLine.tsx
@@ -93,12 +94,19 @@ alert with the reason and the next step, never a raw Git error.
 - Sync is disabled while the selected repository has no branch prefix (not while it loads), with the tooltip "Set the
   branch prefix first".
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`disables Sync with the reason while no branch prefix is set`)
-- With a repository and a prefix, until the first sync of the window, the "Ready to Sync" card: in a repository never
-  synced, what Sync does (groups the commits by the prefix of their subject, creates `<prefix>/virtual/<name>`, lists the
-  rest as unassigned) and that the working tree and the checked-out branch stay as they are; in one synced before, when
-  it last ran and that Auto-sync on Focus is in the sync settings. Its Sync button syncs (with the spinner while it
-  runs); the card goes when the sync completes, or gives way to the error alert.
-  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says what Sync does before the first sync, then gives way to the branches`, `names the last sync of a repository synced before`)
+- With a repository never synced and a prefix, the "Ready to Sync" card: what Sync does (groups the commits by the
+  prefix of their subject, creates `<prefix>/virtual/<name>`, lists the rest as unassigned), that the working tree and
+  the checked-out branch stay as they are, and when it syncs from then on (when it opens the repository, after each
+  change it makes, and on focus with Auto-sync on Focus from the sync settings). Its Sync button syncs (with the
+  spinner while it runs); the card goes when the sync completes, or gives way to the error alert.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says what Sync does before the first sync, then gives way to the branches`)
+- A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
+  off: no card, "Syncing…" in the header, then the branches and Update. A failed sync is the error alert and is not
+  repeated until the window opens the repository again (⌘R retries).
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
+- A switch to another repository forgets the branches of the previous one once its running sync is done: they never
+  show under the name of another repository.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`forgets the branches of the previous repository on a switch`)
 
 ### Repository problems
 

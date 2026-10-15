@@ -189,7 +189,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 ### Header
 
 - The Update button sits in the header before the outgoing indicator: incoming and outgoing together, the time of the
-  last sync next to Sync. It is hidden for a local baseline and before the first sync.
+  last sync next to Sync. It is hidden for a local baseline and before the first sync of the repository, which runs
+  when the window opens a repository synced before ([Onboarding](onboarding.spec.md)).
 - The header must stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
   overlapping: the repository selector gives way first (its path clipped from the start), the branch count shows from
   1024 px, the time of the last sync from 768 px; Update, the outgoing indicator, Activity ([Activity](activity.spec.md)),
@@ -352,8 +353,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   `text-success`, `PackageCheckIcon` `text-info` when the user's commits landed, `TriangleAlertIcon` `text-warning`,
   `CircleHelpIcon` muted for a failed check). Up to date mutes the label instead of adding an icon. The footer line
   starts with the same icon at `size-3`.
-- Sync is the `default` `sm` button with `RefreshCwIcon` (a `Spinner` at full colour while it runs), the shortcut a
-  `Kbd` in its tooltip; its settings are the `ghost` `icon-sm` `Settings2Icon` after it.
+- Sync is the `ghost` `sm` button with `RefreshCwIcon`, as Update (a `Spinner` at full colour while it runs), the
+  shortcut a `Kbd` in its tooltip; its settings are the `ghost` `icon-sm` `Settings2Icon` after it. The header has no
+  primary button: Sync runs by itself when the window opens the repository and after each change.
 - The dialog uses `PreviewDialogFrame`: the title says what is wrong, the body starts with one line on what to do,
   then lists the files, each as its name and then its muted directory, which is clipped from its start on a narrow
   window, with a copy button on hover; the commits of each side sit below in aligned columns (side, hash, subject,

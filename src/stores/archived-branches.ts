@@ -141,6 +141,12 @@ export function updateFromArchivedNames(names: string[], newlyArchived: string[]
   archivedBranchesStore.setState({ branches, order: sortOrder(insertionOrder, branches), newlyArchived: nextMarked })
 }
 
+/** Forgets the archived branches of the previous repository when the window opens another one */
+export function resetArchivedBranches(): void {
+  insertionOrder = []
+  archivedBranchesStore.setState({ order: [], branches: {}, newlyArchived: new Set() })
+}
+
 /** Drops the "New" mark of the branches archived in this session (once the user has seen what landed) */
 export function clearNewlyArchived(): void {
   if (archivedBranchesStore.getState().newlyArchived.size > 0) {

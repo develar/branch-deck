@@ -10,6 +10,7 @@ import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
+import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { usePushGuardRequest } from "@/stores/push-guard"
@@ -35,13 +36,14 @@ export function BranchCreator() {
   }, [])
   useMenuSync()
   useReviewStatusRefresh()
+  useSyncOnOpen()
   useWindowFocus(() => {
     void debouncedAutoSync()
   })
 
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)
-  const hasCompletedSync = useBranchSync(state => state.hasCompletedSync)
+  const syncedRepositoryPath = useBranchSync(state => state.syncedRepositoryPath)
   const branchCount = useBranchSync(state => state.branchOrder.length)
   const unassignedCommits = useUnassignedCommits()
   const unassignedCommitCount = unassignedCommits.length
@@ -56,8 +58,10 @@ export function BranchCreator() {
   const pathValidation = useRepository(state => state.pathValidation)
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
   const hasRecentProjects = useRecentProjects(projects => projects.length > 0)
+  const selectedProject = useSelectedProject()
   // a repository counts as selected as soon as a project is chosen
-  const hasRepository = useSelectedProject() !== null
+  const hasRepository = selectedProject !== null
+  const hasSynced = hasRepository && syncedRepositoryPath === selectedProject.path
   const hasBranchPrefix = useEffectiveBranchPrefix() !== ""
   // git itself is missing or too old: its alert replaces the path and sync errors, which say the same
   const hasGitError = useRepository(state => !!state.gitSetup?.git_error)
@@ -71,7 +75,8 @@ export function BranchCreator() {
     isLoadingBranchPrefix,
     hasError,
   })
-  const showReadyToSync = hasRepository && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasCompletedSync && !hasError
+  // a repository synced before syncs when the window opens it (useSyncOnOpen): only the first sync needs the card
+  const showReadyToSync = hasRepository && selectedProject.lastSyncTime === undefined && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasSynced && !hasError
 
   // a message of several lines (git with its install hint) is a title and its details
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []
@@ -95,7 +100,7 @@ export function BranchCreator() {
               {errorDetails && <AlertDescription className="whitespace-pre-line">{errorDetails}</AlertDescription>}
             </Alert>
           )
-        : hasCompletedSync && branchCount === 0 && unassignedCommitCount === 0 && (
+        : hasSynced && branchCount === 0 && unassignedCommitCount === 0 && (
           <Alert data-testid="empty-state-alert">
             <GitBranchIcon />
             <AlertTitle>No active branches</AlertTitle>

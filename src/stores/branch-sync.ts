@@ -9,7 +9,7 @@ import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
-import { updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
+import { resetArchivedBranches, updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
@@ -104,7 +104,8 @@ export interface BranchSyncState {
   /** Finished syncs, failed ones included: the sync button exposes it so a test can wait for the next sync */
   syncCount: number
   syncError: string | null
-  hasCompletedSync: boolean
+  /** The repository whose branches the store holds, set by its first successful sync; null before it */
+  syncedRepositoryPath: string | null
   /** Repository's baseline branch (e.g., "origin/master") */
   baselineBranch: string | null
   /** Branch names in backend order */
@@ -135,7 +136,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   isSyncing: false,
   syncCount: 0,
   syncError: null,
-  hasCompletedSync: false,
+  syncedRepositoryPath: null,
   baselineBranch: null,
   branchOrder: [],
   branches: {},
@@ -681,7 +682,7 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
         lastBranchCount: branchSyncStore.getState().branchOrder.length,
       })
     }
-    branchSyncStore.setState({ hasCompletedSync: true })
+    branchSyncStore.setState({ syncedRepositoryPath: vcsRequest.repositoryPath })
     hideAfterSync(vcsRequest.repositoryPath)
     void loadAutosquashPlan(vcsRequest.repositoryPath)
   }
@@ -720,6 +721,27 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
     return
   }
   branchSyncStore.setState({ autosquashPlan: result.data })
+}
+
+/**
+ * Forgets the branches of the previous repository when the window opens another one, so they never show under its
+ * name. Pushes in flight keep their state: they finish in their own repository.
+ */
+export function resetBranchSync(): void {
+  autosquashPlanRequest++
+  branchSyncStore.setState({
+    syncError: null,
+    syncedRepositoryPath: null,
+    baselineBranch: null,
+    branchOrder: [],
+    branches: {},
+    unassignedCommits: [],
+    autosquashPlan: null,
+    baselineStatus: null,
+    stacksEnabled: false,
+    issueGroups: {},
+  })
+  resetArchivedBranches()
 }
 
 function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: SyncOptions): void {
