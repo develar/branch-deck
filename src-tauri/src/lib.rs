@@ -110,7 +110,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
   ])
 }
 
-/// Write the TypeScript bindings of `builder` (`src/lib/bindings.ts`)
+/// Write the TypeScript bindings of `builder` (`src/lib/bindings.ts`); a debug run and `bindings_test` call it, a release
+/// build has no caller
+#[cfg(any(debug_assertions, test))]
 fn export_bindings(builder: &Builder<tauri::Wry>, path: &std::path::Path) -> Result<(), specta_typescript::Error> {
   builder.export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path)
 }
