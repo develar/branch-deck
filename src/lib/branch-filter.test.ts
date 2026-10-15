@@ -74,15 +74,18 @@ describe("branch filter", () => {
       branch("new"),
       branch("pushed", { remoteStatus: testRemoteStatus() }),
       branch("ahead", { remoteStatus: testRemoteStatus({ unpushedCommits: ["a"], commitsAhead: 1, myCommitsAhead: 1 }) }),
+      // nothing ahead, but the remote has older versions of its commits: a force push replaces them
+      branch("amended", { remoteStatus: testRemoteStatus({ commitsAmended: 1, fastForward: false }) }),
+      branch("restacked", { remoteStatus: testRemoteStatus({ commitsRestacked: 2, fastForward: false }) }),
       branch("blocked", { status: "Blocked" }),
       branch("broken", { hasError: true, status: "Error" }),
       branch("landed"),
       branch("loading", { remoteStatus: null }),
     ]
     const matches = collectChipMatches(branches.map(it => it.name), sources(branches, { isLanded: name => name === "landed" }))
-    expect([...matches.toPush]).toEqual(["new", "ahead"])
-    expect(chipCount(matches, "all")).toBe(7)
-    expect(chipCount(matches, "toPush")).toBe(2)
+    expect([...matches.toPush]).toEqual(["new", "ahead", "amended", "restacked"])
+    expect(chipCount(matches, "all")).toBe(9)
+    expect(chipCount(matches, "toPush")).toBe(4)
   })
 
   it("puts a branch whose robot runs or cancels into Running", () => {

@@ -78,7 +78,8 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   [@test] ../../src/stores/branch-filter.test.ts (`chooses one chip at a time, and the chosen one again goes back to All`, `keeps the text with the chip and clears both`)
   [@test] ../../src/lib/branch-filter.test.ts (`shows the branches of the chosen chip that match the text, in table order; an inactive filter shows all`)
 - To Push must take the branches the header counts as having work for the remote (`summarizePushState`): synced
-  without an error, with commits, not blocked, not landed, and a push that is not "up to date".
+  without an error, with commits, not blocked, not landed, and a push that is not "up to date"; an amended or
+  restacked branch is a force push (`isRemoteUpToDate`), so it counts.
   [@test] ../../src/lib/branch-filter.test.ts (`puts a branch into To Push by the rule of the outgoing counts`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
 - Running must take the branches whose robot (`findBranchRobot`) runs or cancels (`isRobotActive`).
