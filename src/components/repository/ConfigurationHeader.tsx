@@ -51,6 +51,7 @@ export function ConfigurationHeader() {
   const pathValidation = useRepository(state => state.pathValidation)
   const selectedProject = useSelectedProject()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
+  const zoom = useAppSettings(state => state.zoom)
   const lastSyncTime = selectedProject?.lastSyncTime
   const refusedUpdate = useRefusedUpdate()
   const pullRequestOverview = usePullRequestOverview()
@@ -70,13 +71,16 @@ export function ConfigurationHeader() {
   return (
     <header
       className={cn(
-        "flex h-10 shrink-0 items-center gap-3 select-none",
+        // a container: its width at its own size, not the viewport of the zoomed page, hides the secondary texts
+        "@container flex h-10 shrink-0 items-center gap-3 select-none",
         titleBar === "overlay" && !frame.fullscreen ? "pl-22" : "pl-2",
         titleBar === "custom" ? "pr-0" : "pr-2",
       )}
       data-testid="configuration-header"
       data-title-bar={titleBar ?? "native"}
       data-tauri-drag-region={titleBar === null ? undefined : "deep"}
+      // the title bar keeps the size of the window chrome, the page zoom (`useZoom`) leaves it alone
+      style={zoom === 1 ? undefined : { zoom: 1 / zoom }}
     >
       <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
         {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
@@ -86,7 +90,7 @@ export function ConfigurationHeader() {
           <BranchPrefixField disabled={isSyncing || !pathValidation.valid} />
 
           {selectedProject && branchCount > 0 && pathValidation.valid && (
-            <span className="hidden text-xs whitespace-nowrap text-muted-foreground lg:flex">
+            <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
               {branchCount}
               {" "}
               {branchCount === 1 ? "branch" : "branches"}
@@ -117,7 +121,7 @@ export function ConfigurationHeader() {
           )}
           {pathValidation.valid && (lastSyncTime || isSyncing) && (
             // both texts share one cell, so the controls before it stay in place while a sync runs
-            <div className="hidden text-xs whitespace-nowrap text-muted-foreground md:grid" data-testid="last-sync-time">
+            <div className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:grid" data-testid="last-sync-time">
               <span className={cn("col-start-1 row-start-1 text-right", isSyncing && "invisible")}>
                 {lastSyncTime
                   ? (

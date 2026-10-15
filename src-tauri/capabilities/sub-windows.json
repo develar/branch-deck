@@ -10,6 +10,7 @@
     "core:event:default",
     "window-state:default",
     "core:window:allow-close",
+    "core:webview:allow-set-webview-zoom",
     "store:default",
     "log:default"
   ]

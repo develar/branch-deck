@@ -308,11 +308,15 @@ export const tauriMockScript = () => {
   }
 
   // the window of the page, for a toolbar that draws the title bar (`__BD_TITLE_BAR__`): a test sets
-  // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`
+  // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`, and the minimum size
+  // a zoom sets (`useZoom`) in `__e2eWindowState.minSize`
   const windowState = ((window as any).__e2eWindowState ??= { fullscreen: false, maximized: false })
-  function handleWindowCommand(cmd: string): any {
+  function handleWindowCommand(cmd: string, payload: any): any {
     const [, action] = cmd.split("|")
     switch (action) {
+      case "set_min_size":
+        windowState.minSize = payload?.value?.size ?? payload?.value
+        break
       case "is_fullscreen":
         return windowState.fullscreen
       case "is_maximized":
@@ -432,6 +436,14 @@ export const tauriMockScript = () => {
     "plugin:store": handleStoreCommand,
     "plugin:event": handleEventCommand,
     "plugin:window": handleWindowCommand,
+    // the page zoom (`useZoom`), recorded in `__e2eWebviewZoom`; a test zooms the page as the webview does with a
+    // viewport of the window size divided by the level (`zoomPage` in header-helpers)
+    "plugin:webview": (cmd: string, payload: any) => {
+      if (cmd === "plugin:webview|set_webview_zoom") {
+        ;(window as any).__e2eWebviewZoom = payload?.value
+      }
+      return null
+    },
     "plugin:path": handlePathCommand,
     "plugin:log": () => null, // Ignore log commands
     // the notification plugin goes through the browser's `Notification`; its permission check never notifies
@@ -567,6 +579,10 @@ export const tauriMockScript = () => {
       },
       metadata: {
         currentWindow: {
+          label: "main"
+        },
+        currentWebview: {
+          windowLabel: "main",
           label: "main"
         }
       },

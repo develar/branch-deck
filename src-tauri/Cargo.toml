@@ -71,8 +71,8 @@ tauri-plugin-window-state = "2"
 tempfile = "3"
 
 [package.metadata.cargo-machete]
-# tauri-build: build dependency used in build.rs; serde_json: used by `tauri::generate_context!`
-ignored = ["tauri-build", "serde_json"]
+# tauri-build: build dependency used in build.rs
+ignored = ["tauri-build"]
 
 
 [lints]

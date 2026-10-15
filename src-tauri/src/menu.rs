@@ -60,10 +60,14 @@ pub fn configure_app_menu(app: &mut App) -> Result<(), Box<dyn Error>> {
   #[cfg(not(target_os = "linux"))]
   let edit_menu = &edit_menu_builder.build()?;
 
-  let view_menu_builder = SubmenuBuilder::new(app, "View");
+  // in the order of Safari; the page zooms itself (`useZoom`), WKWebView has no zoom keys
+  let actual_size = MenuItemBuilder::with_id("zoom_reset", "Actual Size").accelerator("CmdOrCtrl+0").build(app)?;
+  let zoom_in = MenuItemBuilder::with_id("zoom_in", "Zoom In").accelerator("CmdOrCtrl+=").build(app)?;
+  let zoom_out = MenuItemBuilder::with_id("zoom_out", "Zoom Out").accelerator("CmdOrCtrl+-").build(app)?;
+  let view_menu_builder = SubmenuBuilder::new(app, "View").item(&actual_size).item(&zoom_in).item(&zoom_out);
 
   #[cfg(target_os = "macos")]
-  let view_menu_builder = view_menu_builder.item(&PredefinedMenuItem::fullscreen(app, None)?);
+  let view_menu_builder = view_menu_builder.separator().item(&PredefinedMenuItem::fullscreen(app, None)?);
 
   let color_selector = MenuItemBuilder::with_id("color_selector", "Theme…").build(app)?;
   let view_menu_builder = view_menu_builder.separator().item(&color_selector);
@@ -133,6 +137,13 @@ pub fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
       let result = app.emit_to("main", "install_agent_cli", ());
       if result.is_err() {
         tracing::error!(error = ?result.err(), "error while triggering the agent CLI install");
+      }
+    }
+    // one level for all windows: the main window changes it, the settings sync carries it to the others
+    "zoom_in" | "zoom_out" | "zoom_reset" => {
+      let result = app.emit_to("main", "zoom", &event.id().as_ref()["zoom_".len()..]);
+      if result.is_err() {
+        tracing::error!(error = ?result.err(), "error while triggering zoom");
       }
     }
     "color_selector" => {

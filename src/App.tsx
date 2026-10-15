@@ -4,6 +4,7 @@ import { ColorSelectorDialog } from "@/components/settings/ColorSelectorDialog"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTauriListen } from "@/hooks/useTauriListen"
+import { useZoom } from "@/hooks/useZoom"
 import { applyPrimaryColor } from "@/lib/theme"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
@@ -14,6 +15,7 @@ export function App() {
   useLayoutEffect(() => {
     applyPrimaryColor(primaryColor)
   }, [primaryColor])
+  useZoom()
 
   // "Theme…" menu item
   const [colorSelectorOpen, setColorSelectorOpen] = useState(false)

@@ -30,10 +30,19 @@ export function header(page: Page): Locator {
   return page.getByTestId("configuration-header")
 }
 
-/** The header is one line high and its controls are inside it, apart from each other */
-export async function expectHeaderControlsOnOneLine(page: Page, ids: string[]): Promise<Box> {
+/**
+ * Zooms the page as the webview does (`useZoom`): a window of `size` shows `size / zoom` CSS px.
+ * The page has to set the zoom itself (the `zoom` event), so that the toolbar knows it.
+ */
+export async function zoomPage(page: Page, zoom: number, size: { width: number, height: number }): Promise<void> {
+  await page.setViewportSize({ width: Math.round(size.width / zoom), height: Math.round(size.height / zoom) })
+}
+
+/** The header is one line high and its controls are inside it, apart from each other; `zoom` is that of the page */
+export async function expectHeaderControlsOnOneLine(page: Page, ids: string[], zoom = 1): Promise<Box> {
   const headerBox = await boxOf(header(page))
-  expect(headerBox.height).toBeCloseTo(HEADER_HEIGHT, 0)
+  // the toolbar keeps its size at any page zoom
+  expect(headerBox.height * zoom).toBeCloseTo(HEADER_HEIGHT, 0)
   const boxes = await Promise.all(ids.map(id => boxOf(header(page).getByTestId(id))))
   boxes.forEach((box, index) => {
     // inside the header: nothing wraps to a second line or is pushed out of it

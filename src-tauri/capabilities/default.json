@@ -11,6 +11,8 @@
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "core:webview:allow-set-webview-zoom",
+    "core:window:allow-set-min-size",
     "core:event:default",
     "store:default",
     "dialog:allow-open",

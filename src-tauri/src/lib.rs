@@ -7,11 +7,14 @@ pub mod menu;
 pub mod menu_state;
 pub mod progress;
 pub mod repository_state;
+pub mod zoom;
 
 #[cfg(test)]
 mod bindings_test;
 #[cfg(test)]
 mod repository_state_test;
+#[cfg(test)]
+mod zoom_test;
 
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::add_issue_reference::add_issue_reference_to_commits;
@@ -48,6 +51,7 @@ use menu::{configure_app_menu, handle_menu_event};
 use menu_state::MenuState;
 use repository_state::RepositoryStateCache;
 use tauri::Manager;
+use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
 use tauri_plugin_log as _;
@@ -201,11 +205,12 @@ pub fn run() {
         None => format!("window.__TAURI_STORE__ = {store_data};"),
       };
 
+      let zoom = stored_zoom(&store_data);
+      let min_width = min_window_width(zoom);
       let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
         .title("BranchDeck")
-        .inner_size(1024.0, 900.0)
-        // the header fits one line from 960 px (`ConfigurationHeader`); narrower, its controls would overlap
-        .min_inner_size(960.0, 600.0)
+        .inner_size(min_width.max(1024.0), 900.0)
+        .min_inner_size(min_width, MIN_WINDOW_HEIGHT)
         .initialization_script(&init_script)
         // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
         .disable_drag_drop_handler();
@@ -220,7 +225,8 @@ pub fn run() {
         .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
       #[cfg(target_os = "windows")]
       let builder = builder.decorations(false).shadow(true);
-      builder.build()?;
+      let window = builder.build()?;
+      apply_zoom(&window, zoom);
 
       Ok(())
     })

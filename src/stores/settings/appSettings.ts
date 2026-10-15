@@ -10,6 +10,8 @@ const AppSettingsSchema = z.object({
   radius: z.number().optional(),
   globalUserBranchPrefix: z.string().optional(),
   autoSyncOnFocus: z.boolean().default(false),
+  // the zoom of the pages in every window (`useZoom`), read by the window builders too (`src-tauri/src/zoom.rs`)
+  zoom: z.number().positive().default(1),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -29,6 +31,10 @@ export function setPrimaryColor(primaryColor: string): void {
 
 export function setAutoSyncOnFocus(autoSyncOnFocus: boolean): void {
   appSettingsStore.setState({ autoSyncOnFocus })
+}
+
+export function setZoom(zoom: number): void {
+  appSettingsStore.setState({ zoom })
 }
 
 export function setGlobalUserBranchPrefix(globalUserBranchPrefix: string | undefined): void {

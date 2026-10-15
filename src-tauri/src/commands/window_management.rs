@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::zoom::{apply_zoom, stored_zoom};
 use serde::Deserialize;
 use specta::Type;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -51,7 +52,7 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
   );
 
   // Create new window
-  WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
+  let window = WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
     .title(params.title)
     .inner_size(params.width.unwrap_or(1400.0), params.height.unwrap_or(900.0))
     .center()
@@ -61,6 +62,7 @@ pub async fn open_sub_window(app_handle: tauri::AppHandle, params: OpenSubWindow
     // the native file drop handler would swallow HTML5 drag and drop (on Windows)
     .disable_drag_drop_handler()
     .build()?;
+  apply_zoom(&window, stored_zoom(&params.store_cache));
 
   Ok(())
 }

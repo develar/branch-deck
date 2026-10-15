@@ -68,6 +68,8 @@ the native title bar above it.
 
 - The empty parts of the toolbar drag the window (`data-tauri-drag-region="deep"`, `core:window:allow-start-dragging`);
   a double click zooms (macOS) or maximizes (Windows). The controls in it keep their clicks.
+- The toolbar keeps its size at any page zoom, as window chrome does ([Zoom](zoom.spec.md)).
+  [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
 - Every control stays on the one 40px line down to the 960px minimum width of the window, beside the traffic lights.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
@@ -97,5 +99,6 @@ the native title bar above it.
 ## References
 
 - [UI Theme](../../docs/design/ui-theme.md): the canvas and the islands.
+- [Zoom](zoom.spec.md): the page zoom, which leaves the toolbar alone.
 - [Activity](activity.spec.md), [Update Project](update-project.spec.md), [Outgoing Commits](outgoing.spec.md): the
   controls of the toolbar.
