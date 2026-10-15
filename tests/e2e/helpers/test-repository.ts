@@ -72,14 +72,22 @@ export class TestRepositoryBuilder {
     return (await this.getFixture<{ calls: number }>("pull-requests")).calls
   }
 
-  /** Sets what `get_review_requests` answers from now on (E2E never runs gh) */
-  async setReviewRequests(result: ReviewRequestsResult): Promise<void> {
-    await this.setFixture("review-requests", result)
+  /**
+   * Sets what `get_review_requests` answers from now on (E2E never runs gh); `fetchError` fails `fetch_review_head`
+   * with that message
+   */
+  async setReviewRequests(result: ReviewRequestsResult, fetchError?: string): Promise<void> {
+    await this.setFixture("review-requests", fetchError === undefined ? result : { ...result, fetchError })
   }
 
   /** How often the app asked for the review requests */
   async getReviewRequestCalls(): Promise<number> {
-    return (await this.getFixture<{ calls: number }>("review-requests")).calls
+    return (await this.getReviewRequestsFixture()).calls
+  }
+
+  /** The calls of the review commands: the requests, the fetches, and the `keep` of each prune of the review refs */
+  async getReviewRequestsFixture(): Promise<{ calls: number, fetchCalls: number, prunes: number[][] }> {
+    return this.getFixture("review-requests")
   }
 
   /** Sets what `suggest_branch_names` answers from now on and how long it takes (E2E never runs claude) */

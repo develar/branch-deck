@@ -194,7 +194,9 @@ test.describe("Review dialog", () => {
     const review = dialog.getByTestId("commit-review")
     await expect(review).toBeVisible()
     await expect(dialog.getByTestId("review-dialog-position")).toHaveText(/^File 1 \/ \d+$/)
-    await review.press("j")
+    // the diffs have the focus, as in the review of a commit
+    await expect(review.locator("[aria-label='Changes of the commit']")).toBeFocused()
+    await page.keyboard.press("j")
     await expect(dialog.getByTestId("review-dialog-position")).toHaveText(/^File 2 \/ \d+$/)
 
     // Escape goes back to the preview, then closes
@@ -226,27 +228,35 @@ test.describe("Review dialog", () => {
   })
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
-    await routeReviewFetch(page, { error: "GitHub asked for credentials: run gh auth setup-git" })
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await repo.setReviewRequests(availableReviewRequests([OLD]), "GitHub asked for credentials: run gh auth setup-git")
     const dialog = await openReviewDialog(page, 101)
     const failure = dialog.getByTestId("review-fetch-failed")
     await expect(failure).toContainText("Cannot fetch pull request #101")
     await expect(failure).toContainText("GitHub asked for credentials: run gh auth setup-git")
 
-    await page.unroute("**/invoke/fetch_review_head")
+    await repo.setReviewRequests(availableReviewRequests([OLD]))
     await failure.getByTestId("review-fetch-retry").click()
     await expect(failure).toBeHidden()
     await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
   })
 
-  test("should keep the dialog when the request is withdrawn meanwhile", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep the dialog when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
     await syncAndWaitForBranches()
+    // the refs of an earlier start go once, after the first answer
+    await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[]])
     const dialog = await openReviewDialog(page, 101)
+    await expect(dialog.getByTestId("review-commit").first()).toBeVisible()
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
     await page.clock.fastForward("05:00")
     await expect(dialog.getByTestId("review-withdrawn")).toHaveText("No longer waiting for your review")
     await expect(dialog.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+    await expect(dialog.getByTestId("review-dialog-position")).toHaveCount(0)
+    // the commits were local: no ref was written, nothing to prune
+    const fixture = await repo.getReviewRequestsFixture()
+    expect(fixture.fetchCalls).toBe(1)
+    expect(fixture.prunes).toEqual([[]])
   })
 })
 

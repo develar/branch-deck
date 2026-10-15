@@ -6,6 +6,11 @@ targets:
   - ../../crates/sync-types/src/review_request.rs
   - ../../crates/sync-core/src/review_requests.rs
   - ../../crates/sync-core/src/review_fetch.rs
+  - ../../crates/sync-core/src/pull_requests.rs
+  - ../../crates/sync-core/src/remote_command.rs
+  - ../../crates/git-ops/src/commit_files.rs
+  - ../../crates/git-executor/src/git_command_executor.rs
+  - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../src-tauri/src/commands/review_requests.rs
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/capabilities/desktop.json
@@ -72,13 +77,17 @@ GitHub" opens its files there.
 - One `gh api graphql` per refresh (1 point of the rate limit), the search `repo:<owner>/<name> is:pr is:open
   archived:false draft:false user-review-requested:@me`, `first: 50` with the `issueCount`; the repository is the one of
   [Pull Requests](../branch/pull-requests.spec.md#reading-pull-requests) (configured, `origin`, or the Space mirror).
-  When the pull requests already named it, the frontend passes `owner/name`, and it is not resolved again.
+  When the pull requests already named it, the frontend passes `owner/name`, and it is not resolved again. A repository
+  outside GitHub never runs `gh`.
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`asks_for_the_direct_requests_of_the_repository`, `a_known_github_repository_skips_resolving_it`, `a_repository_outside_github_never_runs_gh`)
 - A request waits since the newest review request event whose reviewer is the user, else since the pull request was
   opened; who asked is that event's actor, not the author. It is re-requested when the user's latest submitted review
   is older than that; a pending review is no review. A request whose latest review is newer than the event is dropped
   (the search index lags behind a review).
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
 - A partial answer (`data` with `errors`) is read; GitHub's rate limit is `rateLimited`; every other failure is
   classified as for the pull requests and never thrown.
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures_as_gh_does`)
 - The requests are kept in memory per repository, sorted by how long they wait, then by number. An answer that changes
   nothing keeps the objects and the list, so a poll re-renders nothing.
   [@test] ../../src/lib/review-requests.test.ts (`sorts waiting the longest first`, `keeps the objects and the list of an answer that changed nothing`)
@@ -177,7 +186,10 @@ GitHub" opens its files there.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should open a commit of the pull request in the commit preview, and show the next request with ↓`)
 - The fetch (`fetch_review_head`) starts when it opens: "Fetching #101 from origin… 42%" (`tabular-nums`, "from
   GitHub" for a fork); `D` Review is disabled until it is done. One fetch at a time: another request, or the close,
-  kills the one in flight (`cancel_review_fetch`).
+  kills the one in flight (`cancel_review_fetch`); a fetch that reports nothing for 120 s is killed too ("git reported
+  nothing for 120 s"). After the answer, the source is the one the range names.
+  [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_cancel_kills_the_fetch`, `a_stalled_fetch_is_killed`)
+  [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - `D` reviews `base..head` at full width: the file tree beside all diffs, J/K files, N/P changes, "File 3 / 12"; Escape
   goes back to the preview, which Escape (or Space) closes. A re-requested review whose last review is on a commit of
@@ -186,13 +198,17 @@ GitHub" opens its files there.
 - "Review on GitHub" opens `<url>/files`: approving happens there.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - A failed fetch is a `destructive` callout "Cannot fetch pull request #101" with the reason (e.g. "GitHub asked for
-  credentials: run gh auth setup-git"), Retry and Open on GitHub.
+  credentials: run gh auth setup-git", "<remote>: <git's last line>"), Retry and Open on GitHub. A fetch killed for a
+  newer one ("canceled") is no failure.
+  [@test] ../../crates/sync-core/src/review_fetch_test.rs (`refused_github_credentials_are_told_how_to_fix`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say why a fetch failed and fetch again on Retry`)
 - When the commit the pull request shows could not be fetched (`missing`), a `warning` callout says "origin has commits
-  the pull request does not have yet; the review shows them."
+  the pull request does not have yet; the review shows them." A source ahead of the pull request (a mirror) still shows
+  the pull request's commit; a force-pushed source is `diverged`.
+  [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_mirror_ahead_of_the_pull_request_shows_the_pull_request`, `a_force_pushed_source_branch_diverged`, `a_head_that_cannot_be_got_shows_the_source_branch`)
 - A request withdrawn while the dialog is open keeps the dialog, with the quiet line "No longer waiting for your
   review".
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the dialog when the request is withdrawn meanwhile`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the dialog when the request is withdrawn meanwhile, and its refs`)
 - The close returns the focus to the row and forgets the range, its files and its patch.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move with the arrows, review with Enter and open the menu from the keyboard`)
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
@@ -206,12 +222,19 @@ GitHub" opens its files there.
   GitHub (a remote of that repository, else its URL) for a fork or a head the mirror lacks; the base too when it is not
   local, so a stale `origin/master` adds nothing to the range. The head and base land in
   `refs/branch-deck/review/<n>/{head,base}` (visible in `git log --all`); never the repository lock, the working tree
-  or the index ([Git Operations](../../docs/design/git-operations.md)).
+  or the index ([Git Operations](../../docs/design/git-operations.md)). Ids and names that could be options are refused.
+  [@test] ../../crates/sync-core/src/review_fetch_test.rs (`fetches_the_pull_ref_from_a_github_origin`, `commits_that_are_local_need_no_fetch_and_no_ref`, `fetches_the_branch_from_the_mirror_without_touching_its_remote_tracking_refs`, `a_mirror_behind_the_pull_request_falls_back_to_github`, `a_fork_is_fetched_from_github`, `a_missing_base_is_fetched_in_the_same_fetch`, `refuses_ids_and_names_that_could_be_options`)
 - The range is `merge-base(head, base)..head`; no merge base is "The pull request has no common history with master".
+  Its files and its patch are those of all its commits, by one `diff-tree` of the two commits; anything but an object id
+  is refused.
+  [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_pull_request_without_common_history_is_an_error`)
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `the_files_of_a_commit_subject_are_those_of_the_commit`, `range_patch_has_a_section_per_file_of_the_range`, `a_range_refuses_what_is_not_an_object_id`)
 - The review refs are pruned (`prune_review_refs`, one CAS transaction) after an answer with the requests, once per
   repository per start and after a fetch wrote one, and when the dialog closes; never after a failed answer; the open
   dialog's refs stay. A CAS failure is tried again the next time; across app instances it is best effort.
   [@test] ../../src/stores/review-requests.test.ts (`prunes once after an answer with the requests, never after a failure, and keeps the open dialog's`)
+  [@test] ../../crates/sync-core/src/review_fetch_test.rs (`prune_deletes_the_review_refs_not_kept`, `prune_deletes_nothing_when_a_ref_moved_meanwhile`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the dialog when the request is withdrawn meanwhile, and its refs`)
 
 ### Settings
 
@@ -241,11 +264,16 @@ GitHub" opens its files there.
 - `pnpm test:unit`: `src/lib/review-requests.test.ts` (ages, order, news, backoff), `src/stores/review-requests.test.ts`
   (polling, notifications, pruning), `src/lib/os-notification.test.ts`, `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/commit-patch.test.ts`.
+- `cargo nextest run`: `crates/sync-core/src/review_requests_test.rs` (a fake `gh`), `review_fetch_test.rs` (local
+  bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
+  `crates/test-server/src/review_requests_test.rs`.
+  [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
   `POST /repositories/{id}/review-requests` sets what `get_review_requests` answers (`availableReviewRequests` for
-  `acme/monorepo`), `GET` returns how often the app asked; `fetch_review_head` answers a range of the template branch the
-  request names; a test holds it in the page for the progress and the failure (`routeReviewFetch`). The Dock and ⌘-click
-  tests take the user agent of macOS.
+  `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns `{ calls, fetchCalls, prunes }`.
+  `fetch_review_head` runs the real function on the template: an empty head is the branch the request names, an empty
+  base the baseline, the source `local`; a test holds it in the page for the progress (`routeReviewFetch`). The Dock and
+  ⌘-click tests take the user agent of macOS.
 - In the app: a repository with direct review requests; the background notification (another app in front); a review
   fetch from a Space checkout; afterwards `git for-each-ref refs/branch-deck/review/` is empty and `git branch -r`
   unchanged.
