@@ -9,6 +9,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+/// How long the login shell may take to print its `PATH`
+const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
 pub enum ChildProcessError {
@@ -106,19 +108,21 @@ pub fn find_executable(name: &str, path: &OsStr) -> Option<PathBuf> {
 }
 
 /// `PATH` of an interactive login shell of the user (`$SHELL`), where `~/.local/bin` is usually added; `None` on Windows
-/// or when the shell fails. An app started from the Finder has only the system `PATH`.
+/// or when the shell fails or takes longer than 5 s. An app started from the Finder has only the system `PATH`.
 pub fn login_shell_path() -> Option<OsString> {
   if cfg!(windows) {
     return None;
   }
   let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
-  let output = Command::new(&shell)
-    .args(["-i", "-l", "-c", "printf '\\n%s' \"$PATH\""])
-    .stdin(Stdio::null())
-    .stderr(Stdio::null())
-    .output()
-    .inspect_err(|e| tracing::warn!(error = %e, "can't run the login shell for PATH"))
-    .ok()?;
+  // an rc file that waits for input or hangs must not block the caller (and every later lookup) for good
+  let output = run_child(
+    Command::new(&shell).args(["-i", "-l", "-c", "printf '\\n%s' \"$PATH\""]),
+    None,
+    LOGIN_SHELL_TIMEOUT,
+    &|| false,
+  )
+  .inspect_err(|e| tracing::warn!(error = ?e, "can't run the login shell for PATH"))
+  .ok()?;
   // the rc files may print before it: PATH is the last line
   let stdout = String::from_utf8_lossy(&output.stdout);
   stdout.rsplit('\n').next().filter(|path| output.status.success() && !path.is_empty()).map(OsString::from)
