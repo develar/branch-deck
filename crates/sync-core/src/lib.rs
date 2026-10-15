@@ -16,6 +16,7 @@ pub mod issue_groups;
 pub mod issue_navigation;
 pub mod landed;
 pub mod move_commits;
+pub mod move_plan;
 pub mod patronus;
 pub mod patronus_command;
 pub mod pull_requests;

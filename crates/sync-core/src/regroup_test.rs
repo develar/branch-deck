@@ -294,12 +294,30 @@ fn renames_flat_and_issue_branches() {
   let repo = repo(false);
   commits(&repo, &["(feat) Add feature", "ABC-1 Fix parser", "(feat/sub) Flat name with a slash"]);
   rename_branch_core(repo.git_executor(), path(&repo), "feat", "feature", &RegroupOptions::default()).unwrap();
-  rename_branch_core(repo.git_executor(), path(&repo), "ABC-1", "parser", &RegroupOptions::default()).unwrap();
+  let head = repo.head();
+  // an issue branch is named by the issue groups, without a rewrite
+  let outcome = rename_branch_core(repo.git_executor(), path(&repo), "ABC-1", "parser", &RegroupOptions::default()).unwrap();
+  assert_eq!(repo.head(), head);
+  assert_eq!(groups(&outcome)[1], Some("parser"));
+  assert_eq!(outcome.issue_groups.unwrap().entries, BTreeMap::from([("ABC-1".to_string(), "parser".to_string())]));
   // without stacks `feat/sub` is a flat name, not a child of feat
-  assert_eq!(
-    subjects(&repo, 3),
-    ["(feature) Add feature", "(parser) ABC-1 Fix parser", "(feat/sub) Flat name with a slash"]
-  );
+  assert_eq!(subjects(&repo, 3), ["(feature) Add feature", "ABC-1 Fix parser", "(feat/sub) Flat name with a slash"]);
+
+  // renamed back to its key, it is the issue branch again
+  let outcome = rename_branch_core(repo.git_executor(), path(&repo), "parser", "ABC-1", &RegroupOptions::default()).unwrap();
+  assert_eq!(groups(&outcome)[1], Some("ABC-1"));
+  assert_eq!(outcome.issue_groups.unwrap().entries, BTreeMap::new());
+}
+
+#[test]
+fn an_issue_branch_renamed_into_a_stacked_branch_gets_a_prefix() {
+  let repo = repo(true);
+  commits(&repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login"]);
+  let outcome = rename_branch_core(repo.git_executor(), path(&repo), "ABC-1", "login", &RegroupOptions::default()).unwrap();
+  // an issue group can't be stacked: the bare leaf joins login under its parent
+  assert_eq!(subjects(&repo, 3)[2], "(login) ABC-1 Fix login");
+  assert!(outcome.issue_groups.is_none());
+  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
 }
 
 #[test]

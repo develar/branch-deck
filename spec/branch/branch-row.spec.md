@@ -198,16 +198,20 @@ parent's commits runs into the rule of its children.
 
 - A row must show the pointer and `bg-muted` on hover; an expanded row keeps `bg-muted/50`.
 - A click on the row or on its folder button must toggle its commits. A click on another button, a chip or a link in
-  the row must not.
+  the row must not. Cmd/Ctrl-click and Shift-click must select the row instead (`data-selected`, `bg-primary/15`), for
+  "Move to…" of the selected branches ([Move Commits](move-commits.spec.md)).
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should move the selected branches to a new branch with Move to…`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
 - A right-click must open the branch menu, the same as "⋯" in the Actions cell. A row running an inline action has no
   menu.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display context menu with copy options`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
+- A row with commits must be draggable: it drags the branch, or all selected branches.
 - While commits are dragged, every row that takes them must show a dashed outline, and the row under the pointer the
-  primary tint and a solid outline.
+  primary tint and a solid outline; its rows below take the drop too.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back`)
 - A reveal (a branch clicked in the outgoing overview, "Show auth", moved commits) must expand the row and scroll it
   into view.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show and expand the row of a branch clicked in the overview`)

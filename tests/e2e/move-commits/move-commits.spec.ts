@@ -1,30 +1,15 @@
 // @spec spec/branch/move-commits.spec.md
-import type { Locator, Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
-import { clickContextMenuItem, clickGroupIntoBranchButton, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
+import { clickContextMenuItem, clickGroupIntoBranchButton, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 
 const ISSUE = "ABC-123"
 
 /** Names of the branch rows in display order */
 async function branchOrder(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name") ?? ""))
-}
-
-/** Starts a native drag of a commit row and keeps the button pressed; finish it with `dropOn` */
-async function startDrag(page: Page, row: Locator): Promise<void> {
-  await row.scrollIntoViewIfNeeded()
-  await row.hover()
-  await page.mouse.down()
-  const box = (await row.boundingBox())!
-  // the drag starts on the first move
-  await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 10, { steps: 4 })
-}
-
-async function dropOn(page: Page, target: Locator): Promise<void> {
-  await target.hover()
-  await page.mouse.up()
 }
 
 test.describe("Move commits", () => {
@@ -100,7 +85,7 @@ test.describe("Move commits", () => {
     await verifyCommitCount(findBranchRow(page, "documentation"), "1 commit")
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
 
-    // every commit gets the prefix; the issue is shown next to the name, as no branch is named after it any more
+    // named by the issue groups, without a rewrite; the issue is shown next to the name, as no branch is named after it any more
     await openContextMenu(page, findBranchRow(page, ISSUE))
     await clickContextMenuItem(page, "Name This Branch…")
     await submitInlineForm(page.getByTestId("inline-rename-input").locator("input[type=\"text\"]"), "parser")

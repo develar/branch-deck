@@ -87,6 +87,8 @@ pub struct RegroupedCommit {
   pub changed: bool,
   /// The branch the commit is grouped into afterwards (the leaf with stacked branches on); `None` if unassigned
   pub group: Option<String>,
+  /// The branch the commit was grouped into before
+  pub previous_group: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +106,9 @@ pub struct RegroupOutcome {
   pub forest: Option<StackForest>,
   /// Problems of the result that already existed before it: reported, not refused. `(branch, problem)`
   pub kept_problems: Vec<(String, StackProblem)>,
+  /// With stacked branches on, the branches whose declared parent had commits before and has none afterwards: they are
+  /// blocked until it has commits again
+  pub orphaned_children: Vec<String>,
 }
 
 impl RegroupOutcome {
@@ -119,6 +124,8 @@ pub struct IssueGroupsChange {
   pub previous_commit: Option<String>,
   /// The commit written; `None` for a dry run
   pub new_commit: Option<String>,
+  /// Issue key -> branch name before
+  pub previous_entries: IssueGroupEntries,
   /// Issue key -> branch name afterwards: the plan changes only the keys it names (and a rename the entries of the old
   /// name); a key that groups no commit on this HEAD stays, for another branch or worktree
   pub entries: IssueGroupEntries,
@@ -279,6 +286,8 @@ pub struct Snapshot {
   pub commits: Vec<Commit>,
   /// Commit id -> its group now
   pub groups: HashMap<String, Option<String>>,
+  /// How the branches stack now; `None` with stacked branches off
+  pub forest: Option<StackForest>,
 }
 
 /// Where each commit of a plan goes: `Some(path)` or `None` for no prefix
@@ -323,9 +332,22 @@ pub fn regroup_commits_accepted(
   regroup_accepted(git_executor, repository_path, options, |snapshot| resolve_plan(snapshot, plan), accept)
 }
 
+/// Apply the plan that `plan` makes from the snapshot, which is read under the repository lock: a plan that depends on
+/// how the commits group now (`move_plan.rs`) is computed for exactly the HEAD it rewrites
+pub(crate) fn regroup_planned(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  options: &RegroupOptions,
+  plan: impl FnOnce(&Snapshot) -> Result<RegroupPlan, RegroupError>,
+) -> Result<RegroupOutcome, RegroupError> {
+  regroup_with(git_executor, repository_path, options, |snapshot| resolve_plan(snapshot, &plan(snapshot)?))
+}
+
 /// Rename branch `old_leaf` to `new_leaf` (a leaf, without `/`): every commit whose prefix path names `old_leaf` gets it
-/// replaced, its children included; the issue groups named `old_leaf` are renamed without a rewrite; the commits of an
-/// issue branch named `old_leaf` get the prefix `(new_leaf)`. An existing name merges the branches
+/// replaced, its children included; the issue groups named `old_leaf` are renamed without a rewrite; an issue branch
+/// named `old_leaf` becomes the issue group `old_leaf -> new_leaf`, also without a rewrite, unless either branch is
+/// stacked: an issue group can't be, so then its commits get the prefix `(new_leaf)`. An existing name merges the
+/// branches
 #[instrument(skip(git_executor))]
 pub fn rename_branch_core(
   git_executor: &GitCommandExecutor,
@@ -340,6 +362,9 @@ pub fn rename_branch_core(
   }
   regroup_with(git_executor, repository_path, options, |snapshot| {
     let entries = &snapshot.grouping.issue_groups.entries;
+    let stacked = |leaf: &str| snapshot.forest.as_ref().is_some_and(|forest| forest.declared_parent(leaf).is_some());
+    let issue_branch_by_prefix = stacked(old_leaf) || stacked(new_leaf);
+    let mut issue_branch_key = None;
     let mut assignment = Assignment::new();
     for commit in &snapshot.commits {
       let parsed = parse_subject(&commit.subject);
@@ -348,14 +373,16 @@ pub fn rename_branch_core(
         Some(prefix) => Some(vec![sanitize_branch_name(prefix.trim())]),
         // an issue group is renamed in the issue groups below
         None if issue_group_of(&commit.subject, entries).is_some() => None,
-        // an issue branch is renamed by giving its commits a prefix
-        None => snapshot
-          .groups
-          .get(&commit.id)
-          .cloned()
-          .flatten()
-          .filter(|group| group == old_leaf)
-          .map(|group| vec![group]),
+        // an issue branch becomes an issue group below, or joins a stacked branch by a prefix
+        None if snapshot.groups.get(&commit.id).is_some_and(|group| group.as_deref() == Some(old_leaf)) => {
+          if issue_branch_by_prefix {
+            Some(vec![old_leaf.to_string()])
+          } else {
+            issue_branch_key = Some(old_leaf);
+            None
+          }
+        }
+        None => None,
       };
       if let Some(path) = path.filter(|path| path.iter().any(|level| level == old_leaf)) {
         let renamed: Vec<&str> = path.iter().map(|level| if level == old_leaf { new_leaf } else { level.as_str() }).collect();
@@ -366,18 +393,20 @@ pub fn rename_branch_core(
       .commits
       .iter()
       .any(|commit| issue_group_of(&commit.subject, entries).is_some_and(|(_, name)| name == old_leaf));
-    if assignment.is_empty() && !grouped_through_map {
+    if assignment.is_empty() && !grouped_through_map && issue_branch_key.is_none() {
       return Err(RegroupError::invalid(
         format!("No branch named {old_leaf:?} among the commits ahead of the baseline"),
         Vec::new(),
       ));
     }
-    let issue_groups = entries.values().any(|name| name == old_leaf).then(|| {
-      entries
-        .iter()
-        .map(|(key, name)| (key.clone(), if name == old_leaf { new_leaf.to_string() } else { name.clone() }))
-        .collect()
-    });
+    let mut renamed: IssueGroupEntries = entries
+      .iter()
+      .map(|(key, name)| (key.clone(), if name == old_leaf { new_leaf.to_string() } else { name.clone() }))
+      .chain(issue_branch_key.map(|key| (key.to_string(), new_leaf.to_string())))
+      .collect();
+    // a key renamed into its own name is its issue branch again
+    renamed.retain(|key, name| key != name || name != new_leaf);
+    let issue_groups = (renamed != *entries).then_some(renamed);
     Ok(Change {
       assignment,
       issue_groups,
@@ -638,7 +667,7 @@ pub(crate) fn read_guarded_snapshot(git_executor: &GitCommandExecutor, repositor
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   let baseline = detect_baseline_branch(git_executor, repository_path, "master")?;
   let commits = get_commit_list(git_executor, repository_path, &baseline)?;
-  let groups = group_commits(&commits, &grouping).groups;
+  let Grouped { groups, forest, .. } = group_commits(&commits, &grouping);
   Ok(Snapshot {
     head,
     branch,
@@ -646,6 +675,7 @@ pub(crate) fn read_guarded_snapshot(git_executor: &GitCommandExecutor, repositor
     baseline,
     commits,
     groups,
+    forest,
   })
 }
 
@@ -948,6 +978,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     changed.then(|| IssueGroupsChange {
       previous_commit: before.issue_groups.commit.clone(),
       new_commit: None,
+      previous_entries: before.issue_groups.entries.clone(),
       entries: entries.clone(),
       kept_lines: after.issue_groups.problems.iter().map(|problem| problem.line.clone()).collect(),
     })
@@ -956,10 +987,10 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     after.issue_groups = before.issue_groups.clone();
   }
 
-  let forest_before = group_commits(&snapshot.commits, before).forest;
+  let forest_before = snapshot.forest.as_ref();
   let mut kept_problems = Vec::new();
   if let Some(after) = &forest {
-    let before: HashSet<(String, String)> = forest_before.as_ref().map_or_else(HashSet::new, |forest| {
+    let before: HashSet<(String, String)> = forest_before.map_or_else(HashSet::new, |forest| {
       forest
         .nodes
         .iter()
@@ -985,6 +1016,21 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     }
   }
 
+  let orphaned_children = match (forest_before, &forest) {
+    (Some(before), Some(after)) => {
+      let has_commits = |forest: &StackForest, name: &str| forest.nodes.get(name).is_some_and(|node| node.has_commits);
+      after
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.has_commits)
+        .filter_map(|(name, node)| node.declared_parent.as_deref().map(|parent| (name, parent)))
+        .filter(|(_, parent)| has_commits(before, parent) && !has_commits(after, parent))
+        .map(|(name, _)| name.clone())
+        .collect()
+    }
+    _ => Vec::new(),
+  };
+
   let commits = snapshot
     .commits
     .iter()
@@ -996,6 +1042,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
       changed: after.message != before.message,
       message: after.message.clone(),
       group: groups.get(&before.id).cloned().flatten(),
+      previous_group: snapshot.groups.get(&before.id).cloned().flatten(),
     })
     .collect();
   Ok(RegroupOutcome {
@@ -1006,6 +1053,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     commits,
     forest,
     kept_problems,
+    orphaned_children,
   })
 }
 

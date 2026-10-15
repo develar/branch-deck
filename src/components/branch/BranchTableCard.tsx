@@ -1,8 +1,10 @@
-import { lazy, Suspense, useCallback, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import type { KeyboardEvent } from "react"
 import { GitBranchPlusIcon } from "lucide-react"
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
 import { BranchRow } from "@/components/branch/BranchRow"
+import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
 import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
@@ -12,9 +14,10 @@ import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useSpacePreviewHotkey } from "@/hooks/useSpacePreviewHotkey"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import type { CommitDrag } from "@/stores/commit-move"
-import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
-import { syncBranches, useBranchTableRows } from "@/stores/branch-sync"
+import { pruneSelection } from "@/lib/branch-selection"
+import { hasKeyModifier } from "@/lib/preview-keys"
+import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
+import { syncBranches, useBranchTableRows, useFoundCommits } from "@/stores/branch-sync"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
 
@@ -24,7 +27,8 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacked branches under their parents. Subscribes to the row list only; each
  * row subscribes to its own branch.
- * Space (over a branch row, or on the last toggled row of the focused table) opens the branch preview.
+ * Space (over a branch row, or on the last toggled row of the focused table) opens the branch preview. Cmd/Ctrl-click
+ * and Shift-click select branch rows: M or Enter opens "Move to…" for them, Cmd+A selects all, Escape clears.
  */
 export function BranchTableCard() {
   const rows = useBranchTableRows()
@@ -60,16 +64,56 @@ export function BranchTableCard() {
     void syncBranches()
   })
 
+  // a branch gone after a sync (renamed, merged) leaves the selection
+  const selectedBranches = useCommitMove(state => state.selectedBranches)
+  const branchKey = branchNames.join("\n")
+  useEffect(() => {
+    const pruned = pruneSelection(selectedBranches, new Set(branchKey.split("\n")))
+    if (pruned !== selectedBranches) {
+      setSelectedBranches(pruned)
+    }
+  }, [branchKey, selectedBranches])
+  const hasDrop = useCommitMove(state => state.drag !== null || state.newBranchDrop !== null)
+
   if (rows.length === 0) {
-    return null
+    // with no branch yet, the zone is where dragged commits go
+    return hasDrop
+      ? (
+          <Card className="gap-0 py-0">
+            <NewBranchDropZone />
+          </Card>
+        )
+      : null
+  }
+
+  const onTableKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
+    // the keys of the commit lists in the expanded rows are theirs
+    const target = event.target as HTMLElement
+    if (event.defaultPrevented || (target !== event.currentTarget && target.closest("[data-testid=branch-row]") === null)) {
+      return
+    }
+    const hasSelection = getSelectedBranches().length > 0
+    if (event.key === "Escape" && hasSelection) {
+      event.preventDefault()
+      clearBranchSelection()
+    }
+    else if (hasSelection && (event.key === "Enter" || (event.code === "KeyM" && !hasKeyModifier(event)))) {
+      event.preventDefault()
+      setBranchTargetOpen(true)
+    }
+    else if (event.code === "KeyA" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
+      event.preventDefault()
+      setSelectedBranches(branchNames)
+    }
   }
 
   return (
     <Card className="gap-0 py-0">
+      <BranchSelectionBar />
       <NewBranchDropZone />
       <div className="overflow-x-auto">
         {/* focusable, so a click on a row gives it the focus that Space falls back on */}
-        <table ref={tableRef} tabIndex={-1} className="w-full outline-none">
+        <table ref={tableRef} tabIndex={-1} className="w-full outline-none" onKeyDown={onTableKeyDown}>
           <thead className="border-b border-border">
             <tr>
               <TableHeader>Branch Name</TableHeader>
@@ -122,20 +166,33 @@ export function BranchTableCard() {
   )
 }
 
-/** Shown while commits are dragged: dropping them opens the "Move to…" form for a new branch here. */
+/**
+ * Shown while commits or branches are dragged: dropping them opens the "Move to…" form for a new branch here. The form
+ * keeps the ids of the dropped commits and closes when a rewrite gave one of them another id.
+ */
 function NewBranchDropZone() {
-  const [dropped, setDropped] = useState<CommitDrag | null>(null)
-  const dropTarget = useCommitDropTarget(NEW_BRANCH_TARGET, setDropped)
+  const dropped = useCommitMove(state => state.newBranchDrop)
+  const dropTarget = useCommitDropTarget(NEW_BRANCH_TARGET, drag => setNewBranchDrop({ sourceKeys: drag.sourceKeys, commitIds: drag.commits.map(commit => commit.originalHash) }))
+  const commits = useFoundCommits(dropped?.commitIds ?? [])
+  const isGone = dropped !== null && commits === null
+  useEffect(() => {
+    if (isGone) {
+      setNewBranchDrop(null)
+    }
+  }, [isGone])
 
-  if (dropped !== null) {
+  if (dropped !== null && commits !== null) {
     return (
       <div className="border-b border-border">
         <InlineBranchTarget
-          commits={dropped.commits}
-          sourceBranch={dropped.sourceKey === UNASSIGNED_SOURCE ? null : dropped.sourceKey}
+          commits={commits}
+          sourceBranches={dropped.sourceKeys.filter(key => key !== UNASSIGNED_SOURCE)}
           isActive
-          onCancel={() => setDropped(null)}
-          onSuccess={() => setDropped(null)}
+          onCancel={() => setNewBranchDrop(null)}
+          onSuccess={() => {
+            setNewBranchDrop(null)
+            clearBranchSelection()
+          }}
         />
       </div>
     )

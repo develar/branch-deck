@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_core::autosquash::{FixupKind, plan_autosquash};
 use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
-use sync_core::commit_ids::{IdMatch, match_commit_id};
+use sync_core::commit_ids::{ResolvedIds, resolve_commit_ids};
 use sync_core::grouping::BranchGrouping;
 use sync_core::move_commits::with_branch_prefix;
 use sync_utils::issue_pattern::find_issue_number;
@@ -285,17 +285,12 @@ impl Scope {
 
 /// The full ids of `ids`, each a prefix of at least 4 characters of exactly one commit ahead of the baseline
 pub(crate) fn resolve_ids(ids: &[String], commit_ids: &[String]) -> Result<HashSet<String>, CliError> {
-  let mut resolved = HashSet::new();
-  let (mut unknown, mut ambiguous) = (Vec::new(), Vec::new());
-  for id in ids {
-    match match_commit_id(id, commit_ids.iter().map(String::as_str)) {
-      IdMatch::One(full) => {
-        resolved.insert(full.to_string());
-      }
-      IdMatch::None => unknown.push(id.clone()),
-      IdMatch::Ambiguous => ambiguous.push(id.clone()),
-    }
-  }
+  let candidates: Vec<&str> = commit_ids.iter().map(String::as_str).collect();
+  let ResolvedIds {
+    full: resolved,
+    unknown,
+    ambiguous,
+  } = resolve_commit_ids(ids, &candidates);
   let (code, message, commits) = if !ambiguous.is_empty() {
     (ErrorCode::InvalidArguments, "Ambiguous commit ids", ambiguous)
   } else if !unknown.is_empty() {

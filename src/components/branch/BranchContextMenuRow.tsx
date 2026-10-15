@@ -1,4 +1,4 @@
-import type { DragEvent, ReactNode } from "react"
+import type { DragEvent, MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 
@@ -23,7 +23,13 @@ interface BranchContextMenuRowProps {
     onDragLeave?: (event: DragEvent) => void
     onDrop?: (event: DragEvent) => void
   }
-  "onToggle": () => void
+  /** The row is selected (`data-selected`) */
+  "selected"?: boolean
+  /** The row can be dragged: a drag of the branch, or of the selected branches */
+  "onDragStart"?: (event: DragEvent) => void
+  "onDragEnd"?: () => void
+  /** A click on the row: it toggles the expansion, or, with a modifier, the selection */
+  "onToggle": (event: MouseEvent) => void
   /** the menu items, rendered only while the menu is open */
   "menu": ReactNode
   /** the row cells */
@@ -34,7 +40,7 @@ interface BranchContextMenuRowProps {
  * Table row of a branch that toggles its expansion on click and opens the branch context menu on right-click.
  * Focusable (not a tab stop): an inline form of the row gives the focus back to it when it closes.
  */
-export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, dropTarget, dropProps, onToggle, menu, children }: BranchContextMenuRowProps) {
+export function BranchContextMenuRow({ name, rowId, expanded, processing, group = false, className, "data-testid": testId, depth = 0, dropTarget, dropProps, selected, onDragStart, onDragEnd, onToggle, menu, children }: BranchContextMenuRowProps) {
   return (
     <ContextMenu disabled={processing}>
       <ContextMenuTrigger
@@ -46,13 +52,18 @@ export function BranchContextMenuRow({ name, rowId, expanded, processing, group 
             data-depth={depth > 0 ? depth : undefined}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
+            data-selected={selected === undefined ? undefined : String(selected)}
             tabIndex={-1}
+            draggable={onDragStart === undefined ? undefined : true}
             className={cn(
               group && "group",
               "cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset",
+              selected === true && "bg-primary/15 hover:bg-primary/20",
               className,
             )}
             onClick={onToggle}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
             {...dropProps}
           />
         )}

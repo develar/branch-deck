@@ -1,15 +1,21 @@
 ---
 name: Move Commits
-description: Requirements for moving commits between branches by their explicit prefix, renaming and ungrouping a branch, and nesting the branches of an issue.
+description: Requirements for moving commits and whole branches into one branch with the smallest change (a whole issue by the issue groups, the rest by the explicit prefix), from every gesture, renaming and ungrouping a branch, and nesting the branches of an issue.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/move_commits.rs
+  - ../../crates/sync-core/src/move_plan.rs
+  - ../../crates/sync-core/src/stack_operations.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/sync-core/src/reword_commit.rs
   - ../../crates/sync-core/src/commit_grouper.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../src/hooks/useMoveCommits.ts
+  - ../../src/hooks/useMovePreview.ts
+  - ../../src/hooks/useStackActions.ts
+  - ../../src/lib/move-summary.ts
+  - ../../src/lib/branch-selection.ts
   - ../../src/hooks/useCommitMoveList.ts
   - ../../src/hooks/useCommitDrag.ts
   - ../../src/hooks/useBranchContextActions.ts
@@ -21,7 +27,10 @@ targets:
   - ../../src/components/branch/InlineUngroupConfirm.tsx
   - ../../src/stores/inline-row-action.ts
   - ../../src/components/branch/BranchTableCard.tsx
+  - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/branch/BranchRow.tsx
+  - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/stores/commit-move.ts
   - ../../src/stores/branch-sync.ts
@@ -30,21 +39,30 @@ targets:
 # Move Commits
 
 Status: Implemented
-Date: 2026-10-14
+Date: 2026-10-15
 
 ## Summary
 
-A commit belongs to a branch through its subject. An explicit `(name)` prefix wins, then the issue key
-(`ABC-123: …`). To push part of an issue on its own, the user moves some of its commits to another branch. The move sets
-the explicit prefix of the commits, so `ABC-123: Add lexer` becomes `(lexer) ABC-123: Add lexer`. The issue key stays
-in the pushed message. One operation, "move commits to branch X", serves every list, the context menus, the keyboard
-and drag and drop. Renaming and ungrouping a branch are moves of all its commits.
+A branch is what ships together: one push, one Safe Push, one pull request. A commit belongs to a branch through its
+subject: an explicit `(name)` prefix wins, then the [issue group](issue-groups.spec.md) of its issue key, then the key
+(`ABC-123: …`). One operation, "move these commits to branch X", serves every list, the branch rows, the context menus,
+the keyboard and drag and drop, and it makes the smallest change:
+
+- the whole of an issue (every commit of its key without a prefix) moves by the issue groups, without a rewrite, so the
+  next commit of the issue goes there too: `IJPL-1`, `IJPL-2` and `IJPL-3` dragged onto `maps` ship as one branch;
+- a part of an issue, a commit without a key and every stacked target get the prefix, so `ABC-123: Add lexer` becomes
+  `(lexer) ABC-123: Add lexer` (the issue key stays in the pushed message);
+- a commit that its key puts into X anyway loses its prefix.
+
+Renaming and ungrouping a branch are moves of all its commits.
 
 ## Goals
 
+- Ship several issues as one branch with one gesture, and keep it so for their next commits.
 - Split an issue branch into branches that can be pushed separately, without editing messages one by one.
-- Move commits to an existing branch or to a new one with the same gesture.
-- Undo a move.
+- Move commits, or whole branches, to an existing branch or to a new one with the same gesture.
+- Rewrite history only where the grouping needs it.
+- Say before the move what it does, and undo it in one step.
 - Keep the branches of one issue together in the branch table.
 
 ## Non-goals
@@ -56,10 +74,26 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 
 ### Move operation
 
-- A move must set the explicit prefix of each commit, replacing an existing one, and keep the rest of the subject and
-  the body.
-- A move without a target must remove the explicit prefix: the commit goes back to its issue branch, or to the
-  unassigned commits.
+- A move must make the smallest regroup (`plan_move`), computed from the commits read under the repository lock. An
+  issue is whole when the move takes every commit of its key without a prefix, and there is at least one; the fixups
+  of a moved commit count as moved.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`whole_issues_join_a_branch_without_a_rewrite_and_their_next_commits_follow`, `the_fixups_of_a_whole_issue_move_with_it`)
+- A whole issue must move by the issue groups (`KEY -> X`), without a rewrite, also when its key was in another issue
+  group; a whole issue moved to the branch of its own key leaves its issue group. A part of an issue and a commit
+  without a key must get the prefix `(X)`, in the same history rewrite and ref transaction.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_part_of_an_issue_and_a_commit_without_a_key_get_the_prefix_in_the_same_transaction`, `moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them`)
+- A commit that its key puts into X without a prefix (an issue branch named X, an issue group X) must lose its prefix,
+  not get `(X)`.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix`)
+- A stacked target (a path `auth/login`, or a branch with a declared parent) must take every commit by the prefix: an
+  issue group can't be stacked.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_stacked_target_gets_the_prefix`)
+- A prefix must replace an existing one and keep the rest of the subject and the body.
+- A move without a target (back) must remove the explicit prefix: the commit goes back to its issue group, its issue
+  branch, or to the unassigned commits. A whole issue in an issue group must leave it; a part of one must get the
+  prefix of its key.
+- A dry run must say what the move would do and write nothing, without the lock; a move may name the HEAD it expects.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head`)
 - An autosquash marker must stay in front: `fixup! (a) X` becomes `fixup! (b) X`.
 - The fixups of a moved commit must move with it, and be listed after the requested commits for the undo.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`moves_the_fixups_with_their_target`)
@@ -68,7 +102,7 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
   [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `fixups_follow_their_targets`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
 - Rewrites must hold the repository lock, so the app and the agent CLI don't rewrite the branch at the same time.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`)
-- A commit already in the target branch must not be rewritten.
+- A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.
   [@test] ../../crates/sync-core/src/reword_commit_test.rs (`reword_preserves_committer`)
@@ -80,13 +114,28 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 ### Selection and the "Move to…" form
 
 - The commits of a branch table row and of the unassigned commits card must be selectable.
-- Only one list must hold a selection: selecting in another list must clear it.
+- The branch rows must be selectable: Cmd/Ctrl-click toggles a row, Shift-click selects the rows from the last clicked
+  one, Cmd+A selects all, Escape clears; a plain click expands the row and clears the selection.
+  [@test] ../../src/lib/branch-selection.test.ts (`selects a range of rows from the anchor, in table order`)
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should move the selected branches to a new branch with Move to…`)
+- Only one list must hold a selection, the branch table included: selecting in another list must clear it.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
-- A selection must show "N selected" and a "Move to…" button, above the branch commits or in the unassigned card header.
-- A selection with an explicit prefix must also offer "Move Back to ABC-123" (the issue group of the key when it has
-  one, see [Issue Groups](issue-groups.spec.md)), or "Move to Unassigned".
-- "Move to…", Enter or M must open the form. One name input decides: an existing branch name moves the commits there,
-  a new name creates the branch. The help text and the submit button ("Move" or "Create") must say which.
+  [@test] ../../src/stores/commit-move.test.ts (`clears the selected branches and their form when a commit list takes the selection`)
+- A selection must show "N selected" and a "Move to…" button, above the branch commits or in the unassigned card header;
+  selected branches "N branches selected", "Move to…" and a clear button above the branch table.
+- A selection with a way back must also offer it: "Move Back to ABC-123" (the issue group of the key when it has
+  one, see [Issue Groups](issue-groups.spec.md); the issue branch of the key for a commit an issue group holds), "Move
+  to Unassigned", "Remove Prefix", or "Move Back" when they go back to several branches.
+  [@test] ../../src/hooks/useCommitMoveList.test.ts (`moves the commits that the issue groups put into a branch back to the issue branch of their key`)
+- "Move to…", Enter or M must open the form, for the selected commits or for all commits of the selected branches. One
+  name input decides: an existing branch name moves the commits there, a new name creates the branch. The help text and
+  the submit button ("Move" or "Create") must say which.
+- The help text must say what the move does, from its dry run: the issues that go there by their key, without a
+  rewrite, and the commits that get the prefix ("rewrites them to start with (lexer)" when all do). A refused plan must
+  show its reason and disable the submit; commits all in the branch already say so.
+- The form must warn when it empties a pushed branch: its remote branch and pull request stay. A child whose parent the
+  move empties is a muted note: it stays stacked on the parent and is built on the baseline until the parent has
+  commits again.
 - The form must offer the existing branches as chips, the branches of the same issue first, then the AI suggestions
   ([Branch Name Suggestions](branch-name-suggestions.spec.md)).
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
@@ -99,14 +148,18 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 ### Context menus
 
 - The commit menu must offer "Move to…" with the key `M` (the label of the selection button, for one commit or many),
-  a "Move to Existing" submenu with the branches and "New Branch…", and "Move Back to ABC-123", "Move to Unassigned" or
-  "Remove Prefix" for commits with an explicit prefix.
+  a "Move to Existing" submenu with the branches and "New Branch…", and the way back of the commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`, `should move a split commit back to its issue and a prefix commit to the unassigned commits`)
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
-- The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch. Both move all
-  commits of the branch to the new name; an existing name merges the branches. "Rename…" of an issue group renames it
-  in the issue groups, without a rewrite (`rename_branch`).
-- The branch menu of a prefix branch must offer "Ungroup", which removes the prefix of all its commits.
+- The branch menu must offer "Move to…" with the key `M` and "Move to Existing ›", for all commits of the branch, or of
+  every selected branch when the row is selected.
+- The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch, through
+  `rename_branch`; an existing name merges the branches. "Name This Branch…" and "Rename…" of an issue group change the
+  issue groups only, without a rewrite; with stacked branches on, naming an issue branch after a stacked one gives its
+  commits the prefix.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_flat_and_issue_branches`, `an_issue_branch_renamed_into_a_stacked_branch_gets_a_prefix`)
+- The branch menu of a prefix branch and of an issue group must offer "Ungroup": it moves all its commits back, the
+  prefixes go and the issues leave the issue group.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
 - While a rename or an ungroup runs, its form must show the progress row ("Renaming docs to documentation…"); it closes
   when the commits moved. A failure must keep the form with the typed name (the error is a toast).
@@ -119,21 +172,30 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 
 ### Drag and drop
 
-- A commit row must be draggable. Dragging a selected row must drag the selection.
-- A branch row of another branch must accept the drop and move the commits there.
-- The source branch must not accept the drop.
-- The unassigned commits card must accept commits with an explicit prefix and remove it.
+- A commit row must be draggable. Dragging a selected row must drag the selection; dragging another row must make it
+  the selection, so what moves is what is selected.
+- A branch row must be draggable: it drags the branch, or every selected branch, with all their commits.
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back`)
+- Another branch must accept the drop on its row and on its rows below (the inline form, the expanded commits) and
+  move the commits there. The source branch must not accept a drag that comes from it alone.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
-- While commits are dragged, a "new branch" zone must appear above the branch table. A drop there must open the
-  "Move to…" form for the dragged commits.
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drop a commit on the expanded commits of a branch, and drag an unselected row instead of the selection`)
+  [@test] ../../src/stores/commit-move.test.ts (`drops anywhere but on the one list a drag comes from`)
+- The unassigned commits card must accept the commits and branches that have a way back, and move them back.
+- While commits are dragged, a "new branch" zone must appear above the branch table, also when there is no branch yet.
+  A drop there must open the "Move to…" form for the dragged commits; the form keeps their ids and closes when a rewrite
+  gave one of them another id.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag an unassigned commit onto the new branch zone`)
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should offer the new branch zone when there is no branch yet`)
 
 ### After a move
 
-- A move must show a toast "Moved N commits to X" with an Undo button. Undo must restore the previous messages in one
-  history rewrite.
+- A move must show a toast "Moved N commits to X" (N counts the commits that moved, not those already there) with what
+  it did as the description ("IJPL-2 goes to docs by the issue key from now on, without a rewrite") and an Undo button.
+- Undo of a move, a rename and a restack must move HEAD and the issue groups back in one ref transaction with
+  compare-and-swap, under the repository lock (`undo_regroup` with the `undo_token` of the result).
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`)
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewords_several_commits_in_one_pass`)
+  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_parent_renames_it_in_its_children`, `undo_refuses_a_bad_token_and_a_moved_head`)
 - The target branch must expand and scroll into view, with the moved commits selected.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
 
@@ -154,14 +216,17 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 ## User Experience
 
 - The selection actions sit right-aligned above the branch commits, in the card header for the unassigned commits.
-- "Move to…" is an outline `xs` button in the primary colour. The remove-prefix action is a ghost `xs` button.
+- "Move to…" is an outline `xs` button in the primary colour. The way back is a ghost `xs` button.
+- The branch selection bar sits right-aligned above the branch table header, with a ghost `icon-xs` clear button; a
+  selected branch row is `bg-primary/15`, like a selected commit row.
 - A droppable branch row has a dashed `outline-primary/30`. The row under the pointer gets `bg-primary/10` and a solid
-  primary outline. The unassigned card gets a primary ring.
+  primary outline, its rows below `bg-primary/5`. The unassigned card gets a primary ring.
+- The warning of the form is `text-warning`; the note about stacked children is muted.
 - The chips of the form are `xs` buttons (`ChoiceChip`) in one style for the existing branches and the AI suggestions:
   the chip whose name the input holds is soft primary (`bg-primary/10 text-primary`, `aria-pressed`), the others
   `secondary`. A suggestion still being generated is a disabled `secondary` chip with a spinner and "Generating…".
 - The new branch zone is a dashed `border-primary/50` nested panel (`rounded-lg`) with a `GitBranchPlus` icon.
-- The drag image is a primary badge "N commits".
+- The drag image is a primary badge "N commits", or "2 branches · 5 commits".
 - A nested branch row is indented under the issue's icon, behind a `border-l border-border` rule.
 - The issue chip is an `outline` badge with the key as an issue link.
 
@@ -169,14 +234,16 @@ and drag and drop. Renaming and ungrouping a branch are moves of all its commits
 
 - `pnpm test:backend`: `move_commits_test.rs`, `reword_commit_test.rs`, `sync_test.rs`.
 - `pnpm test:unit`: the grouping rule (`src/lib/commit.test.ts`) and the issue families (`src/stores/branch-sync.test.ts`).
-- `pnpm e2e`: `tests/e2e/move-commits` uses the `issue_split` template.
+- `pnpm e2e`: `tests/e2e/move-commits` uses the `issue_split` and `issue_combine` templates.
 
 ## Open Questions / Risks
 
 - A split can create a conflict when a moved commit depends on a commit left behind. The sync shows it, and Undo
   restores the previous grouping.
-- The undo uses the new commit ids. A history rewrite in a terminal between the move and the undo makes the undo fail
-  with an error toast.
+- The undo needs HEAD and the issue groups where the move left them: a commit or a rewrite in a terminal between the move
+  and the undo makes it fail with an error toast.
+- The issue groups are shared by every worktree: a whole issue moved here also moves its commits in another worktree.
+- A `fixup! <id>` names its target by hash: a prefix in front of the id leaves it without a target.
 
 ## References
 

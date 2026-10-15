@@ -1,16 +1,54 @@
-use crate::move_commits::{MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
+use crate::issue_groups::read_issue_groups;
+use crate::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
+use crate::regroup::regroup_test::{commits, path, regroup, repo};
+use crate::regroup::{RegroupError, RegroupPlan};
+use crate::stack_operations::{UndoRegroupParams, undo_regroup};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use sync_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
+fn params(test_repo: &TestRepo, commit_ids: &[&str], target_branch: Option<&str>) -> MoveCommitsParams {
+  MoveCommitsParams::new(path(test_repo), commit_ids.iter().map(|id| (*id).to_string()).collect(), target_branch)
+}
+
 fn move_to(test_repo: &TestRepo, commit_ids: &[&str], target_branch: Option<&str>) -> anyhow::Result<MoveCommitsResult> {
-  let params = MoveCommitsParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    commit_ids: commit_ids.iter().map(|id| (*id).to_string()).collect(),
-    target_branch: target_branch.map(str::to_string),
+  move_commits_to_branch_core(test_repo.git_executor(), &params(test_repo, commit_ids, target_branch))
+}
+
+/// `move_to` with the ids of `commits`
+fn move_ids(test_repo: &TestRepo, commits: &[&String], target_branch: Option<&str>) -> MoveCommitsResult {
+  let ids: Vec<&str> = commits.iter().map(|id| id.as_str()).collect();
+  move_to(test_repo, &ids, target_branch).unwrap()
+}
+
+fn changes(result: &MoveCommitsResult) -> Vec<MoveChange> {
+  result.commits.iter().map(|commit| commit.change).collect()
+}
+
+/// Issue key -> branch name of the store
+fn issue_groups(test_repo: &TestRepo) -> BTreeMap<String, String> {
+  read_issue_groups(test_repo.git_executor(), path(test_repo)).unwrap().entries
+}
+
+fn pairs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+  pairs.iter().map(|(key, name)| ((*key).to_string(), (*name).to_string())).collect()
+}
+
+fn undo(test_repo: &TestRepo, result: &MoveCommitsResult) {
+  let params = UndoRegroupParams {
+    repository_path: path(test_repo).to_string(),
+    token: result.undo_token.clone().unwrap(),
   };
-  move_commits_to_branch_core(test_repo.git_executor(), &params)
+  undo_regroup(test_repo.git_executor(), &params).unwrap();
+}
+
+/// Oldest first
+fn subjects(test_repo: &TestRepo, count: usize) -> Vec<String> {
+  let mut messages = test_repo.get_commit_messages(count);
+  messages.reverse();
+  messages
 }
 
 /// Branches of the `BranchesGrouped` event of a sync against `origin/master`
@@ -85,11 +123,15 @@ fn moves_unassigned_commits_to_a_new_branch() {
     test_repo.get_commit_messages(2),
     ["(feature-123) Second feature commit", "(feature-123) First feature commit"]
   );
-  assert_eq!(result.moved.len(), 2);
-  assert_eq!(result.moved[0].old_id, first);
-  assert_eq!(result.moved[0].new_id, test_repo.rev_parse("HEAD~1").unwrap());
-  assert_eq!(result.moved[0].previous_message, "First feature commit");
-  assert_eq!(result.moved[1].new_id, test_repo.head());
+  assert_eq!(changes(&result), [MoveChange::Prefixed, MoveChange::Prefixed]);
+  assert_eq!(result.commits[0].old_id, first);
+  assert_eq!(result.commits[0].new_id, test_repo.rev_parse("HEAD~1").unwrap());
+  assert_eq!(result.commits[1].new_id, test_repo.head());
+  assert_eq!((result.target.as_deref(), result.head.as_str()), (Some("feature-123"), test_repo.head().as_str()));
+  assert_eq!(result.grouped_issues, Vec::<String>::new());
+
+  undo(&test_repo, &result);
+  assert_eq!(test_repo.get_commit_messages(2), ["Second feature commit", "First feature commit"]);
 }
 
 #[test]
@@ -125,7 +167,8 @@ fn moves_to_another_branch_and_back_to_the_issue() {
   test_repo.create_commit("Initial commit", "README.md", "# Test");
   let commit = test_repo.create_commit("(api) ABC-1 Add endpoint", "api.rs", "// api");
 
-  let moved = move_to(&test_repo, &[&commit], Some("auth")).unwrap().moved;
+  // the key carries no commit without a prefix: not a whole issue, so the prefix stays the way into auth
+  let moved = move_to(&test_repo, &[&commit], Some("auth")).unwrap().commits;
   assert_eq!(test_repo.get_commit_messages(1), ["(auth) ABC-1 Add endpoint"]);
 
   move_to(&test_repo, &[&moved[0].new_id], None).unwrap();
@@ -141,8 +184,8 @@ fn skips_commits_already_in_the_target_branch() {
 
   let result = move_to(&test_repo, &[&in_target, &other], Some("auth")).unwrap();
 
-  assert_eq!(result.moved.len(), 1);
-  assert_eq!(result.moved[0].old_id, other);
+  assert_eq!(changes(&result), [MoveChange::Unchanged, MoveChange::Prefixed]);
+  assert_eq!(result.commits[1].old_id, other);
   // older than the moved commit, so not recreated
   assert_eq!(test_repo.rev_parse("HEAD~1").unwrap(), in_target);
 }
@@ -160,7 +203,7 @@ fn keeps_the_body_and_the_metadata() {
   let result = move_to(&test_repo, &[&commit], Some("bugfix-456")).unwrap();
 
   assert_eq!(test_repo.log(&["-1", "--pretty=format:%B"]).unwrap().trim_end(), "(bugfix-456) Fix bug\n\nThe details.");
-  assert_eq!(result.moved[0].previous_message, "Fix bug\n\nThe details.");
+  assert_eq!(changes(&result), [MoveChange::Prefixed]);
   assert_eq!(metadata("HEAD"), before);
 }
 
@@ -206,7 +249,7 @@ fn moves_many_commits_in_one_rewrite() {
   let start = std::time::Instant::now();
   let result = move_to(&test_repo, &ids, Some("batch-test")).unwrap();
 
-  assert_eq!(result.moved.len(), 10);
+  assert_eq!(result.commits.len(), 10);
   assert!(start.elapsed().as_secs() < 6, "Batch move took too long: {:?}", start.elapsed());
   assert_eq!(test_repo.get_commit_messages(1), ["(batch-test) Commit number 10"]);
 }
@@ -222,9 +265,151 @@ fn moves_the_fixups_with_their_target() {
   let result = move_to(&test_repo, &[&target], Some("auth")).unwrap();
 
   assert_eq!(test_repo.get_commit_messages(3), ["fixup! (auth) Fix login", "Unrelated", "(auth) Fix login"]);
-  // the requested commit first, then the fixup that followed it; both can be undone
-  assert_eq!(result.moved.len(), 2);
-  assert_eq!(result.moved[0].old_id, target);
-  assert_eq!(result.moved[1].previous_message, "fixup! (api) Fix login");
-  assert_eq!(result.moved[1].new_id, test_repo.head());
+  // the requested commit first, then the fixup that followed it
+  assert_eq!(changes(&result), [MoveChange::Prefixed, MoveChange::Prefixed]);
+  assert_eq!(result.commits[0].old_id, target);
+  assert_eq!(result.commits[1].new_id, test_repo.head());
+}
+
+#[test]
+fn whole_issues_join_a_branch_without_a_rewrite_and_their_next_commits_follow() {
+  let test_repo = repo(false);
+  let ids = commits(&test_repo, &["IJPL-1 Parse lists", "IJPL-1 Parse maps", "IJPL-2 Print maps"]);
+  let head = test_repo.head();
+
+  let result = move_ids(&test_repo, &[&ids[0], &ids[1], &ids[2]], Some("maps"));
+
+  assert_eq!(test_repo.head(), head);
+  assert_eq!(subjects(&test_repo, 3), ["IJPL-1 Parse lists", "IJPL-1 Parse maps", "IJPL-2 Print maps"]);
+  assert_eq!(changes(&result), [MoveChange::Regrouped; 3]);
+  assert_eq!(result.grouped_issues, ["IJPL-1", "IJPL-2"]);
+  assert_eq!(issue_groups(&test_repo), pairs(&[("IJPL-1", "maps"), ("IJPL-2", "maps")]));
+  assert!(result.undo_token.as_deref().unwrap().starts_with("groups:"), "{:?}", result.undo_token);
+
+  // the issue, not the commits, is in the branch: the next commit of IJPL-1 goes there too
+  test_repo.create_commit("IJPL-1 Parse sets", "sets.rs", "// sets");
+  let maps = grouped_branches(&test_repo).into_iter().find(|branch| branch.name == "maps").unwrap();
+  assert_eq!((maps.origin, maps.commits.len()), (BranchOrigin::IssueGroup, 4));
+}
+
+#[test]
+fn a_part_of_an_issue_and_a_commit_without_a_key_get_the_prefix_in_the_same_transaction() {
+  let test_repo = repo(false);
+  let ids = commits(&test_repo, &["IJPL-1 Parse lists", "IJPL-1 Parse maps", "IJPL-2 Print maps", "Fix docs"]);
+
+  let result = move_ids(&test_repo, &[&ids[1], &ids[2], &ids[3]], Some("maps"));
+
+  assert_eq!(
+    subjects(&test_repo, 4),
+    ["IJPL-1 Parse lists", "(maps) IJPL-1 Parse maps", "IJPL-2 Print maps", "(maps) Fix docs"]
+  );
+  assert_eq!(changes(&result), [MoveChange::Prefixed, MoveChange::Regrouped, MoveChange::Prefixed]);
+  assert_eq!(issue_groups(&test_repo), pairs(&[("IJPL-2", "maps")]));
+  let token = result.undo_token.clone().unwrap();
+  assert!(token.contains("+groups:"), "{token}");
+
+  // one undo moves HEAD and the issue groups back
+  undo(&test_repo, &result);
+  assert_eq!(test_repo.head(), ids[3]);
+  assert_eq!(issue_groups(&test_repo), BTreeMap::new());
+}
+
+#[test]
+fn a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix() {
+  let test_repo = repo(false);
+  commits(&test_repo, &["ABC-1 Add parser", "(lexer) ABC-1 Add lexer", "ABC-2 Add maps", "(other) ABC-2 Add sets"]);
+  regroup(&test_repo, &group_plan("parser", &["ABC-2"])).unwrap();
+  let lexer = test_repo.rev_parse("HEAD~2").unwrap();
+
+  // back into its issue branch, not `(ABC-1) ABC-1 Add lexer`
+  let result = move_ids(&test_repo, &[&lexer], Some("ABC-1"));
+  assert_eq!(changes(&result), [MoveChange::PrefixRemoved]);
+  assert_eq!(subjects(&test_repo, 4)[1], "ABC-1 Add lexer");
+
+  // into the issue group of its key, which stays an issue group
+  let sets = test_repo.head();
+  let result = move_ids(&test_repo, &[&sets], Some("parser"));
+  assert_eq!(changes(&result), [MoveChange::PrefixRemoved]);
+  assert_eq!(subjects(&test_repo, 4)[3], "ABC-2 Add sets");
+  assert_eq!(issue_groups(&test_repo), pairs(&[("ABC-2", "parser")]));
+}
+
+fn group_plan(name: &str, keys: &[&str]) -> RegroupPlan {
+  RegroupPlan {
+    issue_groups: BTreeMap::from([(name.to_string(), keys.iter().map(|key| (*key).to_string()).collect())]),
+    ..RegroupPlan::default()
+  }
+}
+
+#[test]
+fn moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them() {
+  let test_repo = repo(false);
+  let ids = commits(&test_repo, &["ABC-1 One", "ABC-1 Uno", "ABC-2 Two", "ABC-3 Three"]);
+  regroup(&test_repo, &group_plan("parser", &["ABC-1", "ABC-2"])).unwrap();
+
+  let result = move_ids(&test_repo, &[&ids[0], &ids[1], &ids[2]], Some("grammar"));
+  assert_eq!(result.grouped_issues, ["ABC-1", "ABC-2"]);
+  assert_eq!(issue_groups(&test_repo), pairs(&[("ABC-1", "grammar"), ("ABC-2", "grammar")]));
+
+  // a whole issue goes back to its issue branch by the issue groups, a part of one by a prefix
+  let result = move_ids(&test_repo, &[&ids[2]], None);
+  assert_eq!(
+    (changes(&result), result.ungrouped_issues.clone()),
+    (vec![MoveChange::Regrouped], vec!["ABC-2".to_string()])
+  );
+  let result = move_ids(&test_repo, &[&ids[1]], None);
+  assert_eq!(changes(&result), [MoveChange::Prefixed]);
+  assert_eq!(subjects(&test_repo, 4)[1], "(ABC-1) ABC-1 Uno");
+  assert_eq!(issue_groups(&test_repo), pairs(&[("ABC-1", "grammar")]));
+
+  // moving a whole issue onto its own key ungroups it too
+  let three = test_repo.head();
+  move_ids(&test_repo, &[&three], Some("parser"));
+  let result = move_ids(&test_repo, &[&three], Some("ABC-3"));
+  assert_eq!(result.ungrouped_issues, ["ABC-3"]);
+}
+
+#[test]
+fn a_stacked_target_gets_the_prefix() {
+  let test_repo = repo(true);
+  commits(&test_repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login"]);
+  let fix = test_repo.head();
+
+  let result = move_ids(&test_repo, &[&fix], Some("login"));
+
+  // an issue group can't be stacked; the bare leaf joins login under its parent
+  assert_eq!(subjects(&test_repo, 3)[2], "(login) ABC-1 Fix login");
+  assert_eq!((changes(&result), result.target.as_deref()), (vec![MoveChange::Prefixed], Some("login")));
+  assert_eq!(issue_groups(&test_repo), BTreeMap::new());
+}
+
+#[test]
+fn the_fixups_of_a_whole_issue_move_with_it() {
+  let test_repo = repo(false);
+  let ids = commits(&test_repo, &["ABC-1 Fix login", "Unrelated", "fixup! ABC-1 Fix login"]);
+
+  let result = move_ids(&test_repo, &[&ids[0]], Some("auth"));
+
+  assert_eq!(changes(&result), [MoveChange::Regrouped, MoveChange::Regrouped]);
+  assert_eq!(result.commits[1].old_id, ids[2]);
+  assert_eq!(issue_groups(&test_repo), pairs(&[("ABC-1", "auth")]));
+}
+
+#[test]
+fn a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head() {
+  let test_repo = repo(false);
+  let ids = commits(&test_repo, &["IJPL-1 Parse lists", "Fix docs"]);
+  let mut dry_run = params(&test_repo, &[&ids[0], &ids[1]], Some("maps"));
+  dry_run.dry_run = true;
+
+  let result = move_commits_to_branch_core(test_repo.git_executor(), &dry_run).unwrap();
+  assert_eq!(changes(&result), [MoveChange::Regrouped, MoveChange::Prefixed]);
+  assert_eq!(result.grouped_issues, ["IJPL-1"]);
+  assert_eq!((result.undo_token, result.head), (None, ids[1].clone()));
+  assert_eq!((test_repo.head(), issue_groups(&test_repo)), (ids[1].clone(), BTreeMap::new()));
+
+  let mut stale = params(&test_repo, &[&ids[1]], Some("maps"));
+  stale.expect_head = Some(ids[0].clone());
+  let error = move_commits_to_branch_core(test_repo.git_executor(), &stale).unwrap_err();
+  assert!(matches!(error.downcast_ref::<RegroupError>(), Some(RegroupError::HeadMoved(_))), "{error:#}");
 }

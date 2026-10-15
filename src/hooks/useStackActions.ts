@@ -1,18 +1,19 @@
 import { toast } from "@/components/ui/toast"
-import type { IssueGroupsMove, MoveCommitsResult } from "@/lib/bindings"
+import type { MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
-import { undoMove } from "@/hooks/useMoveCommits"
+import { countMoved } from "@/lib/move-summary"
+import { undoRegroup } from "@/hooks/useMoveCommits"
 import { syncBranches } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
- * Runs a prefix rewrite of a stack operation, then offers an undo (of the messages and of a change of the issue groups),
- * syncs and reveals `revealBranch`
+ * Runs a regroup of a stack operation, then offers an undo (of the messages and of the issue groups, in one
+ * transaction), syncs and reveals `revealBranch`
  */
 async function runStackOperation(
   operation: () => Promise<CommandResult<MoveCommitsResult>>,
@@ -25,36 +26,14 @@ async function runStackOperation(
     notifyError(failureTitle, result.error)
     return false
   }
-  const { moved, issueGroups } = result.data
-  if (moved.length === 0 && issueGroups == null) {
+  const { undoToken } = result.data
+  if (undoToken == null) {
     toast.add({ type: "info", title: "Nothing to change" })
     return true
   }
   requestReveal({ branchName: revealBranch, commitIds: [] })
-  showUndoToast(successTitle(moved.length === 0 ? "issue groups" : formatCommitCount(moved.length)), async () => {
-    // the messages stay as they are when the issue groups can't move back: their names would no longer match
-    if (issueGroups != null && !await undoIssueGroups(issueGroups)) {
-      return
-    }
-    // the undo of the messages syncs
-    if (moved.length > 0) {
-      await undoMove(moved)
-    }
-    else {
-      await syncBranches({ autoScroll: false, autoExpand: false })
-    }
-  })
+  showUndoToast(successTitle(formatCommitCount(countMoved(result.data))), () => undoRegroup(undoToken, "Cannot undo the change"))
   void syncBranches({ autoScroll: false, autoExpand: false })
-  return true
-}
-
-/** Moves the issue groups back to `issueGroups.previous`; false when that failed */
-async function undoIssueGroups(issueGroups: IssueGroupsMove): Promise<boolean> {
-  const result = await invokeCommand(() => commands.undoIssueGroups({ repositoryPath: getSelectedProject()?.path ?? "", issueGroups }))
-  if (result.status !== "ok") {
-    notifyError("Cannot move the issue groups back", result.error)
-    return false
-  }
   return true
 }
 

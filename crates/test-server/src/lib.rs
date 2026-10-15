@@ -90,7 +90,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/move_commits_to_branch", post(tauri_command_bridge::move_commits_to_branch))
     .route("/invoke/rename_branch", post(tauri_command_bridge::rename_branch))
     .route("/invoke/restack_branch", post(tauri_command_bridge::restack_branch))
-    .route("/invoke/undo_issue_groups", post(tauri_command_bridge::undo_issue_groups))
+    .route("/invoke/undo_regroup", post(tauri_command_bridge::undo_regroup))
     .route("/invoke/squash_commits", post(tauri_command_bridge::squash_commits))
     .route("/invoke/restore_branch_head", post(tauri_command_bridge::restore_branch_head))
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
@@ -150,6 +150,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     ("issue_links", templates::issue_links()),
     ("issue_split", templates::issue_split()),
     ("issue_groups", templates::issue_groups()),
+    ("issue_combine", templates::issue_combine()),
     ("fixups", templates::fixups()),
     ("long_subjects", templates::long_subjects()),
     ("stacked_branches", templates::stacked_branches()),
@@ -258,6 +259,8 @@ pub enum RepositoryTemplate {
   IssueSplit,
   #[serde(rename = "issue_groups")]
   IssueGroups,
+  #[serde(rename = "issue_combine")]
+  IssueCombine,
   #[serde(rename = "fixups")]
   Fixups,
   #[serde(rename = "long_subjects")]
@@ -300,6 +303,7 @@ impl RepositoryTemplate {
       RepositoryTemplate::IssueLinks => "issue_links",
       RepositoryTemplate::IssueSplit => "issue_split",
       RepositoryTemplate::IssueGroups => "issue_groups",
+      RepositoryTemplate::IssueCombine => "issue_combine",
       RepositoryTemplate::Fixups => "fixups",
       RepositoryTemplate::LongSubjects => "long_subjects",
       RepositoryTemplate::StackedBranches => "stacked_branches",

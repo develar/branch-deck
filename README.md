@@ -25,7 +25,11 @@ repositories: all operations run through the Git CLI.
 - **Issue groups**: one branch for the commits of several issues, without a rewrite. `ABC-1 Parse lists` and
   `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. The map of issue key to branch
   name lives in the ref `refs/branch-deck/issue-groups`. `bd suggest` proposes the groups, `bd group` writes them, and
-  the app shows and renames them.
+  the app writes them when you move whole issues.
+- **Move to a branch**: drag commits or whole branches onto a branch, or select them (Cmd/Shift-click a branch row) and
+  choose Move to…, to ship them together. A whole issue moves by the issue groups without a rewrite, so its next
+  commits follow; only a part of an issue gets the `(branch)` prefix. The form says what the move does before it runs,
+  and one Undo takes it back.
 - **Unassigned commits**: commits without a prefix are listed separately. Create a branch from a selection or move commits
   to an existing branch.
 - **Branch name suggestions**: two names for the selected commits from your Claude Code (Haiku), after you agree to send

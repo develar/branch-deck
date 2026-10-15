@@ -383,6 +383,19 @@ pub mod templates {
       .issue_group("ABC-2", "parser")
   }
 
+  /// Three issue branches, one with two commits, that ship together, and a prefix branch
+  pub fn issue_combine() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("issue_combine")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Maps\n")], Some(1704117600))
+      .commit_with_timestamp("IJPL-1: Parse lists", &[("lists.js", "export function lists() {}")], Some(1704119400))
+      .commit_with_timestamp("IJPL-1: Parse maps", &[("maps.js", "export function maps() {}")], Some(1704121200))
+      .commit_with_timestamp("IJPL-2: Print maps", &[("print.js", "export function print() {}")], Some(1704123000))
+      .commit_with_timestamp("IJPL-3: Print sets", &[("sets.js", "export function sets() {}")], Some(1704124800))
+      .commit_with_timestamp("(docs) Update documentation", &[("docs.md", "# Documentation")], Some(1704126600))
+  }
+
   /// Fixup commits: of a branch commit (`auth`), a `squash!` without a prefix of another branch's commit (`docs`), one
   /// without a target in the range, and an unassigned one of an unassigned commit
   pub fn fixups() -> RepoTemplate {

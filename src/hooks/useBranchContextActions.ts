@@ -1,4 +1,4 @@
-import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FlaskConicalIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
+import { ArchiveXIcon, CombineIcon, CopyIcon, ExternalLinkIcon, FlaskConicalIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, GitPullRequestCreateIcon, GitPullRequestIcon, Layers2Icon, LayersIcon, PencilIcon, PenLineIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TagIcon, UngroupIcon, UploadIcon } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -8,6 +8,7 @@ import { copyText } from "@/lib/clipboard"
 import { getNewPullRequestUrl, getPullRequestBase, getRetargetCommand, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { getListFixups } from "@/lib/autosquash"
+import { inTableOrder } from "@/lib/branch-selection"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { canCancelRobot, canStartRobot, formatPushMode, getRobotRestartAction, openRobot, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
@@ -15,14 +16,19 @@ import { runRobotAction } from "@/lib/patronus-actions"
 import { createBranchMergeRequest } from "@/lib/patronus-merge-request"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getBranch, getBranchCommits, getBranchTableOrder, getIssueGroups, getMoveTargets, getStackChildren, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { getSelectedBranches, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
 import { cancelPatronusRobot, getBranchRobot, getPatronusGitHubRepository, isPatronusAvailable, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
+/** Branches listed in the "Move to Existing" submenu */
+const MAX_MENU_TARGETS = 8
+
 /**
  * Context menu of an active branch row: copy actions (the names, the pull request base, the retarget command), then
- * rename (name an issue branch; an issue group is renamed without a rewrite) and ungroup, then commit actions (issue
+ * rename (name an issue branch; an issue group is renamed without a rewrite), move to another branch (with the other
+ * selected branches, if the row is selected) and ungroup, then commit actions (issue
  * reference, amend, unapply), then history (squash fixups, open or create the pull request), then Patronus (Safe Push,
  * Dry Run, Create Space Merge Request unless the branches are reviewed on GitHub, the robot of the branch). An item that opens a form ends with "…". The right-click on
  * the row and the "⋯" of its Actions cell show it.
@@ -69,10 +75,12 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       onSelect: () => openInline("rename", branch.name),
     },
   ]
+  nameActions.push(...getMoveMenuItems(branch.name))
   const ungroupLabel = getRemovePrefixLabel(branch.commits, getIssueGroups())
-  if (branch.origin === "Prefix" && ungroupLabel !== null) {
+  // an issue group goes back to the issue branches of its keys, without a rewrite
+  if (branch.origin !== "Issue" && ungroupLabel !== null) {
     nameActions.push({
-      label: ungroupLabel === "Remove Prefix" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
+      label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
       // the branches stacked on it lose their parent: confirm with them listed
       onSelect: () => getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null),
@@ -190,6 +198,38 @@ function getCreateMergeRequestItem(branch: Branch): MenuItem {
 function getCreatePullRequestItems(branch: Branch): MenuItem[] {
   const url = getNewPullRequestUrl(branch)
   return url === null ? [] : [{ label: "Create Pull Request", icon: GitPullRequestCreateIcon, onSelect: () => openNewPullRequest(url) }]
+}
+
+/**
+ * "Move to…" and "Move to Existing ›" of a branch row: all its commits, or those of every selected branch if the row
+ * is selected, go to one branch; a whole issue by the issue groups, without a rewrite
+ */
+function getMoveMenuItems(name: string): MenuItem[] {
+  const order = getBranchTableOrder()
+  const selected = getSelectedBranches()
+  const names = selected.includes(name) ? inTableOrder(selected, order) : [name]
+  const openTarget = () => {
+    if (!selected.includes(name)) {
+      selectBranches(name, "only", order)
+    }
+    setBranchTargetOpen(true)
+  }
+  const items: MenuItem[] = [{ label: "Move to…", icon: FolderInputIcon, kbds: ["m"], onSelect: openTarget }]
+  const targets = getMoveTargets(names.length === 1 ? name : null, MAX_MENU_TARGETS + names.length)
+    .filter(target => !names.includes(target))
+    .slice(0, MAX_MENU_TARGETS)
+  if (targets.length > 0) {
+    items.push({
+      label: "Move to Existing",
+      icon: GitBranchIcon,
+      onSelect: () => {},
+      children: [
+        ...targets.map(target => ({ label: target, icon: GitBranchIcon, onSelect: () => void moveCommits(getBranchCommits(names), target) })),
+        { label: "New Branch…", icon: GitBranchPlusIcon, onSelect: openTarget },
+      ],
+    })
+  }
+  return items
 }
 
 /** The most branches "Stack On…" lists; the newest come first */

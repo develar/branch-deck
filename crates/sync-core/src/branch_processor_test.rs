@@ -163,11 +163,7 @@ async fn assigning_an_older_commit_reuses_every_virtual_commit() {
   let cache = virtual_commits(&test_repo, "cache");
 
   // recreates every commit after it
-  let params = MoveCommitsParams {
-    repository_path: repo_path(&test_repo).to_string(),
-    commit_ids: vec![unassigned],
-    target_branch: Some("docs".to_string()),
-  };
+  let params = MoveCommitsParams::new(repo_path(&test_repo), vec![unassigned], Some("docs"));
   move_commits_to_branch_core(test_repo.git_executor(), &params).unwrap();
 
   let statuses = sync(&test_repo).await;
@@ -191,11 +187,7 @@ async fn moving_a_commit_to_another_branch_copies_it_there() {
   let cache = virtual_commits(&test_repo, "cache");
 
   // only the prefix changes: the note moves with the commit, but its virtual commit is in another branch
-  let params = MoveCommitsParams {
-    repository_path: repo_path(&test_repo).to_string(),
-    commit_ids: vec![logout],
-    target_branch: Some("cache".to_string()),
-  };
+  let params = MoveCommitsParams::new(repo_path(&test_repo), vec![logout], Some("cache"));
   move_commits_to_branch_core(test_repo.git_executor(), &params).unwrap();
 
   let statuses = sync(&test_repo).await;

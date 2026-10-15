@@ -191,10 +191,17 @@ writes anything:
    HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups joins that transaction
    (below).
 
+A move of the app (`move_commits_to_branch`) computes its plan from the snapshot of step 1, under the same lock
+(`regroup_planned` and `plan_move` in `move_plan.rs`): a whole issue (every commit of its key without a prefix) goes into
+`issue_groups`, a part of one, a commit without a key and every stacked target into `branches`, and a prefixed commit
+that its key puts into the target anyway into `unassign`. So combining issues rewrites nothing, and a mixed move is one
+reword and one ref transaction. A dry run of it is the preview of the "Move to…" form.
+
 A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name
-and gives an issue branch's commits a prefix; a restack sets `(parent/leaf)` or `(leaf)` on all commits of the branch.
-The undo token is `H1..H2` for a rewrite: `restore_branch_head` moves the branch back with CAS, which is valid because
-a message rewrite keeps HEAD's tree.
+and names an issue branch in the issue groups, without a rewrite (with a prefix when either branch is stacked); a
+restack sets `(parent/leaf)` or `(leaf)` on all commits of the branch. The undo token is `H1..H2` for a rewrite:
+`restore_branch_head` moves the branch back with CAS, which is valid because a message rewrite keeps HEAD's tree. The
+app undoes a move, a rename and a restack with that token too (`undo_regroup`), never by rewording the messages back.
 
 **Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`
 ([Issue Groups](../../spec/branch/issue-groups.spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.

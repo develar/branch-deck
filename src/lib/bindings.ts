@@ -80,8 +80,11 @@ export const commands = {
 	renameBranch: (params: RenameBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("rename_branch", { params })),
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
 	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
-	/**  Moves the issue groups back to where they were before a rename, with compare-and-swap. */
-	undoIssueGroups: (params: UndoIssueGroupsParams) => typedError<null, CommandError>(__TAURI_INVOKE("undo_issue_groups", { params })),
+	/**
+	 *  Moves back what a move, a rename or a restack wrote (its `undo_token`): HEAD and the issue groups in one ref
+	 *  transaction with compare-and-swap.
+	 */
+	undoRegroup: (params: UndoRegroupParams) => typedError<null, CommandError>(__TAURI_INVOKE("undo_regroup", { params })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
@@ -581,14 +584,6 @@ export type GroupedBranchInfo = {
 /**  Confidence level for integration detection */
 export type IntegrationConfidence = "Exact" | "High";
 
-/**  A change of the issue groups (`refs/branch-deck/issue-groups`), for an undo */
-export type IssueGroupsMove = {
-	/**  The commit of the issue groups before; `None` when there were none */
-	previous: string | null,
-	/**  The commit the operation wrote */
-	new: string,
-};
-
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
 };
@@ -662,36 +657,58 @@ export type MissingCommit = {
 	fileDiffs: FileDiff[],
 };
 
+/**  How a move changes a commit */
+export type MoveChange = 
+/**  Its message got the prefix of the target */
+"Prefixed" | 
+/**  Its message lost its prefix: its issue key puts it where it goes */
+"PrefixRemoved" | 
+/**  The issue groups moved it, its message stays */
+"Regrouped" | 
+/**  It is where it goes already */
+"Unchanged";
+
 export type MoveCommitsParams = {
 	repositoryPath: string,
 	/**  Commits on the current branch (the original commits of virtual branch commits) */
 	commitIds: string[],
 	/**
-	 *  The explicit branch prefix to set; `None` removes it, so the commits fall back to their issue branch or to the
-	 *  unassigned commits
+	 *  The branch to move the commits to, existing or new; `None` moves them back: out of their prefix branch, or out
+	 *  of the issue group of their key
 	 */
 	targetBranch: string | null,
+	/**  Compute what the move would do, write nothing (the preview of the "Move to…" form) */
+	dryRun?: boolean,
+	/**  The HEAD the request was made for; another HEAD refuses the move */
+	expectHead?: string | null,
 };
 
 export type MoveCommitsResult = {
 	/**
-	 *  The commits whose message changed, in request order, then the fixups that moved with them; a commit already in
-	 *  the target branch is not listed
+	 *  The requested commits in request order, then the other commits that moved: the fixups that followed them, the
+	 *  commits of a renamed branch
 	 */
-	moved: MovedCommit[],
-	/**
-	 *  The issue groups before and after, when the operation changed them (a rename of an issue group): an undo moves
-	 *  them back with `undo_issue_groups`
-	 */
-	issueGroups?: IssueGroupsMove | null,
+	commits: MovedCommit[],
+	/**  The issue keys whose commits the issue groups now put into another branch, without a rewrite */
+	groupedIssues: string[],
+	/**  The issue keys whose issue group was removed: their commits are in the issue branch of the key again */
+	ungroupedIssues: string[],
+	/**  The branch the commits are in afterwards (the leaf with stacked branches on); `None` for a move back */
+	target?: string | null,
+	/**  HEAD afterwards */
+	head: string,
+	/**  With stacked branches on, the branches whose parent the operation emptied: blocked until it has commits again */
+	orphanedChildren: string[],
+	/**  What `undo_regroup` moves back; `None` for a dry run and when nothing changed */
+	undoToken?: string | null,
 };
 
 export type MovedCommit = {
 	/**  The request commit id */
 	oldId: string,
+	/**  The id after the rewrite; `old_id` for a commit older than every rewritten one and for a dry run */
 	newId: string,
-	/**  The message before the move, for an undo */
-	previousMessage: string,
+	change: MoveChange,
 };
 
 export type OpenSubWindowParams = {
@@ -1295,10 +1312,10 @@ export type UncommittedFileChange = {
 	unstaged: boolean,
 };
 
-export type UndoIssueGroupsParams = {
+export type UndoRegroupParams = {
 	repositoryPath: string,
-	/**  What the operation reported in `MoveCommitsResult.issue_groups` */
-	issueGroups: IssueGroupsMove,
+	/**  What the operation reported in `MoveCommitsResult.undo_token` */
+	token: string,
 };
 
 /**  The result of checking the branch against its upstream */

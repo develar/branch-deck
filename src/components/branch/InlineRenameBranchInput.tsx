@@ -2,16 +2,15 @@ import { useState } from "react"
 import { PencilIcon } from "lucide-react"
 import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
-import { moveCommits } from "@/hooks/useMoveCommits"
 import { renameBranch } from "@/hooks/useStackActions"
-import { getBranch, getStackDescendants, hasIssueGroup, useBranch, useStacksEnabled } from "@/stores/branch-sync"
+import { getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
 import { closeInline, withRowProgress } from "@/stores/inline-row-action"
 
 /**
- * Renames a branch by moving all its commits to the new name; an issue branch gets an explicit prefix on every commit
- * (the issue key stays in the messages). An issue group is renamed in the issue groups, without a rewrite, and so are
- * the issue groups of a prefix branch. An existing name merges the branches. With stacked branches on, the branches
- * stacked on it follow: the name changes in their prefixes too.
+ * Renames a branch (`rename_branch`): a prefix branch in the prefixes of its commits; an issue branch and an issue
+ * group in the issue groups, without a rewrite (a stacked one by a prefix), and so are the issue groups of a prefix
+ * branch. An existing name merges the branches. With stacked branches on, the branches stacked on it follow: the name
+ * changes in their prefixes too.
  */
 export function InlineRenameBranchInput({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
@@ -24,8 +23,7 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
   const isUnchanged = sanitizedBranchName === branchName
   const existing = useBranch(sanitizedBranchName) !== undefined && !isUnchanged
 
-  const commitCount = branch?.commitCount ?? 0
-  let helpText = isIssueBranch ? `Adds the prefix to ${commitCount === 1 ? "the commit" : `all ${commitCount} commits`}; ${branchName} stays in the messages` : undefined
+  let helpText = isIssueBranch ? `Names the branch without a rewrite; the next commits of ${branchName} go there too` : undefined
   if (isIssueGroup) {
     helpText = "Renames the issue group: the commit messages stay as they are"
   }
@@ -56,14 +54,7 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
           processingMessage = `Moving the commits of ${branchName} to ${target}…`
         }
         // a failure keeps the form with the typed name
-        void withRowProgress(branchName, async () => {
-          // the rename core also renames the issue groups of the branch
-          if (stacks || hasIssueGroup(branchName)) {
-            return renameBranch(branchName, target)
-          }
-          const current = getBranch(branchName)
-          return current === undefined || await moveCommits(current.commits, target)
-        }, { processingMessage, keepFormOnFailure: true })
+        void withRowProgress(branchName, () => renameBranch(branchName, target), { processingMessage, keepFormOnFailure: true })
       }}
       onCancel={closeInline}
     />

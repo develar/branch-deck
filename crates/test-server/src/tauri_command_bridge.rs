@@ -270,15 +270,12 @@ pub async fn rename_branch(
 }
 
 /// Fails with the error message as the body, see `move_commits_to_branch`
-pub async fn undo_issue_groups(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::stack_operations::UndoIssueGroupsParams>,
-) -> Result<Json<()>, (StatusCode, String)> {
+pub async fn undo_regroup(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::stack_operations::UndoRegroupParams>) -> Result<Json<()>, (StatusCode, String)> {
   ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
 
-  sync_core::stack_operations::undo_issue_groups(&state.git_executor, &params)
+  sync_core::stack_operations::undo_regroup(&state.git_executor, &params)
     .map(Json)
-    .map_err(|e| command_failed("undo issue groups", &e))
+    .map_err(|e| command_failed("undo regroup", &e))
 }
 
 /// Fails with the error message as the body, see `move_commits_to_branch`

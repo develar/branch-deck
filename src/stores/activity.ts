@@ -141,8 +141,8 @@ export function clearActivity(repositoryPath: string): void {
  * A history rewrite with an Undo (squash, fixups, move, rename, stack, unstack, ungroup). Returns the undo to run from
  * the toast: whichever Undo comes first, the toast's or the one in Activity, runs `undo` once and marks the entry undone.
  */
-export function recordRewrite(title: string, undo: () => Promise<void>): () => void {
-  const entry = recordActivity({ kind: "rewrite", title, undo: { until: Date.now() + UNDO_WINDOW_MS } })
+export function recordRewrite(title: string, undo: () => Promise<void>, description?: string): () => void {
+  const entry = recordActivity({ kind: "rewrite", title, description, undo: { until: Date.now() + UNDO_WINDOW_MS } })
   let done = false
   const run = () => {
     if (done) {

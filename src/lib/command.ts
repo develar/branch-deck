@@ -16,10 +16,11 @@ export async function invokeCommand<T>(run: () => Promise<CommandResult<T>>): Pr
 }
 
 /** Success toast of a history rewrite, with an Undo button for 10 seconds; Activity records it with the same Undo. */
-export function showUndoToast(title: string, undo: () => Promise<void>): void {
+export function showUndoToast(title: string, undo: () => Promise<void>, description?: string): void {
   const id = toast.add({
     type: "success",
     title,
+    description,
     timeout: UNDO_WINDOW_MS,
     actionProps: {
       children: "Undo",
@@ -30,5 +31,5 @@ export function showUndoToast(title: string, undo: () => Promise<void>): void {
   const runUndo = recordRewrite(title, () => {
     toast.close(id)
     return undo()
-  })
+  }, description)
 }

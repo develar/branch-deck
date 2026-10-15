@@ -9,7 +9,7 @@ import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { getRemovePrefixLabel, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { Commit } from "@/lib/bindings"
-import { useBranchSync } from "@/stores/branch-sync"
+import { getIssueGroups, useBranchSync } from "@/stores/branch-sync"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 
 export interface UnassignedCommitListCardProps {
@@ -21,11 +21,12 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
   const moveList = useCommitMoveList({ commits, sourceBranch: null })
   // with no branch yet, the grouping convention is new: said in the card, not only in its help popover
   const hasNoBranches = useBranchSync(state => state.branchOrder.length === 0)
-  // dropping branch commits removes their prefix (a commit with an issue key goes back to its issue branch)
+  // dropping branch commits or branches moves them back: the prefix goes (a commit with an issue key goes back to its
+  // issue branch), and an issue that the issue groups put into a branch goes back to its own
   const dropTarget = useCommitDropTarget(
     UNASSIGNED_SOURCE,
     drag => void moveCommits(drag.commits, null),
-    drag => getRemovePrefixLabel(drag.commits) !== null,
+    drag => getRemovePrefixLabel(drag.commits, getIssueGroups()) !== null,
   )
 
   return (

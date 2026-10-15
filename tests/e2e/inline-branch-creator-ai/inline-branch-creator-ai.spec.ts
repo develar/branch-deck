@@ -26,6 +26,11 @@ const AI_ENABLED_SETUP: SetupRepoOptions = {
   },
 }
 
+/** The dry run of the move says what it does to the commits; the snapshot waits for it */
+async function expectMoveEffect(page: Page): Promise<void> {
+  await expect(inlineBranchCreator.getPortal(page)).toContainText("rewrites it to start with")
+}
+
 function suggestionErrorToast(page: Page) {
   return page.locator("[data-slot=toast]").filter({ hasText: "Cannot suggest branch names" })
 }
@@ -149,16 +154,19 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(aiStatusIcon).toHaveClass(/text-primary/)
     const suggestionButtons = getSuggestionButtons(page)
     await expect(suggestionButtons).toHaveCount(2)
+    await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-enabled")
 
     await aiStatusIcon.click()
     await expect(aiStatusIcon).toHaveClass(/text-muted/)
     await expect(suggestionButtons).toHaveCount(0)
+    await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-disabled-after-toggle")
 
     await aiStatusIcon.click()
     await expect(aiStatusIcon).toHaveClass(/text-primary/)
     await expect(suggestionButtons).toHaveCount(2)
+    await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-reenabled")
   })
 
@@ -182,6 +190,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
 
     const suggestionButtons = getSuggestionButtons(page)
     await expect(suggestionButtons).toHaveCount(2)
+    await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-with-suggestions")
 
     const input = inlineBranchCreator.getInput(page)

@@ -56,21 +56,29 @@ function hasExplicitPrefix(commit: Commit): boolean {
 }
 
 /**
- * What removing the prefix does: the commits go back to the issue group of their key (`issueGroups`, issue key ->
- * branch name), to their issue branch (`strippedSubject` starts with the key) or to the unassigned commits. Null if no
- * commit has an explicit prefix.
+ * What moving the commits back does: a commit with an explicit prefix goes to the issue group of its key
+ * (`issueGroups`, issue key -> branch name), to its issue branch (`strippedSubject` starts with the key) or to the
+ * unassigned commits; a commit that the issue groups put into a branch goes back to the issue branch of its key. Null
+ * if no commit has a way back.
  */
 export function getRemovePrefixLabel(commits: readonly Commit[], issueGroups: Readonly<Record<string, string>> = {}): string | null {
-  const prefixed = commits.filter(hasExplicitPrefix)
-  if (prefixed.length === 0) {
+  const branches = new Set<string | null>()
+  let isGrouped = false
+  for (const commit of commits) {
+    const key = findIssueKey(commit.strippedSubject)
+    if (hasExplicitPrefix(commit)) {
+      branches.add(key === null ? null : (issueGroups[key] ?? key))
+    }
+    else if (key !== null && issueGroups[key] !== undefined) {
+      branches.add(key)
+      isGrouped = true
+    }
+  }
+  if (branches.size === 0) {
     return null
   }
-  const branches = new Set(prefixed.map((commit) => {
-    const key = findIssueKey(commit.strippedSubject)
-    return key === null ? null : (issueGroups[key] ?? key)
-  }))
   if (branches.size > 1) {
-    return "Remove Prefix"
+    return isGrouped ? "Move Back" : "Remove Prefix"
   }
   const [branch] = branches
   return branch == null ? "Move to Unassigned" : `Move Back to ${branch}`
@@ -215,8 +223,10 @@ export function useCommitMoveList<T extends Commit>({ commits, sourceBranch }: C
   }
 
   const onDragCommits = (dragged: readonly T[]) => {
-    startCommitDrag({ sourceKey, commits: dragged })
-    // the form acts on the selection, which the dragged commits may not be
+    startCommitDrag({ sourceKeys: [sourceKey], branches: [], commits: dragged })
+    // what moves is what is selected: an unselected row dragged becomes the selection
+    selectIds(dragged.map(getCommitHash))
+    claimSelection(sourceKey)
     setIsTargetOpen(false)
   }
 

@@ -333,6 +333,46 @@ export function getBranchTableRows(): BranchTableRow[] {
   return branchTableRowsIn(branchSyncStore.getState())
 }
 
+/** The branch rows of the table in table order, without the issue rows */
+export function getBranchTableOrder(): string[] {
+  return getBranchTableRows().flatMap(row => row.kind === "branch" ? [row.name] : [])
+}
+
+function branchCommitsIn(state: BranchSyncState, names: readonly string[]): Commit[] {
+  return names.flatMap(name => state.branches[name]?.commits ?? [])
+}
+
+/** The commits of `names`, branch by branch */
+export function getBranchCommits(names: readonly string[]): Commit[] {
+  return branchCommitsIn(branchSyncStore.getState(), names)
+}
+
+export function useBranchCommits(names: readonly string[]): Commit[] {
+  return useStore(branchSyncStore, useShallow(state => branchCommitsIn(state, names)))
+}
+
+/**
+ * The commits with these original hashes, from the branches and the unassigned commits, in the order of `ids`; null
+ * when one of them is in no list (a rewrite gave it another id)
+ */
+export function useFoundCommits(ids: readonly string[]): Commit[] | null {
+  return useStore(branchSyncStore, useShallow(state => ids.length === 0 ? null : findCommitsIn(state, ids)))
+}
+
+function findCommitsIn({ branches, unassignedCommits }: BranchSyncState, ids: readonly string[]): Commit[] | null {
+  const byId = new Map<string, Commit>()
+  for (const branch of Object.values(branches)) {
+    for (const commit of branch.commits) {
+      byId.set(commit.originalHash, commit)
+    }
+  }
+  for (const commit of unassignedCommits) {
+    byId.set(commit.originalHash, commit)
+  }
+  const found = ids.map(id => byId.get(id))
+  return found.every(commit => commit !== undefined) ? found : null
+}
+
 /** A single branch; the component re-renders only when this branch changes. */
 export function useBranch(name: string): Branch | undefined {
   return useStore(branchSyncStore, state => state.branches[name])

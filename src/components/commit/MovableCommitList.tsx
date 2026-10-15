@@ -55,7 +55,7 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
           <div ref={targetRef}>
             <InlineBranchTarget
               commits={selection.selectedItems}
-              sourceBranch={sourceBranch}
+              sourceBranches={sourceBranch === null ? [] : [sourceBranch]}
               isActive={isTargetOpen}
               onCancel={closeTarget}
               onSuccess={() => {

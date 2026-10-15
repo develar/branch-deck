@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useEffect } from "react"
+import type { DragEvent, MouseEvent } from "react"
 import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
@@ -14,11 +15,13 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { UnpushedParentLabel } from "@/components/branch/StackBaseLabel"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
-import { useCommitDropTarget } from "@/hooks/useCommitDrag"
+import { beginCommitDrag, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
-import { useBranch } from "@/stores/branch-sync"
-import { requestReveal, useRevealRequest } from "@/stores/commit-move"
+import { inTableOrder } from "@/lib/branch-selection"
+import { formatCommitCount } from "@/lib/commit"
+import { getBranchCommits, getBranchTableOrder, useBranch } from "@/stores/branch-sync"
+import { clearBranchSelection, endCommitDrag, getSelectedBranches, requestReveal, selectBranches, startCommitDrag, useIsBranchSelected, useRevealRequest } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
 
@@ -55,8 +58,9 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
   const branch = useBranch(name)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
-  // commits dragged from another list move here
+  // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too
   const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
+  const selected = useIsBranchSelected(name)
 
   // commits just moved here: show them (the commit list selects them); a request without commits is done here
   const reveal = useRevealRequest(name)
@@ -79,6 +83,34 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
 
   const processing = activeInline?.processing === true
   const toggle = () => onToggleExpanded(name)
+  // Cmd/Ctrl-click and Shift-click select branches; a plain click expands the row and clears the selection
+  const onRowClick = (event: MouseEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      selectBranches(name, "toggle", getBranchTableOrder())
+    }
+    else if (event.shiftKey) {
+      selectBranches(name, "range", getBranchTableOrder())
+    }
+    else {
+      clearBranchSelection()
+      toggle()
+    }
+  }
+  const canDrag = branch.commitCount > 0 && !processing && branch.status !== "Syncing"
+  const onDragStart = (event: DragEvent) => {
+    const order = getBranchTableOrder()
+    // what moves is what is selected: an unselected row dragged becomes the selection
+    if (!getSelectedBranches().includes(name)) {
+      selectBranches(name, "only", order)
+    }
+    const names = inTableOrder(getSelectedBranches(), order)
+    const commits = getBranchCommits(names)
+    const label = names.length === 1 ? formatCommitCount(commits.length) : `${names.length} branches · ${formatCommitCount(commits.length)}`
+    beginCommitDrag(event, commits.length, label)
+    startCommitDrag({ sourceKeys: names, branches: names, commits })
+  }
+  // the rows below the branch row: a drop on them is a drop on the branch
+  const blockDropClass = dropTarget.isOver ? "bg-primary/5" : undefined
 
   return (
     <>
@@ -91,13 +123,16 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
         processing={processing}
         group
         className={cn(
-          expanded && "data-[state=open]:bg-muted/50",
+          expanded && !selected && "data-[state=open]:bg-muted/50",
           dropTarget.canDrop && "outline-1 -outline-offset-1 outline-primary/30 outline-dashed",
           dropTarget.isOver && "bg-primary/10 outline-2 outline-primary outline-solid hover:bg-primary/10",
         )}
         dropTarget={dropTarget.canDrop ? (dropTarget.isOver ? "over" : "ready") : undefined}
         dropProps={dropTarget.dropProps}
-        onToggle={toggle}
+        selected={selected}
+        onDragStart={canDrag ? onDragStart : undefined}
+        onDragEnd={endCommitDrag}
+        onToggle={onRowClick}
         menu={<BranchMenuItems name={name} setExpanded={setExpanded} Items={ContextMenuItems} />}
       >
         <BranchNameCell
@@ -139,7 +174,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
       </BranchContextMenuRow>
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
-        <tr>
+        <tr className={blockDropClass} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className="relative overflow-hidden p-0">
             {processing && <InlineRowProgressBar />}
             <Suspense fallback={null}>
@@ -181,7 +216,7 @@ export const BranchRow = memo(function BranchRow({ name, depth = 0, showIssueKey
       )}
 
       {expanded && (
-        <tr>
+        <tr data-testid="branch-commits-row" className={blockDropClass} {...dropTarget.dropProps}>
           <td colSpan={columnCount} className="px-0 py-(--bd-cell-y)">
             <ActiveBranchExpanded branch={branch} depth={depth} hasChildren={hasChildren} highlightTipCommit={activeInline?.type === "amend-changes"} />
           </td>

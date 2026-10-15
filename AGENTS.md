@@ -88,6 +88,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   comment (`gh api`, the app's one GitHub write), so the PR's approvals count (`spec/branch/patronus.spec.md`).
 - **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
   into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
+- **Move to a branch**: one operation behind drag and drop of commits and branch rows, the branch selection, the menus
+  and the keyboard; the smallest regroup (`move_plan.rs`): a whole issue by the issue groups, a part by the prefix; a
+  dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
   sync, blocked children (`spec/branch/stacked-branches.spec.md`).
 - **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in

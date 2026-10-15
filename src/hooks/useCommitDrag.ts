@@ -6,12 +6,12 @@ import { endCommitDrag, useDroppableDrag } from "@/stores/commit-move"
 /** `dataTransfer` type of a commit drag; the commits themselves are in the commit move store */
 export const COMMIT_DRAG_TYPE = "application/x-branch-deck-commits"
 
-/** Starts a native drag of `count` commits with a "3 commits" badge as the drag image. */
-export function beginCommitDrag(event: DragEvent, count: number): void {
+/** Starts a native drag of `count` commits with a badge as the drag image: "3 commits", or `label` ("2 branches · 5 commits"). */
+export function beginCommitDrag(event: DragEvent, count: number, label?: string): void {
   event.dataTransfer.effectAllowed = "move"
   event.dataTransfer.setData(COMMIT_DRAG_TYPE, String(count))
   const badge = document.createElement("div")
-  badge.textContent = count === 1 ? "1 commit" : `${count} commits`
+  badge.textContent = label ?? (count === 1 ? "1 commit" : `${count} commits`)
   // rendered off screen for the snapshot the browser takes, then removed
   badge.className = "fixed -top-24 left-0 rounded-lg bg-primary px-2 py-1 text-xs font-medium text-primary-foreground"
   document.body.append(badge)
@@ -34,7 +34,9 @@ export interface CommitDropTarget {
 }
 
 /**
- * Drop target for commits dragged out of a list other than `targetKey` (a branch name, or `UNASSIGNED_SOURCE`).
+ * Drop target for commits dragged out of a list other than `targetKey` (a branch name, or `UNASSIGNED_SOURCE`). The
+ * `dropProps` may be spread on several sibling elements of one target (the rows of a branch): the enter/leave depth
+ * covers them all.
  * `accept` may refuse a drag (e.g. no dragged commit has a prefix to remove).
  */
 export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag) => void, accept?: (drag: CommitDrag) => boolean): CommitDropTarget {

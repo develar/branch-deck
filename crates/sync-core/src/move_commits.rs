@@ -1,10 +1,11 @@
 use crate::commit_grouper::parse_subject;
-use crate::regroup::{RegroupOptions, RegroupPlan, RegroupedCommit, regroup_commits_core};
+use crate::move_plan::{move_target, plan_move};
+use crate::regroup::{RegroupOptions, RegroupOutcome, RegroupedCommit, UndoToken, regroup_planned};
 use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::sanitize_branch_name;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use tracing::{info, instrument};
 
 #[derive(Debug, Deserialize)]
@@ -14,9 +15,44 @@ pub struct MoveCommitsParams {
   pub repository_path: String,
   /// Commits on the current branch (the original commits of virtual branch commits)
   pub commit_ids: Vec<String>,
-  /// The explicit branch prefix to set; `None` removes it, so the commits fall back to their issue branch or to the
-  /// unassigned commits
+  /// The branch to move the commits to, existing or new; `None` moves them back: out of their prefix branch, or out
+  /// of the issue group of their key
   pub target_branch: Option<String>,
+  /// Compute what the move would do, write nothing (the preview of the "Move to…" form)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub dry_run: bool,
+  /// The HEAD the request was made for; another HEAD refuses the move
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub expect_head: Option<String>,
+}
+
+impl MoveCommitsParams {
+  /// A move that writes, without an expected HEAD
+  pub fn new(repository_path: &str, commit_ids: Vec<String>, target_branch: Option<&str>) -> Self {
+    Self {
+      repository_path: repository_path.to_string(),
+      commit_ids,
+      target_branch: target_branch.map(str::to_string),
+      dry_run: false,
+      expect_head: None,
+    }
+  }
+}
+
+/// How a move changes a commit
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum MoveChange {
+  /// Its message got the prefix of the target
+  Prefixed,
+  /// Its message lost its prefix: its issue key puts it where it goes
+  PrefixRemoved,
+  /// The issue groups moved it, its message stays
+  Regrouped,
+  /// It is where it goes already
+  Unchanged,
 }
 
 #[derive(Debug, Serialize)]
@@ -25,39 +61,46 @@ pub struct MoveCommitsParams {
 pub struct MovedCommit {
   /// The request commit id
   pub old_id: String,
+  /// The id after the rewrite; `old_id` for a commit older than every rewritten one and for a dry run
   pub new_id: String,
-  /// The message before the move, for an undo
-  pub previous_message: String,
+  pub change: MoveChange,
 }
 
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MoveCommitsResult {
-  /// The commits whose message changed, in request order, then the fixups that moved with them; a commit already in
-  /// the target branch is not listed
-  pub moved: Vec<MovedCommit>,
-  /// The issue groups before and after, when the operation changed them (a rename of an issue group): an undo moves
-  /// them back with `undo_issue_groups`
+  /// The requested commits in request order, then the other commits that moved: the fixups that followed them, the
+  /// commits of a renamed branch
+  pub commits: Vec<MovedCommit>,
+  /// The issue keys whose commits the issue groups now put into another branch, without a rewrite
+  pub grouped_issues: Vec<String>,
+  /// The issue keys whose issue group was removed: their commits are in the issue branch of the key again
+  pub ungrouped_issues: Vec<String>,
+  /// The branch the commits are in afterwards (the leaf with stacked branches on); `None` for a move back
   #[cfg_attr(feature = "specta", specta(optional))]
-  pub issue_groups: Option<IssueGroupsMove>,
+  pub target: Option<String>,
+  /// HEAD afterwards
+  pub head: String,
+  /// With stacked branches on, the branches whose parent the operation emptied: blocked until it has commits again
+  pub orphaned_children: Vec<String>,
+  /// What `undo_regroup` moves back; `None` for a dry run and when nothing changed
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub undo_token: Option<String>,
 }
 
-/// A change of the issue groups (`refs/branch-deck/issue-groups`), for an undo
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct IssueGroupsMove {
-  /// The commit of the issue groups before; `None` when there were none
-  pub previous: Option<String>,
-  /// The commit the operation wrote
-  pub new: String,
+impl MoveCommitsResult {
+  /// Whether the operation moves anything
+  pub fn moves(&self) -> bool {
+    self.commits.iter().any(|commit| commit.change != MoveChange::Unchanged)
+  }
 }
 
-/// Moves commits to another branch by setting the `(branch)` prefix of their subjects, replacing an existing one: a
-/// `regroup_commits_core` plan of one branch (or of `unassign`), so their fixups move along. One history rewrite for all
-/// commits; the next sync rebuilds the virtual branches.
-#[instrument(skip(git_executor, params), fields(count = params.commit_ids.len(), target = ?params.target_branch))]
+/// Moves commits to another branch, or back, with the smallest regroup (`move_plan.rs`): a whole issue by the issue
+/// groups, without a rewrite; the other commits by setting or removing the `(branch)` prefix of their subjects. One
+/// history rewrite for all commits and one ref transaction with the issue groups; the next sync rebuilds the virtual
+/// branches.
+#[instrument(skip(git_executor, params), fields(count = params.commit_ids.len(), target = ?params.target_branch, dry_run = params.dry_run))]
 pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &MoveCommitsParams) -> Result<MoveCommitsResult> {
   let target = params.target_branch.as_deref();
   if let Some(target) = target {
@@ -65,49 +108,74 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   }
   ensure!(!params.commit_ids.is_empty(), "No commits to move");
 
-  let plan = match target {
-    Some(target) => RegroupPlan {
-      branches: BTreeMap::from([(target.to_string(), params.commit_ids.clone())]),
-      ..RegroupPlan::default()
-    },
-    None => RegroupPlan {
-      unassign: params.commit_ids.clone(),
-      ..RegroupPlan::default()
+  let options = RegroupOptions {
+    expect_head: params.expect_head.clone(),
+    dry_run: params.dry_run,
+    ..RegroupOptions::default()
+  };
+  let mut leaf = None;
+  let outcome = regroup_planned(git_executor, &params.repository_path, &options, |snapshot| {
+    leaf = target.map(|target| move_target(snapshot, target).leaf);
+    plan_move(snapshot, &params.commit_ids, target)
+  })?;
+  let result = move_result(&outcome, &params.commit_ids, leaf);
+  info!(commits = result.commits.len(), grouped = ?result.grouped_issues, ungrouped = ?result.ungrouped_issues, "Moved commits");
+  Ok(result)
+}
+
+/// The result of a regroup as a move: the `requested` commits (full or abbreviated ids) in request order, then every
+/// other commit whose message or branch changed
+pub(crate) fn move_result(outcome: &RegroupOutcome, requested: &[String], target: Option<String>) -> MoveCommitsResult {
+  let moved_commit = |id: &str, commit: &RegroupedCommit| MovedCommit {
+    old_id: id.to_string(),
+    new_id: commit.new_id.clone(),
+    change: if commit.changed {
+      if parse_subject(&commit.message).prefix.is_some() {
+        MoveChange::Prefixed
+      } else {
+        MoveChange::PrefixRemoved
+      }
+    } else if commit.group != commit.previous_group {
+      MoveChange::Regrouped
+    } else {
+      MoveChange::Unchanged
     },
   };
-  let outcome = regroup_commits_core(git_executor, &params.repository_path, &plan, &RegroupOptions::default())?;
-
-  // the requested commits in request order, then the fixups that followed them
-  let changed = |commit: &&RegroupedCommit| commit.changed;
-  let requested: Vec<(&str, &RegroupedCommit)> = params
-    .commit_ids
+  let mut listed = BTreeSet::new();
+  let mut commits: Vec<MovedCommit> = requested
     .iter()
     .filter_map(|id| {
-      outcome
-        .commits
+      let commit = outcome.commits.iter().find(|commit| commit.id.starts_with(id.as_str()))?;
+      listed.insert(commit.id.as_str()).then(|| moved_commit(id, commit))
+    })
+    .collect();
+  commits.extend(
+    outcome
+      .commits
+      .iter()
+      .filter(|commit| !listed.contains(commit.id.as_str()) && (commit.changed || commit.group != commit.previous_group))
+      .map(|commit| moved_commit(&commit.id, commit)),
+  );
+  let (mut grouped_issues, mut ungrouped_issues) = (Vec::new(), Vec::new());
+  if let Some(change) = &outcome.issue_groups {
+    grouped_issues.extend(
+      change
+        .entries
         .iter()
-        .filter(changed)
-        .find(|commit| commit.id.starts_with(id.as_str()))
-        .map(|commit| (id.as_str(), commit))
-    })
-    .collect();
-  let followed = outcome
-    .commits
-    .iter()
-    .filter(changed)
-    .filter(|commit| !requested.iter().any(|(_, requested)| requested.id == commit.id));
-  let moved: Vec<MovedCommit> = requested
-    .iter()
-    .map(|(id, commit)| (*id, *commit))
-    .chain(followed.map(|commit| (commit.id.as_str(), commit)))
-    .map(|(id, commit)| MovedCommit {
-      old_id: id.to_string(),
-      new_id: commit.new_id.clone(),
-      previous_message: commit.previous_message.clone(),
-    })
-    .collect();
-  info!(moved = moved.len(), "Moved commits");
-  Ok(MoveCommitsResult { moved, issue_groups: None })
+        .filter(|(key, name)| change.previous_entries.get(*key) != Some(*name))
+        .map(|(key, _)| key.clone()),
+    );
+    ungrouped_issues.extend(change.previous_entries.keys().filter(|key| !change.entries.contains_key(*key)).cloned());
+  }
+  MoveCommitsResult {
+    commits,
+    grouped_issues,
+    ungrouped_issues,
+    target,
+    head: outcome.new_head.clone(),
+    orphaned_children: outcome.orphaned_children.clone(),
+    undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
+  }
 }
 
 /// The message with the explicit branch prefix of its subject set to `target` (or removed): `fixup! (a) X` becomes

@@ -97,9 +97,12 @@ So `(lexer) ABC-123: Add lexer` belongs to `lexer`, and its pushed message is `A
 whose commits all carry one issue key belongs to that issue (`issue_key` of `GroupedBranchInfo`): the branch table
 nests it under the issue. `groupFor` in `src/lib/commit.ts` mirrors the rule for the editor's warning.
 
-A regrouping by prefix is a message rewrite: `move_commits_to_branch` (`crates/sync-core/src/move_commits.rs`) sets
-or removes the prefix of many commits in one rewrite. The UI uses it to move commits, split an issue, rename a branch
-and ungroup one; an undo restores the previous messages with `reword_commits`. See
+A move makes the smallest change that puts the commits where they go (`move_commits_to_branch`,
+`crates/sync-core/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
+an issue moves by the issue groups below, without a rewrite, so the next commit of the issue follows it. Only a part of
+an issue, a commit without a key and a stacked target get the prefix, in one message rewrite; a prefix that the key
+makes redundant goes. The UI uses it to move commits and whole branches, split an issue, combine issues, rename a
+branch and ungroup one; an undo moves HEAD and the issue groups back in one transaction (`undo_regroup`). See
 [Move Commits](../../spec/branch/move-commits.spec.md). The issue groups are the one grouping state outside the
 messages.
 

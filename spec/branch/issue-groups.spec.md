@@ -15,6 +15,7 @@ targets:
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/stack_operations.rs
   - ../../crates/sync-core/src/move_commits.rs
+  - ../../crates/sync-core/src/move_plan.rs
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/ref_transaction.rs
   - ../../crates/git-ops/src/reword_commits.rs
@@ -32,6 +33,7 @@ targets:
   - ../../src/hooks/useCommitMoveList.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useStackActions.ts
+  - ../../src/hooks/useMoveCommits.ts
   - ../../src/components/branch/InlineRenameBranchInput.tsx
   - ../../src/components/commit/PrefixChangeHint.tsx
 ---
@@ -46,7 +48,9 @@ Date: 2026-10-14
 An issue group puts the commits of several issue keys into one branch, without a history rewrite. The repository
 stores an issue key to branch name map. A commit without a prefix whose issue key is in the map belongs to the branch
 of its key. So `ABC-1 Parse lists` and `ABC-2 Parse maps` go into `parser`, and both subjects stay as they are. Only a
-regroup writes the map, under the repository lock, in the ref transaction that moves HEAD. A sync only reads it.
+regroup writes the map, under the repository lock, in the ref transaction that moves HEAD. A sync only reads it. In the
+app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): dragging the branches of `ABC-1` and
+`ABC-2` onto `parser`.
 
 ## Goals
 
@@ -56,7 +60,6 @@ regroup writes the map, under the repository lock, in the ref transaction that m
 
 ## Non-goals
 
-- An app UI that creates issue groups. The app shows them and renames them.
 - An automatic cleanup of the keys that group no commit.
 - Restacking an issue group: give its commits a prefix first.
 
@@ -147,8 +150,12 @@ regroup writes the map, under the repository lock, in the ref transaction that m
 ### App
 
 - The app must show an issue group as a branch, nest a single-key issue group under its issue, and rename it through
-  the rename core; the undo of a rename must move the map back too. Unlike `bd undo`, that undo is two steps, the map
-  first: when the map can't move back, the messages stay as they are.
+  the rename core; naming an issue branch must write the map, not a prefix.
+- A move of a whole issue must write the map, a move back of one must remove its key (`plan_move`, see
+  [Move Commits](move-commits.spec.md)); "Ungroup" of an issue group moves all its issues back.
+  [@test] ../../crates/sync-core/src/move_commits_test.rs (`whole_issues_join_a_branch_without_a_rewrite_and_their_next_commits_follow`, `moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them`)
+- The undo of a move, a rename and a restack must be `bd undo` of the token of the result (`undo_regroup`): HEAD and
+  the map in one transaction.
   [@test] ../../tests/e2e/issue-groups/issue-groups.spec.ts (`should rename an issue group without a rewrite and undo the rename`)
 - The commit editor and "Move Back to …" must name the issue group of a key.
   [@test] ../../src/hooks/useCommitMoveList.test.ts (`names the issue group the commits fall back to`)
@@ -158,12 +165,13 @@ regroup writes the map, under the repository lock, in the ref transaction that m
 - `pnpm test:backend`: `crates/sync-core/src/issue_groups_test.rs`, `crates/bd-cli/src/status_test.rs`,
   `crates/bd-cli/src/suggest_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/hooks/useCommitMoveList.test.ts`.
-- `pnpm e2e`: `tests/e2e/issue-groups/issue-groups.spec.ts`, on the `issue_groups` template.
+- `pnpm e2e`: `tests/e2e/issue-groups/issue-groups.spec.ts`, on the `issue_groups` template;
+  `tests/e2e/move-commits/combine-branches.spec.ts`, on the `issue_combine` template.
 
 ## Open Questions / Risks
 
 - git keeps no reflog for `refs/branch-deck/issue-groups`. The parent chain of its commits is the history of the map.
-- A `bd rename` of an issue branch that is not in the map still gives its commits a prefix.
+- A move of a whole issue writes a key that the other worktrees share: its commits there move too.
 
 ## References
 

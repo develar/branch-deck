@@ -3,8 +3,7 @@ use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::move_commits::MoveCommitsResult;
 use sync_core::stack_operations::{
-  RenameBranchParams, RestackBranchParams, UndoIssueGroupsParams, rename_branch as rename_branch_core, restack_branch as restack_branch_core,
-  undo_issue_groups as undo_issue_groups_core,
+  RenameBranchParams, RestackBranchParams, UndoRegroupParams, rename_branch as rename_branch_core, restack_branch as restack_branch_core, undo_regroup as undo_regroup_core,
 };
 use tauri::State;
 use tracing::instrument;
@@ -28,11 +27,12 @@ pub async fn restack_branch(git_executor: State<'_, GitCommandExecutor>, params:
   run_blocking(move || restack_branch_core(&git, &params)).await
 }
 
-/// Moves the issue groups back to where they were before a rename, with compare-and-swap.
+/// Moves back what a move, a rename or a restack wrote (its `undo_token`): HEAD and the issue groups in one ref
+/// transaction with compare-and-swap.
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor))]
-pub async fn undo_issue_groups(git_executor: State<'_, GitCommandExecutor>, params: UndoIssueGroupsParams) -> Result<(), CommandError> {
+pub async fn undo_regroup(git_executor: State<'_, GitCommandExecutor>, params: UndoRegroupParams) -> Result<(), CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || undo_issue_groups_core(&git, &params)).await
+  run_blocking(move || undo_regroup_core(&git, &params)).await
 }

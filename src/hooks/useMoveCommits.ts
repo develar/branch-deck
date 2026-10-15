@@ -1,18 +1,20 @@
 import { toast } from "@/components/ui/toast"
-import type { Commit, MovedCommit } from "@/lib/bindings"
+import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
-import { formatCommitCount, groupFor } from "@/lib/commit"
+import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
-import { isStacksEnabled, syncBranches } from "@/stores/branch-sync"
+import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
+import { syncBranches } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
- * Moves commits to `targetBranch` (an existing or a new branch) by setting their `(branch)` prefix, or removes the
- * prefix (`null`): the commits fall back to their issue branch or to the unassigned commits. Then syncs, reveals the
- * moved commits in the target branch and offers an undo. Resolves (before the sync ends) to false, after an error
- * toast, if the commits could not be moved.
+ * Moves commits to `targetBranch` (an existing or a new branch), or back (`null`: out of their prefix branch or out of
+ * the issue group of their key), with the smallest change (`move_commits_to_branch`): a whole issue goes by the issue
+ * groups, without a rewrite, the other commits by their `(branch)` prefix. Then syncs, reveals the moved commits in the
+ * target branch and offers an undo of the whole move. Resolves (before the sync ends) to false, after an error toast,
+ * if the commits could not be moved.
  */
 export async function moveCommits(commits: readonly Commit[], targetBranch: string | null): Promise<boolean> {
   const result = await invokeCommand(() => commands.moveCommitsToBranch({
@@ -21,33 +23,47 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
     targetBranch,
   }))
   if (result.status !== "ok") {
-    notifyError(targetBranch === null ? "Cannot remove the prefix" : `Cannot move the commits to ${targetBranch}`, result.error)
+    notifyError(targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`, result.error)
     return false
   }
 
-  const { moved } = result.data
-  if (moved.length === 0) {
-    toast.add({ type: "info", title: targetBranch === null ? "No prefix to remove" : `Already in ${targetBranch}` })
+  const moved = result.data
+  const count = countMoved(moved)
+  if (count === 0) {
+    toast.add({ type: "info", title: targetBranch === null ? "Nothing to move back" : `Already in ${moved.target ?? targetBranch}` })
     return true
   }
 
-  // with stacked branches `auth/login` is the branch `login`
-  const revealed = targetBranch !== null && isStacksEnabled() ? (groupFor(`(${targetBranch})`, true)?.branch ?? targetBranch) : targetBranch
-  requestReveal(revealed === null ? null : { branchName: revealed, commitIds: moved.map(it => it.newId) })
-  showUndoToast(targetBranch === null ? `Removed the prefix of ${formatCommitCount(moved.length)}` : `Moved ${formatCommitCount(moved.length)} to ${targetBranch}`, () => undoMove(moved))
+  const target = moved.target ?? null
+  requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
+  const description = describeMove(moved, target, true)
+  showUndoToast(moveTitle(moved, target, count), () => undoRegroup(moved.undoToken, "Cannot undo the move"), description === undefined ? undefined : capitalize(description))
   // the form closes when the commits moved; the lists follow when the sync is done
   void syncBranches({ autoScroll: false, autoExpand: false })
   return true
 }
 
-/** Restores the messages the moved commits had before, in one history rewrite. */
-export async function undoMove(moved: readonly MovedCommit[]): Promise<void> {
-  const result = await invokeCommand(() => commands.rewordCommits({
-    repositoryPath: getSelectedProject()?.path ?? "",
-    rewrites: moved.map(it => ({ commitId: it.newId, message: it.previousMessage })),
-  }))
+function moveTitle(result: MoveCommitsResult, target: string | null, count: number): string {
+  if (target !== null) {
+    return `Moved ${formatCommitCount(count)} to ${target}`
+  }
+  const onlyPrefixes = result.commits.every(commit => commit.change === "PrefixRemoved" || commit.change === "Unchanged")
+  return onlyPrefixes ? `Removed the prefix of ${formatCommitCount(count)}` : `Moved ${formatCommitCount(count)} back`
+}
+
+/** The ids of the commits a move changed, after it */
+export function movedIds(result: MoveCommitsResult): string[] {
+  return result.commits.filter(commit => commit.change !== "Unchanged").map(commit => commit.newId)
+}
+
+/** Moves back what a move, a rename or a restack wrote, HEAD and the issue groups in one transaction, then syncs */
+export async function undoRegroup(token: string | null | undefined, failureTitle: string): Promise<void> {
+  if (token == null) {
+    return
+  }
+  const result = await invokeCommand(() => commands.undoRegroup({ repositoryPath: getSelectedProject()?.path ?? "", token }))
   if (result.status !== "ok") {
-    notifyError("Cannot undo the move", result.error)
+    notifyError(failureTitle, result.error)
     return
   }
   requestReveal(null)

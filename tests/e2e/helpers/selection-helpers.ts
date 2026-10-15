@@ -89,3 +89,18 @@ export async function isSelected(element: Locator): Promise<boolean> {
 export function getSelectedCommits(page: Page): Locator {
   return page.locator("[data-row-id][data-selected=\"true\"]")
 }
+
+/** Starts a native drag of a commit or branch row and keeps the button pressed; finish it with `dropOn` */
+export async function startDrag(page: Page, row: Locator): Promise<void> {
+  await row.scrollIntoViewIfNeeded()
+  await row.hover()
+  await page.mouse.down()
+  const box = (await row.boundingBox())!
+  // the drag starts on the first move
+  await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 10, { steps: 4 })
+}
+
+export async function dropOn(page: Page, target: Locator): Promise<void> {
+  await target.hover()
+  await page.mouse.up()
+}
