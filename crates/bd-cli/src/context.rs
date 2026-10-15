@@ -29,6 +29,8 @@ pub struct Environment {
   pub home: Option<PathBuf>,
   /// The running binary, which `bd install` links to
   pub executable: Option<PathBuf>,
+  /// The `.AppImage` file the binary runs from (`APPIMAGE`, Linux), which `bd install` links to instead
+  pub appimage: Option<PathBuf>,
   /// `PATH`, to tell whether the installed `bd` is found
   pub path: Option<OsString>,
 }
@@ -42,6 +44,7 @@ impl Environment {
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       home: dirs::home_dir(),
       executable: std::env::current_exe().ok(),
+      appimage: std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()).map(PathBuf::from),
       path: std::env::var_os("PATH"),
     }
   }

@@ -76,7 +76,8 @@ repositories: all operations run through the Git CLI.
   the workflow.
   Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
   `~/.agents/skills`, so coding agents know when to use it.
-- Auto-sync when the window gets focus, auto-update, light and dark theme.
+- Auto-sync when the window gets focus (off by default, in the sync settings next to Sync), auto-update, light and
+  dark theme.
 
 ## How It Works
 
@@ -85,8 +86,9 @@ Two kinds of prefix are involved:
 - **Commit message prefix**: text like `(feature-auth)` at the start of a commit subject on your main branch (HEAD). It
   only groups commits: the cherry-picked commits on the virtual branch are stored without it (`Add login`, not
   `(feature-auth) Add login`).
-- **Branch prefix**: the namespace set with `git config branchdeck.branchPrefix username`. It becomes the first path
-  segment of every branch, e.g. `refs/heads/username/virtual/feature-auth`.
+- **Branch prefix**: your namespace, typed in the field next to the repository selector or set with
+  `git config --global branchdeck.branchPrefix username` (the field wins). It becomes the first path segment of every
+  branch, e.g. `refs/heads/username/virtual/feature-auth`.
 
 Grouping rules, checked on the first line of the commit message:
 
@@ -100,10 +102,37 @@ See [Virtual Branches](docs/design/virtual-branches.md) for the branch layout an
 
 ## Installation
 
-[Download the latest release](https://github.com/develar/branch-deck/releases/latest) for macOS (Apple silicon), Windows or Linux.
+[Download the latest release](https://github.com/develar/branch-deck/releases/latest) for macOS (Apple silicon), Windows
+or Linux (AppImage, `.deb`, `.rpm`).
 
-Requires Git 2.54 or newer (`brew install git` on macOS). Pull request status needs `gh`, logged in with
-`gh auth login`.
+The builds are not signed yet:
+
+- **macOS**: move `BranchDeck.app` to Applications, then run `xattr -dr com.apple.quarantine /Applications/BranchDeck.app`
+  once, or open it and allow it in System Settings → Privacy & Security → Open Anyway.
+- **Windows**: SmartScreen warns about an unknown publisher; choose More info → Run anyway.
+
+Requirements:
+
+- **Git 2.54 or newer**: `brew install git` on macOS; on Ubuntu the distribution's Git is older, use the PPA
+  (`sudo add-apt-repository ppa:git-core/ppa && sudo apt install git`); [Git for Windows](https://git-scm.com/downloads/win).
+  The app says so, with the command, when Git is missing or too old.
+- **A Git identity** (`git config --global user.name` and `user.email`): Branch Deck records its notes and rewritten
+  commits with it.
+- Optional: `gh`, logged in with `gh auth login`, for the pull request status. Branch name suggestions download an
+  on-device model (2.5 GB) the first time you enable AI.
+
+## Getting Started
+
+1. Open Branch Deck and select a repository (the selector in the header, or the folder button).
+2. Choose your branch prefix: the welcome card suggests the name part of your Git email; Save it, or type another
+   one.
+3. Commit on your branch as usual, starting a subject with a prefix: `(auth) Add login form` or `ABC-123 Fix login bug`.
+   Commits without one are listed as unassigned; select them and Move them to a branch.
+4. Sync (⌘R, Ctrl+R): Branch Deck creates a local branch `<prefix>/virtual/<name>` for each group. Your working tree
+   and the checked-out branch stay as they are.
+5. Push a branch from its row, and open its pull request from the toast.
+
+Help → Install Agent CLI… puts `bd` on `PATH` for coding agents (see Features).
 
 History rewrites (reword, move, squash, amend, unapply) never touch your working tree or your staged changes. Update
 Project is the one operation that writes files, and only files that upstream changed and you didn't. See

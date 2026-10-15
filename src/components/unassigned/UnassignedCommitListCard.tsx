@@ -2,12 +2,14 @@ import { cn } from "cn"
 import { Card } from "@/components/ui/card"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
+import { InlineCode } from "@/components/shared/InlineCode"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { UnassignedCommitsHelpPopover } from "@/components/unassigned/UnassignedCommitsHelpPopover"
 import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { getRemovePrefixLabel, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { Commit } from "@/lib/bindings"
+import { useBranchSync } from "@/stores/branch-sync"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 
 export interface UnassignedCommitListCardProps {
@@ -17,6 +19,8 @@ export interface UnassignedCommitListCardProps {
 /** Commits that match no grouping pattern; select them to move them to a branch, or drop branch commits here. */
 export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardProps) {
   const moveList = useCommitMoveList({ commits, sourceBranch: null })
+  // with no branch yet, the grouping convention is new: said in the card, not only in its help popover
+  const hasNoBranches = useBranchSync(state => state.branchOrder.length === 0)
   // dropping branch commits removes their prefix (a commit with an issue key goes back to its issue branch)
   const dropTarget = useCommitDropTarget(
     UNASSIGNED_SOURCE,
@@ -47,6 +51,15 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
             </>
           )}
         />
+        {hasNoBranches && (
+          <p className="mt-2 text-sm text-muted-foreground" data-testid="unassigned-commits-hint">
+            {"Start a commit subject with "}
+            <InlineCode>(name)</InlineCode>
+            {" or an issue key like "}
+            <InlineCode>ABC-123</InlineCode>
+            {" to group it into a branch, or select commits and move them to one."}
+          </p>
+        )}
       </div>
 
       <MovableCommitList moveList={moveList} commits={commits} variant="compact" showAuthor editable />

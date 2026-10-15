@@ -5,7 +5,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
+import { GitSetupAlert } from "@/components/repository/GitSetupAlert"
 import { LandedCard } from "@/components/repository/LandedCard"
+import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
@@ -58,31 +60,42 @@ export function BranchCreator() {
   // a repository counts as selected as soon as a project is chosen
   const hasRepository = useSelectedProject() !== null
   const hasBranchPrefix = useEffectiveBranchPrefix() !== ""
+  // git itself is missing or too old: its alert replaces the path and sync errors, which say the same
+  const hasGitError = useRepository(state => !!state.gitSetup?.git_error)
 
+  const error = hasGitError || isSyncing ? null : (syncError || pathValidation.error)
+  const hasError = hasGitError || !!error
   const showWelcomeCard = shouldShowWelcomeCard({
     hasRepository,
     hasRecentProjects,
     hasBranchPrefix,
     isLoadingBranchPrefix,
-    hasPathError: !!pathValidation.error && !isSyncing,
+    hasError,
   })
+  const showReadyToSync = hasRepository && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasCompletedSync && !hasError
 
-  const errorTitle = syncError || pathValidation.error
+  // a message of several lines (git with its install hint) is a title and its details
+  const [errorTitle, ...errorLines] = error?.split("\n") ?? []
+  const errorDetails = [errorLines.join("\n"), pathValidation.errorDetails === error ? "" : pathValidation.errorDetails].filter(Boolean).join("\n")
   return (
     <div className="flex flex-col gap-6" data-testid="branch-creator-root">
       <ConfigurationHeader />
 
+      <GitSetupAlert />
+
       {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} hasBranchPrefix={hasBranchPrefix} />}
+
+      {showReadyToSync && <ReadyToSyncCard />}
 
       <LandedCard />
 
-      {errorTitle && !isSyncing
+      {errorTitle
         ? (
             <Alert variant="destructive" data-testid="error-alert">
               <CircleXIcon />
               <AlertTitle>{errorTitle}</AlertTitle>
               {/* a command error is both the title and the details: said once */}
-              {pathValidation.errorDetails && pathValidation.errorDetails !== errorTitle && <AlertDescription>{pathValidation.errorDetails}</AlertDescription>}
+              {errorDetails && <AlertDescription className="whitespace-pre-line">{errorDetails}</AlertDescription>}
             </Alert>
           )
         : hasCompletedSync && branchCount === 0 && unassignedCommitCount === 0 && (
@@ -93,7 +106,7 @@ export function BranchCreator() {
               <p>Commit to your main branch using prefixes like:</p>
               <ul className="list-inside list-disc font-mono">
                 <li>(auth) Add login form</li>
-                <li>YT-123 Fix bug</li>
+                <li>ABC-123 Fix login bug</li>
               </ul>
               <p>Branch Deck will automatically group your commits into virtual branches.</p>
               {archivedBranchCount > 0 && (
@@ -131,17 +144,17 @@ function shouldShowWelcomeCard(state: {
   hasRecentProjects: boolean
   hasBranchPrefix: boolean
   isLoadingBranchPrefix: boolean
-  hasPathError: boolean
+  hasError: boolean
 }): boolean {
+  // the error alert explains the problem (git missing, a folder that is not a repository); don't show both
+  if (state.hasError) {
+    return false
+  }
   if (!state.hasRepository) {
     return !state.hasRecentProjects
   }
   // the prefix is not known yet
   if (state.isLoadingBranchPrefix) {
-    return false
-  }
-  // the error alert explains the problem; don't show both
-  if (state.hasPathError) {
     return false
   }
   return !state.hasBranchPrefix

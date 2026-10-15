@@ -79,6 +79,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // Tauri command endpoints
     .route("/invoke/validate_repository_path", post(tauri_command_bridge::validate_repository_path))
     .route("/invoke/get_branch_prefix_from_git_config", post(tauri_command_bridge::get_branch_prefix_from_git_config))
+    .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword_commits", post(tauri_command_bridge::reword_commits))
@@ -178,6 +179,14 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
     }));
   }
   {
+    let repo_path = target_dir.join("empty_git");
+    futures.push(tokio::task::spawn_blocking(move || templates::empty_git().build(&repo_path)));
+  }
+  {
+    let repo_path = target_dir.join("bare");
+    futures.push(tokio::task::spawn_blocking(move || templates::bare().build(&repo_path)));
+  }
+  {
     let repo_path = target_dir.join("archived_branches");
     futures.push(tokio::task::spawn_blocking(move || {
       tracing::info!("Creating test repository template: archived_branches");
@@ -271,6 +280,10 @@ pub enum RepositoryTemplate {
   LandedUpstream,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
+  #[serde(rename = "empty_git")]
+  EmptyGit,
+  #[serde(rename = "bare")]
+  Bare,
   #[serde(rename = "NO_REPO")]
   NoRepo,
 }
@@ -298,6 +311,8 @@ impl RepositoryTemplate {
       RepositoryTemplate::UpdateBlocked => "update_blocked",
       RepositoryTemplate::LandedUpstream => "landed_upstream",
       RepositoryTemplate::EmptyNonGit => "empty-non-git",
+      RepositoryTemplate::EmptyGit => "empty_git",
+      RepositoryTemplate::Bare => "bare",
       RepositoryTemplate::NoRepo => "NO_REPO",
     }
   }
@@ -376,7 +391,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
 
   // Pre-populate store with default values if requested and not empty-non-git template
   let store = DashMap::new();
-  if request.prepopulate_store && !matches!(request.template, RepositoryTemplate::EmptyNonGit) {
+  if request.prepopulate_store && !matches!(request.template, RepositoryTemplate::EmptyNonGit | RepositoryTemplate::Bare) {
     store.insert(
       "selectedProjectData".to_string(),
       serde_json::json!({

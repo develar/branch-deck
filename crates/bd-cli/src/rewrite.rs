@@ -14,6 +14,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use sync_core::baseline::NoBaseline;
 use sync_core::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
 };
@@ -335,6 +336,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     RegroupError::Locked(_) => ErrorCode::Locked,
     RegroupError::OperationInProgress(_) => ErrorCode::OperationInProgress,
     RegroupError::DetachedHead(_) => ErrorCode::DetachedHead,
+    RegroupError::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
     RegroupError::Other(_) => ErrorCode::GitError,
   };
   CliError {

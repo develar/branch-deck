@@ -44,7 +44,10 @@ async function testBrowseRepository(
   }
   else {
     // For invalid repository, wait for error message
-    await expect(page.locator("text=/Not a git repository/")).toBeVisible()
+    await expect(page.getByTestId("error-alert")).toContainText("Not a Git repository")
+
+    // the alert explains the problem: the welcome card does not repeat the steps next to it
+    await expect(page.getByTestId("welcome-card")).toHaveCount(0)
 
     // Capture final state (invalid repository error)
     await captureHtmlSnapshot(page.locator("body"), `browse-repository-${snapshotSuffix}`)

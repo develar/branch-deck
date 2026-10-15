@@ -6,7 +6,7 @@
 //! (docs/design/git-operations.md).
 
 use crate::autosquash::plan_autosquash;
-use crate::baseline::detect_baseline_branch;
+use crate::baseline::{NoBaseline, detect_baseline_branch, is_unborn_head};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, MIN_ID_LENGTH, match_commit_id};
 use crate::issue_groups::{
@@ -497,8 +497,16 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   Ok(())
 }
 
+/// The id of HEAD; a branch without commits is `NoBaseline::NoCommits`
 fn read_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String, RegroupError> {
-  Ok(git_executor.execute_command(&["rev-parse", "HEAD"], repository_path)?.trim().to_string())
+  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "HEAD"], repository_path)?;
+  if exit_code == 0 {
+    return Ok(output.trim().to_string());
+  }
+  if is_unborn_head(git_executor, repository_path)? {
+    return Err(RegroupError::Other(anyhow::Error::new(NoBaseline::NoCommits)));
+  }
+  Err(RegroupError::Other(anyhow::anyhow!("Cannot read HEAD: {output}")))
 }
 
 /// Read the snapshot, turn it into a change, validate the result and write it: the reworded commits and the issue

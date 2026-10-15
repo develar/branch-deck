@@ -13,7 +13,8 @@ pub struct BrowseResult {
   pub error: Option<String>,
 }
 
-/// Validates that a path is a valid git repository
+/// Validates that a path is the working tree of a git repository: it has `.git` (a directory, or the file of a linked
+/// worktree). A bare repository has no working tree to read the user's branch from. Filesystem checks only, no git process
 #[instrument]
 pub fn validate_path(path: &str) -> Result<()> {
   if path.trim().is_empty() {
@@ -32,13 +33,18 @@ pub fn validate_path(path: &str) -> Result<()> {
     return Err(anyhow!("Path is not a directory"));
   }
 
-  // Check if it's a git repository
-  let git_dir = path_obj.join(".git");
-  if !git_dir.exists() {
-    return Err(anyhow!("Not a git repository (no .git directory found)"));
+  if path_obj.join(".git").exists() {
+    return Ok(());
   }
+  if is_bare_repository(path_obj) {
+    return Err(anyhow!("Bare repositories are not supported: Branch Deck needs a working tree"));
+  }
+  Err(anyhow!("Not a Git repository"))
+}
 
-  Ok(())
+/// The layout git itself checks to tell a git directory: `HEAD`, `objects/` and `refs/`
+fn is_bare_repository(path: &Path) -> bool {
+  path.join("HEAD").is_file() && path.join("objects").is_dir() && path.join("refs").is_dir()
 }
 
 /// Validates a path and creates a `BrowseResult`
@@ -60,8 +66,10 @@ pub fn validate_and_create_result(path: String) -> BrowseResult {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use git_executor::git_command_executor::GitCommandExecutor;
   use std::fs;
   use tempfile::TempDir;
+  use test_utils::git_test_utils::TestRepo;
 
   #[test]
   fn test_validate_path_empty() {
@@ -90,7 +98,34 @@ mod tests {
     let temp_dir = TempDir::new().unwrap();
     let result = validate_path(temp_dir.path().to_str().unwrap());
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Not a git repository"));
+    assert_eq!(result.unwrap_err().to_string(), "Not a Git repository");
+  }
+
+  #[test]
+  fn test_validate_path_bare_repo() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().to_str().unwrap();
+    GitCommandExecutor::new().execute_command(&["init", "--bare"], path).unwrap();
+
+    assert_eq!(
+      validate_path(path).unwrap_err().to_string(),
+      "Bare repositories are not supported: Branch Deck needs a working tree"
+    );
+  }
+
+  #[test]
+  fn test_validate_path_linked_worktree() {
+    let repo = TestRepo::new();
+    repo.create_commit("Initial", "README.md", "readme");
+    let temp_dir = TempDir::new().unwrap();
+    let worktree = temp_dir.path().join("worktree");
+    repo
+      .git_executor()
+      .execute_command(&["worktree", "add", "--detach", worktree.to_str().unwrap()], repo.path().to_str().unwrap())
+      .unwrap();
+
+    assert!(worktree.join(".git").is_file());
+    assert!(validate_path(worktree.to_str().unwrap()).is_ok());
   }
 
   #[test]

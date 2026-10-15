@@ -55,6 +55,8 @@ export const commands = {
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
+	/**  Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change */
+	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, CommandError>(__TAURI_INVOKE("check_git_setup", { params })),
 	/**  Opens a native file dialog to browse for a git repository */
 	browseRepository: () => typedError<BrowseResult, CommandError>(__TAURI_INVOKE("browse_repository")),
 	/**
@@ -565,6 +567,19 @@ export type GetPullRequestsParams = {
 
 export type GetUncommittedChangesParams = {
 	repositoryPath: string,
+};
+
+/**
+ *  What the first run needs from git, checked before anything else runs: git itself, the identity that Branch Deck
+ *  writes its notes and rewritten commits with, and a branch prefix to suggest
+ */
+export type GitSetup = {
+	/**  Git is missing or too old: a summary line, then how to install or upgrade it */
+	git_error: string | null,
+	/**  `git var GIT_COMMITTER_IDENT` failed: user.name or user.email is not set and git cannot guess them */
+	identity_error: string | null,
+	/**  The local part of the committer email as a branch name segment, empty if there is none */
+	suggested_branch_prefix: string,
 };
 
 export type GroupedBranchInfo = {

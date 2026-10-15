@@ -49,20 +49,20 @@
           About unassigned commits
         </h3>
         <p>
-          These commits won't be assigned to virtual branches because they don't match Branch Deck's grouping patterns:
+          Their subjects start with neither of the prefixes that group a commit into a branch:
         </p>
         <ul class="flex list-disc flex-col gap-1 pl-4 marker:text-muted-foreground">
           <li>
+            an explicit prefix:
             <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
-              (feature-name)
+              (auth) Add login form
             </code>
-            - Explicit prefix
           </li>
           <li>
+            an issue key:
             <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
-              ABC-123
+              ABC-123 Fix login bug
             </code>
-            - Issue numbers
           </li>
         </ul>
       </section>

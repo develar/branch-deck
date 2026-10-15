@@ -29,15 +29,15 @@ export function UnassignedCommitsHelpPopover() {
       </HelpSection>
 
       <HelpSection title="About unassigned commits">
-        <p>These commits won't be assigned to virtual branches because they don't match Branch Deck's grouping patterns:</p>
+        <p>Their subjects start with neither of the prefixes that group a commit into a branch:</p>
         <HelpList>
           <li>
-            <InlineCode>(feature-name)</InlineCode>
-            {" - Explicit prefix"}
+            {"an explicit prefix: "}
+            <InlineCode>(auth) Add login form</InlineCode>
           </li>
           <li>
-            <InlineCode>ABC-123</InlineCode>
-            {" - Issue numbers"}
+            {"an issue key: "}
+            <InlineCode>ABC-123 Fix login bug</InlineCode>
           </li>
         </HelpList>
       </HelpSection>

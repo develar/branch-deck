@@ -9,6 +9,7 @@ pub mod check;
 pub mod commit_grouper;
 pub mod commit_ids;
 pub mod delete_archived_branch;
+pub mod git_setup;
 pub mod grouping;
 pub mod issue_groups;
 pub mod issue_navigation;
@@ -36,7 +37,11 @@ pub mod uncommitted_changes;
 pub mod update_project;
 
 #[cfg(test)]
+mod baseline_test;
+#[cfg(test)]
 mod branch_prefix_test;
+#[cfg(test)]
+mod git_setup_test;
 #[cfg(test)]
 mod patronus_command_test;
 #[cfg(test)]

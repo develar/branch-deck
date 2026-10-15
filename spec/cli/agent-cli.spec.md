@@ -128,6 +128,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   count, the tip of the synced virtual branch or `null`, commits newest first without the prefix) and the unassigned
   commits.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_shape`)
+- Without a baseline (no upstream and no `origin/master` or `origin/main`, or no remote and no local `master` or
+  `main`) it must be `no_baseline`, the message naming each branch it tried once.
+  [@test] ../../crates/bd-cli/src/status_test.rs (`no_baseline_is_refused`)
+- In a repository without commits (`git init`), every command that reads HEAD or the baseline (`status`, `commits`,
+  `suggest`, `check`, `sync`, `fold`, `update` and the rewrites) must be `no_baseline` with "The repository has no
+  commits yet: commit to the main branch, then sync", not a git error; telling it must cost no git process when HEAD
+  resolves.
+  [@test] ../../crates/bd-cli/src/status_test.rs (`no_commits_is_no_baseline`)
 - `--branch` must list one branch, `--unassigned` only the unassigned commits; `--limit`/`--offset` must page their
   commits, and the branches otherwise.
   [@test] ../../crates/bd-cli/src/status_test.rs (`status_filters_and_pages`)
@@ -447,6 +455,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, with "Copy Path"
   (the full path of `bd`); a failure is the error toast "Cannot install the Agent CLI".
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
+- The symlink must outlive the running app: on Linux, with `APPIMAGE` set, it must point at the AppImage file, not at
+  the binary in its temporary mount; on macOS an app run translocated (its path under `AppTranslocation/`) must be
+  `install_refused` with "Branch Deck runs from a temporary location: move it to Applications, then install the Agent
+  CLI".
+  [@test] ../../crates/bd-cli/src/install_test.rs (`the_link_target_is_the_appimage_not_its_mount`, `install_links_to_the_appimage`, `a_translocated_app_is_refused`)
 - Without the symlink to this binary, `bd help skill` must name the app binary with `cli`, never the bare app binary,
   which starts the app, quoted for the shell and to be run as written. The app's `agent_cli_command(repository)` must
   return the same command with `-C <repository>` without writing anything, quoted for the shell (POSIX quotes; on

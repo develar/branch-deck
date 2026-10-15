@@ -67,6 +67,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     });
   }
 
+  refuse_temporary_location(&target)?;
   let bd = install_command(home, &target)?;
   let text = skill_text(
     &BdCommand {
@@ -166,6 +167,9 @@ fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
     .as_deref()
     .ok_or_else(|| CliError::new(ErrorCode::InstallRefused, "Can't tell where the bd binary is"))?;
   let executable = std::fs::canonicalize(executable).map_err(|e| io_error(executable, &e))?;
+  // an `APPIMAGE` that is gone is not the app's
+  let appimage = environment.appimage.as_deref().and_then(|path| std::fs::canonicalize(path).ok());
+  let executable = app_binary_path(&executable, appimage.as_deref());
   if cfg!(windows) {
     let bd = executable.with_file_name("bd.exe");
     if !bd.is_file() {
@@ -174,6 +178,24 @@ fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
     return Ok(bd);
   }
   Ok(executable)
+}
+
+/// The app binary of the running `executable`: the `.AppImage` file when the app runs from one (`appimage`, the `APPIMAGE`
+/// variable), not the binary in its mount under `/tmp/.mount_*`, which goes when the app quits
+pub fn app_binary_path(executable: &Path, appimage: Option<&Path>) -> PathBuf {
+  appimage.unwrap_or(executable).to_path_buf()
+}
+
+/// Refuse a symlink to an app that macOS runs translocated, from a read-only copy under `AppTranslocation/` (an app
+/// started from Downloads or a disk image), which goes when the app quits
+pub fn refuse_temporary_location(target: &Path) -> Result<(), CliError> {
+  if target.components().any(|component| component.as_os_str() == "AppTranslocation") {
+    return Err(CliError::new(
+      ErrorCode::InstallRefused,
+      "Branch Deck runs from a temporary location: move it to Applications, then install the Agent CLI",
+    ));
+  }
+  Ok(())
 }
 
 /// The `bd` symlink in `~/.local/bin` to `target`. A symlink there is replaced; anything else is refused

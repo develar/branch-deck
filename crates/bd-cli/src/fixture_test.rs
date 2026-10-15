@@ -19,6 +19,7 @@ pub fn environment(cwd: &Path) -> Environment {
     lock_timeout: std::time::Duration::from_millis(200),
     home: None,
     executable: None,
+    appimage: None,
     path: None,
   }
 }

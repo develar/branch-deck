@@ -6,11 +6,11 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isMac } from "@/lib/platform"
 import { syncBranches, useBranchSync } from "@/stores/branch-sync"
-import { useRepository, useSelectedProject } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
 
 /**
  * Header button of Sync (⌘R). A failed sync turns it `destructive` with the error as its tooltip, next to the page
- * alert; an invalid repository disables it with the reason as its tooltip.
+ * alert; an invalid repository or a missing branch prefix disables it with the reason as its tooltip.
  */
 export function SyncButton() {
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -18,7 +18,11 @@ export function SyncButton() {
   const syncError = useBranchSync(state => state.syncError)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProject() !== null
-  const canSync = hasSelectedProject && pathValidation.valid
+  // not while the prefix loads: the button would flicker; sync waits for the load
+  const effectiveBranchPrefix = useEffectiveBranchPrefix()
+  const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
+  const hasBranchPrefix = effectiveBranchPrefix !== "" || isLoadingBranchPrefix
+  const canSync = hasSelectedProject && pathValidation.valid && hasBranchPrefix
 
   return (
     <Tooltip>
@@ -45,14 +49,16 @@ export function SyncButton() {
       <TooltipContent data-testid="sync-tooltip">
         {!canSync && pathValidation.error
           ? pathValidation.error
-          : syncError
-            ? (
-                <div className="flex flex-col gap-0.5">
-                  <span>{syncError}</span>
-                  <SyncShortcut className="opacity-70" />
-                </div>
-              )
-            : <SyncShortcut />}
+          : hasSelectedProject && !hasBranchPrefix
+            ? "Set the branch prefix first"
+            : syncError
+              ? (
+                  <div className="flex flex-col gap-0.5">
+                    <span>{syncError}</span>
+                    <SyncShortcut className="opacity-70" />
+                  </div>
+                )
+              : <SyncShortcut />}
       </TooltipContent>
     </Tooltip>
   )

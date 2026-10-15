@@ -16,3 +16,11 @@ pub async fn get_branch_prefix_from_git_config(git_executor: State<'_, GitComman
   let git = (*git_executor).clone();
   run_blocking(move || sync_core::branch_prefix::get_branch_prefix_from_git_config_sync(&git, &params.repository_path)).await
 }
+
+/// Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change
+#[tauri::command]
+#[specta::specta]
+pub async fn check_git_setup(git_executor: State<'_, GitCommandExecutor>, params: GetBranchPrefixParams) -> Result<sync_core::git_setup::GitSetup, CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || Ok::<_, anyhow::Error>(sync_core::git_setup::check_git_setup(&git, &params.repository_path))).await
+}

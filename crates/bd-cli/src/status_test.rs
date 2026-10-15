@@ -162,6 +162,49 @@ fn empty_prefix_is_an_error() {
 }
 
 #[test_log::test]
+fn no_baseline_is_refused() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial", "README.md", "readme\n");
+  repo.rename_branch("master", "trunk").unwrap();
+  let (exit_code, output) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 4);
+  assert_error(&output, "no_baseline");
+  assert_eq!(
+    output["error"]["message"],
+    json!("Cannot find the baseline branch: the repository has no remote and no master or main branch")
+  );
+}
+
+/// `git init` without a commit: every command that reads HEAD or the baseline says so, whichever it reads first
+#[test_log::test]
+fn no_commits_is_no_baseline() {
+  let repo = TestRepo::new();
+  let plan = repo.path().join("plan.json");
+  std::fs::write(&plan, r#"{"branches":{}}"#).unwrap();
+  let plan = plan.to_str().unwrap();
+  let commands: [&[&str]; 8] = [
+    &["status"],
+    &["status", "--brief"],
+    &["commits"],
+    &["suggest"],
+    &["check", "--plan", plan],
+    &["sync"],
+    &["fold"],
+    &["update", "--dry-run"],
+  ];
+  for args in commands {
+    let (exit_code, output) = run_in(&repo, args);
+    assert_eq!(exit_code, 4, "{args:?}: {output}");
+    assert_error(&output, "no_baseline");
+    assert_eq!(
+      output["error"]["message"],
+      json!("The repository has no commits yet: commit to the main branch, then sync"),
+      "{args:?}"
+    );
+  }
+}
+
+#[test_log::test]
 fn not_a_repository() {
   let directory = tempfile::tempdir().unwrap();
   let (exit_code, output) = run_json(&environment(directory.path()), &["--prefix", PREFIX, "status"]);

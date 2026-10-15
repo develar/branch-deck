@@ -7,6 +7,9 @@ use tracing::{instrument, warn};
 /// Behaves like git: returns error if directory doesn't exist or isn't accessible
 #[instrument(skip(git_executor))]
 pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<String> {
+  // a missing or too old git is reported as itself, with the install hint, not as an inaccessible repository
+  git_executor.get_info()?;
+
   // If no repository path provided, use global config directly
   if repository_path.is_empty() {
     return Ok(get_global_branch_prefix(git_executor));

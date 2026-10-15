@@ -1,7 +1,9 @@
 import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { commands } from "@/lib/bindings"
+import type { GitSetup } from "@/lib/bindings"
 import { getErrorDetails, notifyError } from "@/lib/errors"
+import { normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
 import { appSettingsStore, useAppSettings } from "@/stores/settings/appSettings"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -22,6 +24,8 @@ export interface RepositoryState {
   /** Branch prefix from `git config branchdeck.branchPrefix` of the selected repository (or the global git config) */
   gitProvidedBranchPrefix: BranchPrefixResult
   isLoadingBranchPrefix: boolean
+  /** Git, the git identity and the suggested branch prefix (`check_git_setup`); `null` until the first check returns */
+  gitSetup: GitSetup | null
 }
 
 /**
@@ -32,6 +36,7 @@ export const repositoryStore = createStore<RepositoryState>(() => ({
   pathValidation: { valid: true },
   gitProvidedBranchPrefix: { status: "error", error: { message: "Not loaded" } },
   isLoadingBranchPrefix: true,
+  gitSetup: null,
 }))
 
 export function useRepository<T>(selector: (state: RepositoryState) => T): T {
@@ -55,10 +60,9 @@ function computeEffectiveBranchPrefix(
   cachedBranchPrefix: string | undefined,
   gitProvidedBranchPrefix: BranchPrefixResult,
 ): string {
-  return globalUserBranchPrefix
-    || cachedBranchPrefix
-    || (gitProvidedBranchPrefix.status === "ok" ? gitProvidedBranchPrefix.data : "")
-    || ""
+  return normalizeBranchPrefix(globalUserBranchPrefix)
+    || normalizeBranchPrefix(cachedBranchPrefix)
+    || (gitProvidedBranchPrefix.status === "ok" ? normalizeBranchPrefix(gitProvidedBranchPrefix.data) : "")
 }
 
 /** User setting first, then the prefix cached for the selected project, then the one from git config. */
@@ -156,6 +160,7 @@ export function getLoadingPromise(): Promise<void> | null {
 }
 
 export function triggerBranchPrefixLoad(project: ProjectMetadata | null): void {
+  void loadGitSetup(project)
   const promise = loadBranchPrefix(project)
   loadingPromise = promise
   void promise.finally(() => {
@@ -163,6 +168,21 @@ export function triggerBranchPrefixLoad(project: ProjectMetadata | null): void {
       loadingPromise = null
     }
   })
+}
+
+/** Not awaited by sync: a sync without git fails on its own, with the same message */
+async function loadGitSetup(project: ProjectMetadata | null): Promise<void> {
+  const currentPath = project?.path
+  try {
+    const result = await commands.checkGitSetup({ repositoryPath: currentPath || "" })
+    if (getSelectedProject()?.path === currentPath && result.status === "ok") {
+      repositoryStore.setState({ gitSetup: result.data })
+    }
+  }
+  catch (error) {
+    // the check is advisory: whatever it would have found, the branch prefix load and sync report
+    console.warn("Cannot check the git setup", error)
+  }
 }
 
 async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> {

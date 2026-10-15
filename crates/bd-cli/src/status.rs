@@ -7,6 +7,7 @@ use git_ops::model::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
+use sync_core::baseline::{NoBaseline, is_unborn_head};
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline};
 use sync_core::regroup::{describe_problem, problem_commits};
 use sync_types::stack::{BlockReason, BranchStack, ParentState};
@@ -271,13 +272,17 @@ pub fn stack_issues(branch: &str, stack: &BranchStack, short: &ShortIds) -> Vec<
     .collect()
 }
 
-/// The checked out commit and branch, from one `rev-parse`
+/// The checked out commit and branch, from one `rev-parse`. A branch without commits (`git init`) is `no_baseline`, as
+/// in `detect_baseline_branch`; telling it costs a `symbolic-ref`, only when `rev-parse` fails
 pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliError> {
   let (output, exit_code) = context
     .git
     .execute_command_with_status(&["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"], &context.repository)?;
   let mut lines = output.lines();
   let (Some(id), 0) = (lines.next(), exit_code) else {
+    if is_unborn_head(&context.git, &context.repository)? {
+      return Err(CliError::new(ErrorCode::NoBaseline, NoBaseline::NoCommits.to_string()));
+    }
     return Err(CliError::new(ErrorCode::GitError, format!("Cannot read HEAD: {output}")));
   };
   let branch = lines.next().and_then(|reference| reference.strip_prefix("refs/heads/")).map(str::to_string);
@@ -287,14 +292,7 @@ pub fn read_head(context: &RepoContext) -> Result<(String, Option<String>), CliE
 /// Group the commits ahead of the baseline; a missing baseline is `no_baseline`, a `branch` that is not a group is
 /// `unknown_branch`
 pub fn read_grouping(context: &RepoContext, branch: Option<&str>) -> Result<BranchGrouping, CliError> {
-  let grouping = group_commits_ahead_of_baseline(&context.git, &context.repository, &context.prefix).map_err(|e| {
-    let message = format!("{e:#}");
-    if message.starts_with("No baseline branch found") {
-      CliError::new(ErrorCode::NoBaseline, message)
-    } else {
-      CliError::from(e)
-    }
-  })?;
+  let grouping = group_commits_ahead_of_baseline(&context.git, &context.repository, &context.prefix)?;
   if let Some(name) = branch
     && !grouping.branches.iter().any(|candidate| candidate.name == name)
   {

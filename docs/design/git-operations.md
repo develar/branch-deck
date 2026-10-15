@@ -110,7 +110,7 @@ written, except by Update Project (its own section below).
    has no batch writer for config. The current descriptions are still read with one `git config --get-regexp`, and
    only the ones that differ are written.
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
-   early with an upgrade hint.
+   early with an install or upgrade hint.
 
 ### Minimum Git version
 
@@ -124,8 +124,11 @@ written, except by Update Project (its own section below).
 | `replay --ref`, dropping commits that become empty | 2.54 | segment tips that are commit ids, not branches |
 
 The minimum is therefore **2.54** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`). On macOS a Homebrew git
-is preferred. On other platforms the upgrade hint names the git-core PPA (Ubuntu) and Git for Windows. CI checks the
-runner's git in `.github/workflows/test.yml`.
+is preferred. On other platforms the upgrade hint names the git-core PPA (Ubuntu) and Git for Windows. Every failed
+discovery is one summary line, then the hint (`UPGRADE_HINT`), and the app shows the line as the title: "Cannot find
+Git: <reason>" for a git that is missing or fails to run (the macOS `/usr/bin/git` stub without the Command Line Tools
+exits with an `xcrun: error`, its first line is the reason), "Git 2.39 is too old: Branch Deck requires Git 2.54 or
+newer" for an old one. CI checks the runner's git in `.github/workflows/test.yml`.
 
 ### Executor
 

@@ -9,7 +9,6 @@ use axum::{
 use futures::stream::{Stream, StreamExt};
 use git_ops::commit_files::{CommitFiles, GetCommitFileDiffParams, GetCommitFilesParams, GetCommitsFilesParams, read_commit_file_diff, read_commit_files_cached};
 use git_ops::conflict_analysis::FileDiff;
-use git_ops::model::{BranchError, BranchSyncStatus};
 use model_types::{BranchSuggestion, DownloadProgress, SuggestBranchNameParams, SuggestionProgress};
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
@@ -178,6 +177,21 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
   }
 }
 
+/// The production check for a test repository (the template sets user.name and user.email); a fixed suggestion without
+/// one, so the first run does not depend on the identity of the machine
+pub async fn check_git_setup(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> Json<serde_json::Value> {
+  let setup = if request.repository_path.is_empty() || ensure_repository_exists(&state, &request.repository_path).is_err() {
+    sync_core::git_setup::GitSetup {
+      git_error: None,
+      identity_error: None,
+      suggested_branch_prefix: "test-user".to_string(),
+    }
+  } else {
+    sync_core::git_setup::check_git_setup(&state.git_executor, &request.repository_path)
+  };
+  Json(serde_json::json!({ "status": "ok", "data": setup }))
+}
+
 // Progress reporter that sends events through a channel
 #[derive(Clone)]
 struct ChannelProgressReporter {
@@ -199,9 +213,14 @@ pub struct SyncBranchesRequest {
   branch_prefix: String,
 }
 
-pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+/// A failed sync fails the command with the error message as the body, which the page mock shows like the
+/// `CommandError` of the app (the page alert), after the events sent before the failure
+pub async fn sync_branches(
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<SyncBranchesRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, String)> {
   // Validate that the repository path belongs to a test repository
-  ensure_repository_exists(&state, &request.repository_path)?;
+  ensure_repository_exists(&state, &request.repository_path).map_err(|status| (status, String::new()))?;
 
   // Create a channel for streaming events
   let (tx, rx) = mpsc::unbounded_channel();
@@ -218,19 +237,9 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
     issue_config: IssueConfigSource::Load,
     ..Default::default()
   };
-  match sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await {
-    Ok(()) => {
-      // Core function completed successfully
-    }
-    Err(e) => {
-      tracing::error!("Sync branches failed: {}", e);
-      // Send error as a branch status event so the client knows what happened
-      let _ = reporter.send(SyncEvent::BranchStatusUpdate {
-        branch_name: String::from("sync"),
-        status: BranchSyncStatus::Error,
-        error: Some(BranchError::Generic(format!("Sync failed: {e}"))),
-      });
-    }
+  if let Err(e) = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await {
+    tracing::error!("Sync branches failed: {:#}", e);
+    return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")));
   }
 
   Ok(sse_events(rx, "sync"))

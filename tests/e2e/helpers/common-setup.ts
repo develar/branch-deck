@@ -150,9 +150,10 @@ export async function setupTestRepository(
   // Skip sync button wait for:
   // - NO_REPO and empty-non-git templates since they don't have functional git operations
   // - When prepopulateStore is false since no repository is selected yet
-  if (templateName !== "NO_REPO" && templateName !== "empty-non-git" && parsedOptions.prepopulateStore) {
-    const syncButton = page.locator("[data-testid=\"sync-button\"]")
-    await expect(syncButton).toBeEnabled({ timeout: 30000 })
+  if (templateName !== "NO_REPO" && templateName !== "empty-non-git" && templateName !== "bare" && parsedOptions.prepopulateStore) {
+    // a repository without a branch prefix keeps Sync disabled: the welcome card then says the prefix has loaded
+    const syncButton = page.locator("[data-testid=\"sync-button\"]:not([data-disabled])")
+    await expect(syncButton.or(page.getByTestId("welcome-card")).first()).toBeVisible({ timeout: 30000 })
   }
 
   // For NO_REPO, wait for the path validation to complete and error to be processed

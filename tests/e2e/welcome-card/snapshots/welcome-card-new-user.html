@@ -9,7 +9,7 @@
   </div>
   <div class="px-(--card-spacing) flex flex-col gap-4" data-slot="card-content">
     <p class="text-muted-foreground">
-      Let's get you started with managing your Git branches. Follow these simple steps:
+      Work on one branch, get a real Git branch per feature. Two steps to start:
     </p>
     <div class="flex flex-col gap-3">
       <div class="flex gap-3" data-testid="welcome-step">
@@ -18,15 +18,13 @@
             1
           </div>
         </div>
-        <div class="flex flex-1 flex-col gap-1">
+        <div class="flex flex-1 flex-col gap-2">
           <h4 class="font-medium">
             Select a Git repository
           </h4>
-          <div class="flex flex-col gap-2">
-            <p class="text-sm text-muted-foreground">
-              Use the repository selector above or click the folder icon to browse for your project.
-            </p>
-          </div>
+          <p class="text-sm text-muted-foreground">
+            Pick it in the repository selector above, or browse for it with the folder button.
+          </p>
         </div>
       </div>
       <div class="flex gap-3" data-testid="welcome-step">
@@ -35,35 +33,56 @@
             2
           </div>
         </div>
-        <div class="flex flex-1 flex-col gap-1">
+        <div class="flex flex-1 flex-col gap-2">
           <h4 class="font-medium">
-            Configure your branch prefix
+            Choose your branch prefix
           </h4>
-          <div class="flex flex-col gap-2">
-            <p class="text-sm text-muted-foreground">
-              Set a default prefix for your branches to keep them organized. For example:
+          <p class="text-sm text-muted-foreground">
+            Your branches are named
+            <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+              <prefix>/virtual/<name>
+            </code>
+            : a personal prefix, like your username, keeps them apart from the branches of others.
+          </p>
+          <form class="flex flex-col gap-1" data-testid="welcome-prefix-form">
+            <div class="flex items-center gap-2">
+              <input aria-label="Branch prefix to save" class="h-8 min-w-0 rounded-2xl border border-transparent bg-input/50 px-2.5 py-1 text-base transition-[color,box-shadow] duration-200 outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 w-48" data-slot="input" id="base-ui-[ID]" placeholder="your-name" value="test-user" />
+              <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" tabindex="0" type="submit">
+                Save
+              </button>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              Branches will be named
               <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
-                username/
+                test-user/virtual/<name>
               </code>
+              . You can change it later in the header.
             </p>
-            <div class="flex items-center gap-2 text-sm">
-              <svg aria-hidden="true" class="lucide lucide-terminal size-3.5 text-muted-foreground" />
-              <code class="font-mono text-[0.875em] leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1 py-0.5" data-slot="inline-code">
-                git config --global branchdeck.branchPrefix "your-prefix"
-              </code>
+          </form>
+          <div class="flex flex-col gap-1.5 text-sm text-muted-foreground">
+            <p class="flex flex-wrap items-center gap-x-1">
+              Or set it in Git for all repositories:
               <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
                 <svg aria-hidden="true" class="lucide lucide-circle-question-mark" data-icon="inline-start" />
                 View guide
               </button>
+            </p>
+            <div class="flex items-center gap-1 rounded-lg bg-muted py-1 pr-1 pl-3 max-w-lg">
+              <pre class="min-w-0 flex-1 overflow-x-auto py-1 font-mono text-xs text-foreground">
+                git config --global branchdeck.branchPrefix your-name
+              </pre>
+              <div class="copy-button transition-opacity">
+                <button aria-label="Copy command" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 text-muted-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                  <svg aria-hidden="true" class="lucide lucide-copy" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-    <div class="pt-2">
-      <p class="text-sm text-muted-foreground">
-        Once configured, you can sync your branches and start organizing your commits.
-      </p>
-    </div>
+    <p class="text-sm text-muted-foreground">
+      Once it is set, you can sync your branches and start organizing your commits.
+    </p>
   </div>
 </div>

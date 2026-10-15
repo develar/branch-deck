@@ -40,7 +40,7 @@ test.describe("Welcome Card", () => {
     await expect(welcomeCard).toBeVisible()
 
     // Should show the prefix step (check for the heading specifically), numbered 1: the steps shown count from 1
-    await expect(welcomeCard.getByRole("heading", { name: "Configure your branch prefix" })).toBeVisible()
+    await expect(welcomeCard.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
     await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1"])
 
     // Should NOT show Step 1 content
@@ -65,7 +65,7 @@ test.describe("Welcome Card", () => {
     // Re-query the card to avoid staleness if DOM re-rendered
     const welcomeCardAfter = page.locator("[data-testid=\"welcome-card\"]")
     await expect(welcomeCardAfter).toBeVisible()
-    await expect(welcomeCardAfter.getByRole("heading", { name: "Configure your branch prefix" })).toBeVisible()
+    await expect(welcomeCardAfter.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
 
     // Step 1 should no longer be shown inside the welcome card (avoid matching tooltip text elsewhere)
     await expect(welcomeCardAfter.getByText("Select a Git repository")).toHaveCount(0)

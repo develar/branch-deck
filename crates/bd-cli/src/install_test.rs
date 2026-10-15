@@ -1,5 +1,6 @@
+use crate::error::ErrorCode;
 use crate::fixture_test::{environment, run_json};
-use crate::install::{BdCommand, SKILL_DIRS, SKILL_NAME, bd_command};
+use crate::install::{BdCommand, SKILL_DIRS, SKILL_NAME, app_binary_path, bd_command, refuse_temporary_location};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -146,4 +147,45 @@ fn the_bd_command_is_the_link_to_this_app_or_the_app_with_cli() {
     subcommand: Some("cli"),
   };
   assert_eq!(spaced.for_shell(), r"'/Applications/Branch Deck.app/Contents/MacOS/it'\''s' cli");
+}
+
+/// An `.AppImage` runs its binary from a mount under `/tmp` that goes when the app quits: the link goes to the `.AppImage` file
+#[test_log::test]
+fn the_link_target_is_the_appimage_not_its_mount() {
+  let mounted = Path::new("/tmp/.mount_BranchXyz/usr/bin/branch-deck");
+  let appimage = Path::new("/home/me/Applications/Branch-Deck.AppImage");
+  assert_eq!(app_binary_path(mounted, Some(appimage)), appimage);
+  assert_eq!(app_binary_path(mounted, None), mounted);
+}
+
+/// A translocated app (started from Downloads or a disk image) runs from a copy that goes when it quits
+#[test_log::test]
+fn a_translocated_app_is_refused() {
+  let translocated = Path::new("/private/var/folders/x1/abc/T/AppTranslocation/6A1B-42/d/Branch Deck.app/Contents/MacOS/branch-deck");
+  let error = refuse_temporary_location(translocated).unwrap_err();
+  assert_eq!(
+    (error.code, error.message.as_str()),
+    (
+      ErrorCode::InstallRefused,
+      "Branch Deck runs from a temporary location: move it to Applications, then install the Agent CLI"
+    )
+  );
+  assert!(refuse_temporary_location(Path::new("/Applications/Branch Deck.app/Contents/MacOS/branch-deck")).is_ok());
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn install_links_to_the_appimage() {
+  let (home, app) = home_with_app();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let appimage = home.join("Branch-Deck.AppImage");
+  std::fs::write(&appimage, "appimage").unwrap();
+  let mut environment = environment(&home);
+  environment.home = Some(home.clone());
+  environment.executable = Some(app.clone());
+  environment.appimage = Some(appimage.clone());
+
+  let (exit_code, output) = run_json(&environment, &["install"]);
+  assert_eq!((exit_code, &output["bd"]), (0, &json!(home.join(".local/bin/bd").to_str().unwrap())), "{output}");
+  assert_eq!(std::fs::read_link(home.join(".local/bin/bd")).unwrap(), appimage);
 }

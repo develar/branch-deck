@@ -3,6 +3,7 @@ use crate::sync_command::RemoteSummary;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
+use sync_core::baseline::NoBaseline;
 
 /// A stable error code. Agents branch on the code and the exit code, never on the message
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
@@ -128,10 +129,16 @@ impl fmt::Display for CliError {
   }
 }
 
-/// A git failure that has no more specific code
+/// A missing baseline (`NoBaseline`, also a repository without commits) is `no_baseline`; any other git failure, which
+/// has no more specific code, is `git_error`
 impl From<anyhow::Error> for CliError {
   fn from(error: anyhow::Error) -> Self {
-    Self::new(ErrorCode::GitError, format!("{error:#}"))
+    let code = if error.downcast_ref::<NoBaseline>().is_some() {
+      ErrorCode::NoBaseline
+    } else {
+      ErrorCode::GitError
+    };
+    Self::new(code, format!("{error:#}"))
   }
 }
 

@@ -172,7 +172,9 @@ export const tauriMockScript = () => {
       debug(`[Test Mock] SSE response status: ${response.status}`)
       
       if (!response.ok) {
-        throw new Error(`${cmd} failed: ${response.statusText}`)
+        // a failed command rejects with its CommandError ({ message }), as Tauri does
+        const message = (await response.text()) || response.statusText
+        throw { name: "CommandError", message }
       }
 
       // Read the SSE stream

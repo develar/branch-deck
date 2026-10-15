@@ -41,7 +41,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `--no-cache` neither reads nor writes the object cache (see below).
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr stays empty.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the
-  app, the CLI never asks a login shell for git.
+  app, the CLI never asks a login shell for git. Without one, the error is `git_not_found`: a line "Cannot find Git:
+  <reason>" or "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer", then how to install Git.
 
 ## The JSON contract
 
@@ -83,6 +84,9 @@ An error looks like this:
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `push_refused`, `no_remote`, `install_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
+`no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
+"The repository has no commits yet: commit to the main branch, then sync".
+
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `lease_rejected`, `locked` and `network_error`.
 
@@ -93,7 +97,9 @@ rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd gro
 
 ### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`
 
-Prints HEAD, the baseline (`detect_baseline_branch`), the prefix, the branches and the unassigned commits. It groups
+Prints HEAD, the baseline (`detect_baseline_branch`), the prefix, the branches and the unassigned commits. Without a
+baseline (no upstream and no `origin/master` or `origin/main`, or no remote and no local `master` or `main`) it is
+`no_baseline`. It groups
 the commits the same way a sync does (`sync_core::grouping`, the first phase of a sync without its events). It does no
 integration detection (except for a stacked parent whose commits left HEAD, below), no update check and no network
 access. It runs about ten short git processes, with one `log` for all the commits.
@@ -631,8 +637,12 @@ How an agent learns that bd exists. `bd install`, or Help â†’ Install Agent CLIâ
 (`src-tauri/src/commands/agent_cli.rs`, the same code), writes:
 
 - on macOS and Linux a `bd` symlink in `~/.local/bin` to the app binary, which runs the CLI under that name. A symlink
-  there is replaced; a file that is not a symlink is `install_refused` (exit 4). On Windows `bd.exe` is next to the app
-  already, and a symlink would need developer mode;
+  there is replaced; a file that is not a symlink is `install_refused` (exit 4). On Linux an app run from an AppImage
+  (`APPIMAGE` is set) is linked by the AppImage file, not by the binary in its mount under `/tmp/.mount_*`, which goes
+  when the app quits. On macOS an app that Gatekeeper translocated (started from Downloads or a disk image, its path
+  contains `/AppTranslocation/`) is `install_refused`: "Branch Deck runs from a temporary location: move it to
+  Applications, then install the Agent CLI". On Windows `bd.exe` is next to the app already, and a symlink would need
+  developer mode;
 - the skill `branch-deck` (`SKILL.md`, the Agent Skills format) into `~/.claude/skills/branch-deck/` (Claude Code) and
   `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd: grouping or
   splitting commits into branches or pull requests, stacked branches, Branch Deck. Its body names bd by its full path,

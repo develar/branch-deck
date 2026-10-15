@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
 use tracing::instrument;
@@ -12,7 +12,8 @@ use tracing::instrument;
 ///    - Then tries `remote/preferred_branch` (e.g., origin/master)
 ///    - Finally tries remote/master and remote/main
 ///
-/// At most three git processes: `remote`, the `@{u}` probe and one `for-each-ref` for all candidates.
+/// At most three git processes: `remote`, the `@{u}` probe and one `for-each-ref` for all candidates; a fourth one,
+/// `rev-parse HEAD`, only when no candidate exists, to tell a repository without commits.
 ///
 /// # Arguments
 /// * `git_executor` - The git command executor
@@ -23,7 +24,7 @@ use tracing::instrument;
 /// The name of the baseline branch (e.g., "master", "origin/master", "upstream/main")
 ///
 /// # Errors
-/// Returns an error if no suitable baseline branch can be found
+/// A `NoBaseline` error (`downcast_ref` it to tell it from others) if no suitable baseline branch can be found
 #[instrument(skip(git_executor))]
 pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path: &str, preferred_branch: &str) -> Result<String> {
   // The first remote (usually "origin"), if any
@@ -38,7 +39,13 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
   }
 
   // Candidates in priority order: (full ref, name to return)
-  let candidates: Vec<(String, String)> = [preferred_branch, "master", "main"]
+  let mut branches = vec![preferred_branch];
+  for branch in ["master", "main"] {
+    if !branches.contains(&branch) {
+      branches.push(branch);
+    }
+  }
+  let candidates: Vec<(String, String)> = branches
     .into_iter()
     .map(|branch| match first_remote {
       None => (format!("refs/heads/{branch}"), branch.to_string()),
@@ -50,12 +57,55 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
   args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));
   let existing: HashSet<String> = git_executor.execute_command_lines(&args, repository_path)?.into_iter().collect();
 
-  if let Some((_, name)) = candidates.into_iter().find(|(full_ref, _)| existing.contains(full_ref)) {
-    return Ok(name);
+  if let Some((_, name)) = candidates.iter().find(|(full_ref, _)| existing.contains(full_ref)) {
+    return Ok(name.clone());
   }
 
-  match first_remote {
-    None => Err(anyhow!("No baseline branch found. Repository has no remotes and no main branch.")),
-    Some(remote) => Err(anyhow!("No baseline branch found. Tried upstream tracking, {remote}/{{{preferred_branch},master,main}}")),
+  let (_, head_exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "HEAD"], repository_path)?;
+  let names = candidates.into_iter().map(|(_, name)| name).collect();
+  Err(anyhow::Error::new(if head_exit_code != 0 {
+    NoBaseline::NoCommits
+  } else if first_remote.is_none() {
+    NoBaseline::NoLocalBranch { tried: names }
+  } else {
+    NoBaseline::NoRemoteBranch { tried: names }
+  }))
+}
+
+/// Whether HEAD names a branch without commits (`git init`). One `symbolic-ref`: call it only when HEAD did not resolve
+pub fn is_unborn_head(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<bool> {
+  let (_, exit_code) = git_executor.execute_command_with_status(&["symbolic-ref", "--quiet", "HEAD"], repository_path)?;
+  Ok(exit_code == 0)
+}
+
+/// Why `detect_baseline_branch` found no baseline
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoBaseline {
+  /// HEAD has no commit yet
+  NoCommits,
+  /// The repository has no remote, and none of the `tried` local branches
+  NoLocalBranch { tried: Vec<String> },
+  /// The current branch has no upstream, and the first remote none of the `tried` branches
+  NoRemoteBranch { tried: Vec<String> },
+}
+
+impl std::fmt::Display for NoBaseline {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::NoCommits => write!(f, "The repository has no commits yet: commit to the main branch, then sync"),
+      Self::NoLocalBranch { tried } => write!(f, "Cannot find the baseline branch: the repository has no remote and no {} branch", either(tried)),
+      Self::NoRemoteBranch { tried } => write!(f, "Cannot find the baseline branch: no {}, and no upstream", either(tried)),
+    }
+  }
+}
+
+impl std::error::Error for NoBaseline {}
+
+/// "a", "a or b", "a, b or c"
+fn either(names: &[String]) -> String {
+  match names.split_last() {
+    None => String::new(),
+    Some((last, [])) => last.clone(),
+    Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
   }
 }

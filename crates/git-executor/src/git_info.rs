@@ -19,21 +19,23 @@ pub struct GitInfo {
 }
 
 impl GitInfo {
-  /// Discover the git executable and check that it meets `MIN_VERSION` on every platform
+  /// Discover the git executable and check that it meets `MIN_VERSION` on every platform. An error is one summary line
+  /// ("Cannot find Git: …" or "Git 2.39 is too old: …"), then how to install or upgrade Git
   pub fn discover() -> Result<Self, String> {
-    let git_path = get_git_path()?;
-    let info = Self::from_path(&git_path)?;
-    info.validate_minimum_version().map_err(|e| format!("{e}\n{UPGRADE_HINT}"))?;
+    let git_path = get_git_path().map_err(|e| with_hint(&e))?;
+    let info = Self::from_path(&git_path).map_err(|e| with_hint(&e))?;
+    info.validate_minimum_version().map_err(|e| with_hint(&e))?;
     Ok(info)
   }
 
   /// Discover git for the command line, without the login-shell fallback of `discover`: `explicit_path` (the `BD_GIT`
-  /// variable) if given, else `git` from `PATH`, else the Homebrew paths on macOS. The version is checked as in `discover`
+  /// variable) if given, else `git` from `PATH`, else the Homebrew paths on macOS. The version is checked and an error
+  /// is formatted as in `discover`
   pub fn discover_for_cli(explicit_path: Option<&str>) -> Result<Self, String> {
     if let Some(path) = explicit_path {
-      let info = Self::from_path(path)?;
-      info.validate_minimum_version().map_err(|e| format!("{e}\n{UPGRADE_HINT}"))?;
-      return Ok(info);
+      return Self::from_path(path)
+        .and_then(|info| info.validate_minimum_version().map(|()| info))
+        .map_err(|e| with_hint(&e));
     }
 
     let mut first_error = None;
@@ -45,13 +47,21 @@ impl GitInfo {
         }
       }
     }
-    Err(format!("{}\n{UPGRADE_HINT}", first_error.unwrap_or_default()))
+    Err(with_hint(&first_error.unwrap_or_default()))
   }
 
-  // creates GitInfo from a specific git path
+  /// Run `git_path version`. An error is one line, "Cannot find Git: <reason>": the program is missing, or it fails
+  /// (the macOS `/usr/bin/git` stub without the Command Line Tools exits with an `xcrun: error`)
   pub fn from_path(git_path: &str) -> Result<Self, String> {
-    // get git version using the provided path
-    let git_version = execute_command(Command::new(git_path).arg("version"), "Failed to get git version")?;
+    let output = Command::new(git_path).arg("version").output().map_err(|e| format!("Cannot find Git: {git_path}: {e}"))?;
+    if !output.status.success() {
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      return Err(match stderr.lines().map(str::trim).find(|line| !line.is_empty()) {
+        Some(line) => format!("Cannot find Git: {git_path} version failed: {line}"),
+        None => format!("Cannot find Git: {git_path} version failed with {}", output.status),
+      });
+    }
+    let git_version = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(Self {
       version: git_version.strip_prefix("git version ").unwrap_or(&git_version).to_string(),
       path: git_path.to_string(),
@@ -77,23 +87,16 @@ impl GitInfo {
     let (major, minor) = self.parse_version()?;
 
     if (major, minor) < MIN_VERSION {
-      Err(format!(
-        "Git version {major}.{minor} is too old. Branch Deck requires Git {min_major}.{min_minor} or newer. Please upgrade your Git installation."
-      ))
+      Err(format!("Git {major}.{minor} is too old: Branch Deck requires Git {min_major}.{min_minor} or newer"))
     } else {
       Ok(())
     }
   }
 }
 
-/// Execute a command and return its trimmed output as a string
-pub(crate) fn execute_command(command: &mut Command, error_msg: &str) -> Result<String, String> {
-  let output = command.output().map_err(|e| format!("{error_msg}: {e}"))?;
-  if !output.status.success() {
-    return Err(format!("{}: {}", error_msg, String::from_utf8_lossy(&output.stderr)));
-  }
-
-  Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+/// The error of a failed discovery: the summary line, then how to install or upgrade Git
+fn with_hint(summary: &str) -> String {
+  format!("{summary}\n{UPGRADE_HINT}")
 }
 
 #[cfg(target_os = "macos")]
@@ -118,10 +121,15 @@ fn get_git_path() -> Result<String, String> {
     }
   }
 
-  // Fall back to system git
-  let system_git = execute_command(Command::new("/bin/zsh").args(["-l", "-c", "which git"]), "Could not find git executable")?;
-
-  // `discover` validates the version of the system git
+  // Fall back to the git of the login shell; `discover` runs it and validates its version
+  let output = Command::new("/bin/zsh")
+    .args(["-l", "-c", "which git"])
+    .output()
+    .map_err(|e| format!("Cannot find Git: cannot run the login shell: {e}"))?;
+  let system_git = String::from_utf8_lossy(&output.stdout).trim().to_string();
+  if !output.status.success() || system_git.is_empty() {
+    return Err("Cannot find Git: no git in Homebrew or on the PATH of the login shell".to_string());
+  }
   Ok(system_git)
 }
 
@@ -133,7 +141,7 @@ fn get_git_path() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-  use super::GitInfo;
+  use super::{GitInfo, UPGRADE_HINT};
 
   fn info(version: &str) -> GitInfo {
     GitInfo {
@@ -150,5 +158,60 @@ mod tests {
     assert!(info("2.53.1").validate_minimum_version().is_err());
     assert!(info("2.39.5 (Apple Git-154)").validate_minimum_version().is_err());
     assert!(info("garbage").validate_minimum_version().is_err());
+    assert_eq!(
+      info("2.39.5 (Apple Git-154)").validate_minimum_version().unwrap_err(),
+      "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer"
+    );
+  }
+
+  /// The summary line, then the hint: the app shows the first line as the title
+  fn assert_discovery_error(error: &str, summary_prefix: &str) {
+    let (summary, hint) = error.split_once('\n').unwrap_or_else(|| panic!("no hint: {error}"));
+    assert!(summary.starts_with(summary_prefix), "{error}");
+    assert_eq!(hint, UPGRADE_HINT, "{error}");
+  }
+
+  #[test]
+  fn a_missing_explicit_git_is_not_found_with_the_hint() {
+    let error = GitInfo::discover_for_cli(Some("/definitely/not/a/git")).unwrap_err();
+    assert_discovery_error(&error, "Cannot find Git: /definitely/not/a/git: ");
+  }
+
+  /// A fake git, a shell script, in a fresh directory
+  #[cfg(unix)]
+  fn fake_git(name: &str, script: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("bd-git-info-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = dir.join("git");
+    std::fs::write(&git, format!("#!/bin/sh\n{script}\n")).unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git
+  }
+
+  /// The `/usr/bin/git` stub of macOS without the Command Line Tools
+  #[cfg(unix)]
+  #[test]
+  fn a_failing_git_is_not_found_with_its_first_error_line() {
+    let git = fake_git(
+      "xcrun",
+      "echo 'xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools)' >&2; echo 'second line' >&2; exit 1",
+    );
+    let error = GitInfo::discover_for_cli(git.to_str()).unwrap_err();
+    assert_discovery_error(
+      &error,
+      &format!("Cannot find Git: {} version failed: xcrun: error: invalid active developer path", git.display()),
+    );
+    assert!(!error.contains("second line"), "{error}");
+    std::fs::remove_dir_all(git.parent().unwrap()).unwrap();
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn an_old_git_is_too_old_with_the_hint() {
+    let git = fake_git("old", "echo 'git version 2.39.5 (Apple Git-154)'");
+    let error = GitInfo::discover_for_cli(git.to_str()).unwrap_err();
+    assert_discovery_error(&error, "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer");
+    std::fs::remove_dir_all(git.parent().unwrap()).unwrap();
   }
 }

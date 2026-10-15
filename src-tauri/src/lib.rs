@@ -15,7 +15,7 @@ use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::agent_cli::{agent_cli_command, install_agent_cli};
 use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
-use commands::branch_prefix::get_branch_prefix_from_git_config;
+use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
 use commands::clear_model_cache::clear_model_cache;
 use commands::commit_files::{get_commit_file_diff, get_commit_files, get_commits_files};
 use commands::fetch_baseline::fetch_baseline;
@@ -72,6 +72,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     read_patronus_command_reply,
     sync_branches,
     get_branch_prefix_from_git_config,
+    check_git_setup,
     browse_repository,
     validate_repository_path,
     check_for_updates,

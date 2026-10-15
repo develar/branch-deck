@@ -571,6 +571,45 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     }
   }
 
+  pub fn empty_git() -> EmptyGitTemplate {
+    EmptyGitTemplate
+  }
+
+  /// A repository right after `git init`: no commits, so no baseline branch
+  pub struct EmptyGitTemplate;
+
+  impl EmptyGitTemplate {
+    pub fn build(self, output_path: &Path) -> Result<()> {
+      fs::create_dir_all(output_path)?;
+      run_git(output_path, &["init", "--quiet", "--initial-branch=master"])?;
+      disable_background_maintenance(output_path);
+      run_git(output_path, &["config", "user.name", "Test User"])?;
+      run_git(output_path, &["config", "user.email", "test@example.com"])?;
+      run_git(output_path, &["config", "branchdeck.branchPrefix", "user-name"])?;
+      Ok(())
+    }
+  }
+
+  pub fn bare() -> BareTemplate {
+    BareTemplate
+  }
+
+  /// A bare repository: git data without a working tree
+  pub struct BareTemplate;
+
+  impl BareTemplate {
+    pub fn build(self, output_path: &Path) -> Result<()> {
+      fs::create_dir_all(output_path)?;
+      run_git(output_path, &["init", "--quiet", "--bare", "--initial-branch=master"])
+    }
+  }
+
+  fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
+    let output = Command::new("git").args(args).current_dir(dir).output()?;
+    anyhow::ensure!(output.status.success(), "git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr));
+    Ok(())
+  }
+
   /// Repository with commits and uncommitted changes for testing amend functionality
   pub struct AmendChangesTemplate;
 

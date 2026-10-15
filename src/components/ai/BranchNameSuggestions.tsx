@@ -6,6 +6,7 @@ import { ChoiceChip, softPrimaryClassName } from "@/components/shared/ChoiceChip
 import { useAIToggle } from "@/hooks/useAIToggle"
 import { useBranchSuggestions } from "@/hooks/useBranchSuggestions"
 import type { Commit } from "@/lib/bindings"
+import { ensureModelStatus, useModelStore } from "@/stores/model"
 
 export interface BranchNameSuggestionsProps {
   repositoryPath: string
@@ -63,6 +64,7 @@ export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, i
                 <Button variant="ghost" size="xs" className={softPrimaryClassName} onClick={() => void setAIMode("enabled")}>
                   Enable AI
                 </Button>
+                <ModelDownloadNote />
               </>
             )
           : (
@@ -82,5 +84,21 @@ export function BranchNameSuggestions({ repositoryPath, branchPrefix, commits, i
             )}
       </div>
     </div>
+  )
+}
+
+/** What Enable AI costs: the download, before the user agrees to it */
+function ModelDownloadNote() {
+  useEffect(() => {
+    ensureModelStatus()
+  }, [])
+  const status = useModelStore(state => state.modelStatus)
+  if (status === null || status.available) {
+    return null
+  }
+  return (
+    <span className="self-center text-xs text-muted-foreground" data-testid="ai-download-note">
+      {`Downloads a ${status.modelSize} model once; it runs on your machine`}
+    </span>
   )
 }

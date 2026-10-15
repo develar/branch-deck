@@ -97,7 +97,9 @@ export function InlineBranchTarget({ commits, sourceBranch, isActive, onCancel, 
   let helpText: string | undefined
   if (isValid && !isSource) {
     if (!stacks) {
-      helpText = existing ? `Moves ${commitCount} to the existing branch ${sanitizedBranchName}` : `Creates the branch ${sanitizedBranchName} with ${commitCount}`
+      // the move rewrites the commits: the help says so, not only the undo toast
+      const rewrite = `rewrites ${commits.length === 1 ? "it" : "them"} to start with (${sanitizedBranchName})`
+      helpText = existing ? `Moves ${commitCount} to the existing branch ${sanitizedBranchName}: ${rewrite}` : `Creates the branch ${sanitizedBranchName} with ${commitCount}: ${rewrite}`
     }
     else {
       const existingParent = existingBranch?.stack?.declaredParent ?? null
