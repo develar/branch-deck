@@ -15,7 +15,7 @@ export function getPullRequestBase(branch: Branch): string {
 }
 
 /**
- * ` --repo owner/name` for branches mirrored to GitHub from another remote (`branchdeck.githubRepository`): `gh` finds
+ * ` --repo owner/name` for branches mirrored to GitHub from Space (`RepositoryPatronus.githubRepository`): `gh` finds
  * no GitHub repository among the remotes; empty when `origin` is on GitHub
  */
 function ghRepositoryOption(): string {

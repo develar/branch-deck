@@ -83,7 +83,8 @@ pub struct PatronusRobotsResult {
   pub availability: PatronusAvailability,
   /// The robots of the user in the repository, newest first; empty unless available
   pub robots: Vec<PatronusRobot>,
-  /// `owner/name` of the GitHub repository the branches are mirrored to (`branchdeck.githubRepository`): their pull
+  /// `owner/name` of the GitHub repository the branches are mirrored to (the mirror of the committed Space settings, or
+  /// `branchdeck.githubRepository`): their pull
   /// requests are reviewed there, and Patronus merges one from its `/patronus merge` comment. Only in the list of a
   /// repository, not in a poll.
   #[serde(default)]

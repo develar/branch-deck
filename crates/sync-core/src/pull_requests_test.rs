@@ -1,4 +1,4 @@
-use crate::pull_requests::{GetPullRequestsParams, GitHubRepository, get_pull_requests_with, parse_github_repository, parse_pull_requests, run_gh};
+use crate::pull_requests::{GetPullRequestsParams, GitHubRepository, get_pull_requests_with, parse_github_repository, parse_pull_requests, parse_space_mirror, run_gh};
 use pretty_assertions::assert_eq;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -385,30 +385,67 @@ fn a_remote_outside_github_does_not_run_gh() {
   assert!(!marker.exists());
 }
 
-#[test]
-fn the_configured_github_repository_wins_over_origin() {
+/// A checkout whose `origin` is a Space repository: Space mirrors the pushed branches to GitHub
+fn mirrored_repo() -> TestRepo {
   let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  // a remote that mirrors pushed branches to GitHub
   repo.add_remote("origin", "ssh://git@git.example.com/team/monorepo.git").unwrap();
+  repo
+}
+
+/// Lists the pull requests of `repo` with a fake `gh`: the availability, and the repository `gh` was asked for
+fn list_with_fake_gh(repo: &TestRepo) -> (PullRequestAvailability, Option<String>) {
   let dir = tempfile::tempdir().unwrap();
   let args_file = dir.path().join("args");
   let gh = fake_gh(dir.path(), &format!("printf '%s\\n' \"$@\" > '{}'\necho '[]'", args_file.display()));
+  let result = get_pull_requests_with(repo.git_executor(), &params(repo), Some(&gh), Duration::from_secs(10)).unwrap();
+  let asked = std::fs::read_to_string(&args_file).ok().and_then(|args| args.lines().nth(3).map(str::to_string));
+  (result.availability, asked)
+}
 
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
-  assert_eq!(result.availability, PullRequestAvailability::NotGitHub);
-
-  repo.set_config("branchdeck.githubRepository", "acme/monorepo").unwrap();
-  let result = get_pull_requests_with(repo.git_executor(), &params(&repo), Some(&gh), Duration::from_secs(10)).unwrap();
-  assert_eq!(
-    result.availability,
+fn acme_monorepo() -> (PullRequestAvailability, Option<String>) {
+  (
     PullRequestAvailability::Available {
       owner: "acme".to_string(),
-      name: "monorepo".to_string()
-    }
+      name: "monorepo".to_string(),
+    },
+    Some("github.com/acme/monorepo".to_string()),
+  )
+}
+
+#[test]
+fn the_configured_github_repository_wins_over_origin() {
+  let repo = mirrored_repo();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  assert_eq!(list_with_fake_gh(&repo), (PullRequestAvailability::NotGitHub, None));
+
+  repo.set_config("branchdeck.githubRepository", "acme/monorepo").unwrap();
+  assert_eq!(list_with_fake_gh(&repo), acme_monorepo());
+}
+
+#[test]
+fn reads_the_mirror_from_the_committed_space_settings() {
+  let repo = mirrored_repo();
+  repo.create_commit(
+    "Space settings",
+    ".space/repository-settings.json",
+    r#"{"version": "1.1", "mirror": {"url": "git@github.com:acme/monorepo.git", "useKeyAuth": true}}"#,
   );
-  let args = std::fs::read_to_string(&args_file).unwrap();
-  assert_eq!(args.lines().nth(3), Some("github.com/acme/monorepo"));
+  assert_eq!(list_with_fake_gh(&repo), acme_monorepo());
+
+  // a file of the working tree is not read: a checkout without the commit has no mirror
+  repo.git_executor().execute_command(&["update-ref", "-d", "HEAD"], repo.path().to_str().unwrap()).unwrap();
+  assert_eq!(list_with_fake_gh(&repo), (PullRequestAvailability::NotGitHub, None));
+}
+
+#[test]
+fn a_space_mirror_must_be_on_github() {
+  assert_eq!(
+    parse_space_mirror(r#"{"mirror": {"url": "https://github.com/acme/monorepo.git"}}"#),
+    Some(repository("acme", "monorepo"))
+  );
+  assert_eq!(parse_space_mirror(r#"{"mirror": {"url": "git@gitlab.com:acme/monorepo.git"}}"#), None);
+  assert_eq!(parse_space_mirror(r#"{"mirror": null}"#), None);
+  assert_eq!(parse_space_mirror("not json"), None);
 }
 
 #[test]

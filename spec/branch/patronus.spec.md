@@ -64,7 +64,7 @@ Patronus with the Space token of the Safe Push CLI and keeps the load on Patronu
 poll of the running robots, every minute while the window is focused, every five minutes in the background while a
 robot that pushes runs. When a robot merged a branch, a toast says so (an OS notification in the background) and
 offers to fetch the baseline, so the header shows that an update brings the branch in. When the branches are reviewed
-in GitHub pull requests (the Space repository is mirrored to GitHub, `branchdeck.githubRepository`), a Safe Push of a
+in GitHub pull requests (the committed Space settings mirror the repository to GitHub), a Safe Push of a
 branch with a pull request is the `/patronus merge` comment of it: Patronus counts the approvals of the pull request,
 reports in it and closes it once merged.
 
@@ -254,9 +254,10 @@ reports in it and closes it once merged.
 
 ### Pull requests
 
-- The branches are reviewed on GitHub when the robots list names the GitHub repository they are mirrored to:
-  `branchdeck.githubRepository` of a Space checkout (`resolve_github_repository`, cached with the Space repository for
-  10 minutes; a poll doesn't carry it). No repository is built into the app.
+- The branches are reviewed on GitHub when the robots list names the GitHub repository they are mirrored to: the
+  mirror of the committed Space settings, or `branchdeck.githubRepository`
+  ([Pull Requests](pull-requests.spec.md#reading-pull-requests), `resolve_github_repository`, cached with the Space
+  repository for 10 minutes; a poll doesn't carry it). No repository is built into the app.
   [@test] ../../src/stores/patronus.test.ts (`keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged`)
 - Patronus links a robot to a pull request only when a comment of the pull request started it; only then the approvals
   of the pull request count, Patronus reports in it, and closes it with the label `merged` once merged. The REST API
@@ -504,7 +505,8 @@ reports in it and closes it once merged.
 - The code-owner check counts the approvals of a GitHub pull request only for a robot its `/patronus` comment started;
   the pre-check and the REST start can't take a pull request. The block before the start therefore can't tell whether
   the approvals the pull request has are enough.
-- A mirrored checkout needs `branchdeck.githubRepository` once; without it the branches are treated as on Space.
+- A mirror configured only in Space, not in its committed settings, needs `branchdeck.githubRepository`; without it the
+  branches are treated as on Space.
 
 - The REST API is marked unstable (PAT-A-11): an unknown status or push mode shows as "Unknown status" instead of
   failing the list.

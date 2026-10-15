@@ -285,7 +285,7 @@ async fn required_github_repository(patronus: &PatronusState, git_executor: &Git
     .hosts(git_executor, repository_path)
     .await?
     .github
-    .ok_or_else(|| CommandError::new("The GitHub repository of the branches is unknown: run git config branchdeck.githubRepository <owner>/<name>"))
+    .ok_or_else(|| CommandError::new("The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run git config branchdeck.githubRepository <owner>/<name>"))
 }
 
 /// The commit as the pre-check reads it: the dates in UTC

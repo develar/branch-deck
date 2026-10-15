@@ -10,7 +10,7 @@ import { getFullBranchName } from "@/stores/repository"
 
 /**
  * The GitHub repository of the branches: the one `gh` lists pull requests of (`getGitHubRepository`), else the one
- * Patronus knows the branches are mirrored to (`branchdeck.githubRepository`, no `gh` needed for a link)
+ * Patronus knows the branches are mirrored to (Space settings, no `gh` needed for a link)
  */
 function getBranchesGitHubRepository(): GitHubRepository | null {
   const listed = getGitHubRepository()

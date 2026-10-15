@@ -97,13 +97,15 @@ pub enum ReviewerState {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum PullRequestAvailability {
-  /// The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to
+  /// The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to, else the
+  /// mirror of the committed Space settings (`.space/repository-settings.json`)
   Available { owner: String, name: String },
   /// The `gh` CLI is not installed
   GhMissing,
   /// `gh` is not logged in (`gh auth login`)
   NotAuthenticated,
-  /// The branches are not on GitHub: `origin` is not on github.com and `branchdeck.githubRepository` is not set
+  /// The branches are not on GitHub: `origin` is not on github.com, the Space settings name no GitHub mirror, and
+  /// `branchdeck.githubRepository` is not set
   NotGitHub,
   /// `gh` failed, e.g. offline or timed out
   Error { message: String },

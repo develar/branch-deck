@@ -1,6 +1,6 @@
 ---
 name: Pull Requests
-description: Requirements for the GitHub pull request status of the virtual branches, read through the gh CLI (also for branches mirrored to GitHub from another remote, branchdeck.githubRepository) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
+description: Requirements for the GitHub pull request status of the virtual branches, read through the gh CLI (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the outgoing overview; a pull request Patronus merged reads merged; and "Create Pull Request" in the branch menu and the push toast, which opens the GitHub form of a new pull request into the base of the branch.
 style: plain-1
 targets:
   - ../../crates/sync-types/src/pull_request.rs
@@ -39,8 +39,7 @@ Reviews happen on GitHub pull requests of the pushed virtual branches. Branch De
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
 status is read through the `gh` CLI; opening a pull request opens the browser. A pushed branch without one gets "Create
 Pull Request", which opens GitHub's form of a new pull request into the branch's base. The branches may be pushed to
-another remote that mirrors them to GitHub (a Space repository): `branchdeck.githubRepository` names the GitHub
-repository then. Patronus merges a pull request from its `/patronus merge` comment ([Patronus](patronus.spec.md#pull-requests)),
+Space, which mirrors them to GitHub: the committed Space settings name the GitHub repository then. Patronus merges a pull request from its `/patronus merge` comment ([Patronus](patronus.spec.md#pull-requests)),
 the one write of the app on GitHub.
 
 ## Goals
@@ -64,16 +63,18 @@ the one write of the app on GitHub.
 
 ### Reading pull requests
 
-- The repository is `git config branchdeck.githubRepository` (`owner/name`), for branches pushed to a remote that
-  mirrors them to GitHub (a Space repository); else the one `origin` pushes to (`git remote get-url --push origin`), as
-  `push_branch` pushes to `origin`. SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`),
+- The repository is `git config branchdeck.githubRepository` (`owner/name`), if set; else the one `origin` pushes to
+  (`git remote get-url --push origin`), as `push_branch` pushes to `origin`; else the GitHub mirror that the Space
+  settings committed in the repository name (`mirror.url` of `.space/repository-settings.json`, read from `HEAD` with
+  one `git cat-file`, never from the working tree). SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`),
   HTTPS (with or without `.git` and credentials) and `git://` URLs name a github.com repository. No repository host or
-  name is built into the app.
+  name is built into the app, and nothing searches GitHub for a mirror.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`parses_github_remote_urls`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_configured_github_repository_wins_over_origin`)
-- Without the setting, a remote on another host, a local path or no `origin` must report "not on GitHub" without
-  running `gh`.
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`reads_the_mirror_from_the_committed_space_settings`)
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_space_mirror_must_be_on_github`)
+- Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without running `gh`.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_remote_urls_outside_github`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_remote_outside_github_does_not_run_gh`)
 - One `gh pr list --repo github.com/<owner>/<name> --author @me --state all --limit 50 --json …` per refresh, run in the
@@ -196,7 +197,7 @@ the one write of the app on GitHub.
 - "Create Pull Request" opens GitHub's form of a new pull request in the browser (the opener plugin, as "Open Pull
   Request"): `https://github.com/<owner>/<name>/compare/<base>...<prefix>/virtual/<branch>?expand=1`. The repository is
   the one `gh` lists the pull requests of (`getGitHubRepository()`), else the one Patronus knows the branches are
-  mirrored to (`branchdeck.githubRepository`, no `gh` needed for a link); the base is the pull request base of the branch
+  mirrored to (the Space settings, no `gh` needed for a link); the base is the pull request base of the branch
   ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed branch, else the baseline as the
   remote names it, `master`). A branch name keeps its slashes, anything else that a URL path can't hold is encoded.
   GitHub creates nothing until the form is submitted.
@@ -209,8 +210,8 @@ the one write of the app on GitHub.
   the same conditions as the menu, and stays 10 s; off GitHub it has no action. The toast of a stacked branch keeps
   naming the base with "Copy gh pr create" ([Stacked Branches](stacked-branches.spec.md#pull-requests)).
 - A copied or printed `gh` command (`gh pr create`, `gh pr edit` of the stacked toast and menu, `bd push`) gets
-  `--repo <owner>/<name>` when `branchdeck.githubRepository` is set: `gh` finds no GitHub repository among the remotes of
-  a mirrored checkout.
+  `--repo <owner>/<name>` when the GitHub repository is not the one `origin` pushes to (a mirror): `gh` finds no GitHub
+  repository among the remotes of a mirrored checkout.
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast and the branch menu`, `should open the pull request of a pushed branch from the push toast`)
 
@@ -272,8 +273,8 @@ the one write of the app on GitHub.
 - `--author @me` uses the GitHub search, which can lag a few seconds behind a newly opened pull request.
 - Only the 50 most recent pull requests of the user are read; an old pull request of a long-lived branch may be missed.
 - A branch pushed to a fork as `origin`, with the pull request on the upstream repository, is not matched.
-- A mirrored checkout needs `branchdeck.githubRepository` once; nothing tells the app which GitHub repository a Space
-  repository is mirrored to.
+- The Space settings file is a snapshot committed by the repository's admins: a mirror configured only in Space, not in
+  the file, needs `branchdeck.githubRepository`.
 
 ## References
 

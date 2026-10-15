@@ -910,7 +910,8 @@ export type PatronusRobotsResult = {
 	/**  The robots of the user in the repository, newest first; empty unless available */
 	robots: PatronusRobot[],
 	/**
-	 *  `owner/name` of the GitHub repository the branches are mirrored to (`branchdeck.githubRepository`): their pull
+	 *  `owner/name` of the GitHub repository the branches are mirrored to (the mirror of the committed Space settings, or
+	 *  `branchdeck.githubRepository`): their pull
 	 *  requests are reviewed there, and Patronus merges one from its `/patronus merge` comment. Only in the list of a
 	 *  repository, not in a poll.
 	 */
@@ -988,13 +989,19 @@ export type PullRequest = {
 
 /**  Whether pull requests can be listed for the repository */
 export type PullRequestAvailability = 
-/**  The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to */
+/**
+ *  The GitHub repository of the branches: `branchdeck.githubRepository`, else the one `origin` pushes to, else the
+ *  mirror of the committed Space settings (`.space/repository-settings.json`)
+ */
 { status: "available"; owner: string; name: string } | 
 /**  The `gh` CLI is not installed */
 { status: "ghMissing" } | 
 /**  `gh` is not logged in (`gh auth login`) */
 { status: "notAuthenticated" } | 
-/**  The branches are not on GitHub: `origin` is not on github.com and `branchdeck.githubRepository` is not set */
+/**
+ *  The branches are not on GitHub: `origin` is not on github.com, the Space settings name no GitHub mirror, and
+ *  `branchdeck.githubRepository` is not set
+ */
 { status: "notGitHub" } | 
 /**  `gh` failed, e.g. offline or timed out */
 { status: "error"; message: string };

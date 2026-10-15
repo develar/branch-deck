@@ -55,7 +55,8 @@ export interface RepositoryPatronus {
   /** By robot id, of the failed robots of the branches: failed for missing code-owner approvals */
   readonly needsReview: Readonly<Record<string, boolean>>
   /**
-   * `owner/name` of the GitHub repository the branches are mirrored to (`branchdeck.githubRepository`), null without
+   * `owner/name` of the GitHub repository the branches are mirrored to (the mirror of the committed Space settings, or
+   * `branchdeck.githubRepository`), null without
    * one: the branches are reviewed in its pull requests, and a Safe Push of a branch with a pull request is a
    * `/patronus` comment of it
    */

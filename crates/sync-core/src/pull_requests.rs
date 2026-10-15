@@ -36,8 +36,8 @@ const PR_FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,baseRefNa
 /// marking it merged
 pub const MERGED_LABEL: &str = "merged";
 
-/// `owner/name` of the GitHub repository of the branches, for a remote that mirrors pushed branches to GitHub (e.g. a
-/// Space repository); it wins over a github.com `origin`
+/// `owner/name` of the GitHub repository of the branches, for a remote that mirrors pushed branches to GitHub without
+/// saying so in its settings; it wins over everything else
 pub const GITHUB_REPOSITORY_CONFIG: &str = "branchdeck.githubRepository";
 
 /// Failed check names kept for the popover
@@ -102,24 +102,58 @@ pub struct GitHubRepository {
   pub name: String,
 }
 
+/// The file of a Space repository's settings, committed in the repository; its `mirror.url` names the GitHub mirror
+pub const SPACE_SETTINGS_FILE: &str = ".space/repository-settings.json";
+
 /// The GitHub repository the virtual branches end up in: `branchdeck.githubRepository` (`owner/name`), else the
-/// repository `origin` pushes to (`push_branch` pushes to origin) when it is on github.com. None: the pull requests of
-/// the branches are not on GitHub.
+/// repository `origin` pushes to (`push_branch` pushes to origin) when it is on github.com, else the GitHub mirror the
+/// committed Space settings name (`.space/repository-settings.json`, read from `HEAD`). None: the pull requests of the
+/// branches are not on GitHub.
 pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<GitHubRepository>> {
-  let (configured, exit_code) = git_executor.execute_command_with_status(&["config", GITHUB_REPOSITORY_CONFIG], repository_path)?;
-  if exit_code == 0
-    && let Some((owner, name)) = split_owner_and_name(configured.trim())
-  {
-    return Ok(Some(GitHubRepository {
-      owner: owner.to_string(),
-      name: name.to_string(),
-    }));
+  if let Some(configured) = read_configured_repository(git_executor, repository_path)? {
+    return Ok(Some(configured));
   }
   let (url, exit_code) = git_executor.execute_command_with_status(&["remote", "get-url", "--push", "origin"], repository_path)?;
   if exit_code != 0 {
     return Ok(None);
   }
-  Ok(parse_github_repository(&url))
+  if let Some(repository) = parse_github_repository(&url) {
+    return Ok(Some(repository));
+  }
+  let (settings, exit_code) = git_executor.execute_command_with_status(&["cat-file", "blob", &format!("HEAD:{SPACE_SETTINGS_FILE}")], repository_path)?;
+  if exit_code != 0 {
+    return Ok(None);
+  }
+  Ok(parse_space_mirror(&settings))
+}
+
+/// The GitHub repository of `mirror.url` in Space repository settings; None without a mirror on github.com
+pub fn parse_space_mirror(settings: &str) -> Option<GitHubRepository> {
+  let settings: SpaceSettings = serde_json::from_str(settings).ok()?;
+  parse_github_repository(&settings.mirror?.url?)
+}
+
+#[derive(Deserialize)]
+struct SpaceSettings {
+  mirror: Option<SpaceMirror>,
+}
+
+#[derive(Deserialize)]
+struct SpaceMirror {
+  url: Option<String>,
+}
+
+fn read_configured_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<GitHubRepository>> {
+  let (configured, exit_code) = git_executor.execute_command_with_status(&["config", GITHUB_REPOSITORY_CONFIG], repository_path)?;
+  Ok(
+    (exit_code == 0)
+      .then(|| split_owner_and_name(configured.trim()))
+      .flatten()
+      .map(|(owner, name)| GitHubRepository {
+        owner: owner.to_string(),
+        name: name.to_string(),
+      }),
+  )
 }
 
 /// The github.com repository of a remote URL: `git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`,

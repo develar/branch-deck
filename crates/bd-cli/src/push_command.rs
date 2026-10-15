@@ -18,7 +18,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashSet;
 use sync_core::grouping::branch_tips;
-use sync_core::pull_requests::GITHUB_REPOSITORY_CONFIG;
+use sync_core::pull_requests::{parse_github_repository, resolve_github_repository};
 use sync_core::push_lease::{PushRef, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use sync_core::remote_command::execute_remote_command_accepting;
 use sync_core::remote_status::compute_remote_status_for_branch;
@@ -411,19 +411,20 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
   error
 }
 
-/// ` --repo owner/name` when the branches are mirrored to GitHub from another remote (`branchdeck.githubRepository`):
-/// `gh` finds no GitHub repository among the remotes; empty otherwise
+/// ` --repo owner/name` when the GitHub repository of the branches is not the one `origin` pushes to (a mirror:
+/// `branchdeck.githubRepository` or the Space settings): `gh` finds no GitHub repository among the remotes; empty
+/// otherwise
 fn github_repository_option(context: &RepoContext) -> Result<String, CliError> {
-  let (configured, exit_code) = context.git.execute_command_with_status(&["config", GITHUB_REPOSITORY_CONFIG], &context.repository)?;
-  let configured = configured.trim();
-  Ok(if exit_code == 0 && !configured.is_empty() {
-    format!(" --repo {}", shell_quote(configured))
-  } else {
-    String::new()
-  })
+  let Some(repository) = resolve_github_repository(&context.git, &context.repository)? else {
+    return Ok(String::new());
+  };
+  let (url, exit_code) = context.git.execute_command_with_status(&["remote", "get-url", "--push", "origin"], &context.repository)?;
+  if exit_code == 0 && parse_github_repository(&url).as_ref() == Some(&repository) {
+    return Ok(String::new());
+  }
+  Ok(format!(" --repo {}", shell_quote(&format!("{}/{}", repository.owner, repository.name))))
 }
 
-/// A word for a POSIX shell: single-quoted unless it is plain
 fn shell_quote(word: &str) -> String {
   if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@')) {
     word.to_string()
