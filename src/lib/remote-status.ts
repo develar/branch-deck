@@ -121,11 +121,10 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
 }
 
 /**
- * The first line of the description of a force push, what it replaces: "Force push replaces 1 commit amended here.",
- * "Force push replaces the older versions of auth's commits."; a push that drops remote commits or replaces rebased
- * copies "replaces the remote branch."
+ * The older versions a force push that drops nothing replaces: "1 commit amended here", "the older versions of auth's
+ * commits", both joined by "and"; null when there are none or the push drops remote commits
  */
-export function formatForcePushLine(remote: RemoteStatus, parent: string | null = null): string {
+function formatReplacedVersions(remote: RemoteStatus, parent: string | null): string | null {
   const replaced: string[] = []
   if (remote.commitsBehind === 0 && remote.commitsAmended > 0) {
     replaced.push(`${plural(remote.commitsAmended, "commit", "commits")} amended here`)
@@ -133,7 +132,29 @@ export function formatForcePushLine(remote: RemoteStatus, parent: string | null 
   if (remote.commitsBehind === 0 && remote.commitsRestacked > 0) {
     replaced.push(`the older versions of ${parent === null ? "the parent" : parent}'s commits`)
   }
-  return `Force push replaces ${replaced.length === 0 ? "the remote branch" : replaced.join(" and ")}.`
+  return replaced.length === 0 ? null : replaced.join(" and ")
+}
+
+/**
+ * The first line of the description of a force push, what it replaces: "Force push replaces 1 commit amended here.",
+ * "Force push replaces the older versions of auth's commits."; a push that drops remote commits or replaces rebased
+ * copies "replaces the remote branch."
+ */
+export function formatForcePushLine(remote: RemoteStatus, parent: string | null = null): string {
+  return `Force push replaces ${formatReplacedVersions(remote, parent) ?? "the remote branch"}.`
+}
+
+/**
+ * A force push in a line of a stack push, in the words of `formatForcePushLine`: "force push, replaces 1 commit amended
+ * here", "force push, replaces the older versions of auth's commits", "force push, drops 1 remote commit"; "force
+ * push" for a rebased branch
+ */
+export function formatForcePushPart(remote: RemoteStatus, parent: string | null = null): string {
+  if (remote.commitsBehind > 0) {
+    return `force push, drops ${plural(remote.commitsBehind, "remote commit", "remote commits")}`
+  }
+  const replaced = formatReplacedVersions(remote, parent)
+  return replaced === null ? "force push" : `force push, replaces ${replaced}`
 }
 
 /** " (by Ann and Bob)" after a count of commits; nothing without authors */

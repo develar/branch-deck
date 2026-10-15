@@ -6,7 +6,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/git/push"
 import { landedBranchDescription } from "@/lib/landed"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
-import { buildRemoteStatusTexts } from "@/lib/remote-status"
+import { buildRemoteStatusTexts, formatForcePushPart } from "@/lib/remote-status"
 import { buttonStackPushOrder, formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
@@ -92,7 +92,8 @@ function describeUnpushedParent(branchName: string, parent: UnpushedParent): str
 
 /**
  * One line per branch a stack push sends, root first, in the words of a push: "login · 2 commits · creates the remote
- * branch", "auth · 1 commit · force push" for a rebased one
+ * branch", "auth · 1 commit · force push" for a rebased one, with what a force push replaces or drops
+ * (`formatForcePushPart`): "auth · 1 commit · force push, replaces 1 commit amended here"
  */
 function describeStackPush(branches: readonly Branch[]): string {
   const lines = branches.map((branch) => {
@@ -105,8 +106,8 @@ function describeStackPush(branches: readonly Branch[]): string {
     if (action === "create") {
       parts.push("creates the remote branch")
     }
-    else if (action === "force") {
-      parts.push("force push")
+    else if (action === "force" && branch.remoteStatus != null) {
+      parts.push(formatForcePushPart(branch.remoteStatus, branch.stack?.effectiveBase ?? null))
     }
     return parts.join(" · ")
   })

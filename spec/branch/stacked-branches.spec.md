@@ -207,13 +207,17 @@ menu stacks, unstacks and renames branches.
 - The push button of a branch whose ancestors have work for the remote must push the stack (`buttonStackPushOrder`):
   the pull request of the branch is right only once they are on the remote. It reads `Push Stack (3)`, the commits the
   pushes send, in the strongest colour of them; its description lists the pushes, "Pushes 3 branches, parents first:"
-  and a line per branch ("login · 2 commits · creates the remote branch", "auth · 1 commit · force push"); below a
-  rule, "login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login
-  is pushed." ("login has commits the remote lacks. … includes them until login is pushed." for a parent on the
-  remote, the nearest ancestor with work) and a `Push oauth Only` button. Preview `P` pushes as the button does. While
-  the stack push runs, the button shows the branch it pushes ("Pushing login 45%") and a second click does nothing. The
-  row doesn't name the parent: the stack graph shows it, and the description of the button explains Push Stack.
-  [@test] ../../src/hooks/usePushButton.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
+  and a line per branch ("login · 2 commits · creates the remote branch", "auth · 1 commit · force push"). A force
+  push says what it replaces or drops in the words of the push alone ([Outgoing Commits](../repository/outgoing.spec.md#push)):
+  "auth · 1 commit · force push, replaces 1 commit amended here", "login · force push, replaces the older versions of
+  auth's commits", "session · 1 commit · force push, drops 1 remote commit". Below a rule, "login isn't on the remote
+  yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed." ("login has commits
+  the remote lacks. … includes them until login is pushed." for a parent on the remote, the nearest ancestor with
+  work) and a `Push oauth Only` button. Preview `P` pushes as the button does. While the stack push runs, the button
+  shows the branch it pushes ("Pushing login 45%") and a second click does nothing. The row doesn't name the parent:
+  the stack graph shows it, and the description of the button explains Push Stack.
+  [@test] ../../src/hooks/usePushButton.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `says what each force push of a stack push replaces, as the push of the branch alone does`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
+  [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing more from a row whose stack push runs`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`, `should push a stacked branch alone from the description of its button`)
 - The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, named as in the

@@ -134,6 +134,18 @@ describe("getPushButtonState", () => {
     expect(stacked({}).pushesStack).toBe(false)
   })
 
+  it("says what each force push of a stack push replaces, as the push of the branch alone does", () => {
+    const auth = testBranch("auth", null, { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false }) })
+    const restacked = login({ commitsRestacked: 1, fastForward: false })
+    const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 3, buttonStack: [auth, restacked, oauth] } })
+    expect(push.tooltip).toBe([
+      "Pushes 3 branches, parents first:",
+      "auth · 1 commit · force push, replaces 1 commit amended here",
+      "login · force push, replaces the older versions of auth's commits",
+      "oauth · 1 commit · creates the remote branch",
+    ].join("\n"))
+  })
+
   it("takes the colour of an ancestor when none of the branch's commits are the user's", () => {
     const notMine = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 0 }) })
     const parent = login({ exists: false, commitsAhead: 1, myCommitsAhead: 1 })

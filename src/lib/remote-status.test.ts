@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { DroppedCommit } from "@/lib/bindings"
-import { buildRemoteMovedTexts, buildRemoteStatusTexts, formatAuthors, formatForcePushLine } from "@/lib/remote-status"
+import { buildRemoteMovedTexts, buildRemoteStatusTexts, formatAuthors, formatForcePushLine, formatForcePushPart } from "@/lib/remote-status"
 import { testRemoteStatus } from "@/stores/test-branch"
 
 function dropped(...authors: string[]): DroppedCommit[] {
@@ -70,6 +70,13 @@ describe("formatForcePushLine", () => {
     // a rebased branch, and one whose push drops remote commits
     expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
     expect(formatForcePushLine(testRemoteStatus({ commitsAmended: 1, commitsBehind: 1, fastForward: false }))).toBe("Force push replaces the remote branch.")
+  })
+
+  it("names it in the line of a stack push in the same words, or the remote commits the push drops", () => {
+    expect(formatForcePushPart(testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toBe("force push, replaces 1 commit amended here")
+    expect(formatForcePushPart(testRemoteStatus({ commitsRestacked: 2, fastForward: false }), "auth")).toBe("force push, replaces the older versions of auth's commits")
+    expect(formatForcePushPart(testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, commitsBehind: 2, fastForward: false }))).toBe("force push, drops 2 remote commits")
+    expect(formatForcePushPart(testRemoteStatus({ commitsAhead: 1, fastForward: false }))).toBe("force push")
   })
 
   it("starts the description of a force push with it, and doesn't repeat the older versions it names", () => {
