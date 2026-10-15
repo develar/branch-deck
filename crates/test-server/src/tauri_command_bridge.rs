@@ -6,7 +6,6 @@ use axum::{
     sse::{Event, KeepAlive, Sse},
   },
 };
-use futures::stream::{Stream, StreamExt};
 use git_ops::commit_files::{
   BlobContents, CommitFiles, CommitPatch, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, PATCH_LIMITS, read_blob_contents,
   read_commit_files_cached, read_commit_patch,
@@ -24,6 +23,7 @@ use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBra
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::state::AppState;
 

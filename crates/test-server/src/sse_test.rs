@@ -20,7 +20,7 @@ async fn start_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
 
 #[tokio::test]
 async fn test_sync_branches_sse_stream() {
-  use futures::StreamExt;
+  use tokio_stream::StreamExt;
   // Initialize test environment
   let _ = tracing_subscriber::fmt::try_init();
 

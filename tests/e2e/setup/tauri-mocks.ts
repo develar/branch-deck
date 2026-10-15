@@ -691,8 +691,8 @@ export const tauriMockScript = () => {
     // Per-run values: applied to text nodes and to attribute values
     // (e.g. the hidden input of the repository Select holds the repository path in `value`)
     paths: [
-      // KSUIDs are 27 chars; not a part of a longer token (a 40 char commit SHA in `data-row-id`), may follow `NO_REPO_`
-      { pattern: /(?<![A-Za-z0-9])[0-9][A-Za-z0-9]{26}(?![A-Za-z0-9])/g, replacement: "[REPO_ID]" },
+      // The mock server names a repository `repo-<22 digits>` in the order the tests create them; may follow `NO_REPO_`
+      { pattern: /(?<![A-Za-z0-9-])repo-\d{22}(?![A-Za-z0-9-])/g, replacement: "[REPO_ID]" },
       { pattern: /\/var\/folders\/\S+\/\.tmp\S+\/\S+/g, replacement: "[TEMP_PATH]" },
     ],
 

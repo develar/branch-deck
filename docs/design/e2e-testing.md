@@ -98,7 +98,7 @@ sequenceDiagram
 
 Template system:
 - **Templates**: `simple`, `unassigned`, `conflict_*`, `NO_REPO`, `empty-non-git`
-- **Location**: Created in `tests/test-repos/` at server startup
+- **Location**: Built in parallel into the temporary directory of the server at startup
 - **Usage**: Copied to unique directory per test
 - **Git**: fixture code runs git through `git_command` (`crates/test-utils/src/git_test_utils.rs`), which removes the
   repository-local variables (`git rev-parse --local-env-vars`). Under `git rebase --exec` or a hook, an inherited
@@ -146,7 +146,7 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   walk: a loaded diff without slotted light-DOM children (annotations, custom headers) prints as an empty element.
   Assert on diff text with `toContainText`, which reads shadow roots too, and keep it to lines near the top: a long diff
   is virtualized.
-- **Per-run values**: repository ids (KSUIDs) and temporary paths become `[REPO_ID]`/`[TEMP_PATH]` in text and attributes.
+- **Per-run values**: repository ids (`repo-<22 digits>`) and temporary paths become `[REPO_ID]`/`[TEMP_PATH]` in text and attributes.
 - **Icons**: lucide-react renders `<svg class="lucide lucide-NAME ...">`. The formatter prints each icon as one line with the
   canonical name and its own classes, without paths and SVG presentation attributes. No icon name index is needed.
 - **Transition settling**: before capturing, the helper waits until no element has `data-starting-style`/`data-ending-style`,

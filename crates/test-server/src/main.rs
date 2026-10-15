@@ -46,42 +46,12 @@ async fn main() {
     .unwrap_or_else(|| "test_server=debug,tower_http=debug".into());
   tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).init();
 
-  // Check if we should just regenerate templates and exit
-  let args: Vec<String> = std::env::args().collect();
-  if args.len() > 1 && args[1] == "--regenerate-templates" {
-    tracing::info!("Regenerating test repository templates...");
-
-    // Remove existing templates
-    let test_repos_dir = test_server::get_test_repos_dir();
-    if test_repos_dir.exists()
-      && let Err(e) = std::fs::remove_dir_all(&test_repos_dir)
-    {
-      tracing::warn!("Failed to remove existing templates: {}", e);
-    }
-
-    // Recreate templates
-    if let Err(e) = test_server::ensure_test_repos().await {
-      tracing::error!("Failed to create test repositories: {}", e);
-      std::process::exit(1);
-    }
-
-    tracing::info!("Test repository templates regenerated successfully!");
-    std::process::exit(0);
-  }
-
   // Create and run the app (this returns both the app and the state)
   let (app, state) = test_server::create_test_app_with_state().await;
 
-  // Try to get listener from systemfd first (for hot reload)
-  let mut listenfd = listenfd::ListenFd::from_env();
-  let listener = if let Some(listener) = listenfd.take_tcp_listener(0).unwrap() {
-    // Convert std listener to tokio listener
-    tokio::net::TcpListener::from_std(listener).unwrap()
-  } else {
-    // No listener from systemfd, bind normally; E2E_PORT lets a second worktree run its own server
-    let port = std::env::var("E2E_PORT").ok().and_then(|port| port.parse::<u16>().ok()).unwrap_or(3030);
-    tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap()
-  };
+  // E2E_PORT lets a second worktree run its own server
+  let port = std::env::var("E2E_PORT").ok().and_then(|port| port.parse::<u16>().ok()).unwrap_or(3030);
+  let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap();
 
   tracing::info!("Test server listening on http://{}", listener.local_addr().unwrap());
 

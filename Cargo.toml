@@ -35,7 +35,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "reg
 # Common utilities
 indexmap = "2.14.2"
 dashmap = "6.2.1"
-futures = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 axum = "0.8.9"
 

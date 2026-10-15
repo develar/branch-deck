@@ -11,7 +11,7 @@ use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::atomic::{AtomicU64, Ordering};
 use sync_core::baseline::detect_baseline_branch;
 use sync_types::patronus::{PatronusAvailability, PatronusRobotsResult};
 use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
@@ -36,7 +36,6 @@ mod sse_test;
 
 use state::{AppState, TestRepository};
 use static_files::{serve_static_files, workspace_root};
-use svix_ksuid::{Ksuid, KsuidLike};
 use test_utils::repo_template::templates;
 
 pub async fn create_test_app() -> Router {
@@ -175,111 +174,46 @@ async fn health_check() -> Json<serde_json::Value> {
   Json(serde_json::json!({ "workspaceRoot": workspace_root() }))
 }
 
-pub async fn ensure_test_repos() -> anyhow::Result<()> {
-  let test_repos_dir = get_test_repos_dir();
-
-  // Ensure the directory exists and is empty for fresh templates
-  tracing::info!("Ensuring test repositories directory is empty for fresh templates");
-  remove_dir_all::ensure_empty_dir(&test_repos_dir)?;
-
-  create_test_templates(&test_repos_dir).await
-}
-
 pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Result<()> {
-  // Create all templates fresh on every launch
-  let templates_to_create = vec![
-    ("simple", templates::simple()),
-    ("simple_no_prefix", templates::simple_no_prefix()),
-    ("unassigned", templates::unassigned()),
-    ("conflict_unassigned", templates::conflict_unassigned()),
-    ("conflict_branches", templates::conflict_branches()),
-    ("single_unassigned", templates::single_unassigned()),
-    ("issue_links", templates::issue_links()),
-    ("issue_split", templates::issue_split()),
-    ("issue_groups", templates::issue_groups()),
-    ("issue_combine", templates::issue_combine()),
-    ("fixups", templates::fixups()),
-    ("long_subjects", templates::long_subjects()),
-    ("commit_tree", templates::commit_tree()),
-    ("stacked_branches", templates::stacked_branches()),
-    ("stacked_conflict", templates::stacked_conflict()),
-    ("branch_filter", templates::branch_filter()),
-  ];
-
-  // Build all templates in parallel
-  let mut futures: Vec<_> = templates_to_create
-    .into_iter()
-    .map(|(name, template)| {
-      let repo_path = target_dir.join(name);
-      let name = name.to_string();
-
-      tokio::task::spawn_blocking(move || {
-        tracing::info!("Creating test repository template: {}", name);
-        template.build(&repo_path)
-      })
-    })
-    .collect();
-
-  // Add the empty-non-git template separately (different type)
-  {
-    let repo_path = target_dir.join("empty-non-git");
-    futures.push(tokio::task::spawn_blocking(move || {
-      tracing::info!("Creating test repository template: empty-non-git");
-      templates::empty_non_git().build(&repo_path)
-    }));
-  }
-  {
-    let repo_path = target_dir.join("empty_git");
-    futures.push(tokio::task::spawn_blocking(move || templates::empty_git().build(&repo_path)));
-  }
-  {
-    let repo_path = target_dir.join("bare");
-    futures.push(tokio::task::spawn_blocking(move || templates::bare().build(&repo_path)));
-  }
-  {
-    let repo_path = target_dir.join("archived_branches");
-    futures.push(tokio::task::spawn_blocking(move || {
-      tracing::info!("Creating test repository template: archived_branches");
-      templates::archived_branches().build(&repo_path)
-    }));
-  }
-  for (name, template) in [
-    ("behind_upstream", templates::behind_upstream()),
-    ("update_conflict", templates::update_conflict()),
-    ("update_blocked", templates::update_blocked()),
-    ("landed_upstream", templates::landed_upstream()),
-  ] {
+  // Build all templates in parallel, fresh on every launch
+  let mut builds = tokio::task::JoinSet::new();
+  let mut spawn = |name: &'static str, build: fn(&std::path::Path) -> anyhow::Result<()>| {
     let repo_path = target_dir.join(name);
-    futures.push(tokio::task::spawn_blocking(move || {
+    builds.spawn_blocking(move || {
       tracing::info!("Creating test repository template: {name}");
-      template.build(&repo_path)
-    }));
-  }
-  {
-    let repo_path = target_dir.join("amend_changes");
-    futures.push(tokio::task::spawn_blocking(move || {
-      tracing::info!("Creating test repository template: amend_changes");
-      templates::amend_changes().build(&repo_path)
-    }));
-  }
+      build(&repo_path)
+    });
+  };
+  spawn("simple", |path| templates::simple().build(path));
+  spawn("simple_no_prefix", |path| templates::simple_no_prefix().build(path));
+  spawn("unassigned", |path| templates::unassigned().build(path));
+  spawn("conflict_unassigned", |path| templates::conflict_unassigned().build(path));
+  spawn("conflict_branches", |path| templates::conflict_branches().build(path));
+  spawn("single_unassigned", |path| templates::single_unassigned().build(path));
+  spawn("issue_links", |path| templates::issue_links().build(path));
+  spawn("issue_split", |path| templates::issue_split().build(path));
+  spawn("issue_groups", |path| templates::issue_groups().build(path));
+  spawn("issue_combine", |path| templates::issue_combine().build(path));
+  spawn("fixups", |path| templates::fixups().build(path));
+  spawn("long_subjects", |path| templates::long_subjects().build(path));
+  spawn("commit_tree", |path| templates::commit_tree().build(path));
+  spawn("stacked_branches", |path| templates::stacked_branches().build(path));
+  spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
+  spawn("branch_filter", |path| templates::branch_filter().build(path));
+  spawn("empty-non-git", |path| templates::empty_non_git().build(path));
+  spawn("empty_git", |path| templates::empty_git().build(path));
+  spawn("bare", |path| templates::bare().build(path));
+  spawn("archived_branches", |path| templates::archived_branches().build(path));
+  spawn("behind_upstream", |path| templates::behind_upstream().build(path));
+  spawn("update_conflict", |path| templates::update_conflict().build(path));
+  spawn("update_blocked", |path| templates::update_blocked().build(path));
+  spawn("landed_upstream", |path| templates::landed_upstream().build(path));
+  spawn("amend_changes", |path| templates::amend_changes().build(path));
 
-  // Wait for all templates to be created
-  for result in futures {
-    result.await?.map_err(|e| anyhow::anyhow!("Failed to create template: {e}"))?;
+  while let Some(result) = builds.join_next().await {
+    result?.map_err(|e| anyhow::anyhow!("Failed to create template: {e}"))?;
   }
-
   Ok(())
-}
-
-pub fn get_test_repos_dir() -> PathBuf {
-  // Get the path relative to the project root
-  let current_exe = std::env::current_exe().expect("Failed to get current executable path");
-  let project_root = current_exe
-    .ancestors()
-    .find(|p| p.join("Cargo.toml").exists() && p.join("tests").exists())
-    .expect("Failed to find project root");
-
-  project_root.join("tests").join("test-repos")
 }
 
 #[derive(Serialize)]
@@ -389,7 +323,10 @@ fn default_prepopulate_store() -> bool {
 }
 
 pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request): Json<CreateRepositoryRequest>) -> Result<Json<CreateRepositoryResponse>, StatusCode> {
-  let id = Ksuid::new::<SystemTime>(None, None).to_string();
+  // unique for the life of the server: the repositories live in its own temporary directory. 27 characters, as the
+  // KSUIDs before, so the repository selector shortens every path to `…/<id>` on every platform
+  static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+  let id = format!("repo-{:022}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
   // Handle special NO_REPO template
   if matches!(request.template, RepositoryTemplate::NoRepo) {
