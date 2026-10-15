@@ -106,6 +106,16 @@ Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part o
 - **Truth**: docs describe the code as it is. A doc that contradicts the code is a bug: fix the doc (or the code) in
   the same change; never leave it for later. See [Design Docs Guidelines](docs/guidelines/design-docs.md).
 
+### Commits and History
+How agents commit to this repository; "Git Operations" below is about the git the app runs.
+- **Linear history, no merge commits**: not of master, not of an integration branch, not of an agent worktree branch.
+- Bring a branch up to date with `git rebase <target>` and resolve conflicts there; integrate it with
+  `git merge --ff-only <branch>` or `git cherry-pick`. Rebasing your own branch in your worktree is fine: the
+  "never write to the working tree" rule is about the app's code.
+- `.githooks/` enforces it (`pre-merge-commit`, and `pre-commit` while `MERGE_HEAD` exists). Enable it once per clone,
+  every worktree shares the setting: `git config core.hooksPath .githooks && git config merge.ff only`.
+- Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
+
 ### Git Operations
 Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.

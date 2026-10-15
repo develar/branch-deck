@@ -22,7 +22,12 @@
    pnpm install
    ```
 
-3. **Install Rust dependencies** (handled automatically by Tauri)
+3. **Enable the git hooks** (linear history, no merge commits)
+   ```bash
+   git config core.hooksPath .githooks && git config merge.ff only
+   ```
+
+4. **Install Rust dependencies** (handled automatically by Tauri)
    ```bash
    # Tauri will handle Rust dependencies during build
    ```

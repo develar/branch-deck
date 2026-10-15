@@ -1,0 +1,8 @@
+#!/bin/sh
+# Linear history: refuse a merge commit (see "Commits and History" in AGENTS.md).
+cat >&2 <<'MSG'
+Merge commits are not allowed in branch-deck (linear history, see AGENTS.md).
+Run `git merge --abort`, then `git rebase <target>` on your branch and `git merge --ff-only <branch>`,
+or `git cherry-pick` the commits.
+MSG
+exit 1

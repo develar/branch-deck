@@ -1,0 +1,5 @@
+#!/bin/sh
+# Linear history: refuse to conclude a merge (`git merge --no-commit`, a conflicted merge) with `git commit`.
+if [ -e "$(git rev-parse --git-path MERGE_HEAD)" ]; then
+  exec "$(dirname "$0")/pre-merge-commit"
+fi
