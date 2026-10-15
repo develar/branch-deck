@@ -108,3 +108,14 @@ fn the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one() {
   .unwrap();
   assert_eq!(rejection_reason(&comments, 10), None);
 }
+
+#[test]
+fn a_comment_id_that_is_not_a_number_runs_no_gh() {
+  let dir = tempfile::tempdir().unwrap();
+  let gh = fake_gh(dir.path(), "echo '{}'");
+  for id in ["", "10/../../user", "10?x=1"] {
+    let error = read_patronus_command_reply(&gh, ".", &repository(), 7, id, Duration::from_secs(10)).unwrap_err();
+    assert!(error.contains("is not the id of a GitHub comment"), "{error}");
+  }
+  assert!(!dir.path().join("args").exists(), "gh did not run");
+}

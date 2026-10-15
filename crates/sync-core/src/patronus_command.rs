@@ -56,6 +56,10 @@ pub fn read_patronus_command_reply(
   comment_id: &str,
   timeout: Duration,
 ) -> Result<PatronusCommandReply, String> {
+  // the id comes from the page and goes into the endpoint path
+  if comment_id.is_empty() || !comment_id.bytes().all(|byte| byte.is_ascii_digit()) {
+    return Err(format!("{comment_id:?} is not the id of a GitHub comment"));
+  }
   let endpoint = format!("repos/{}/{}/issues/comments/{comment_id}", repository.owner, repository.name);
   let output = run_gh(gh, repository_path, &["api", &endpoint], timeout).map_err(gh_failure)?;
   let comment: GhComment = serde_json::from_slice(&output).map_err(|e| format!("Unexpected gh output: {e}"))?;

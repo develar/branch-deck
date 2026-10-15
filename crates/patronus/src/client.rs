@@ -334,30 +334,31 @@ impl PatronusClient {
   /// One robot with its options
   #[instrument(skip(self, token))]
   pub async fn get_robot(&self, token: &str, robot_id: &str) -> Result<RobotDto, PatronusError> {
-    let url = self.robot_path(robot_id, "");
-    self.get_json(|| self.http.get(&url).bearer_auth(token), LIST_TIMEOUT).await
+    let url = self.robot_api_url(robot_id, &[])?;
+    self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await
   }
 
   /// The status of one robot, e.g. `RUNNING`: one row read on the server
   #[instrument(skip(self, token))]
   pub async fn get_robot_status(&self, token: &str, robot_id: &str) -> Result<String, PatronusError> {
-    let url = self.robot_path(robot_id, "/status");
-    let status: RobotStatusDto = self.get_json(|| self.http.get(&url).bearer_auth(token), LIST_TIMEOUT).await?;
+    let url = self.robot_api_url(robot_id, &["status"])?;
+    let status: RobotStatusDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     Ok(status.robot_status)
   }
 
   #[instrument(skip(self, token))]
   pub async fn get_teamcity_checks(&self, token: &str, robot_id: &str) -> Result<Vec<TeamCityCheckDto>, PatronusError> {
-    let url = self.robot_path(robot_id, "/teamcity-checks");
-    let checks: TeamCityChecksDto = self.get_json(|| self.http.get(&url).bearer_auth(token), LIST_TIMEOUT).await?;
+    let url = self.robot_api_url(robot_id, &["teamcity-checks"])?;
+    let checks: TeamCityChecksDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     Ok(checks.team_city_checks)
   }
 
   /// The problems of severity error
   #[instrument(skip(self, token))]
   pub async fn get_problems(&self, token: &str, robot_id: &str) -> Result<Vec<ProblemDto>, PatronusError> {
-    let url = self.robot_path(robot_id, "/problems?severity=ERROR");
-    let problems: ProblemsDto = self.get_json(|| self.http.get(&url).bearer_auth(token), LIST_TIMEOUT).await?;
+    let mut url = self.robot_api_url(robot_id, &["problems"])?;
+    url.query_pairs_mut().append_pair("severity", "ERROR");
+    let problems: ProblemsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     Ok(problems.problems)
   }
 
@@ -390,7 +391,7 @@ impl PatronusClient {
   pub async fn restart_robot(&self, token: &str, robot_id: &str) -> Result<String, PatronusError> {
     let response = self
       .http
-      .post(self.robot_path(robot_id, "/restart"))
+      .post(self.robot_api_url(robot_id, &["restart"])?)
       .bearer_auth(token)
       .timeout(ACTION_TIMEOUT)
       .send()
@@ -402,7 +403,13 @@ impl PatronusClient {
 
   #[instrument(skip(self, token))]
   pub async fn cancel_robot(&self, token: &str, robot_id: &str) -> Result<(), PatronusError> {
-    let response = self.http.put(self.robot_path(robot_id, "/cancel")).bearer_auth(token).timeout(ACTION_TIMEOUT).send().await;
+    let response = self
+      .http
+      .put(self.robot_api_url(robot_id, &["cancel"])?)
+      .bearer_auth(token)
+      .timeout(ACTION_TIMEOUT)
+      .send()
+      .await;
     read_empty(response).await
   }
 
@@ -458,8 +465,15 @@ impl PatronusClient {
     read_json(response).await
   }
 
-  fn robot_path(&self, robot_id: &str, suffix: &str) -> String {
-    format!("{}/app/rest/v1/robots/{robot_id}{suffix}", self.base_url)
+  /// `/app/rest/v1/robots/<robot_id>/<suffix…>`, the id escaped as one path segment: it comes from the page
+  fn robot_api_url(&self, robot_id: &str, suffix: &[&str]) -> Result<reqwest::Url, PatronusError> {
+    let mut url = reqwest::Url::parse(&format!("{}/app/rest/v1/robots", self.base_url)).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
+    url
+      .path_segments_mut()
+      .map_err(|()| PatronusError::InvalidResponse(format!("{} is not a base URL", self.base_url)))?
+      .push(robot_id)
+      .extend(suffix);
+    Ok(url)
   }
 
   /// A GET, asked once more after a transient failure
@@ -512,5 +526,23 @@ fn request_error(e: &reqwest::Error) -> PatronusError {
     PatronusError::InvalidResponse(e.to_string())
   } else {
     PatronusError::Network(e.to_string())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::PatronusClient;
+
+  #[test]
+  fn a_robot_id_is_one_escaped_path_segment() {
+    let client = PatronusClient::new("https://patronus.example", "test");
+    assert_eq!(
+      client.robot_api_url("r-1", &["status"]).unwrap().as_str(),
+      "https://patronus.example/app/rest/v1/robots/r-1/status"
+    );
+    assert_eq!(
+      client.robot_api_url("../x?y", &[]).unwrap().as_str(),
+      "https://patronus.example/app/rest/v1/robots/..%2Fx%3Fy"
+    );
   }
 }
