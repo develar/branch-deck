@@ -80,7 +80,7 @@ An error looks like this:
 | 1 | conflict | `conflict` |
 | 2 | invalid input | `invalid_arguments`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `push_refused`, `no_remote`, `install_refused` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `push_refused`, `no_remote`, `install_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error` |
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
@@ -404,8 +404,13 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
   `detached_head` and `no_baseline` (a local baseline) refuse (exit 4).
 - `bd undo <undo_token>` takes the update back: the branch moves back, and the files follow through the same
   guarded update with the trees swapped, under the lock. Only the last update of the branch can be undone (its
-  reflog entry proves it), with full ids. Local changes on a path it writes are `uncommitted_overlap`, a branch moved
-  since is `head_moved`; the landed report is the one from before the update again (`landed_restored`).
+  reflog entry proves it; the update writes it with `--create-reflog`), with full ids. Local changes on a path it
+  writes are `uncommitted_overlap`; a branch moved, or a HEAD switched, since is `undo_stale` (exit 4: a retry can't
+  succeed). The landed report is the one from before the update again (`landed_restored`). A repeated undo exits 0
+  with `already_undone: true` and changes nothing.
+- The move updates `HEAD` and commits only while git holds its lock, after a check that HEAD is still on the checked
+  branch; a `git switch` meanwhile is `head_moved` with nothing changed (see "Ref moves" in
+  [Git Operations](../design/git-operations.md)).
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 
@@ -419,8 +424,8 @@ tree stay as they are.
  "orphans":["5f6a7b8c"],"undo_token":"<full previous>..<full new>"}
 ```
 
-- `--branch` folds only the fixups whose target is in that branch. `orphans` are fixups without an older target:
-  they stay. Nothing to fold prints `folded: []` without a token.
+- `--branch` folds only the fixups whose target is in that branch; a name that is no branch is `unknown_branch`.
+  `orphans` are fixups without an older target: they stay. Nothing to fold prints `folded: []` without a token.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
 - `bd undo <undo_token>` restores the previous head.
@@ -638,12 +643,15 @@ It prints `{"schema":1,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[�
 says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed
 `branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
-symlink it names the app binary with `cli` (`/Applications/…/branch-deck cli`): the bare app binary starts the app.
+symlink it names the app binary with `cli` (`'/Applications/Branch Deck.app/…/branch-deck' cli`), quoted for the shell
+and to be run as written: the bare app binary starts the app.
 
-The app's prompts name bd the same way without an install: the Tauri command `agent_cli_command`
-(`bd_command` in `install.rs`) returns the `bd` symlink when it points at the running app, else the app binary with
-`cli` (on Windows `bd.exe` next to the app), quoted for a shell. It writes nothing, so the bd of a prompt is always the
-version of the app that copied it.
+The app's prompts name bd the same way without an install: the Tauri command `agent_cli_command(repository)`
+(`bd_command` and `for_shell_in` in `install.rs`) returns `<bd> -C <repository>`, with the `bd` symlink when it points
+at the running app, else the app binary with `cli` (on Windows `bd.exe` next to the app). It is quoted for a POSIX
+shell, or for PowerShell on Windows (`& "<bd.exe>" -C "<repository>"`, `powershell: true`). It writes nothing, so the
+bd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `bd.exe`), the
+blocked prompt names no command: the user updates in the app.
 
 ## Agent workflow
 
@@ -673,4 +681,5 @@ ask what to do with each file; never stash, reset, check out or commit them. Aft
 The agent never reorders, squashes or drops commits: a plan only moves commits between branches. The Update Project
 hand-off prompt (`src/lib/agent-prompt.ts`) states the same rule for an agent that rebases; it also forbids a push,
 which here the agent runs only after the user approves. For an update blocked by uncommitted changes, the prompt
-sends the agent to the user about each file and then to `bd update --no-fetch`; a conflict still gets the git steps.
+sends the agent to the user about each file and then to `bd update --no-fetch`, and never to a stash; a conflict
+still gets the git steps.

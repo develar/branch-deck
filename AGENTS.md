@@ -147,17 +147,18 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
   `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure).
-  Its functions are `pub(crate)` and only `update_branch.rs` calls them, for Update Project (the app and `bd update`)
-  and its undo (`bd undo update:`, the trees swapped). The scan counts its `-u` argument lists. Don't add another
-  caller or another argument list; see "Update project" in the design doc.
+  Its functions are `pub(crate)` and only `update_branch.rs` calls them, for Update Project (`apply_update`, the app
+  and `bd update`) and its undo (`apply_update_undo` of an `UpdateUndo` that only `check_update_undo` builds, the
+  trees swapped). The scan counts its `-u` argument lists. Don't add another caller, another argument list, or a
+  public way to build a move; see "Update project" in the design doc.
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction. A move that the files follow (an
-  update and its undo) updates `HEAD` itself (deref), not `refs/heads/<b>`: git then locks HEAD and its branch
-  together, and `symbolic-ref HEAD` is checked right before and read after it (`BranchSwitched`); git refuses
-  `symref-verify HEAD` next to either form of the update.
+  update and its undo) updates `HEAD` itself (deref) and commits only if `symbolic-ref HEAD`, read while git holds the
+  locks after `prepare`, is still the checked branch (`RefTransaction::commit_while`, else `BranchSwitched`); git
+  refuses `symref-verify HEAD` next to either form of the update.
 - **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`): only a regroup writes them, under the repository
   lock, in the ref transaction that moves HEAD, with CAS on both refs; a sync only reads them.
 - **Repository lock**: rewrites that regroup commits (`regroup.rs`), `bd sync`, `bd push`, `bd fold`, `bd undo`, and

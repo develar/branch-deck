@@ -808,11 +808,18 @@ pub struct UpdateMenuCheckboxRequest {
   checked: bool,
 }
 
-/// The bd command the copied prompts name: a fixed path, the app's `agent_cli_command` reads the running binary
-pub const AGENT_CLI_COMMAND: &str = "/Users/test/.local/bin/bd";
+/// The bd the copied prompts name: a fixed path, the app's `agent_cli_command` reads the running binary
+pub const AGENT_CLI: &str = "/Users/test/.local/bin/bd";
 
-pub async fn agent_cli_command() -> Json<&'static str> {
-  Json(AGENT_CLI_COMMAND)
+#[derive(Deserialize)]
+pub struct AgentCliCommandRequest {
+  #[serde(rename = "repositoryPath")]
+  repository_path: String,
+}
+
+/// `AgentCliCommand` of the app for a POSIX shell, with the repository path as it is (test paths are plain)
+pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> Json<serde_json::Value> {
+  Json(serde_json::json!({ "command": format!("{AGENT_CLI} -C {}", request.repository_path), "powershell": false }))
 }
 
 pub async fn update_menu_checkbox(Json(request): Json<UpdateMenuCheckboxRequest>) -> StatusCode {

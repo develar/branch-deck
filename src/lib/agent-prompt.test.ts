@@ -74,31 +74,43 @@ describe("buildAgentPrompt", () => {
     expect(prompt).not.toContain("Files that likely conflict")
   })
 
+  const blocked = check({ status: "blocked", paths: ["src/app.txt", "build.out"] })
+  const blockedLines = [
+    "Branch Deck can't update `master` at /work/my repo onto `origin/master`: my uncommitted changes are in files that origin/master also changes:",
+    "- src/app.txt",
+    "- build.out",
+  ]
+  const askFirst = "Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file."
+
   it("with bd, sends a blocked update to the user and then to bd, never to a stash", () => {
-    const blockedCheck = check({ status: "blocked", paths: ["src/app.txt", "build.out"] })
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blockedCheck, fetchTime: null, bd: "/Users/me/.local/bin/bd" })
+    const bd = { command: "/Users/me/.local/bin/bd -C '/work/my repo'", powershell: false }
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
     expect(prompt).toBe([
-      "Branch Deck can't update `master` at /work/my repo onto `origin/master`: my uncommitted changes are in files that origin/master also changes:",
-      "- src/app.txt",
-      "- build.out",
-      "Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file. When I say the files are ready, run `/Users/me/.local/bin/bd -C '/work/my repo' update --no-fetch` and continue as its output says.",
+      ...blockedLines,
+      `${askFirst} When I say the files are ready, run \`/Users/me/.local/bin/bd -C '/work/my repo' update --no-fetch\` and continue as its output says.`,
     ].join("\n"))
     expect(prompt).not.toContain("git stash")
   })
 
-  it("with bd, keeps the git steps for a conflict", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd: "'/Applications/Branch Deck.app/Contents/MacOS/branch-deck' cli" })
-    expect(prompt).toContain("1. `git rebase origin/master`.")
-    expect(prompt).not.toContain("update --no-fetch")
+  it("names PowerShell for the command of Windows", () => {
+    const bd = { command: "& \"C:\\Program Files\\Branch Deck\\bd.exe\" -C \"C:\\work\\my repo\"", powershell: true }
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
+    expect(prompt).toContain(`run \`${bd.command} update --no-fetch\` in PowerShell and continue as its output says.`)
   })
 
-  it("asks to stash, update and restore uncommitted changes that block the update", () => {
-    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: check({ status: "blocked", paths: ["src/app.txt", "build.out"] }), fetchTime: null, bd: null })
-    expect(prompt).toContain("Update the branch `master` of the Git repository at /work/repo to `origin/master`.")
-    expect(prompt).toContain("My uncommitted changes that overlap the upstream:\n- src/app.txt\n- build.out")
-    expect(prompt).toContain("1. `git stash push --include-untracked`.")
-    expect(prompt).toContain("3. `git stash pop`.")
-    expect(prompt).toContain("Keep my uncommitted changes uncommitted")
-    expect(prompt).toContain("Don't push.")
+  it("without bd, sends a blocked update to the user and back to Branch Deck, never to a stash", () => {
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd: null })
+    expect(prompt).toBe([
+      ...blockedLines,
+      `${askFirst} When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself.`,
+    ].join("\n"))
+    expect(prompt).not.toContain("git ")
+  })
+
+  it("with bd, keeps the git steps for a conflict", () => {
+    const bd = { command: "'/Applications/Branch Deck.app/Contents/MacOS/branch-deck' cli -C /work/repo", powershell: false }
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: null, bd })
+    expect(prompt).toContain("1. `git rebase origin/master`.")
+    expect(prompt).not.toContain("update --no-fetch")
   })
 })

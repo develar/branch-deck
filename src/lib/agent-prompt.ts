@@ -1,4 +1,4 @@
-import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
+import type { AgentCliCommand, UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { groupConflictFiles } from "@/lib/update-conflict"
 
@@ -8,8 +8,8 @@ export interface AgentPromptInput {
   check: UpdateCheck
   /** When the upstream was fetched (ms), if known */
   fetchTime: number | null
-  /** The command that runs this app's bd, quoted for a shell (`agent_cli_command`); null when it is not known */
-  bd: string | null
+  /** How this app's bd runs in the repository (`agent_cli_command`); null when the app can't tell its binary */
+  bd: AgentCliCommand | null
 }
 
 /** Rules every hand-off states: Branch Deck must find the same commits, grouped the same way, afterwards */
@@ -50,34 +50,33 @@ function stateLines(check: UpdateCheck, fetchTime: number | null): string {
   ])
 }
 
-/** A word for a POSIX shell: single-quoted unless it is plain */
-function shellQuote(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`
-}
-
 /**
- * The blocked prompt with bd: other sessions may work in the same tree, so the agent must not stash, reset, check out
- * or commit the files; it asks the user, then lets bd update, which writes only the files the update changes
+ * The blocked prompt: other sessions may work in the same tree, so the agent must not stash, reset, check out or
+ * commit the files; it asks the user about each. Then bd updates, which writes only the files the update changes, or,
+ * without a bd command, the user updates in Branch Deck. Never a stash: it would take the files of the other sessions
  */
-function bdBlockedPrompt(repositoryPath: string, check: UpdateCheck, paths: readonly string[], bd: string): string {
+function blockedPrompt(repositoryPath: string, check: UpdateCheck, paths: readonly string[], bd: AgentCliCommand | null): string {
   const { branch, upstream } = check
+  const then = bd === null
+    ? "When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself."
+    : `When I say the files are ready, run \`${bd.command} update --no-fetch\`${bd.powershell ? " in PowerShell" : ""} and continue as its output says.`
   return [
     `Branch Deck can't update \`${branch}\` at ${repositoryPath} onto \`${upstream}\`: my uncommitted changes are in files that ${upstream} also changes:`,
     bullets(paths),
-    `Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file. When I say the files are ready, run \`${bd} -C ${shellQuote(repositoryPath)} update --no-fetch\` and continue as its output says.`,
+    `Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file. ${then}`,
   ].join("\n")
 }
 
 /**
  * The prompt for an external coding agent that does the update Branch Deck refused: a rebase with conflicts, or one
  * blocked by uncommitted changes on files that the upstream changed. Copied to the clipboard; the agent runs git in a
- * terminal, so it is told the exact state and what it must not change. With `bd`, a blocked update goes back to bd
- * once the user has decided about the files.
+ * terminal, so it is told the exact state and what it must not change. A blocked update goes to the user about each
+ * file, then to bd.
  */
 export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: AgentPromptInput): string {
   const { state, branch, upstream } = check
-  if (state.status === "blocked" && bd !== null) {
-    return bdBlockedPrompt(repositoryPath, check, state.paths, bd)
+  if (state.status === "blocked") {
+    return blockedPrompt(repositoryPath, check, state.paths, bd)
   }
   const sections: string[] = []
   if (state.status === "conflict") {
@@ -107,24 +106,6 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: Agent
         "Build and run the tests of the code you touched.",
         "`git add` the resolved files and `git rebase --continue`, until the rebase is done.",
         "Report each resolution: the file, the commit, and what you kept from each side.",
-      ])}`,
-    )
-  }
-  else if (state.status === "blocked") {
-    sections.push(
-      `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} to \`${upstream}\`. My uncommitted changes in files that the upstream also changed block it.`,
-      stateLines(check, fetchTime),
-      `My uncommitted changes that overlap the upstream:\n${bullets(state.paths)}`,
-      `Rules:\n${bullets([
-        ...RULES,
-        "Keep my uncommitted changes uncommitted: restore them on top of the updated files.",
-      ])}`,
-      `Steps:\n${numbered([
-        "`git stash push --include-untracked`. A listed file that git ignores is not stashed: move it out of the repository and back afterwards.",
-        `\`git rebase ${upstream}\`; resolve any conflict by keeping the upstream change and reapplying the intent of my commit.`,
-        "`git stash pop`. On a conflict, merge my change with the upstream one, keep the result uncommitted, and `git stash drop` only once it is restored.",
-        "Build and run the tests of the code you touched.",
-        "Report what you merged in each file.",
       ])}`,
     )
   }

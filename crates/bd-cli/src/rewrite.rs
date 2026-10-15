@@ -191,6 +191,9 @@ pub struct UndoOutput {
   /// For an `update:` token: whether the report of the landed commits is the one from before the update again
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub landed_restored: Option<bool>,
+  /// For an `update:` token: the update was undone before, and nothing changed now; a repeated undo is no error
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub already_undone: Option<bool>,
 }
 
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
@@ -281,6 +284,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       undone: Some(short.get(&undone.undone).to_string()),
       undone_issue_groups: None,
       landed_restored: Some(undone.landed_restored),
+      already_undone: Some(undone.already_undone),
     });
   }
   let Some(token) = UndoToken::parse(&args.token) else {
@@ -315,6 +319,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     undone: undone.map(|id| short.get(id).to_string()),
     undone_issue_groups: undone_issue_groups.map(|id| short.get(id).to_string()),
     landed_restored: None,
+    already_undone: None,
   })
 }
 

@@ -138,11 +138,10 @@ export const commands = {
 	updateMenuCheckbox: (menuId: string, checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("update_menu_checkbox", { menuId, checked })),
 	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
 	/**
-	 *  The command line that runs this app's bd, for the prompts the app copies: the `bd` symlink in `~/.local/bin` when it
-	 *  points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it), quoted for a shell. Writes
-	 *  nothing and needs no install, so the bd of a prompt is always the version of the app that wrote it
+	 *  The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
+	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
 	 */
-	agentCliCommand: () => typedError<string, CommandError>(__TAURI_INVOKE("agent_cli_command")),
+	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, CommandError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	downloadModel: (progress: Channel<DownloadProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("download_model", { progress })),
 	checkModelStatus: () => typedError<ModelStatus, CommandError>(__TAURI_INVOKE("check_model_status")),
 	cancelModelDownload: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_model_download")),
@@ -161,6 +160,17 @@ export type AddIssueReferenceResult = {
 	success: boolean,
 	updatedCount: number,
 	skippedCount: number,
+};
+
+/**  How the prompts the app copies run this app's bd in a repository */
+export type AgentCliCommand = {
+	/**
+	 *  bd with `-C <repository>`, quoted for the shell, to run as written: the `bd` symlink in `~/.local/bin` when it
+	 *  points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it)
+	 */
+	command: string,
+	/**  The shell is PowerShell (Windows), where a quoted path runs with `&` */
+	powershell: boolean,
 };
 
 /**  What the "Install Agent CLI…" menu item installed: `bd install` (docs/guidelines/agent-cli.md) */

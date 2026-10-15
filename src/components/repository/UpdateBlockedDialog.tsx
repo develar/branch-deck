@@ -10,7 +10,7 @@ import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, Pr
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import { commands } from "@/lib/bindings"
-import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
+import type { AgentCliCommand, UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { formatRelativeTime } from "@/lib/time"
@@ -124,26 +124,26 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
 }
 
 /**
- * The command that runs this app's bd, read when the dialog opens: the copy must write the clipboard within the click,
- * so it can't wait for the backend. null until it is known, or when it can't be told
+ * How this app's bd runs in the repository, read when the dialog opens: the copy must write the clipboard within the
+ * click, so it can't wait for the backend. `undefined` while it is read, null when the app can't tell its binary
  */
-function useAgentCliCommand(open: boolean): string | null {
-  const [bd, setBd] = useState<string | null>(null)
+function useAgentCliCommand(repositoryPath: string | null): AgentCliCommand | null | undefined {
+  const [bd, setBd] = useState<{ repositoryPath: string, command: AgentCliCommand | null } | null>(null)
   useEffect(() => {
-    if (!open) {
+    if (repositoryPath === null) {
       return
     }
     let current = true
-    void commands.agentCliCommand().then((result) => {
+    void commands.agentCliCommand(repositoryPath).then((result) => {
       if (current) {
-        setBd(result.status === "ok" ? result.data : null)
+        setBd({ repositoryPath, command: result.status === "ok" ? result.data : null })
       }
     })
     return () => {
       current = false
     }
-  }, [open])
-  return bd
+  }, [repositoryPath])
+  return bd !== null && bd.repositoryPath === repositoryPath ? bd.command : undefined
 }
 
 /**
@@ -158,8 +158,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
   if (check !== null && check !== shown) {
     setShown(check)
   }
-  const bd = useAgentCliCommand(check !== null)
   const project = useSelectedProject()
+  const bd = useAgentCliCommand(check === null ? null : project?.path ?? null)
   const bodyRef = useRef<HTMLDivElement>(null)
   // the button says "Copied" in place, no toast (docs/guidelines/ux-writing.md)
   const { isCopied, copyToClipboard } = useCopyToClipboard()
@@ -169,7 +169,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
 
   const { state, upstream } = shown
   const fetchTime = lastFetchTime(shown, project?.lastFetchTime)
-  const copyPrompt = () => copyToClipboard(buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime, bd }))
+  const copyPrompt = () => copyToClipboard(buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime, bd: bd ?? null }))
 
   return (
     <PreviewDialogFrame
@@ -218,7 +218,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
                 are.
                 {" "}
                 {bd === null
-                  ? "Or hand it to a coding agent: the prompt stashes them, updates and restores them."
+                  ? "Or hand it to a coding agent: the prompt asks you about each file, then you update again."
                   : "Or hand it to a coding agent: the prompt asks you about each file, then updates with bd."}
               </p>
             </>
@@ -228,7 +228,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
 
       <PreviewDialogFooter start={<span>{`${shown.branch} ← ${upstream}`}</span>}>
         <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
-        <Button size="xs" data-testid="copy-agent-prompt" onClick={() => void copyPrompt()}>
+        {/* the blocked prompt names bd: wait until it is known */}
+        <Button size="xs" data-testid="copy-agent-prompt" disabled={state.status === "blocked" && bd === undefined} onClick={() => void copyPrompt()}>
           {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
           {isCopied ? "Copied" : "Copy Prompt for Agent"}
         </Button>

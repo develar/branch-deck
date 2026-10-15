@@ -6,12 +6,11 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::sync_command::lock;
-use crate::update_command::ensure_guards;
-use git_ops::rewrite_guard::HeadMoved;
+use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
 use git_ops::rewrite_plan::short_id;
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_core, squash_fixup_commits_core};
+use sync_core::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
 use sync_core::commit_ids::MIN_ID_LENGTH;
 use sync_core::regroup::UndoToken;
 
@@ -63,7 +62,13 @@ pub struct FoldedTarget {
 pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError> {
   ensure_guards(context)?;
   let _lock = if args.dry_run { None } else { Some(lock(context)?) };
-  let plan = get_autosquash_plan_core(&context.git, &context.repository)?;
+  let (plan, branches) = get_autosquash_plan_with_branches(&context.git, &context.repository)?;
+  if let Some(branch) = args.branch.as_ref().filter(|branch| !branches.contains(*branch)) {
+    return Err(CliError::new(
+      ErrorCode::UnknownBranch,
+      format!("No branch named {branch:?} among the commits ahead of the baseline"),
+    ));
+  }
   if let Some(expected) = &args.expect_head
     && !(expected.len() >= MIN_ID_LENGTH && plan.head.starts_with(expected.as_str()))
   {
@@ -97,6 +102,13 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
   })?;
   let new_id = |target: &str| result.squashed.iter().find(|squashed| squashed.target == target).map(|squashed| squashed.new_id.clone());
   Ok(fold_output(context, false, &result.previous_head, &result.new_head, &groups, &orphans, new_id))
+}
+
+/// The guards of a rewrite of the checked out branch, with their codes, before the plan is read
+fn ensure_guards(context: &RepoContext) -> Result<(), CliError> {
+  ensure_no_operation_in_progress(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::OperationInProgress, format!("{e:#}")))?;
+  get_current_branch(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::DetachedHead, format!("{e:#}")))?;
+  Ok(())
 }
 
 fn fold_output(

@@ -86,11 +86,17 @@ export async function runUpdateProject(): Promise<void> {
   }
   try {
     const progress = new Channel<UpdateProgress>()
+    // the fetch is done once the check starts: an error after it (e.g. bd holds the repository) keeps the fetch time
+    let fetched = false
     progress.onmessage = ({ phase, fetch }) => {
+      fetched ||= phase !== "fetching"
       setRunning(repositoryPath, { phase, fetch })
     }
     const result = await invokeCommand(() => commands.updateProject({ repositoryPath }, progress))
     if (result.status !== "ok") {
+      if (fetched) {
+        updateProject(repositoryPath, { lastFetchTime: Date.now() })
+      }
       notifyError("Cannot update the project", result.error)
       return
     }

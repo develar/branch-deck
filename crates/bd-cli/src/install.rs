@@ -68,7 +68,13 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
   }
 
   let bd = install_command(home, &target)?;
-  let text = skill_text(&display(&bd));
+  let text = skill_text(
+    &BdCommand {
+      program: bd.clone(),
+      subcommand: None,
+    }
+    .for_shell(),
+  );
   for file in &skill_files {
     let dir = file.parent().unwrap_or(file);
     std::fs::create_dir_all(dir).map_err(|e| io_error(dir, &e))?;
@@ -94,7 +100,7 @@ pub struct BdCommand {
 }
 
 impl BdCommand {
-  /// `program [cli]` with the path as it is: the skill says to quote it
+  /// `program [cli]` with the path as it is
   pub fn display(&self) -> String {
     let program = display(&self.program);
     match self.subcommand {
@@ -103,21 +109,32 @@ impl BdCommand {
     }
   }
 
-  /// The command for a shell, the path quoted when it needs it: a POSIX shell's single quotes, on Windows double quotes
+  /// The command for the user's shell, run as written: on macOS and Linux a POSIX shell, the path single-quoted when it
+  /// needs it; on Windows PowerShell, `& "<path>"` (a quoted path needs the call operator there)
   pub fn for_shell(&self) -> String {
-    let program = display(&self.program);
-    let plain = !program.is_empty() && program.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@' | '+'));
-    let program = if plain {
-      program
-    } else if cfg!(windows) {
-      format!("\"{program}\"")
-    } else {
-      format!("'{}'", program.replace('\'', r"'\''"))
-    };
+    let program = shell_word(&display(&self.program));
+    let program = if cfg!(windows) { format!("& {program}") } else { program };
     match self.subcommand {
       Some(subcommand) => format!("{program} {subcommand}"),
       None => program,
     }
+  }
+
+  /// `for_shell` with `-C <repository>`, the repository quoted the same way
+  pub fn for_shell_in(&self, repository: &str) -> String {
+    format!("{} -C {}", self.for_shell(), shell_word(repository))
+  }
+}
+
+/// A word for the user's shell: as it is when plain, else single-quoted for a POSIX shell or double-quoted for PowerShell
+fn shell_word(word: &str) -> String {
+  let plain = !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '@' | '+'));
+  if plain {
+    word.to_string()
+  } else if cfg!(windows) {
+    format!("\"{}\"", word.replace('"', "`\""))
+  } else {
+    format!("'{}'", word.replace('\'', r"'\''"))
   }
 }
 
@@ -135,9 +152,9 @@ pub fn bd_command(environment: &Environment) -> Result<BdCommand, CliError> {
   Ok(BdCommand { program: target, subcommand })
 }
 
-/// The command `bd help skill` names: `bd_command`, or `bd` when the binary is unknown
+/// The command `bd help skill` names, quoted for a shell: `bd_command`, or `bd` when the binary is unknown
 pub fn skill_command(environment: &Environment) -> String {
-  bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.display())
+  bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell())
 }
 
 /// The binary the command runs: on macOS and Linux the app binary (a `bd` symlink resolves to it), on Windows `bd.exe`

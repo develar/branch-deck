@@ -15,7 +15,7 @@ use git_ops::rewrite_guard::{HeadMoved, get_current_branch};
 use git_ops::rewrite_plan::History;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::{info, instrument};
 
 /// How a commit is squashed into its target; the first marker of the subject decides (`fixup! squash! X` is a fixup)
@@ -305,6 +305,14 @@ fn read_range(git_executor: &GitCommandExecutor, repository_path: &str) -> Resul
 pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<AutosquashPlan> {
   let (head, commits, grouping) = read_range(git_executor, repository_path)?;
   Ok(plan_autosquash(head, &commits, &grouping))
+}
+
+/// `get_autosquash_plan_core` with the branch of every commit ahead of the baseline, named as the plan names them, from
+/// the same read
+pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<(AutosquashPlan, BTreeSet<String>)> {
+  let (head, commits, grouping) = read_range(git_executor, repository_path)?;
+  let branches = commits.iter().filter_map(|commit| grouping.branch_of(&commit.subject)).collect();
+  Ok((plan_autosquash(head, &commits, &grouping), branches))
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and

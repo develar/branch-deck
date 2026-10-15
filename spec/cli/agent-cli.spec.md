@@ -275,6 +275,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--no-fetch` must update onto the last fetched baseline. `--dry-run` must imply `--no-fetch`, take no lock and
   print what the update would do, writing at most git objects.
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
+- A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
+  the undo.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
 - A conflict must print `state: "conflict"` with the likely conflicting files, the local commits and the upstream
   commits that change them, change nothing, and exit with 1.
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_conflict_reports_the_files_and_commits_and_changes_nothing`)
@@ -283,9 +286,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`)
 - `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
   following, under the lock; it must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
-  `head_moved` when the branch moved since, and `invalid_arguments` when the token is not the last update of the
-  branch. It must print whether the landed report is the one from before the update again (`landed_restored`).
-  [@test] ../../crates/bd-cli/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`)
+  `undo_stale` (exit 4, not retryable) when the branch moved or HEAD switched since, and `invalid_arguments` when the
+  token is not the last update of the branch. It must print whether the landed report is the one from before the
+  update again (`landed_restored`). An undo of an undone update must exit 0 with `already_undone: true`.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`, `update_fast_forwards_and_the_undo_moves_the_files_back`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
 
 ### `bd fold`
@@ -293,8 +297,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd fold` must fold the `fixup!`, `squash!` and `amend!` commits into their targets as the app's Squash Fixups does
   ([Squash Fixups](../commit/fixups.spec.md)), under the repository lock, keeping HEAD's tree, the index and the working
   tree, and print per target the fixups folded, the orphans, and an undo token `<previous head>..<new head>` for
-  `bd undo`. `--branch` must fold only the fixups whose target is in that branch; `--dry-run` must write nothing;
-  nothing to fold is no rewrite and no token.
+  `bd undo`. `--branch` must fold only the fixups whose target is in that branch, and a name that is no branch of the
+  commits ahead of the baseline is `unknown_branch`; `--dry-run` must write nothing; nothing to fold is no rewrite and
+  no token.
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
 - `--expect-head` must refuse with `head_moved` on another HEAD, and the fold must check that HEAD, the planned
   commits and the history it rewrites all end at the planned head; a held lock is `locked`.
@@ -443,7 +448,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (the full path of `bd`); a failure is the error toast "Cannot install the Agent CLI".
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
 - Without the symlink to this binary, `bd help skill` must name the app binary with `cli`, never the bare app binary,
-  which starts the app. The app's `agent_cli_command` must return the same command without writing anything, quoted
-  for a shell: the symlink when it points at the running app, else the app binary with `cli` (`bd.exe` on Windows).
+  which starts the app, quoted for the shell and to be run as written. The app's `agent_cli_command(repository)` must
+  return the same command with `-C <repository>` without writing anything, quoted for the shell (POSIX quotes; on
+  Windows PowerShell's `& "<bd.exe>"`, and `powershell: true`): the symlink when it points at the running app, else
+  the app binary with `cli` (`bd.exe` on Windows).
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)

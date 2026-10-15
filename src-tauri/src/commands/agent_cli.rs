@@ -36,16 +36,28 @@ pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
   .map_err(|e| CommandError::new(format!("The install task failed: {e}")))?
 }
 
-/// The command line that runs this app's bd, for the prompts the app copies: the `bd` symlink in `~/.local/bin` when it
-/// points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it), quoted for a shell. Writes
-/// nothing and needs no install, so the bd of a prompt is always the version of the app that wrote it
+/// How the prompts the app copies run this app's bd in a repository
+#[derive(Debug, serde::Serialize, specta::Type)]
+pub struct AgentCliCommand {
+  /// bd with `-C <repository>`, quoted for the shell, to run as written: the `bd` symlink in `~/.local/bin` when it
+  /// points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it)
+  pub command: String,
+  /// The shell is PowerShell (Windows), where a quoted path runs with `&`
+  pub powershell: bool,
+}
+
+/// The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
+/// the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
 #[tauri::command]
 #[specta::specta]
 #[instrument]
-pub fn agent_cli_command() -> Result<String, CommandError> {
-  bd_command(&Environment::from_process())
-    .map(|command| command.for_shell())
-    .map_err(|e| CommandError::new(e.message))
+#[expect(clippy::needless_pass_by_value, reason = "Tauri deserializes a command argument into an owned value")]
+pub fn agent_cli_command(repository_path: String) -> Result<AgentCliCommand, CommandError> {
+  let command = bd_command(&Environment::from_process()).map_err(|e| CommandError::new(e.message))?;
+  Ok(AgentCliCommand {
+    command: command.for_shell_in(&repository_path),
+    powershell: cfg!(windows),
+  })
 }
 
 /// `PATH` of an interactive login shell of the user (`$SHELL`), where `~/.local/bin` is usually added; `None` on Windows

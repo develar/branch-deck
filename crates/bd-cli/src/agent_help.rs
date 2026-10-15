@@ -24,7 +24,7 @@ rebuilds each group as `{prefix}/virtual/{name}` on the baseline; the working tr
 
 Global options: -C <repo>, --prefix <p> (else the app setting, else `git config branchdeck.branchPrefix`),
 --full-ids (ids are abbreviated by default), --no-cache, -v.
-Errors: {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"retryable\"}}. Exit codes: 0 ok, 1 conflict,
+Errors: {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"retryable\"}}. Exit codes: 0 ok, 1 conflict,
 2 invalid input, 3 stale (read again and retry), 4 refused, 5 git or network error.
 ",
   read_only!(),
@@ -68,11 +68,12 @@ Workflow:
 
 `bd update` (--no-fetch, --dry-run) brings the checked out branch onto its baseline as the app's Update Project:
 exit 1 on a conflict, `uncommitted_overlap` (exit 4) lists the `paths` that block it (never stash them: ask the
-user); `bd undo update:<id>..<id>` takes it back. `bd fold` (--branch, --expect-head, --dry-run) folds fixup! commits.
+user); `bd undo update:<id>..<id>` takes it back (`undo_stale`, exit 4, once the branch moved on). `bd fold`
+(--branch, --expect-head, --dry-run) folds fixup! commits.
 
-Rules: never reorder, squash or drop commits; only `bd update` and its undo write the working tree, only the files
-the update changes; a plan only moves commits between branches. Exit 2 (invalid_plan, not_ahead_of_baseline):
-change the plan.
+Rules: never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; only
+`bd update` and its undo write the working tree, only the files the update changes; a plan only moves commits
+between branches. Exit 2 (invalid_plan, not_ahead_of_baseline): change the plan.
 
 `bd install` puts `bd` into ~/.local/bin and a skill into ~/.claude/skills and ~/.agents/skills; `bd help skill`
 prints the skill.
@@ -94,7 +95,7 @@ requests, to stack branches, to sync or push virtual branches, or mentions Branc
 
 # Branch Deck (`bd`)
 
-bd is `{command}` (quote the path in a shell); below, `bd` stands for it.
+bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` stands for it.
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
@@ -106,7 +107,8 @@ version.
 - Run bd in the repository, or pass `-C <repo>`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
-- Never reorder, squash or drop commits, and never push or create pull requests before the user approved them.
+- Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never
+  push or create pull requests before the user approved them.
 "
   )
 }

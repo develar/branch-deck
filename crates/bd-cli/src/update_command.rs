@@ -6,15 +6,14 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, landed_ids, landed_summary};
-use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress, get_current_branch};
-use git_ops::update_branch::{BranchSwitched, NotAnUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateState};
+use git_ops::rewrite_guard::HeadMoved;
+use git_ops::rewrite_plan::short_id;
+use git_ops::update_branch::{BranchSwitched, GuardRefusal, NotAnUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateState};
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::baseline::detect_baseline_branch;
 use sync_core::repository_lock::RepositoryLocked;
-use sync_core::update_project::{
-  FetchFailed, UndoBlocked, UndoneUpdate, UpdateOptions, UpdateUndoToken, check_baseline_update, resolve_baseline_upstream, undo_update_core, update_project_with,
-};
+use sync_core::update_project::{FetchFailed, NoUpstream, UndoBlocked, UndoneUpdate, UpdateOptions, UpdateUndoToken, check_baseline_update, undo_update_core, update_project_with};
 use sync_types::landed::LandedBranch;
 
 #[derive(Debug, Default, clap::Args)]
@@ -95,17 +94,16 @@ pub struct UpdateConflictCommit {
 }
 
 pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateOutput, CliError> {
-  ensure_guards(context)?;
-  let baseline = detect_baseline_branch(&context.git, &context.repository, "master")?;
-  if resolve_baseline_upstream(&context.git, &context.repository, &baseline)?.is_none() {
-    return Err(CliError::new(
-      ErrorCode::NoBaseline,
-      format!("The baseline {baseline} is a local branch: there is no upstream to update from"),
-    ));
-  }
-
   if args.dry_run {
-    let preview = check_baseline_update(&context.git, &context.repository, &baseline)?.ok_or_else(|| CliError::new(ErrorCode::NoBaseline, "No upstream to update from"))?;
+    let baseline = detect_baseline_branch(&context.git, &context.repository, "master")?;
+    let preview = check_baseline_update(&context.git, &context.repository, &baseline)
+      .map_err(|e| core_error(e, ErrorCode::HeadMoved))?
+      .ok_or_else(|| {
+        CliError::new(
+          ErrorCode::NoBaseline,
+          format!("The baseline {baseline} is a local branch: there is no upstream to update from"),
+        )
+      })?;
     return output(context, &preview.check, None, preview.landing, true);
   }
 
@@ -113,22 +111,47 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateOutput, 
     fetch: !args.no_fetch,
     lock_timeout: context.lock_timeout,
   };
-  let result = update_project_with(&context.git, &context.repository, options, &|_| {}).map_err(|e| {
-    if let Some(locked) = e.downcast_ref::<RepositoryLocked>() {
-      CliError::new(ErrorCode::Locked, locked.to_string())
-    } else if let Some(failed) = e.downcast_ref::<FetchFailed>() {
-      CliError::new(ErrorCode::NetworkError, failed.to_string())
-    } else {
-      moved_error(&e).unwrap_or_else(|| CliError::from(e))
+  let result = update_project_with(&context.git, &context.repository, options, &|_| {}).map_err(|e| core_error(e, ErrorCode::HeadMoved))?;
+  let applied = result
+    .applied
+    .as_ref()
+    .map(|applied| (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream));
+  output(context, &result.check, applied, result.landed, false)
+}
+
+/// The code of a failed update or undo; a branch that moved or a HEAD that switched since the check is `moved`:
+/// `head_moved` for an update (check again), `undo_stale` for an undo (it can't succeed any more)
+fn core_error(error: anyhow::Error, moved: ErrorCode) -> CliError {
+  let code = if error.downcast_ref::<RepositoryLocked>().is_some() {
+    ErrorCode::Locked
+  } else if error.downcast_ref::<FetchFailed>().is_some() {
+    ErrorCode::NetworkError
+  } else if error.downcast_ref::<NoUpstream>().is_some() {
+    ErrorCode::NoBaseline
+  } else if let Some(refusal) = error.downcast_ref::<GuardRefusal>() {
+    match refusal {
+      GuardRefusal::OperationInProgress(_) => ErrorCode::OperationInProgress,
+      GuardRefusal::DetachedHead(_) => ErrorCode::DetachedHead,
     }
-  })?;
-  let mut check = result.check;
-  let applied = result.applied.as_ref().map(|applied| {
-    // a `git switch` to another branch at the same commit during the move: that branch moved with the files
-    applied.branch.clone_into(&mut check.branch);
-    (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream)
-  });
-  output(context, &check, applied, result.landed, false)
+  } else if error.downcast_ref::<HeadMoved>().is_some() || error.downcast_ref::<BranchSwitched>().is_some() {
+    moved
+  } else if error.downcast_ref::<NotAnUpdate>().is_some() {
+    ErrorCode::InvalidArguments
+  } else if let Some(blocked) = error.downcast_ref::<UndoBlocked>() {
+    return uncommitted_overlap(blocked.paths.clone(), "undo");
+  } else {
+    return CliError::from(error);
+  };
+  let message = match error.downcast_ref::<HeadMoved>() {
+    Some(head_moved) if moved == ErrorCode::UndoStale => format!(
+      "{} is at {}, not at {} where the update left it; the update can't be undone",
+      head_moved.branch,
+      short_id(&head_moved.actual),
+      short_id(&head_moved.expected)
+    ),
+    _ => format!("{error:#}"),
+  };
+  CliError::new(code, message)
 }
 
 /// The output of a check, with what an update applied (`(new head, replayed, dropped)`); `uncommitted_overlap` when local
@@ -194,16 +217,6 @@ fn conflict_commits(commits: &[UpdateCommit], short: &ShortIds) -> Vec<UpdateCon
     .collect()
 }
 
-/// `head_moved` for a branch that moved, or a HEAD switched to another branch, since the check: read again and retry
-fn moved_error(error: &anyhow::Error) -> Option<CliError> {
-  if let Some(moved) = error.downcast_ref::<HeadMoved>() {
-    return Some(CliError::new(ErrorCode::HeadMoved, moved.to_string()));
-  }
-  error
-    .downcast_ref::<BranchSwitched>()
-    .map(|switched| CliError::new(ErrorCode::HeadMoved, switched.to_string()))
-}
-
 /// `uncommitted_overlap` with the paths: bd never stashes them, the user decides
 fn uncommitted_overlap(paths: Vec<String>, operation: &str) -> CliError {
   let mut error = CliError::new(
@@ -215,13 +228,6 @@ fn uncommitted_overlap(paths: Vec<String>, operation: &str) -> CliError {
   );
   error.paths = paths;
   error
-}
-
-/// The guards every command that moves the checked out branch checks first, with their codes
-pub fn ensure_guards(context: &RepoContext) -> Result<(), CliError> {
-  ensure_no_operation_in_progress(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::OperationInProgress, format!("{e:#}")))?;
-  get_current_branch(&context.git, &context.repository).map_err(|e| CliError::new(ErrorCode::DetachedHead, format!("{e:#}")))?;
-  Ok(())
 }
 
 /// `bd undo update:<previous head>..<new head>`; `None` for a token of another kind
@@ -237,6 +243,8 @@ pub struct UndoneUpdateOutput {
   pub head: String,
   pub undone: String,
   pub landed_restored: bool,
+  /// The undo was done before; nothing changed now
+  pub already_undone: bool,
 }
 
 fn undo_update_token(context: &RepoContext, text: &str) -> Result<UndoneUpdateOutput, CliError> {
@@ -246,25 +254,13 @@ fn undo_update_token(context: &RepoContext, text: &str) -> Result<UndoneUpdateOu
       format!("{text:?} is not an update token: update:<previous head>..<new head>, with the full ids bd update printed"),
     )
   })?;
-  ensure_guards(context)?;
-  let UndoneUpdate { landed_restored, .. } = undo_update_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|e| {
-    if let Some(blocked) = e.downcast_ref::<UndoBlocked>() {
-      uncommitted_overlap(blocked.paths.clone(), "undo")
-    } else if let Some(locked) = e.downcast_ref::<RepositoryLocked>() {
-      CliError::new(ErrorCode::Locked, locked.to_string())
-    } else if let Some(moved) = e.downcast_ref::<HeadMoved>() {
-      CliError::new(ErrorCode::HeadMoved, format!("{moved}: the update can't be undone any more"))
-    } else if let Some(switched) = e.downcast_ref::<BranchSwitched>() {
-      CliError::new(ErrorCode::HeadMoved, switched.to_string())
-    } else if let Some(not_an_update) = e.downcast_ref::<NotAnUpdate>() {
-      CliError::new(ErrorCode::InvalidArguments, not_an_update.to_string())
-    } else {
-      CliError::from(e)
-    }
-  })?;
+  let UndoneUpdate {
+    landed_restored, already_undone, ..
+  } = undo_update_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
   Ok(UndoneUpdateOutput {
     head: token.previous_head,
     undone: token.new_head,
     landed_restored,
+    already_undone,
   })
 }

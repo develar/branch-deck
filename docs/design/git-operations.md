@@ -73,15 +73,24 @@ written, except by Update Project (its own section below).
    error is returned, never ignored.
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
-   the unapply rename together with the branch move, and the deletion of temporary refs. A move that the files follow
-   (an update and its undo) updates `HEAD` (deref), not `refs/heads/<b>`: git locks HEAD and the branch it points at
-   in the same transaction. git 2.56 refuses `symref-verify HEAD refs/heads/<b>` next to `update refs/heads/<b>`
-   ("multiple updates for 'HEAD' (including one via its referent) are not allowed") and next to `update HEAD` ("cannot
-   operate with deref mode"). So `symbolic-ref HEAD` must still name the checked branch right before the transaction
-   (`BranchSwitched` otherwise), and it is read again after it. One case remains: a `git switch` between that read
-   and the transaction, to another branch at the same commit, passes the CAS and moves that branch. The move follows
-   the worktree's HEAD, which is consistent with the files the guarded update writes, and the result names the branch
-   that moved.
+   the unapply rename together with the branch move, and the deletion of temporary refs.
+
+   **Ref moves that the files follow** (an update and its undo, `move_branch_and_files`) update `HEAD` (deref), not
+   `refs/heads/<b>`, so git moves the branch HEAD points at, the one whose files the guarded update writes. That must
+   be the branch the check used. git 2.56 refuses `symref-verify HEAD refs/heads/<b>` next to
+   `update refs/heads/<b>` ("multiple updates for 'HEAD' (including one via its referent) are not allowed") and next
+   to `update HEAD` ("cannot operate with deref mode"). So the transaction runs interactively
+   (`RefTransaction::commit_while`): `start`, `update HEAD N H`, `prepare`, which takes the locks of HEAD and of the
+   branch and checks the old value, then `symbolic-ref --quiet --short HEAD` under those locks, then `commit` when it
+   is still `<b>`, else `abort` and `BranchSwitched`. While the locks are held, a `git switch` fails on `HEAD.lock`,
+   so a switch at any point since the check refuses the move with nothing changed. A read of `symbolic-ref` before
+   the transaction only refuses earlier, and the rollback runs the same way. The transactions also pass
+   `--create-reflog`, so the undo finds the update in the reflog with `core.logAllRefUpdates=false` too.
+
+   `commit_while` needs `GitCommandExecutor::spawn_interactive` (`crates/git-executor/src/interactive_command.rs`):
+   git with piped stdin, stdout and stderr, the environment and config of every other call, a reply line awaited
+   with a timeout (60 s; ref locks are taken without waiting), and a kill on drop, so git releases its locks. It is
+   used only here.
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
    - HEAD is not detached;
@@ -349,7 +358,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
-| 9. Move | `symbolic-ref --quiet --short HEAD` (still `<b>`), `update-ref --stdin`: `update HEAD N H`, `branch-deck: update project`, `symbolic-ref` again (the branch that moved) | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile, nothing changed |
+| 9. Move | `symbolic-ref --quiet --short HEAD` (still `<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile, nothing changed |
 | 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh` | roll back: `update HEAD H N`, `branch-deck: update project rolled back` |
 
 Details:
@@ -451,25 +460,32 @@ Details:
 **Undo of an update** (`bd undo update:<H>..<N>`, `undo_update_core`). The move back from N to H, with the files
 following, under the repository lock:
 
-1. The guards of step 0, and HEAD must be N (`HeadMoved` otherwise: a commit on top can't be undone this way).
-2. The last entry of the branch's reflog must be `branch-deck: update project` to N, after an entry at H
-   (`log -g -n2 --format=%H%x00%gs refs/heads/<b>`). So a token can't move the branch to any other commit, and only
-   the last update can be undone.
+1. The guards of step 0, and HEAD must be N (`HeadMoved` otherwise, `undo_stale` in bd: a commit on top, another
+   update or a switch can't be undone this way, and a retry can't change that).
+2. The last entry of the branch's reflog must be `branch-deck: update project` to N
+   (`log -g -n2 --format=%H%x00%gs refs/heads/<b>`), with the value before it at H (`rev-parse refs/heads/<b>@{1}`,
+   which also reads the old value of a reflog the update started). So a token can't move the branch to any other
+   commit, and only the last update can be undone. When HEAD is at H and the last two entries are
+   `branch-deck: undo update` to H and the update to N, the undo is done already: `already_undone`, no error, so a
+   repeated undo (a timed-out call that did succeed) is harmless.
 3. Steps 7 and 8 with the trees swapped (`check_update_undo`, the same `blocking_paths`): the dry run of
    `read-tree -m -u N^{tree} H^{tree}` on a copy of the index refuses every path changed since the update, and an
    ignored file where the undo brings a file back (one that the update deleted) blocks it too. A block is
    `UndoBlocked{paths}`, `uncommitted_overlap` in bd.
-4. Steps 9 and 10 with `update HEAD H N`, `branch-deck: undo update`, and the same rollback.
+4. Steps 9 and 10 with `update HEAD H N`, `branch-deck: undo update`, and the same rollback. Only
+   `check_update_undo` builds the `UpdateUndo` that `apply_update_undo` applies: its fields are private and the
+   reflog message is fixed, so no other crate can move HEAD to another commit through the exemption.
 5. The landed report goes back to the one from before the update: `record_update` keeps it as `previous` in
    `branch-deck/landed.json`, and a sync drops it when it finds the branch elsewhere.
-
-`check_replayed_update(H, N)` and `apply_replayed_update` are the same check and move for a tip that was replayed
-elsewhere, e.g. the replayed head of a preview check; the undo is `check_update_undo` and `apply_replayed_update`.
 
 **Residual risk.** `read-tree -u` validates every path before it writes the first file, but writing can still fail
 midway, e.g. when a smudge filter (Git LFS) fails or the disk fills up. The branch then moves back to H, and the files
 already written show up as uncommitted changes that bring in the upstream's version; `git status` and the reflog
-(`branch-deck: update project`) show what happened. Submodules are not updated (`--no-recurse-submodules`); a changed
+(`branch-deck: update project`) show what happened. A process killed between the move (step 9) and the files
+(step 10), e.g. by an agent harness at its timeout on a monorepo index, leaves HEAD at N and the index and the files
+at H; no rollback runs, and `git status` shows the update reversed as staged changes. `bd undo update:` then refuses,
+because the index differs from N; `git read-tree -m -u H N` in a terminal lets the files follow. Submodules are not
+updated (`--no-recurse-submodules`); a changed
 gitlink shows as a modified submodule until the user updates it.
 
 Code: `crates/git-ops/src/update_branch.rs` (check, apply and the undo check), `crates/git-ops/src/worktree_update.rs`

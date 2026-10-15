@@ -1,6 +1,8 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::interactive_command::InteractiveCommand;
 use std::fmt::Write;
+use std::time::Duration;
 use tracing::{debug, instrument};
 
 /// Reflog messages start with this, so `git reflog` shows which entries Branch Deck wrote
@@ -11,6 +13,22 @@ pub const REFLOG_PREFIX: &str = "branch-deck: ";
 #[derive(Debug, Default)]
 pub struct RefTransaction {
   commands: String,
+  /// `--create-reflog`: write a reflog for the updated refs also with `core.logAllRefUpdates=false`
+  create_reflog: bool,
+}
+
+/// How long `commit_while` waits for each reply of `update-ref`; ref locks are taken without waiting
+/// (`core.filesRefLockTimeout`, 100 ms by default), so a reply comes at once
+const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Send a command of `update-ref --stdin` that replies, and require its `<command>: ok`
+fn request(update_ref: &mut InteractiveCommand, command: &str) -> Result<()> {
+  update_ref.send(command)?;
+  let reply = update_ref.read_line(REPLY_TIMEOUT)?;
+  if reply != format!("{command}: ok") {
+    bail!("unexpected reply to {command}: {reply}");
+  }
+  Ok(())
 }
 
 impl RefTransaction {
@@ -53,6 +71,12 @@ impl RefTransaction {
     self
   }
 
+  /// Write a reflog for the updated refs even where `core.logAllRefUpdates` is off, e.g. for an undo that reads it
+  pub fn create_reflog(&mut self) -> &mut Self {
+    self.create_reflog = true;
+    self
+  }
+
   /// Add the changes of `other`, so that one `update-ref` applies both or neither
   pub fn extend(&mut self, other: &RefTransaction) -> &mut Self {
     self.commands.push_str(&other.commands);
@@ -73,8 +97,47 @@ impl RefTransaction {
     debug!(commands = %self.commands, "updating refs");
     let message = format!("{REFLOG_PREFIX}{operation}");
     git_executor
-      .execute_command_with_input(&["update-ref", "-m", &message, "--stdin"], repo_path, &self.commands)
+      .execute_command_with_input(&self.args(&message), repo_path, &self.commands)
       .map_err(|e| anyhow!("Failed to update refs ({operation}): {e:#}"))?;
     Ok(())
+  }
+
+  /// `commit` that runs `check` while git holds the locks of every ref of the transaction, and commits only if it
+  /// passes; else the transaction is aborted and the check's error returned. The locks shut out every other writer of
+  /// those refs, so what `check` reads can't change before the commit: e.g. which branch HEAD points at, which
+  /// `update HEAD` (deref) moves and a `git switch` would change. Runs `update-ref --stdin` interactively: `start`,
+  /// the commands, `prepare` (takes the locks and checks every old value), then `commit` or `abort`
+  #[instrument(skip(self, git_executor, check))]
+  pub fn commit_while(&self, git_executor: &GitCommandExecutor, repo_path: &str, operation: &str, check: impl FnOnce() -> Result<()>) -> Result<()> {
+    debug!(commands = %self.commands, "updating refs after a check under their locks");
+    let message = format!("{REFLOG_PREFIX}{operation}");
+    let failed = |e: anyhow::Error| anyhow!("Failed to update refs ({operation}): {e:#}");
+    let mut update_ref = git_executor.spawn_interactive(&self.args(&message), repo_path).map_err(failed)?;
+    request(&mut update_ref, "start").map_err(failed)?;
+    for command in self.commands.lines() {
+      update_ref.send(command).map_err(failed)?;
+    }
+    request(&mut update_ref, "prepare").map_err(failed)?;
+    match check() {
+      Ok(()) => {
+        request(&mut update_ref, "commit").map_err(failed)?;
+        update_ref.finish().map_err(failed)
+      }
+      Err(refused) => {
+        if let Err(e) = request(&mut update_ref, "abort").and_then(|()| update_ref.finish()) {
+          tracing::warn!(error = %format!("{e:#}"), "aborting the ref transaction failed; git aborts it when it exits");
+        }
+        Err(refused)
+      }
+    }
+  }
+
+  fn args<'a>(&self, message: &'a str) -> Vec<&'a str> {
+    let mut args = vec!["update-ref", "-m", message];
+    if self.create_reflog {
+      args.push("--create-reflog");
+    }
+    args.push("--stdin");
+    args
   }
 }

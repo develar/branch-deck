@@ -45,6 +45,10 @@ fn update_fast_forwards_and_the_undo_moves_the_files_back() {
   assert_eq!(read(&clone, "shared.txt"), SHARED);
   assert!(!clone.path().join("new.txt").exists());
   assert_eq!(status(&clone), "");
+
+  // a repeated undo is no error and changes nothing
+  let (exit_code, again) = run_in(&clone, &["--full-ids", "undo", output["undo_token"].as_str().unwrap()]);
+  assert_eq!((exit_code, &again["already_undone"], &again["head"]), (0, &json!(true), &json!(previous)), "{again}");
 }
 
 #[test_log::test]
@@ -162,7 +166,8 @@ fn the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved() {
   write(&clone, "shared.txt", "one\nTWO\nthree\n");
   clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
   let (exit_code, undo) = run_in(&clone, &["undo", &token]);
-  assert_error(&undo, exit_code, (3, "head_moved"));
+  assert_error(&undo, exit_code, (4, "undo_stale"));
+  assert_eq!(undo["error"]["retryable"], json!(false));
 
   // only full ids
   let (previous, new) = token.trim_start_matches("update:").split_once("..").unwrap();
@@ -222,4 +227,56 @@ fn update_outputs_match_the_schema() {
   let (_, undo) = run_in(&clone, &["undo", update["undo_token"].as_str().unwrap()]);
   assert_eq!(undo["landed_restored"], json!(true), "{undo}");
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of an update");
+}
+
+/// A git that switches HEAD to `peer`, at the same commit, right before the first `update-ref --stdin` once `mark`
+/// exists: what a peer's `git switch` does between bd's check and its move
+#[cfg(unix)]
+fn git_switching_to_peer_before_the_move(directory: &std::path::Path) -> (String, std::path::PathBuf) {
+  let mark = directory.join("switch-once");
+  let script = directory.join("git-switching");
+  let text = format!(
+    "#!/bin/sh\ncase \" $* \" in *\" update-ref \"*\"--stdin\"*) if [ -f '{0}' ]; then rm -f '{0}'; git symbolic-ref HEAD refs/heads/peer; fi;; esac\nexec git \"$@\"\n",
+    mark.display()
+  );
+  std::fs::write(&script, text).unwrap();
+  std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+  (script.to_str().unwrap().to_string(), mark)
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn a_switch_between_the_check_and_the_move_moves_no_branch() {
+  let (upstream, clone) = clone_of_upstream();
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  git(&clone, &["fetch", "-q", "origin"]);
+  let head = clone.head();
+  git(&clone, &["branch", "peer"]);
+  let directory = tempfile::tempdir().unwrap();
+  let (wrapper, mark) = git_switching_to_peer_before_the_move(directory.path());
+  let mut environment = environment(clone.path());
+  environment.git = Some(wrapper);
+  let run = |args: &[&str]| {
+    let mut all = vec!["--prefix", "test-user"];
+    all.extend_from_slice(args);
+    run_json(&environment, &all)
+  };
+
+  std::fs::write(&mark, "").unwrap();
+  let (exit_code, output) = run(&["update", "--no-fetch"]);
+  assert_error(&output, exit_code, (3, "head_moved"));
+  assert_eq!(git(&clone, &["symbolic-ref", "--short", "HEAD"]), "peer");
+  assert_eq!(git(&clone, &["rev-parse", "master", "peer"]), format!("{head}\n{head}"));
+  assert_eq!(read(&clone, "shared.txt"), SHARED);
+
+  // the same for the undo: back on master, update, then the switch before the move back
+  git(&clone, &["symbolic-ref", "HEAD", "refs/heads/master"]);
+  let (exit_code, output) = run(&["update", "--no-fetch"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let updated = clone.head();
+  git(&clone, &["branch", "-f", "peer", &updated]);
+  std::fs::write(&mark, "").unwrap();
+  let (exit_code, undo) = run(&["undo", output["undo_token"].as_str().unwrap()]);
+  assert_error(&undo, exit_code, (4, "undo_stale"));
+  assert_eq!(git(&clone, &["rev-parse", "master", "peer"]), format!("{updated}\n{updated}"));
 }

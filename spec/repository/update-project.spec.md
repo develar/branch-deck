@@ -115,10 +115,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
 - After the fetch, the update must take the repository lock and hold it through the check and the move, so the app,
   `bd update` and the rewrites of either never interleave; the fetch never runs under the lock. A lock held for the
-  whole wait (10 s in the app) is the error "Another Branch Deck operation holds … retry when it is done", with only
-  the fetch done; the app shows it as "Cannot update the project".
+  whole wait (10 s in the app) is an error with only the fetch done: the app shows "Cannot update the project" with
+  "Branch Deck or bd is changing this repository. Try again when it is done." (no lock file path) and keeps the time
+  of the fetch.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
+  [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([Agent CLI](../cli/agent-cli.spec.md)).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
 - A fast-forward must move the branch and update the files.
@@ -137,16 +139,15 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/update_project_test.rs (`up_to_date_writes_no_reflog_entry`)
 - The branch moves with a CAS ref transaction (`branch-deck: update project`) before the files; if the files can't
   follow (one changed since the check), the branch moves back (`branch-deck: update project rolled back`) and the update
-  reports that nothing was changed. The transaction updates HEAD, so the branch of this worktree moves.
+  reports that nothing was changed. The transaction updates HEAD and commits only while git holds the lock of HEAD,
+  after a check that HEAD is still on the checked branch.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
-- HEAD switched to another branch since the check, even one at the same commit, must refuse the move with nothing
-  changed; the result names the branch that moved.
+- HEAD switched to another branch since the check, even one at the same commit, and also right before the move, must
+  refuse the move (and its undo) with nothing changed.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
-- A tip replayed elsewhere must pass the same check and move (`check_replayed_update`, `apply_replayed_update`):
-  blocked by local changes on the paths it writes, refused when HEAD moved.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_tip_replayed_elsewhere_is_checked_and_applied_as_an_update`)
+  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
 - The working tree is written by `crates/git-ops/src/worktree_update.rs` only, called only from `update_branch.rs`
-  (the update and its undo); the safety scan fails on any other `read-tree -u`, `--reset` or `checkout-index`, and on
+  (the update and the undo that only `check_update_undo` builds); the safety scan fails on any other `read-tree -u`, `--reset` or `checkout-index`, and on
   a change of the number of exempt argument lists.
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`scanner_finds_read_tree_updates`)
@@ -161,8 +162,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   update deleted comes back included, and when the branch moved since the update.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_when_local_changes_overlap`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_after_the_branch_moved`)
+- An undo of an undone update is no error and changes nothing (`already_undone`).
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move
-  the branch to another commit. A token takes full ids only.
+  the branch to another commit. A token takes full ids only. The update writes that reflog entry also with
+  `core.logAllRefUpdates=false`.
+  [@test] ../../crates/sync-core/src/update_project_test.rs (`the_undo_works_without_reflogs_because_the_update_writes_one`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_tokens_are_strict`)
 - The landed report must be the one from before the update again ([Landed Commits](landed-commits.spec.md)).
@@ -269,9 +274,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
   [@test] ../../src/lib/update-conflict.test.ts (`gives one time when the commit landed within an hour of being written`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
-- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. Once the
-  app knows its bd (`agent_cli_command`, read when the dialog opens, so the copy needs no wait), it says that the
-  prompt asks about each file, then updates with bd.
+- A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It reads
+  the app's bd command in the repository when it opens (`agent_cli_command`), so the copy needs no wait; Copy waits
+  until it is read. It says that the prompt asks about each file, then updates with bd, or, without a bd command,
+  that you update again.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
 - The primary button "Copy Prompt for Agent" copies a prompt and confirms in place: it says "Copied" (`CopyCheckIcon`)
   for a moment, as a copy button does, and no toast covers the dialog. Both cases offer it: an overlap of uncommitted
@@ -289,15 +295,16 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/agent-prompt.test.ts (`names the commits on both sides of each likely conflicting file`)
   [@test] ../../src/lib/agent-prompt.test.ts (`states the rules and the steps`)
   [@test] ../../src/lib/agent-prompt.test.ts (`leaves out the file list when the conflicting files are unknown`)
-- With the app's bd, the blocked prompt must list the files, say that other sessions work in the tree, forbid to
-  stash, reset, check out or commit them, ask the agent to ask the user about each file, and then to run
-  `<bd> -C <repository> update --no-fetch` and continue as its output says. The conflict prompt keeps the git steps.
+- The blocked prompt must never stash: it lists the files, says that other sessions work in the tree, forbids to
+  stash, reset, check out or commit them, and asks the agent to ask the user about each file. Then, with the app's bd,
+  it runs `<bd> -C <repository> update --no-fetch` (quoted for the shell, `& "…"` in PowerShell on Windows) and
+  continues as its output says; without one, it tells the user to update in Branch Deck again. The conflict prompt
+  keeps the git steps.
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, sends a blocked update to the user and then to bd, never to a stash`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for the command of Windows`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`without bd, sends a blocked update to the user and back to Branch Deck, never to a stash`)
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, keeps the git steps for a conflict`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
-- Without a known bd, the blocked prompt asks to stash, update, pop and merge, keeping the uncommitted changes
-  uncommitted.
-  [@test] ../../src/lib/agent-prompt.test.ts (`asks to stash, update and restore uncommitted changes that block the update`)
 
 ## User Experience
 

@@ -76,6 +76,10 @@ fn fold_of_one_branch_and_a_dry_run() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(subjects(&repo), "fixup! Nothing like it\nfixup! (auth) Add a\n(ui) Add b\n(auth) Add a");
 
+  // a branch that doesn't exist is no "nothing to fold"
+  let (exit_code, output) = run_in(&repo, &["fold", "--branch", "uii"]);
+  assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("unknown_branch")), "{output}");
+
   // nothing left to fold in ui: no rewrite, no token
   let (exit_code, output) = run_in(&repo, &["fold", "--branch", "ui"]);
   assert_eq!((exit_code, &output["folded"], output.get("undo_token")), (0, &json!([]), None), "{output}");

@@ -1,4 +1,5 @@
 use crate::git_info::GitInfo;
+use crate::interactive_command::InteractiveCommand;
 use anyhow::{Result, anyhow};
 use std::io::{Read, Write};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Output, Stdio};
@@ -196,6 +197,13 @@ impl GitCommandExecutor {
   pub fn execute_command_raw(&self, args: &[&str], repository_path: &str) -> Result<String> {
     let output = self.run(args, repository_path, &RunOptions::default())?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+  }
+
+  /// Start git with stdin, stdout and stderr piped, for a line protocol that waits for a reply before the next command
+  /// (`RefTransaction::commit_while`); the same environment and config as every other call
+  pub fn spawn_interactive(&self, args: &[&str], repository_path: &str) -> Result<InteractiveCommand> {
+    let command = self.command(args, repository_path, &[])?;
+    InteractiveCommand::spawn(command, format!("git {}", args.join(" ")))
   }
 
   /// Execute a git command and return the output with exit code: trimmed stdout on success, trimmed stderr otherwise.

@@ -38,6 +38,8 @@ pub enum ErrorCode {
   DetachedHead,
   /// Staged changes overlap the files the operation rewrites
   StagedOverlap,
+  /// `bd undo update:` of an update the branch moved on from (a commit, another update, a switch): it can't be undone
+  UndoStale,
   /// Uncommitted, staged or untracked files sit on paths `bd update` (or its undo) writes; `paths` lists them. Nothing
   /// was changed; never stash them, ask the user
   UncommittedOverlap,
@@ -66,6 +68,7 @@ impl ErrorCode {
       | Self::OperationInProgress
       | Self::DetachedHead
       | Self::StagedOverlap
+      | Self::UndoStale
       | Self::UncommittedOverlap
       | Self::PushRefused
       | Self::NoRemote

@@ -1,13 +1,13 @@
 use crate::repository_lock::{RepositoryLocked, lock_repository};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::{
-  FetchFailed, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, check_baseline_update,
-  previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
+  FetchFailed, LOCKED_MESSAGE, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error,
+  check_baseline_update, previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
 };
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
-  BranchSwitched, CheckPurpose, NotAnUpdate, UpdateCommit, UpdateKind, UpdateState, UpstreamRef, apply_replayed_update, apply_update, check_replayed_update, check_update,
-  no_landed_candidates,
+  BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
+  check_update_undo, no_landed_candidates,
 };
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -94,6 +94,15 @@ fn fetched_rebase() -> Setup {
   setup.upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   git(&setup.clone, &["fetch", "origin"]);
   setup
+}
+
+/// `fetched_rebase`, its HEAD, and the check of its clean rebase, ready to apply
+fn checked_rebase() -> (Setup, String, UpdatePlan) {
+  let setup = fetched_rebase();
+  let head = setup.clone.head();
+  let plan = check_update(setup.clone.git_executor(), path(&setup.clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  (setup, head, plan)
 }
 
 fn reflog(repo: &TestRepo) -> String {
@@ -411,11 +420,7 @@ fn up_to_date_writes_no_reflog_entry() {
 
 #[test]
 fn rolls_back_when_a_file_changes_between_the_check_and_the_update() {
-  let Setup { upstream: _upstream, clone } = fetched_rebase();
-  let head = clone.head();
-
-  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
-  assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let (Setup { upstream: _upstream, clone }, head, plan) = checked_rebase();
   write(&clone, "shared.txt", "edited meanwhile\n");
 
   let error = apply_update(clone.git_executor(), path(&clone), &plan).unwrap_err();
@@ -734,9 +739,23 @@ fn undo_moves_the_branch_and_the_files_back() {
   assert_eq!(status(clone), " M login.txt\n?? untracked.txt");
   assert!(reflog(clone).starts_with("branch-deck: undo update\nbranch-deck: update project\n"), "{}", reflog(clone));
 
-  // the token named the last update, which is gone now
-  let error = undo(clone, &token).unwrap_err();
-  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+  // a second undo of the same update changes nothing and is no error
+  let again = undo(clone, &token).unwrap();
+  assert!(again.already_undone && !again.landed_restored, "{again:?}");
+  assert_eq!(clone.head(), token.previous_head);
+}
+
+#[test]
+fn the_undo_works_without_reflogs_because_the_update_writes_one() {
+  let setup = setup();
+  let clone = &setup.clone;
+  clone.set_config("core.logAllRefUpdates", "false").unwrap();
+  fs::remove_dir_all(clone.path().join(".git/logs")).unwrap();
+  let token = applied_update(&setup);
+
+  undo(clone, &token).unwrap();
+  assert_eq!(clone.head(), token.previous_head);
+  assert!(undo(clone, &token).unwrap().already_undone);
 }
 
 #[test]
@@ -830,7 +849,8 @@ fn update_takes_the_repository_lock_after_the_fetch() {
 
   let error = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap_err();
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
-  assert!(format!("{error:#}").contains("retry when it is done"), "{error:#}");
+  // the app says who holds it, without the lock file
+  assert_eq!(format!("{:#}", app_error(error)), LOCKED_MESSAGE);
   // the fetch ran before the lock; nothing else changed
   assert_eq!(git(&clone, &["rev-parse", "origin/master"]), upstream.head());
   assert_eq!(clone.head(), head);
@@ -867,37 +887,10 @@ fn a_failed_fetch_is_fetch_failed() {
   assert_eq!(failed.upstream, "origin/master");
 }
 
-#[test]
-fn a_tip_replayed_elsewhere_is_checked_and_applied_as_an_update() {
-  let Setup { upstream, clone } = fetched_rebase();
-  let head = clone.head();
-  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Preview, &no_landed_candidates).unwrap();
-  let replayed = plan.replayed_head().unwrap().to_string();
-
-  write(&clone, "shared.txt", "local edit\n");
-  let update = check_replayed_update(clone.git_executor(), path(&clone), &head, &replayed).unwrap();
-  assert_eq!(update.blocked, vec!["shared.txt".to_string()]);
-  assert!(apply_replayed_update(clone.git_executor(), path(&clone), &update, "update project").is_err());
-  assert_eq!(clone.head(), head);
-
-  write(&clone, "shared.txt", SHARED);
-  let error = check_replayed_update(clone.git_executor(), path(&clone), &replayed, &head).unwrap_err();
-  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
-  let update = check_replayed_update(clone.git_executor(), path(&clone), &head, &replayed).unwrap();
-  apply_replayed_update(clone.git_executor(), path(&clone), &update, "update project").unwrap();
-  assert_eq!(clone.head(), replayed);
-  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
-  assert_eq!(read(&clone, "shared.txt"), "one\nTWO\nthree\n");
-  assert_eq!(status(&clone), "");
-}
-
 /// Two branches at the same commit: a `git switch` to the other one after the check must not move it
 #[test]
 fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
-  let Setup { upstream: _upstream, clone } = fetched_rebase();
-  let head = clone.head();
-  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
-  assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let (Setup { upstream: _upstream, clone }, head, plan) = checked_rebase();
   git(&clone, &["switch", "-q", "-c", "other"]);
   let reflog_before = reflog(&clone);
 
@@ -909,17 +902,16 @@ fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
   assert_eq!(read(&clone, "shared.txt"), SHARED);
   assert_eq!(status(&clone), "");
 
-  // the same for a tip replayed elsewhere and for an undo
-  let replayed = plan.replayed_head().unwrap().to_string();
-  git(&clone, &["switch", "-q", "master"]);
-  let update = check_replayed_update(clone.git_executor(), path(&clone), &head, &replayed).unwrap();
-  git(&clone, &["switch", "-q", "other"]);
-  let error = apply_replayed_update(clone.git_executor(), path(&clone), &update, "update project").unwrap_err();
-  assert!(error.downcast_ref::<BranchSwitched>().is_some(), "{error:#}");
-
-  // on the checked branch the update applies and names it
+  // on the checked branch the update applies; then the same for its undo
   git(&clone, &["switch", "-q", "master"]);
   let applied = apply_update(clone.git_executor(), path(&clone), &plan).unwrap();
-  assert_eq!(applied.branch, "master");
   assert_eq!(git(&clone, &["rev-parse", "other"]), head);
+  let UndoCheck::Ready(undo) = check_update_undo(clone.git_executor(), path(&clone), &head, &applied.new_head).unwrap() else {
+    panic!("the update is the last move")
+  };
+  git(&clone, &["branch", "-q", "other2", &applied.new_head]);
+  git(&clone, &["switch", "-q", "other2"]);
+  let error = apply_update_undo(clone.git_executor(), path(&clone), &undo).unwrap_err();
+  assert!(error.downcast_ref::<BranchSwitched>().is_some(), "{error:#}");
+  assert_eq!(git(&clone, &["rev-parse", "master", "other2"]), format!("{0}\n{0}", applied.new_head));
 }

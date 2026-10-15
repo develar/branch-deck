@@ -9,12 +9,13 @@ interface RunningCommand {
   readonly finish: (result: unknown) => void
 }
 
-const { backend, selection, syncs } = vi.hoisted(() => {
+const { backend, selection, syncs, fetchTimes } = vi.hoisted(() => {
   const backend = { commands: [] as RunningCommand[] }
   return {
     backend,
     selection: { path: "/a" },
     syncs: { count: 0 },
+    fetchTimes: [] as string[],
   }
 })
 
@@ -41,7 +42,13 @@ vi.mock("@/stores/branch-sync", () => ({
 }))
 vi.mock("@/stores/landed", () => ({ addLandedUpdate: () => {} }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
-vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
+vi.mock("@/stores/settings/repositorySettings", () => ({
+  updateProject: (path: string, update: { lastFetchTime?: number }) => {
+    if (update.lastFetchTime !== undefined) {
+      fetchTimes.push(path)
+    }
+  },
+}))
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: selection.path }),
   useSelectedProject: () => ({ path: selection.path }),
@@ -72,6 +79,7 @@ beforeEach(() => {
   backend.commands = []
   selection.path = "/a"
   syncs.count = 0
+  fetchTimes.length = 0
 })
 
 describe("the running update", () => {
@@ -100,6 +108,20 @@ describe("the running update", () => {
     commandOf("/b").finish({ status: "ok", data: UP_TO_DATE })
     await update
     expect(updateProjectStore.getState().running).toEqual({})
+  })
+
+  it("keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository", async () => {
+    const failedBeforeTheCheck = runUpdateProject()
+    commandOf("/a").finish({ status: "error", error: { message: "Failed to fetch origin/master" } })
+    await failedBeforeTheCheck
+    expect(fetchTimes).toEqual([])
+
+    backend.commands = []
+    const failedAfterTheFetch = runUpdateProject()
+    commandOf("/a").progress.onmessage({ phase: "checking", fetch: null })
+    commandOf("/a").finish({ status: "error", error: { message: "Branch Deck or bd is changing this repository. Try again when it is done." } })
+    await failedAfterTheFetch
+    expect(fetchTimes).toEqual(["/a"])
   })
 
   it("runs one at a time in a repository", async () => {
