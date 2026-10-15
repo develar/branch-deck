@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import { TestRepositoryBuilder } from "./test-repository"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
+import { TEST_SERVER_URL } from "./test-server-url"
 
 /**
  * Common test setup for repository-based tests
@@ -34,9 +35,9 @@ export async function setupTestRepository(
 
   // Set initial store values if provided BEFORE navigating
   if (Object.keys(parsedOptions.initialStoreValues).length > 0 && repoBuilder.id) {
-    const baseUrl = "http://localhost:3030"
+    const baseUrl = TEST_SERVER_URL
     for (const [key, value] of Object.entries(parsedOptions.initialStoreValues)) {
-      console.log(`[Test Setup] Setting initial store value: ${key} =`, value)
+      debugLog(`[Test Setup] Setting initial store value: ${key} =`, value)
       const response = await fetch(`${baseUrl}/store/${repoBuilder.id}/${key}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -49,7 +50,7 @@ export async function setupTestRepository(
       // Verify the value was set
       const verifyResponse = await fetch(`${baseUrl}/store/${repoBuilder.id}/${key}`)
       const storedValue = await verifyResponse.json()
-      console.log(`[Test Setup] Verified store value for ${key}:`, storedValue)
+      debugLog(`[Test Setup] Verified store value for ${key}:`, storedValue)
     }
   }
 
@@ -66,7 +67,7 @@ export async function setupTestRepository(
   const shouldPopulateStore = parsedOptions.prepopulateStore
 
   if (shouldPopulateStore && repoBuilder.id) {
-    const baseUrl = "http://localhost:3030"
+    const baseUrl = TEST_SERVER_URL
 
     // Fetch recentProjects from test server if not already in storeData
     if (!storeData.recentProjects) {
@@ -75,7 +76,7 @@ export async function setupTestRepository(
         const recentProjects = await recentProjectsResponse.json()
         if (recentProjects) {
           storeData.recentProjects = recentProjects
-          console.log(`[Test Setup] Fetched recentProjects from test server:`, recentProjects)
+          debugLog(`[Test Setup] Fetched recentProjects from test server:`, recentProjects)
         }
       }
     }
@@ -103,7 +104,7 @@ export async function setupTestRepository(
           cachedBranchPrefix: "user-name",
         }]
       }
-      console.log(`[Test Setup] Created required recentProjects for ${templateName}:`, storeData.recentProjects)
+      debugLog(`[Test Setup] Created required recentProjects for ${templateName}:`, storeData.recentProjects)
     }
   }
 
@@ -158,7 +159,7 @@ export async function setupTestRepository(
   }
 
   // The repository path should be loaded from the test server by now
-  console.log(`[Test Setup] Repository ${repoBuilder.id} at path ${repoBuilder.path} should be loaded`)
+  debugLog(`[Test Setup] Repository ${repoBuilder.id} at path ${repoBuilder.path} should be loaded`)
 
   return repoBuilder
 }
@@ -166,10 +167,20 @@ export async function setupTestRepository(
 /**
  * Setup browser console logging
  */
+/** Forwards the console of the page: its errors always, every line with DEBUG_E2E=1 */
 export function setupBrowserLogging(page: Page): void {
   page.on("console", (msg) => {
-    console.log("[Browser]", msg.type(), msg.text())
+    if (process.env.DEBUG_E2E || msg.type() === "error") {
+      console.log("[Browser]", msg.type(), msg.text())
+    }
   })
+}
+
+/** Logs a setup step with DEBUG_E2E=1 */
+function debugLog(...args: unknown[]): void {
+  if (process.env.DEBUG_E2E) {
+    console.log(...args)
+  }
 }
 
 /**

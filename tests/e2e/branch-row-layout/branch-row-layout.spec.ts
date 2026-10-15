@@ -159,8 +159,8 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     const clipboardText = await readClipboard(page)
     expect(clipboardText).toMatch(/^[\w-]+\/virtual\/test-branch$/)
 
-    // Wait for timeout + buffer (200ms + 50ms buffer)
-    await page.waitForTimeout(250)
+    // the "copied" state lasts 2 s: run the fake clock past it instead of a real wait, which a loaded machine overruns
+    await page.clock.fastForward(2000)
 
     // Verify button reverts to initial state after timeout
     await expect(iconElement).toHaveClass(copyIcon)

@@ -22,7 +22,8 @@ pnpm test:unit            # Run frontend unit tests (vitest, src/**/*.test.ts)
 pnpm setup:e2e            # First-time setup: Install Playwright browsers
 pnpm e2e                  # Run Playwright E2E tests (auto-installs browsers if needed)
 pnpm e2e-up               # Run E2E tests and update snapshots
-DEBUG_E2E=1 pnpm e2e      # Run E2E tests with verbose debug output
+DEBUG_E2E=1 pnpm e2e      # Run E2E tests with the mock server's debug log and every page console line
+E2E_PORT=3031 pnpm e2e    # Run them on another port when another checkout's mock server holds 3030
 pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (needs watchexec); `pnpm e2e` reuses it
 
 # Linting & Formatting
@@ -142,8 +143,9 @@ Parallel work runs in a worktree from the [treehouse](https://github.com/kunchen
   `origin/<base>`); `--base <integration-branch>` cuts it from another branch. Without `-b` the worktree is detached.
 - **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
   `node_modules` and `target/` survive a reuse; run `pnpm install` when `pnpm-lock.yaml` changed.
-- **E2E**: port 3030 of the mock server is shared by all worktrees, so one `pnpm e2e` at a time; check
-  `lsof -nP -i :3030` first.
+- **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
+  `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
+  Playwright reuses whatever listens on the port.
 - **Integrate** as in "Commits and History": `git rebase master` in the worktree, `git merge --ff-only <branch>` in
   the main checkout.
 - **Release**: commit, then `treehouse return` inside the worktree (or `treehouse return <path>`); it cleans and
@@ -272,7 +274,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Backend**: One git process per operation phase, never one per commit, note or file (see [Git Operations](docs/design/git-operations.md)).
 
 ### Debugging & Troubleshooting
-- **E2E Test Issues**: Run with `DEBUG_E2E=1` for verbose logging from the mock server.
+- **E2E Test Issues**: Run with `DEBUG_E2E=1` for the debug log of the mock server and every console line of the
+  pages; without it the server logs warnings and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which
+  `.cargo/config.toml` forces to debug).
 - **Playwright browser errors**: If tests fail with "Executable doesn't exist", run `pnpm setup:e2e` to install browsers. This happens automatically when running `pnpm e2e`, but may be needed after updating `@playwright/test`.
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 

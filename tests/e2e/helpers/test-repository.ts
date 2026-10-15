@@ -1,7 +1,8 @@
 import type { BranchNameSuggestionOutcome, PatronusRobotsResult, PullRequestsResult } from "../../../src/lib/bindings"
+import { TEST_SERVER_URL } from "./test-server-url"
 
 export class TestRepositoryBuilder {
-  private baseUrl = "http://localhost:3030"
+  private baseUrl = TEST_SERVER_URL
   public id: string = ""
   public path: string = ""
   private template: string | null = null

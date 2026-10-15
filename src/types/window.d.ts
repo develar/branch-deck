@@ -6,10 +6,6 @@ declare global {
     __TAURI_STORE__?: Record<string, unknown>
     /** How the main window draws its title bar, injected by the window builder (`titleBar` in src/lib/title-bar.ts) */
     __BD_TITLE_BAR__?: "overlay" | "custom"
-    /** E2E overrides */
-    __BRANCH_DECK_TEST_CONFIG__?: {
-      copyTimeout?: number
-    }
   }
 
   interface WindowEventMap {

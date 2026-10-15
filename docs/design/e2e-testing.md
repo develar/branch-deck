@@ -12,7 +12,7 @@ The challenge: How to provide complete test isolation while accurately simulatin
 
 ## Solution Overview
 
-A custom test server (port 3030) provides isolated Git repositories from templates for each test. Tauri commands are mocked to route through this server, which maintains separate state per test via repository IDs. Templates are pre-created for fast test startup, and the mock layer accurately simulates Tauri's Result type system.
+A custom test server (port 3030, or `E2E_PORT`) provides isolated Git repositories from templates for each test. Tauri commands are mocked to route through this server, which maintains separate state per test via repository IDs. Templates are pre-created for fast test startup, and the mock layer accurately simulates Tauri's Result type system.
 
 ## Design
 
@@ -116,7 +116,13 @@ Mock implementation:
 State isolation:
 - **Repository mapping**: `path_to_id` map for command routing
 - **Store state**: Separate per repository ID
-- **Configuration**: `__BRANCH_DECK_TEST_CONFIG__` for test-specific behavior
+- **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
+  Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
+  server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port
+  (`reuseExistingServer`), and another treehouse worktree's server serves that worktree's `dist/` and code
+- **Time**: `base-test.ts` installs the Playwright clock at a fixed time; it runs at real speed. A test that waits for
+  a timer of the app (the 2 s "Copied" state of `useCopyToClipboard`) runs the clock past it with
+  `page.clock.fastForward` instead of a real wait, which a loaded machine overruns
 
 HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.ts`):
 - **Formatter**: `formatElementWithNormalization` in the mock script prints one attribute set per element with sorted attributes,
@@ -151,7 +157,12 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
 
 - **Constraint**: Tests must run in parallel without interference
 - **Solution**: Complete isolation via repository IDs
-- **Measurement**: Test startup < 100ms, full suite < 30s
+- **Measurement** (2026-10-15, 230 tests, 14 workers on 18 cores): one worker creates a repository and loads the page in
+  ~170 ms and syncs it in ~270 ms; the full suite takes ~38 s, ~470 s of test time, a median test 2 s
+- **Logging**: the server logs warnings and errors only (`TEST_SERVER_LOG=warn`), the pages forward their console
+  errors only; `DEBUG_E2E=1` turns both up. The debug log was 60k lines (23 MB) per run through the pipe that the
+  Playwright main process drains: under load the full pipe blocked the server's threads on stdout, and tests timed out
+  waiting for the page or a sync
 
 Optimizations:
 - Template pre-creation eliminates git init per test

@@ -28,7 +28,7 @@ mod commit_files_test;
 mod sse_test;
 
 use state::{AppState, TestRepository};
-use static_files::serve_static_files;
+use static_files::{serve_static_files, workspace_root};
 use svix_ksuid::{Ksuid, KsuidLike};
 use test_utils::repo_template::templates;
 
@@ -124,8 +124,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .with_state(state)
 }
 
-async fn health_check() -> &'static str {
-  "OK"
+/// The checkout this server serves, so the E2E global setup can refuse a server of another worktree on its port
+async fn health_check() -> Json<serde_json::Value> {
+  Json(serde_json::json!({ "workspaceRoot": workspace_root() }))
 }
 
 pub async fn ensure_test_repos() -> anyhow::Result<()> {

@@ -32,10 +32,7 @@ use tower_http::services::{ServeDir, ServeFile};
 /// will create a minimal fallback `ServeDir` service using a temporary directory instead of panicking.
 /// This allows unit tests to run without requiring the frontend build output.
 pub fn serve_static_files() -> ServeDir<ServeFile> {
-  let current_exe = std::env::current_exe().expect("Failed to get current executable path");
-  let workspace_root = current_exe.ancestors().find(|p| is_workspace_root(p));
-
-  let static_dir = match workspace_root {
+  let static_dir = match workspace_root() {
     Some(workspace_root) => {
       let static_dir = workspace_root.join("dist");
       if static_dir.join("index.html").exists() {
@@ -60,7 +57,7 @@ pub fn serve_static_files() -> ServeDir<ServeFile> {
       }
       #[cfg(not(test))]
       {
-        panic!("Failed to find the workspace root (a Cargo.toml with [workspace]) above {}", current_exe.display());
+        panic!("Failed to find the workspace root (a Cargo.toml with [workspace]) above the test-server executable");
       }
     }
   };
@@ -68,6 +65,13 @@ pub fn serve_static_files() -> ServeDir<ServeFile> {
   // Serve static files and fall back to index.html for SPA routing
   let index_html = static_dir.join("index.html");
   ServeDir::new(static_dir).fallback(ServeFile::new(index_html))
+}
+
+/// The checkout of this server: the first ancestor of the executable whose `Cargo.toml` has a `[workspace]` table. The
+/// E2E global setup compares it with its own checkout (`/health`), so a run never tests another worktree's server.
+pub fn workspace_root() -> Option<std::path::PathBuf> {
+  let current_exe = std::env::current_exe().expect("Failed to get current executable path");
+  current_exe.ancestors().find(|p| is_workspace_root(p)).map(std::path::Path::to_path_buf)
 }
 
 /// Whether `dir` has a `Cargo.toml` with a `[workspace]` table

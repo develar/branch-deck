@@ -127,6 +127,7 @@ test.describe("Update Project", () => {
     // the button says it in place, no toast
     await expect(copy).toHaveText("Copied")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
+    await page.clock.fastForward(2000)
     await expect(copy).toHaveText("Copy Prompt for Agent")
     // the prompt sends the agent to the app's own bd (`agent_cli_command`): its resolve session, never the working tree
     await expect(dialog).toContainText("the prompt resolves each commit with bd, outside the working tree.")

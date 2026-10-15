@@ -6,12 +6,13 @@ import { setupTestRepository, cleanupTestRepository } from "../helpers/common-se
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { syncBranches, waitForBranchesLoaded } from "../helpers/sync-helpers"
+import { TEST_SERVER_URL } from "../helpers/test-server-url"
 
 /**
  * Test store API for interacting with the test server's store
  */
 class TestStore {
-  private baseUrl = "http://localhost:3030"
+  private baseUrl = TEST_SERVER_URL
 
   constructor(private page: Page) {}
 

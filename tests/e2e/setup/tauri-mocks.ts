@@ -15,6 +15,9 @@ export const tauriMockScript = () => {
 
   debug("[Test Mock] Initializing Tauri mocks...")
 
+  // the mock server serves the page, on the port of this run (E2E_PORT)
+  const serverUrl = window.location.origin
+
   // Get test repository ID from URL - required for test isolation
   const urlParams = new URLSearchParams(window.location.search)
   const repoId = urlParams.get("repoId")
@@ -90,7 +93,7 @@ export const tauriMockScript = () => {
     const channelId = registerProgressChannel(payload?.progress)
     
     try {
-      const response = await fetch(`http://localhost:3030/invoke/${cmd}`, {
+      const response = await fetch(`${serverUrl}/invoke/${cmd}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
         body: JSON.stringify(actualPayload),
@@ -156,7 +159,7 @@ export const tauriMockScript = () => {
       // Extract params, excluding the progress channel which can't be serialized
       const requestPayload = payload.params || {}  // Empty object if no params
       
-      const url = `http://localhost:3030/invoke/${cmd}`
+      const url = `${serverUrl}/invoke/${cmd}`
       debug(`[Test Mock] Fetching SSE stream from: ${url}`)
       
       // Call the test server's endpoint with SSE
@@ -217,7 +220,7 @@ export const tauriMockScript = () => {
         
         return (async () => {
           try {
-            const response = await fetch(`http://localhost:3030/store/${repoId}/${key}`)
+            const response = await fetch(`${serverUrl}/store/${repoId}/${key}`)
             if (response.ok) {
               const value = await response.json()
               return [value, value !== null]  // null means key not found
@@ -245,7 +248,7 @@ export const tauriMockScript = () => {
         
         return (async () => {
           try {
-            const response = await fetch(`http://localhost:3030/store/${repoId}/${key}`, {
+            const response = await fetch(`${serverUrl}/store/${repoId}/${key}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(value)
@@ -272,7 +275,7 @@ export const tauriMockScript = () => {
         
         return (async () => {
           try {
-            const response = await fetch(`http://localhost:3030/store/${repoId}/${key}`, {
+            const response = await fetch(`${serverUrl}/store/${repoId}/${key}`, {
               method: "DELETE"
             })
             if (!response.ok) {
@@ -374,7 +377,7 @@ export const tauriMockScript = () => {
    * Helper to proxy simple commands to test server with repoId in URL
    */
   async function proxyCommandWithRepoId(command: string): Promise<any> {
-    const response = await fetch(`http://localhost:3030/invoke/${command}/${repoId}`, {
+    const response = await fetch(`${serverUrl}/invoke/${command}/${repoId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({})  // Empty body since repo_id is in URL
@@ -403,12 +406,12 @@ export const tauriMockScript = () => {
         // Special-case: when current path is NO_REPO_*, simulate a valid selection by
         // creating a real repo and returning its path. Otherwise, proxy as before.
         try {
-          const repoInfoRes = await fetch(`http://localhost:3030/repositories/${repoId}`)
+          const repoInfoRes = await fetch(`${serverUrl}/repositories/${repoId}`)
           if (repoInfoRes.ok) {
             const repoInfo = await repoInfoRes.json()
             const currentPath: string | undefined = repoInfo?.path
             if (currentPath && currentPath.startsWith("NO_REPO_")) {
-              const createRes = await fetch("http://localhost:3030/repositories", {
+              const createRes = await fetch(`${serverUrl}/repositories`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ template: "simple_no_prefix", prepopulate_store: false }),

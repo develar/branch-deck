@@ -14,14 +14,6 @@ export const test = base.extend({
       })
     }
 
-    // Set test configuration for faster timeouts
-    await page.addInitScript(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).__BRANCH_DECK_TEST_CONFIG__ = {
-        copyTimeout: 200, // Use 200ms timeout in tests instead of 2000ms
-      }
-    })
-
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockScript)
 

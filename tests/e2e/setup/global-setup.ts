@@ -1,5 +1,7 @@
 import type { FullConfig } from "@playwright/test"
 import { execSync } from "child_process"
+import { realpathSync } from "fs"
+import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
 
 /**
  * Check if Playwright browsers are installed
@@ -43,6 +45,21 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
 }
 
 /**
+ * Refuses a server of another checkout: Playwright reuses whatever listens on the port (`reuseExistingServer`), and the
+ * test-server of another treehouse worktree serves that worktree's `dist/` and code
+ */
+async function checkServerCheckout() {
+  const health = await (await fetch(`${TEST_SERVER_URL}/health`)).text()
+  // a server older than this check answers "OK"
+  const workspaceRoot = health.startsWith("{") ? (JSON.parse(health) as { workspaceRoot: string | null }).workspaceRoot : null
+  const own = realpathSync(process.cwd())
+  if (workspaceRoot === null || realpathSync(workspaceRoot) !== own) {
+    throw new Error(`The test server on port ${TEST_SERVER_PORT} serves ${workspaceRoot ?? "an unknown checkout"}, not ${own}. `
+      + `Run on another port (E2E_PORT=${TEST_SERVER_PORT + 1} pnpm e2e) or stop that server.`)
+  }
+}
+
+/**
  * Global setup for Playwright tests
  * This runs once before all tests and builds the frontend and sets up the test environment
  */
@@ -66,7 +83,8 @@ async function globalSetup(_config: FullConfig) {
   // Verify the test server is running
   try {
     // Check test server (serves both API and static files)
-    await waitForServer("http://localhost:3030/health", "Test server")
+    await waitForServer(`${TEST_SERVER_URL}/health`, "Test server")
+    await checkServerCheckout()
   }
   catch (error) {
     console.error("[Global Setup] Server check failed:", error)

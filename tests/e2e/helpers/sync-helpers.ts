@@ -16,13 +16,10 @@ export async function syncBranches(page: Page, waitForSelectors?: string[]): Pro
 
   // If specific selectors are provided, wait for them
   if (waitForSelectors && waitForSelectors.length > 0) {
-    console.log(`[Sync] Waiting for selectors: ${waitForSelectors.join(", ")}`)
-
     // Wait for all specified selectors in parallel
     await Promise.all(
       waitForSelectors.map(selector =>
         page.waitForSelector(selector, { timeout: 15000 })
-          .then(() => console.log(`[Sync] Found selector: ${selector}`))
           .catch((err) => {
             console.error(`[Sync] Failed to find selector: ${selector}`, err.message)
             throw err

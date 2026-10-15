@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test"
 import { cpus } from "os"
+import { TEST_SERVER_PORT, TEST_SERVER_URL } from "./tests/e2e/helpers/test-server-url"
+
+// DEBUG_E2E=1: the debug log of the mock server and every console line of the pages. Without it the server logs only
+// warnings and errors: its debug log is 60k lines per run, and a full pipe blocks the server's threads on stdout
+const debugE2E = !!process.env.DEBUG_E2E
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -13,7 +18,7 @@ export default defineConfig({
   outputDir: "./tests/results",
 
   use: {
-    baseURL: "http://localhost:3030",
+    baseURL: TEST_SERVER_URL,
     trace: "on-first-retry",
     // Set fixed timezone and locale for consistent test results
     timezoneId: "Europe/Berlin",
@@ -35,11 +40,13 @@ export default defineConfig({
       name: "test-server",
       // a running server is reused locally, e.g. `pnpm test-server:dev` that restarts on changes (needs watchexec)
       command: "cargo run -p test-server",
-      port: 3030,
+      port: TEST_SERVER_PORT,
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       env: {
-        RUST_LOG: "test_server=debug,tower_http=debug",
+        // not RUST_LOG: .cargo/config.toml forces it to debug for `cargo run`
+        TEST_SERVER_LOG: debugE2E ? "test_server=debug,tower_http=debug" : "warn",
+        E2E_PORT: String(TEST_SERVER_PORT),
         RUST_BACKTRACE: "1",
       },
     },

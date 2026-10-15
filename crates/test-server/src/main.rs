@@ -37,11 +37,14 @@ async fn shutdown_signal(state: Arc<test_server::state::AppState>) {
 
 #[tokio::main]
 async fn main() {
-  // Initialize tracing
-  tracing_subscriber::registry()
-    .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "test_server=debug,tower_http=debug".into()))
-    .with(tracing_subscriber::fmt::layer())
-    .init();
+  // TEST_SERVER_LOG before RUST_LOG: .cargo/config.toml forces RUST_LOG=debug on every `cargo run`, and Playwright
+  // starts the server with `cargo run`
+  let filter = std::env::var("TEST_SERVER_LOG")
+    .ok()
+    .and_then(|directives| tracing_subscriber::EnvFilter::try_new(directives).ok())
+    .or_else(|| tracing_subscriber::EnvFilter::try_from_default_env().ok())
+    .unwrap_or_else(|| "test_server=debug,tower_http=debug".into());
+  tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).init();
 
   // Check if we should just regenerate templates and exit
   let args: Vec<String> = std::env::args().collect();
@@ -75,11 +78,12 @@ async fn main() {
     // Convert std listener to tokio listener
     tokio::net::TcpListener::from_std(listener).unwrap()
   } else {
-    // No listener from systemfd, bind normally
-    tokio::net::TcpListener::bind("127.0.0.1:3030").await.unwrap()
+    // No listener from systemfd, bind normally; E2E_PORT lets a second worktree run its own server
+    let port = std::env::var("E2E_PORT").ok().and_then(|port| port.parse::<u16>().ok()).unwrap_or(3030);
+    tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap()
   };
 
-  tracing::info!("Test server listening on http://127.0.0.1:3030");
+  tracing::info!("Test server listening on http://{}", listener.local_addr().unwrap());
 
   // Run server with graceful shutdown
   axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(state)).await.unwrap();
