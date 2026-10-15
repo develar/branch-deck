@@ -103,7 +103,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   directory tree (compacted chains, roving focus) with diffs on @pierre/diffs (word diff, IntelliJ syntax colours,
   expandable context), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per list, cached by commit id in the
   object cache; one `diff-tree -p --full-index` per commit for its diffs, one `cat-file --batch` by blob id to expand
-  (`spec/commit/commit-files.spec.md`, `docs/design/diff-view.md`).
+  (`spec/commit/commit-files.spec.md`, `docs/design/diff-view.md`). `D` reviews the commit: the tree beside all diffs in
+  a virtualized `CodeView`, J/K files, N/P changes (`spec/commit/commit-review.spec.md`).
 - **Title bar**: the toolbar is the title bar, as in the IntelliJ new UI: beside the macOS traffic lights (overlay),
   with its own window buttons on Windows (no decorations), below the native title bar on Linux; the page learns the kind
   from `window.__BD_TITLE_BAR__` (`spec/repository/title-bar.spec.md`).

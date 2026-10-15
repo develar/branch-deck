@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { CommitFilesSection } from "@/components/commit/CommitFilesSection"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
+import { CommitReview } from "@/components/commit/CommitReview"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import {
@@ -43,7 +44,8 @@ export interface CommitPreviewDialogProps {
 /**
  * Centered preview of one commit of a list, as Quick Look shows a file: the whole subject, the meta line, the body and
  * the changed files. ↑/↓ show the previous or next commit of the list (⌥↑/⌥↓ also from the file tree), Space and Escape
- * close it, E edits the message, F shows or hides the files.
+ * close it, E edits the message, F shows or hides the files, D reviews the commit: the window-sized tree and diffs of all
+ * its files, until Escape.
  *
  * Stays mounted while closed (see `PreviewDialogFrame`).
  */
@@ -68,6 +70,11 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
   const canEdit = onSaveMessage !== undefined && commit !== undefined && !isSyncing
   const fileStats = useCommitFileStats(hash)
   const isFilesOpen = useIsCommitFilesSectionOpen()
+  // the review stays while another commit is shown (⌥↑/⌥↓); the file it opened at belongs to the first one
+  const [review, setReview] = useState<{ hash: string, path: string | null } | null>(null)
+  const isReviewing = open && review !== null && !isEditing
+  const [reviewPosition, setReviewPosition] = useState("")
+  const canReview = fileStats === undefined || fileStats.count > 0
 
   // the body has the focus, so PageUp/PageDown scroll it
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -101,7 +108,19 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
 
   const close = () => {
     setEditedHash(null)
+    setReview(null)
     onClose()
+  }
+
+  const startReview = (path: string | null = null) => {
+    if (canReview || path !== null) {
+      setReview({ hash, path })
+    }
+  }
+
+  const endReview = () => {
+    setReview(null)
+    bodyRef.current?.focus()
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -119,6 +138,10 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
     if (handlePreviewItemSwitchKey(event, currentIndex, commits.length, onIndexChange)) {
       return
     }
+    // the review's keys are its own: the arrows, PageUp, PageDown and Space scroll the diffs
+    if (isReviewing) {
+      return
+    }
     if (hasKeyModifier(event) || handlePreviewNavigationKey(event, currentIndex, commits.length, onIndexChange, close)) {
       return
     }
@@ -131,6 +154,10 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
       event.preventDefault()
       toggleCommitFilesSection()
     }
+    else if (event.code === "KeyD") {
+      event.preventDefault()
+      startReview()
+    }
   }
 
   return (
@@ -139,6 +166,12 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
       open={open && commit !== undefined}
       onOpenChange={(nextOpen, eventDetails) => {
         if (nextOpen) {
+          return
+        }
+        // in the review, Escape goes back to the preview of the same commit
+        if (isReviewing && eventDetails.reason === "escape-key") {
+          eventDetails.cancel()
+          endReview()
           return
         }
         // while editing, Escape cancels the edit and a click outside keeps the draft
@@ -152,6 +185,7 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
         close()
       }}
       initialFocus={bodyRef}
+      width={isReviewing ? "full" : "lg"}
       onKeyDown={handleKeyDown}
     >
       {commit !== undefined && (
@@ -172,65 +206,114 @@ export function CommitPreviewDialog({ commits, index, onIndexChange, onClose, sh
             />
           </PreviewDialogHeader>
 
-          <PreviewDialogBody ref={bodyRef} itemKey={hash} data-testid="commit-preview-body">
-            {isEditing
-              ? (
-                  <Textarea
-                    aria-label="Commit message"
-                    data-testid="commit-message-editor"
-                    // the raw message, as git stores it: the first line is the subject, the grouping prefix included
-                    className="min-h-48 font-mono"
-                    value={draft}
-                    disabled={isSaving}
-                    spellCheck
-                    autoFocus
-                    onChange={event => setDraft(event.target.value)}
-                  />
-                )
-              : (
-                  <div className="flex flex-col gap-5">
-                    {hasCommitMessageBody(subject, commit.message)
-                      ? <CommitMessageBody message={commit.message} size="reading" />
-                      : <p className="text-sm text-muted-foreground">No description</p>}
-                    {isFilesOpen && <CommitFilesSection commitId={hash} />}
-                  </div>
-                )}
+          <PreviewDialogBody ref={bodyRef} itemKey={hash} fill={isReviewing} data-testid="commit-preview-body">
+            {isReviewing
+              ? <CommitReview commitId={hash} initialPath={review.hash === hash ? review.path : null} onPositionChange={setReviewPosition} />
+              : isEditing
+                ? (
+                    <Textarea
+                      aria-label="Commit message"
+                      data-testid="commit-message-editor"
+                      // the raw message, as git stores it: the first line is the subject, the grouping prefix included
+                      className="min-h-48 font-mono"
+                      value={draft}
+                      disabled={isSaving}
+                      spellCheck
+                      autoFocus
+                      onChange={event => setDraft(event.target.value)}
+                    />
+                  )
+                : (
+                    <div className="flex flex-col gap-5">
+                      {hasCommitMessageBody(subject, commit.message)
+                        ? <CommitMessageBody message={commit.message} size="reading" />
+                        : <p className="text-sm text-muted-foreground">No description</p>}
+                      {isFilesOpen && <CommitFilesSection commitId={hash} onReviewFile={startReview} />}
+                    </div>
+                  )}
           </PreviewDialogBody>
 
           <PreviewDialogFooter
             start={isEditing
               ? <PrefixChangeHint before={commit.message} after={draft} action="Saving" />
-              : <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>}
+              : isReviewing
+                ? <span data-testid="commit-review-position">{commits.length > 1 ? `Commit ${currentIndex + 1} / ${commits.length} · ${reviewPosition}` : reviewPosition}</span>
+                : <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>}
           >
-            {isEditing
-              ? (
-                  <>
-                    <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
-                    <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
-                      {isSaving && <Spinner data-icon="inline-start" />}
-                      Save
-                      <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
-                    </Button>
-                  </>
-                )
-              : (
-                  <>
-                    <PreviewNavigationHints count={commits.length} />
-                    <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
-                      <Kbd>F</Kbd>
-                      Files
-                    </Button>
-                    {onSaveMessage !== undefined && (
-                      <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
-                        <Kbd>E</Kbd>
-                        Edit
+            {isReviewing
+              ? <ReviewKeyHints count={commits.length} />
+              : isEditing
+                ? (
+                    <>
+                      <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
+                      <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
+                        {isSaving && <Spinner data-icon="inline-start" />}
+                        Save
+                        <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
                       </Button>
-                    )}
-                  </>
-                )}
+                    </>
+                  )
+                : (
+                    <>
+                      <PreviewNavigationHints count={commits.length} />
+                      <Button variant="ghost" size="xs" disabled={!canReview} data-testid="commit-review-toggle" onClick={() => startReview()}>
+                        <Kbd>D</Kbd>
+                        Review
+                      </Button>
+                      <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
+                        <Kbd>F</Kbd>
+                        Files
+                      </Button>
+                      {onSaveMessage !== undefined && (
+                        <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
+                          <Kbd>E</Kbd>
+                          Edit
+                        </Button>
+                      )}
+                    </>
+                  )}
           </PreviewDialogFooter>
         </>
       )}
     </PreviewDialogFrame>
+  )
+}
+
+/** The keys of the review: the files, the changes, the commits and the way back */
+function ReviewKeyHints({ count }: { count: number }) {
+  const option = isMac ? "⌥" : "Alt+"
+  return (
+    <>
+      <KeyHint keys={(
+        <>
+          <Kbd>J</Kbd>
+          <Kbd>K</Kbd>
+        </>
+      )}
+      >
+        Files
+      </KeyHint>
+      <KeyHint keys={(
+        <>
+          <Kbd>N</Kbd>
+          <Kbd>P</Kbd>
+        </>
+      )}
+      >
+        Changes
+      </KeyHint>
+      {count > 1 && (
+        <KeyHint keys={(
+          <>
+            <Kbd>{`${option}↑`}</Kbd>
+            <Kbd>{`${option}↓`}</Kbd>
+          </>
+        )}
+        >
+          Commits
+        </KeyHint>
+      )}
+      <KeyHint keys={<Kbd>Esc</Kbd>}>Back</KeyHint>
+    </>
   )
 }

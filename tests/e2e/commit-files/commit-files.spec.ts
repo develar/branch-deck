@@ -1,8 +1,9 @@
 // @spec spec/commit/commit-files.spec.md
-import type { Locator, Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
+import { openCommitPreview as openPreview } from "../helpers/preview-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 
@@ -11,21 +12,8 @@ const BRANCH = "JIRA-456"
 const RETRY = "Add connection retry logic"
 const POOL_SIZE = "perf db: increase pool size to 50"
 
-function getPreview(page: Page): Locator {
-  return page.getByTestId("commit-preview")
-}
-
 async function expandIssueBranch(page: Page) {
   await expandBranch(page, findBranchRow(page, BRANCH))
-}
-
-/** Opens the preview of the commit row under the pointer with Space and waits until it has the focus */
-async function openPreview(page: Page, row: Locator): Promise<Locator> {
-  await row.hover()
-  await page.keyboard.press("Space")
-  const preview = getPreview(page)
-  await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
-  return preview
 }
 
 simpleTest.describe("Commit files in the simple repository", () => {

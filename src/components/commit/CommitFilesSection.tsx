@@ -9,8 +9,14 @@ import { buildFileTree, getInitiallyCollapsed, toggleInSet } from "@/lib/file-tr
 import { getFilesOfCommit, loadFilesOfCommit, useFilesOfCommit } from "@/stores/commit-files"
 import { useConflictViewerSettings } from "@/stores/settings/conflictViewer"
 
+export interface CommitFilesSectionProps {
+  commitId: string
+  /** Enter on a file: the review of the commit at that file */
+  onReviewFile: (path: string) => void
+}
+
 /** The files of a commit in its preview, after the message, grouped by directory: a file expands to its diff. */
-export function CommitFilesSection({ commitId }: { commitId: string }) {
+export function CommitFilesSection({ commitId, onReviewFile }: CommitFilesSectionProps) {
   const titleId = useId()
   const commitFiles = useFilesOfCommit(commitId)
   // the commit whose files could not be read; another commit tries again
@@ -44,12 +50,12 @@ export function CommitFilesSection({ commitId }: { commitId: string }) {
         : commitFiles.files.length === 0
           ? <p className="text-sm text-muted-foreground">No changed files</p>
           // keyed by the commit: the collapsed directories and the expanded files belong to one commit
-          : <CommitFileTree key={commitId} commitFiles={commitFiles} />}
+          : <CommitFileTree key={commitId} commitFiles={commitFiles} onReviewFile={onReviewFile} />}
     </section>
   )
 }
 
-function CommitFileTree({ commitFiles }: { commitFiles: CommitFiles }) {
+function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFiles, onReviewFile: (path: string) => void }) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const nodes = useMemo(() => buildFileTree(commitFiles.files), [commitFiles])
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => getInitiallyCollapsed(nodes, commitFiles.files.length))
@@ -60,6 +66,7 @@ function CommitFileTree({ commitFiles }: { commitFiles: CommitFiles }) {
 
   return (
     <FileTree
+      mode="inline"
       nodes={nodes}
       aria-label="Changed files"
       collapsed={collapsed}
@@ -67,6 +74,7 @@ function CommitFileTree({ commitFiles }: { commitFiles: CommitFiles }) {
       expandedFiles={expandedFiles}
       onToggleFile={toggleFile}
       renderFileContent={(file: CommitFile) => <InlineCommitFileDiff commitId={commitId} file={file} diffViewMode={diffViewMode} />}
+      onOpenFile={(file: CommitFile) => onReviewFile(file.path)}
     />
   )
 }

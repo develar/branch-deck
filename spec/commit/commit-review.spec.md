@@ -1,0 +1,113 @@
+---
+name: Commit Review
+description: Requirements for the review of a commit in its preview: the directory tree of its files beside the diffs of all of them in one virtualized view, with keys for the files, the changes and the commits.
+style: plain-1
+targets:
+  - ../../src/components/commit/CommitReview.tsx
+  - ../../src/components/commit/CommitPreviewDialog.tsx
+  - ../../src/components/diff/CommitReviewCode.tsx
+  - ../../src/components/diff/LazyDiffViews.tsx
+  - ../../src/components/files/FileTree.tsx
+  - ../../src/components/shared/PreviewDialogFrame.tsx
+  - ../../src/lib/diff/change-targets.ts
+  - ../../src/lib/diff/commit-patch.ts
+  - ../../src/lib/file-tree.ts
+  - ../../src/lib/preview-keys.ts
+  - ../../src/stores/commit-patch.ts
+---
+
+# Commit Review
+
+Status: Implemented
+Date: 2026-10-15
+
+## Summary
+
+The commit preview shows a commit; the review reads it. D in the preview turns the dialog into a window-sized review:
+the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
+header per file, as a code review in Space, GitHub or IntelliJ shows a change. The tree follows the diffs as they
+scroll, a file chosen in the tree scrolls the diffs to it, J and K step through the files and N and P through the
+changes. Escape goes back to the preview of the same commit.
+
+## Goals
+
+- Read a whole commit, file after file, without opening each file.
+- Never lose the place: the tree says which file is on screen, and the keys go to the next file or change.
+- Stay fast on a large commit: one git process for the patch, the diffs virtualized, large and generated files
+  collapsed.
+
+## Non-goals
+
+- No comments, no "viewed" marks: the review reads, it does not record.
+- No review of uncommitted changes; the amend card shows them ([Amend Changes](amend.spec.md)).
+- No search in the diffs: the browser's find sees only the rendered part of a virtualized view.
+
+## Requirements
+
+### Opening and closing
+
+- D, the `D Review` button of the preview footer and Enter on a file of the Files tree must open the review; Enter
+  opens it at that file, the others at the first file. A commit without files cannot be reviewed.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open the review at a file with Enter in the tree, and with the footer button`)
+- The review must fill the window but a 1rem margin, below the header of the preview (the subject and the meta line).
+- Escape must go back to the preview of the same commit, its body focused; the next Escape closes the preview.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list in the review, which stays open.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
+
+### The tree and the diffs
+
+- The left pane must be the tree of the Files section, in the order of the tree, a file row selecting the file.
+  The selection follows the focus. The pane is resizable (15–50%, a quarter at first) and keeps its width.
+- The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each under a
+  sticky header with its status letter, its directory muted and its name, where a rename came from, its line counts
+  and a copy button.
+- A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
+  top must become the selected file, its directories opened. A scroll the review made (a choice, J, K, N, P) changes
+  the selection only through the key or the row that made it, also for a last file that cannot reach the top.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- J and K must select the next and the previous file. N and P must show the next and the previous block of changed
+  lines, into the next or the previous file at the end of one; collapsed files are skipped.
+  [@test] ../../src/lib/diff/change-targets.test.ts (`finds each block of changed lines on the new side, past the context and the other blocks`, `takes the old side of a block that only deletes, and counts every hunk from its own start`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The diffs must have the focus when the review opens, so the arrows, PageUp, PageDown and Space scroll them;
+  Shift+Tab goes to the tree.
+- A binary file, a file without changed lines and a file the patch left out must show only their header, which says
+  so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, and files with more than 1,000
+  changed lines must start collapsed; the chevron of the header expands them.
+- The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
+- The Unified/Split toggle of the tree pane must switch the layout; it is the setting of the Files section.
+
+## User Experience
+
+- The dialog is `h-[calc(100dvh-2rem)]`, `sm:max-w-[calc(100%-2rem)]`; the body has no padding, the panes scroll on
+  their own. A 1px `bg-border` divider separates them.
+- The tree pane starts with "5 files" in muted `text-xs` and the toggle, then the tree with the rows of the Files
+  section. The selected row is `bg-primary/15`; a file row has no chevron, its name keeps the indent.
+- A file header is `h-9` on `bg-card` with a `border-b`: a ghost `icon-xs` chevron (disabled without lines to show),
+  the status letter in `font-mono text-xs` in the status colour, the directory muted and the name `font-medium`, the
+  copy button on hover, then on the right the notice muted and the coloured counts in `text-xs`.
+- The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits, and on the
+  right the hints `J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
+  `Esc Back`.
+
+## Testing / Local Run
+
+- `pnpm test:unit`: `src/lib/diff/change-targets.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
+  the tree and the patch.
+- `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree` and `issue_links` templates. A
+  virtualized view renders what is on screen: assert on the text of files the review scrolled to.
+
+## Open Questions / Risks
+
+- The patch of a commit is parsed whole when the review opens; a commit of thousands of files may take a moment.
+- A diff without the file contents cannot know whether lines follow its last hunk, so its last separator offers
+  "More unchanged context may be available".
+- The browser's find (⌘F) sees only the rendered files.
+
+## References
+
+- [Commit Files](commit-files.spec.md)
+- [Diff View](../../docs/design/diff-view.md) ("Review")
+- [Commit Row](commit-row.spec.md) (the preview)
+- Space and GitHub code review: a file tree beside one scrolling list of file diffs with sticky headers.

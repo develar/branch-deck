@@ -28,8 +28,8 @@ has the file contents, and has a virtualized multi-file view. It renders into th
 
 ```mermaid
 flowchart LR
-    V["CommitFilesSection, OnDemandFileDiffList, FileDiffList, GitDiffMergeView"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyFileContentView"]
-    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, FileContentView"]
+    V["CommitFilesSection, CommitReview, OnDemandFileDiffList, FileDiffList, GitDiffMergeView"] --> L["LazyFileDiffView, LazyCommitFileDiffView, LazyCommitReviewCode, LazyFileContentView"]
+    L -. "own chunk" .-> F["FileDiffView, CommitFileDiffView, CommitReviewCode, FileContentView"]
     F --> A["toFileDiffMetadata (file-diff.ts)"]
     F --> E["diff-engine.ts: themes, languages, worker pool"]
     E --> W["Shiki workers"]
@@ -51,6 +51,14 @@ flowchart LR
   its path; `CommitFileDiffView` shows it with `loadCommitFileContents` as the loader, which reads both blobs by the ids
   of the `index` line (`get_blob_contents`) when the unchanged lines expand. A failed load is a `notifyError` toast:
   Pierre only logs it. The parsed diff keeps its identity, so the lines it expanded stay expanded.
+- **Review.** `CommitReviewCode` (`src/components/diff/CommitReviewCode.tsx`, its own lazy chunk) shows every file of
+  a commit in Pierre's virtualized `CodeView`: one item per file in the order of the tree, sticky custom headers
+  (`renderCustomHeader`, `h-9`, the `diffHeaderHeight` metric the virtualizer lays out with), lock, generated and huge
+  files collapsed. `CommitReview` puts the tree beside it and talks to it through a handle: `scrollToFile` (a choice in
+  the tree, J, K) and `moveChange` (N, P, over `getChangeTargets` of `src/lib/diff/change-targets.ts`). The view
+  reports the file at the top from `onScroll` with a binary search over `getTopForItem`; after a scroll it made itself
+  it waits for a wheel, touch, pointer or key event, or the file above the last ones (which cannot reach the top)
+  would take the selection back ([Commit Review](../../spec/commit/commit-review.spec.md)).
 - **Conflict markers.** `getConflictAnnotations` (`src/lib/diff/conflict-annotations.ts`) finds the added lines with
   `<<<<<<<`, `|||||||`, `=======` and `>>>>>>>` and annotates them at their new-file line;
   `ConflictMarkerExtension` renders an annotation in light DOM, slotted under the line.
@@ -101,5 +109,6 @@ flowchart LR
 
 - [UI Theme](ui-theme.md) ("Diffs")
 - [Commit Files](../../spec/commit/commit-files.spec.md)
+- [Commit Review](../../spec/commit/commit-review.spec.md)
 - [Commit Row](../../spec/commit/commit-row.spec.md) ("Conflict view")
 - `@pierre/diffs`: https://diffs.com

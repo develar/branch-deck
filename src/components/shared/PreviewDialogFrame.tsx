@@ -4,13 +4,14 @@ import { cn } from "cn"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 
-/** `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files */
-export type PreviewDialogWidth = "sm" | "md" | "lg"
+/** `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files, `full` the window (a review) */
+export type PreviewDialogWidth = "sm" | "md" | "lg" | "full"
 
 const widthClasses: Record<PreviewDialogWidth, string> = {
   sm: "sm:max-w-xs",
   md: "sm:max-w-lg",
   lg: "sm:max-w-[min(56rem,calc(100%-4rem))]",
+  full: "h-[calc(100dvh-2rem)] max-h-none sm:max-w-[calc(100%-2rem)]",
 }
 
 export interface PreviewDialogFrameProps {
@@ -59,17 +60,19 @@ export interface PreviewDialogBodyProps {
   "ref"?: RefObject<HTMLDivElement | null>
   /** The shown item: a newly shown item starts at the top */
   "itemKey"?: string
+  /** The content fills the body and scrolls itself (the panes of a review): no padding, no scrolling */
+  "fill"?: boolean
   "data-testid"?: string
   "children": ReactNode
 }
 
-export function PreviewDialogBody({ ref, itemKey, "data-testid": testId, children }: PreviewDialogBodyProps) {
+export function PreviewDialogBody({ ref, itemKey, fill = false, "data-testid": testId, children }: PreviewDialogBodyProps) {
   useEffect(() => {
     ref?.current?.scrollTo({ top: 0 })
   }, [ref, itemKey])
 
   return (
-    <div ref={ref} tabIndex={-1} data-testid={testId} className="overflow-y-auto overscroll-contain px-6 py-5 outline-none">
+    <div ref={ref} tabIndex={-1} data-testid={testId} className={fill ? "min-h-0 overflow-hidden outline-none" : "overflow-y-auto overscroll-contain px-6 py-5 outline-none"}>
       {children}
     </div>
   )

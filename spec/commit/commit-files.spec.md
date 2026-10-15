@@ -140,8 +140,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A file must expand to its diff under its row.
 - The tree must be one tab stop (roving focus): ↑/↓ move between the rows and never leave the tree, Home and End go
   to the first and the last row, → opens a row (a directory, a file's diff) or goes to the first child, ← closes it or
-  goes to the parent, Space and Enter toggle it. ⌥↑/⌥↓ switch the commit from anywhere in the preview; the letters (F,
-  E) keep working in the tree.
+  goes to the parent, Space toggles it, Enter toggles a directory and opens a file in the review at that file
+  ([Commit Review](commit-review.spec.md)). ⌥↑/⌥↓ switch the commit from anywhere in the preview; the letters (F, E,
+  D) keep working in the tree.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should move through the tree with the keyboard and switch commits with Alt`)
 - A binary file must show "Binary file", and a file without changed lines "No changed lines", instead of a diff; a
   file the patch left out shows "Too large to show: 12,345 changed lines", and a file with more than 2,000 changed
@@ -200,7 +201,8 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
   read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.
-- The footer shows a ghost `xs` button `F Files` (pressed while the section is shown) before `E Edit`.
+- The footer shows the ghost `xs` buttons `D Review` and `F Files` (pressed while the section is shown) before
+  `E Edit`.
 
 ## Testing / Local Run
 
@@ -225,6 +227,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - [Git Operations](../../docs/design/git-operations.md) ("Commit files", "Object cache")
 - [Diff View](../../docs/design/diff-view.md)
+- [Commit Review](commit-review.spec.md)
 - [Commit Row](commit-row.spec.md)
 - [Branch Preview](../branch/branch-preview.spec.md)
 - GitHub and GitLab show `+42 −7` per commit and per file, with the added lines green and the deleted ones red.

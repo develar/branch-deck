@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { cn } from "cn"
@@ -9,39 +9,74 @@ import { formatFileStatus, getFileStatusLetter, getFileStatusTextClass } from "@
 import { formatTreeFileLabel, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 
-export interface FileTreeProps {
+interface FileTreeBaseProps {
   "nodes": readonly FileTreeNode[]
   "aria-label": string
   "collapsed": ReadonlySet<string>
   /** Must keep its identity: the rows are memoized */
   "onToggleDirectory": (key: string) => void
-  /** The files whose diff is shown under their row */
-  "expandedFiles": ReadonlySet<string>
-  /** Must keep its identity: the rows are memoized */
-  "onToggleFile": (key: string) => void
-  /** The diff of an expanded file, under its row */
-  "renderFileContent": (file: CommitFile) => ReactNode
 }
+
+/** A file row expands its diff under it (the commit preview) */
+export interface InlineFileTreeProps extends FileTreeBaseProps {
+  mode: "inline"
+  /** The files whose diff is shown under their row */
+  expandedFiles: ReadonlySet<string>
+  /** Must keep its identity: the rows are memoized */
+  onToggleFile: (key: string) => void
+  /** The diff of an expanded file, under its row */
+  renderFileContent: (file: CommitFile) => ReactNode
+  /** Enter on a file row; without it Enter toggles the diff, as Space does */
+  onOpenFile?: (file: CommitFile) => void
+}
+
+/** A file row selects the file, and the selection follows the focus (the review, beside the diffs) */
+export interface NavigationFileTreeProps extends FileTreeBaseProps {
+  mode: "navigate"
+  selectedKey: string | null
+  /** Must keep its identity: the rows are memoized */
+  onSelectFile: (file: CommitFile) => void
+}
+
+export type FileTreeProps = InlineFileTreeProps | NavigationFileTreeProps
 
 /** The indent of a tree level */
 const INDENT_REM = 1
 
 /**
- * The changed files grouped by directory: a directory row collapses its subtree, a file row expands its diff under it.
- * One row is in the tab order (roving focus): ↑/↓, Home and End move between the rows, → opens and ← closes or goes
- * to the parent, Space and Enter toggle. The keys the tree handles are `preventDefault`ed, so the dialog around it
- * leaves them alone; the others (letters, keys with a modifier) reach it.
+ * The changed files grouped by directory: a directory row collapses its subtree, a file row expands its diff under it
+ * or selects the file. One row is in the tab order (roving focus): ↑/↓, Home and End move between the rows, → opens
+ * and ← closes or goes to the parent, Space and Enter toggle. The keys the tree handles are `preventDefault`ed, so the
+ * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it.
  */
-export function FileTree({ "nodes": nodes, "aria-label": label, collapsed, onToggleDirectory, expandedFiles, onToggleFile, renderFileContent }: FileTreeProps) {
+export function FileTree(props: FileTreeProps) {
+  const { "nodes": nodes, "aria-label": label, collapsed, onToggleDirectory, mode } = props
+  // a file of a navigation tree has no diff to open
+  const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
+  const selectedKey = props.mode === "navigate" ? props.selectedKey : null
+  const onToggleFile = props.mode === "inline" ? props.onToggleFile : undefined
+  const onSelectFile = props.mode === "navigate" ? props.onSelectFile : undefined
+  const onOpenFile = props.mode === "inline" ? props.onOpenFile : undefined
   const rows = getVisibleRows(nodes, collapsed)
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
-  // the row in the tab order: the focused one while it shows, otherwise the first
-  const tabKey = rows.some(row => row.key === focusedKey) ? focusedKey : (rows[0]?.key ?? null)
+  // the row in the tab order: the focused one while it shows, then the selected one, otherwise the first
+  const tabKey = [focusedKey, selectedKey].find(key => key !== null && rows.some(row => row.key === key)) ?? rows[0]?.key ?? null
   const rowElements = useRef(new Map<string, HTMLElement>())
 
-  const focusRow = (key: string) => {
-    setFocusedKey(key)
-    rowElements.current.get(key)?.focus()
+  // a file selected elsewhere (the diffs scrolled, J and K) scrolls into view
+  useEffect(() => {
+    if (selectedKey !== null) {
+      rowElements.current.get(selectedKey)?.scrollIntoView({ block: "nearest" })
+    }
+  }, [selectedKey])
+
+  const focusRow = (node: FileTreeNode) => {
+    setFocusedKey(node.key)
+    rowElements.current.get(node.key)?.focus()
+    // the selection follows the focus
+    if (node.kind === "file") {
+      onSelectFile?.(node.file)
+    }
   }
 
   const toggle = useCallback((node: FileTreeNode) => {
@@ -49,10 +84,13 @@ export function FileTree({ "nodes": nodes, "aria-label": label, collapsed, onTog
     if (node.kind === "directory") {
       onToggleDirectory(node.key)
     }
-    else {
-      onToggleFile(node.key)
+    else if (onSelectFile !== undefined) {
+      onSelectFile(node.file)
     }
-  }, [onToggleDirectory, onToggleFile])
+    else {
+      onToggleFile?.(node.key)
+    }
+  }, [onToggleDirectory, onToggleFile, onSelectFile])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
@@ -66,7 +104,7 @@ export function FileTree({ "nodes": nodes, "aria-label": label, collapsed, onTog
     if (node === undefined) {
       return
     }
-    const isOpen = node.kind === "directory" ? !collapsed.has(node.key) : expandedFiles.has(node.key)
+    const isOpen = isRowOpen(node, collapsed, expandedFiles)
     let handled = true
     switch (event.key) {
       case "ArrowDown":
@@ -74,34 +112,43 @@ export function FileTree({ "nodes": nodes, "aria-label": label, collapsed, onTog
         // also at the first and the last row: the arrows never leave the tree
         const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)]
         if (next !== undefined) {
-          focusRow(next.key)
+          focusRow(next)
         }
         break
       }
       case "Home":
-        focusRow(rows[0]!.key)
+        focusRow(rows[0]!)
         break
       case "End":
-        focusRow(rows.at(-1)!.key)
+        focusRow(rows.at(-1)!)
         break
       case "ArrowRight":
-        if (!isOpen) {
+        if (isOpen === false) {
           toggle(node)
         }
         else if (node.kind === "directory" && node.children[0] !== undefined) {
-          focusRow(node.children[0].key)
+          focusRow(node.children[0])
         }
         break
-      case "ArrowLeft":
-        if (isOpen) {
+      case "ArrowLeft": {
+        const parent = rows.find(row => row.key === node.parentKey)
+        if (isOpen === true) {
           toggle(node)
         }
-        else if (node.parentKey !== undefined) {
-          focusRow(node.parentKey)
+        else if (parent !== undefined) {
+          focusRow(parent)
+        }
+        break
+      }
+      case "Enter":
+        if (node.kind === "file" && onOpenFile !== undefined) {
+          onOpenFile(node.file)
+        }
+        else {
+          toggle(node)
         }
         break
       case " ":
-      case "Enter":
         toggle(node)
         break
       default:
@@ -118,21 +165,32 @@ export function FileTree({ "nodes": nodes, "aria-label": label, collapsed, onTog
         <FileTreeRow
           key={node.key}
           node={node}
-          isOpen={node.kind === "directory" ? !collapsed.has(node.key) : expandedFiles.has(node.key)}
+          isOpen={isRowOpen(node, collapsed, expandedFiles)}
+          isSelected={mode === "navigate" ? node.key === selectedKey : undefined}
           inTabOrder={node.key === tabKey}
           rowElements={rowElements}
           onToggle={toggle}
           onFocusRow={setFocusedKey}
-          content={node.kind === "file" && expandedFiles.has(node.key) ? renderFileContent(node.file) : null}
+          content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
     </div>
   )
 }
 
+/** A directory is open unless collapsed; a file is open while its diff shows, `undefined` where it has none to show */
+function isRowOpen(node: FileTreeNode, collapsed: ReadonlySet<string>, expandedFiles: ReadonlySet<string> | null): boolean | undefined {
+  if (node.kind === "directory") {
+    return !collapsed.has(node.key)
+  }
+  return expandedFiles === null ? undefined : expandedFiles.has(node.key)
+}
+
 interface FileTreeRowProps {
   node: FileTreeNode
-  isOpen: boolean
+  isOpen: boolean | undefined
+  /** In a navigation tree, whether the row is the selected file; `undefined` in an inline tree */
+  isSelected: boolean | undefined
   inTabOrder: boolean
   rowElements: RefObject<Map<string, HTMLElement>>
   onToggle: (node: FileTreeNode) => void
@@ -141,7 +199,7 @@ interface FileTreeRowProps {
   content: ReactNode
 }
 
-const FileTreeRow = memo(function FileTreeRow({ node, isOpen, inTabOrder, rowElements, onToggle, onFocusRow, content }: FileTreeRowProps) {
+const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabOrder, rowElements, onToggle, onFocusRow, content }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
   const description = node.kind === "directory"
     ? `${node.fileCount === 1 ? "1 file" : `${node.fileCount} files`}, +${node.additions} −${node.deletions}`
@@ -159,6 +217,7 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, inTabOrder, rowEle
       role="treeitem"
       aria-level={node.depth + 1}
       aria-expanded={isOpen}
+      aria-selected={node.kind === "file" ? isSelected : undefined}
       aria-label={node.name}
       aria-description={description}
       tabIndex={inTabOrder ? 0 : -1}
@@ -171,12 +230,18 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, inTabOrder, rowEle
       }}
     >
       <div
-        className="group/row flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none hover:bg-muted group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset"
+        className={cn(
+          "group/row flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none hover:bg-muted group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset",
+          isSelected && "bg-primary/15 hover:bg-primary/15",
+        )}
         style={{ paddingLeft: `calc(${indent} + 0.25rem)` }}
         onClick={() => onToggle(node)}
       >
-        <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
-        {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen} /> : <FileRowContent node={node} />}
+        {isOpen === undefined
+          // a file of a navigation tree opens nothing: the space keeps the names aligned
+          ? <span className="size-3.5 shrink-0" />
+          : <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />}
+        {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} />}
       </div>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>

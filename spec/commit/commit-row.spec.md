@@ -300,7 +300,8 @@ The commit hash popover shows the same header and body.
 - A newly shown commit starts at the top of its body.
 - The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,
   in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
-- The footer then shows a ghost `xs` button `F Files`, which shows or hides the changed files.
+- The footer then shows the ghost `xs` buttons `D Review`, which reviews the commit ([Commit Review](commit-review.spec.md)),
+  and `F Files`, which shows or hides the changed files.
 - An editable preview ends the footer with a ghost `xs` button `E Edit`.
 - While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
   The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and
