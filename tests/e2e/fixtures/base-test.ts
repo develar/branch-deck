@@ -5,7 +5,20 @@ import { tauriMockScript } from "../setup/tauri-mocks"
  * Custom test fixture that automatically sets up Tauri mocks
  */
 export const test = base.extend({
-  page: async ({ page, context }, use) => {
+  page: async ({ page, context }, use, testInfo) => {
+    // the console of the pages: every line live with DEBUG_E2E=1; otherwise their errors and uncaught exceptions, attached
+    // to a failed test only, because an error-path test makes the app log its expected errors
+    const pageErrors: string[] = []
+    context.on("console", (message) => {
+      if (process.env.DEBUG_E2E) {
+        console.log("[Browser]", message.type(), message.text())
+      }
+      else if (message.type() === "error") {
+        pageErrors.push(message.text())
+      }
+    })
+    context.on("weberror", error => pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`))
+
     // Set debug flag if environment variable is set
     if (process.env.DEBUG_E2E) {
       await page.addInitScript(() => {
@@ -25,6 +38,10 @@ export const test = base.extend({
 
     // Use the page
     await use(page)
+
+    if (testInfo.status !== testInfo.expectedStatus && pageErrors.length > 0) {
+      await testInfo.attach("page errors", { body: pageErrors.join("\n"), contentType: "text/plain" })
+    }
   },
 })
 

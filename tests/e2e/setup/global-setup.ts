@@ -28,7 +28,7 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
     try {
       const response = await fetch(url)
       if (response.ok) {
-        console.log(`[Global Setup] ${name} server is ready`)
+        console.log(`[Global Setup] ${name} is ready`)
         return
       }
     }
@@ -41,7 +41,7 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
     }
   }
 
-  throw new Error(`${name} server failed to start after ${maxRetries * delay / 1000} seconds`)
+  throw new Error(`${name} failed to start after ${maxRetries * delay / 1000} seconds`)
 }
 
 /**
@@ -69,14 +69,13 @@ async function globalSetup(_config: FullConfig) {
   // Check if Playwright browsers are installed
   checkPlaywrightBrowsers()
 
-  // Build the frontend first
+  // Build the frontend first; its output only when it fails
   try {
-    console.log("[Global Setup] Building frontend...")
-    execSync("pnpm build", { stdio: "inherit", cwd: process.cwd() })
-    console.log("[Global Setup] Frontend build completed")
+    execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() })
   }
   catch (error) {
-    console.error("[Global Setup] Frontend build failed:", error)
+    const { stdout, stderr } = error as { stdout?: Buffer, stderr?: Buffer }
+    console.error(`[Global Setup] Frontend build failed:\n${stdout?.toString() ?? ""}${stderr?.toString() ?? ""}`)
     throw error
   }
 

@@ -111,8 +111,10 @@ export const test = base.extend<{
 
     await use(setupFn)
 
-    // Cleanup if not already done
     if (currentBuilder) {
+      // the pages first (a test may open a sub-window), so they start no command for the repository; the server waits
+      // for the commands still running before it deletes the files
+      await Promise.all(page.context().pages().map(it => it.close()))
       await cleanupTestRepository(currentBuilder)
     }
   },

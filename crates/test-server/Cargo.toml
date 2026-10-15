@@ -31,6 +31,7 @@ tokio-stream.workspace = true
 listenfd = "1.0"
 
 # Use the git operations crate
+branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }

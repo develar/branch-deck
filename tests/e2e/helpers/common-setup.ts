@@ -54,9 +54,6 @@ export async function setupTestRepository(
     }
   }
 
-  // Open browser console to see debug logs
-  setupBrowserLogging(page)
-
   // Inject store values into window.__TAURI_STORE__ before navigation
   // This mimics how production Tauri preloads store data
   // Always inject at least an empty object, since the app expects __TAURI_STORE__ to exist
@@ -167,15 +164,6 @@ export async function setupTestRepository(
 /**
  * Setup browser console logging
  */
-/** Forwards the console of the page: its errors always, every line with DEBUG_E2E=1 */
-export function setupBrowserLogging(page: Page): void {
-  page.on("console", (msg) => {
-    if (process.env.DEBUG_E2E || msg.type() === "error") {
-      console.log("[Browser]", msg.type(), msg.text())
-    }
-  })
-}
-
 /** Logs a setup step with DEBUG_E2E=1 */
 function debugLog(...args: unknown[]): void {
   if (process.env.DEBUG_E2E) {

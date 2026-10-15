@@ -274,9 +274,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
 - **Backend**: One git process per operation phase, never one per commit, note or file (see [Git Operations](docs/design/git-operations.md)).
 
 ### Debugging & Troubleshooting
-- **E2E Test Issues**: Run with `DEBUG_E2E=1` for the debug log of the mock server and every console line of the
-  pages; without it the server logs warnings and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which
-  `.cargo/config.toml` forces to debug).
+- **E2E Test Issues**: a failed test carries the console errors of its pages as the `page errors` attachment. Run
+  with `DEBUG_E2E=1` for the debug log of the mock server and every console line live; without it the server logs
+  warnings and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which `.cargo/config.toml` forces to debug), and a
+  green run prints none.
 - **Playwright browser errors**: If tests fail with "Executable doesn't exist", run `pnpm setup:e2e` to install browsers. This happens automatically when running `pnpm e2e`, but may be needed after updating `@playwright/test`.
 - **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
 

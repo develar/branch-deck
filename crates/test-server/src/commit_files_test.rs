@@ -1,17 +1,8 @@
+use crate::test_support::{create_repository, start_test_server};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
-
-async fn start_test_server() -> SocketAddr {
-  let app = crate::create_test_app().await;
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind to port");
-  let addr = listener.local_addr().unwrap();
-  tokio::spawn(async move {
-    axum::serve(listener, app).await.unwrap();
-  });
-  addr
-}
 
 async fn invoke(client: &reqwest::Client, addr: SocketAddr, command: &str, params: Value) -> Value {
   let response = client.post(format!("http://{addr}/invoke/{command}")).json(&params).send().await.unwrap();
@@ -24,16 +15,7 @@ async fn invoke(client: &reqwest::Client, addr: SocketAddr, command: &str, param
 async fn commit_files_routes_read_the_fixture_repository() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
-  let created: Value = client
-    .post(format!("http://{addr}/repositories"))
-    .json(&json!({ "template": "simple" }))
-    .send()
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
-  let repository_path = created["path"].as_str().unwrap().to_string();
+  let (_, repository_path) = create_repository(&client, addr).await;
   let ids = GitCommandExecutor::new().execute_command_lines(&["rev-list", "HEAD"], &repository_path).unwrap();
   assert_eq!(ids.len(), 2);
 

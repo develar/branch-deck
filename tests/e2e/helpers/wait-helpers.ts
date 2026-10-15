@@ -42,6 +42,11 @@ export async function routeCommand(page: Page, command: string, answer: (params:
   return calls
 }
 
+/** Fails `command` with `message`, as the mock server answers a failed command and Tauri rejects it with the CommandError */
+export async function routeCommandError(page: Page, command: string, message: string): Promise<void> {
+  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: { message } } }))
+}
+
 /**
  * Wait for a specific API response
  */

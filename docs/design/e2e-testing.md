@@ -107,8 +107,15 @@ Template system:
 
 Mock implementation:
 - **IPC Interception**: `mockIPC` redirects all Tauri commands
-- **Error Simulation**: Throws JavaScript Error to match Tauri behavior
-- **Result Wrapping**: Bindings layer wraps in `{status: "error", error: "..."}`
+- **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
+  (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
+  and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
+  bindings return it as `{ status: "error", error }` (an `Error` instance they would throw). A test fails a command
+  with `routeCommandError`. Any other answer is a bug of the mock, thrown and logged: 405 a command the server does
+  not implement, 500 a command that panicked, 410 a page that outlived its repository
+- **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
+  functions; an answer that Patronus, gh or claude would give comes from a fixture of the repository, or from a route
+  of the test
 - **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
   `__e2eWindowCalls`; a test fires `tauri://resize` with `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar
   renders as under a native title bar; `tests/e2e/repository/title-bar.spec.ts` sets it with `addInitScript`
@@ -116,6 +123,12 @@ Mock implementation:
 State isolation:
 - **Repository mapping**: `path_to_id` map for command routing
 - **Store state**: Separate per repository ID
+- **Teardown**: the mock names its repository on every request (`X-Repository-Id`), and the server holds the
+  repository while the command runs, in a task of its own: closing a page aborts its requests and drops their
+  handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
+  `delete_repository` forgets the repository, waits for its running commands (10 s at most), then deletes the
+  directory. Before, a test's cleanup deleted the files under a running sync, file read or note write
+  (`repository_lifecycle_test.rs`)
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port
@@ -159,10 +172,13 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
 - **Solution**: Complete isolation via repository IDs
 - **Measurement** (2026-10-15, 230 tests, 14 workers on 18 cores): one worker creates a repository and loads the page in
   ~170 ms and syncs it in ~270 ms; the full suite takes ~38 s, ~470 s of test time, a median test 2 s
-- **Logging**: the server logs warnings and errors only (`TEST_SERVER_LOG=warn`), the pages forward their console
-  errors only; `DEBUG_E2E=1` turns both up. The debug log was 60k lines (23 MB) per run through the pipe that the
-  Playwright main process drains: under load the full pipe blocked the server's threads on stdout, and tests timed out
-  waiting for the page or a sync
+- **Logging**: a green run prints no warning or error. The server logs warnings and errors only
+  (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The console errors and
+  uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an
+  error-path test makes the app log its expected errors. `DEBUG_E2E=1` prints the server's debug log and every
+  console line live. The debug log was 60k lines (23 MB) per run through the pipe that the Playwright main process
+  drains: under load the full pipe blocked the server's threads on stdout, and tests timed out waiting for the page
+  or a sync
 
 Optimizations:
 - Template pre-creation eliminates git init per test

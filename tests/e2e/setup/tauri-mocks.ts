@@ -29,6 +29,14 @@ export const tauriMockScript = () => {
   // Use a constant store resource ID for consistency across reloads
   const storeResourceId = "test-store-resource"
 
+  /**
+   * A request to the mock server on behalf of this page's repository: the server holds the repository while the request
+   * runs, so the test's cleanup deletes it only after the commands still running for it
+   */
+  function serverFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    return fetch(`${serverUrl}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-Repository-Id": repoId! } })
+  }
+
   // === Helper Functions ===
 
   /**
@@ -92,55 +100,46 @@ export const tauriMockScript = () => {
     // (`window.__progressChannels`, see `routePush`)
     const channelId = registerProgressChannel(payload?.progress)
     
-    try {
-      const response = await fetch(`${serverUrl}/invoke/${cmd}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
-        body: JSON.stringify(actualPayload),
-      })
+    const response = await serverFetch(`/invoke/${cmd}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
+      body: JSON.stringify(actualPayload),
+    })
+    await checkServerResponse(cmd, response)
 
-      if (!response.ok) {
-        // a failed command rejects with its CommandError ({ message }), as Tauri does; the bindings return it as
-        // `{ status: "error", error }` (a resolved value would read as success)
-        const message = (await response.text()) || response.statusText
-        throw { name: "CommandError", message }
-      }
+    const contentType = response.headers.get("content-type")
+    const data = contentType?.includes("application/json") ? await response.json() : await response.text()
 
-      const contentType = response.headers.get("content-type")
-      let data
-      if (contentType && contentType.includes("application/json")) {
-        data = await response.json()
-      } else {
-        data = await response.text()
-      }
-
-      // Check if the test server returned a Result-like object; a value with a status of its own (a Patronus robot)
-      // is not one
-      const isResult = data && typeof data === "object" && ((data.status === "ok" && "data" in data) || (data.status === "error" && "error" in data))
-      if (isResult) {
-        if (data.status === "error") {
-          // Throw a proper Error object so the bindings layer catches it and wraps it properly
-          // Commands return CommandError ({ message }) as the error payload
-          const error = new Error(typeof data.error === "object" && data.error !== null ? data.error.message : String(data.error))
-          error.name = "TauriError" // Mark it as a Tauri error, not a network error
-          throw error
-        }
-        // For success responses, return just the data (bindings will wrap it)
-        return data.data
-      }
-
-      // For backwards compatibility, return raw data (bindings will wrap it)
+    // a Result of the server ({ status: "ok", data } or { status: "error", error }); a value with a status of its own
+    // (a Patronus robot) is not one
+    const isResult = data && typeof data === "object" && ((data.status === "ok" && "data" in data) || (data.status === "error" && "error" in data))
+    if (!isResult) {
       return data
-    } catch (networkError: any) {
-      // Re-throw TauriErrors and CommandErrors so they reach the bindings layer
-      if (networkError.name === "TauriError" || networkError.name === "CommandError") {
-        throw networkError
-      }
-      // Network errors should also be wrapped in Result type
-      return {
-        status: "error",
-        error: `Network error: ${networkError.message}`,
-      }
+    }
+    if (data.status === "error") {
+      throw commandError(data.error)
+    }
+    return data.data
+  }
+
+  /**
+   * The rejection of a failed command: Tauri rejects with its CommandError ({ message }), which the bindings return as
+   * `{ status: "error", error }`; an Error instance they would throw instead
+   */
+  function commandError(error: any): { name: "CommandError", message: string } {
+    return { name: "CommandError", message: typeof error === "object" && error !== null ? error.message : String(error) }
+  }
+
+  /**
+   * A response that is no answer of the command fails as a bug of the mock: no route (405) is a command the mock server
+   * does not implement, a 500 a command that panicked, a 410 a page that outlived its test repository
+   */
+  async function checkServerResponse(cmd: string, response: Response) {
+    if (response.status === 405) {
+      throw new Error(`Unimplemented Tauri command: ${cmd}`)
+    }
+    if (!response.ok) {
+      throw new Error(`The mock server failed ${cmd}: ${response.status} ${(await response.text()) || response.statusText}`)
     }
   }
 
@@ -159,11 +158,10 @@ export const tauriMockScript = () => {
       // Extract params, excluding the progress channel which can't be serialized
       const requestPayload = payload.params || {}  // Empty object if no params
       
-      const url = `${serverUrl}/invoke/${cmd}`
-      debug(`[Test Mock] Fetching SSE stream from: ${url}`)
-      
+      debug(`[Test Mock] Fetching SSE stream of ${cmd}`)
+
       // Call the test server's endpoint with SSE
-      const response = await fetch(url, {
+      const response = await serverFetch(`/invoke/${cmd}`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -174,10 +172,10 @@ export const tauriMockScript = () => {
 
       debug(`[Test Mock] SSE response status: ${response.status}`)
       
-      if (!response.ok) {
-        // a failed command rejects with its CommandError ({ message }), as Tauri does
-        const message = (await response.text()) || response.statusText
-        throw { name: "CommandError", message }
+      await checkServerResponse(cmd, response)
+      // a failed command answers with its error ({ status: "error", error }) instead of the event stream
+      if (response.headers.get("content-type")?.includes("application/json")) {
+        throw commandError((await response.json()).error)
       }
 
       // Read the SSE stream
@@ -194,8 +192,11 @@ export const tauriMockScript = () => {
 
       return null
     }
-    catch (error) {
-      console.error(`[Test Mock] Error in ${cmd}:`, error)
+    catch (error: any) {
+      // the error of the command is its answer; anything else is a failure of the mock
+      if (error?.name !== "CommandError") {
+        console.error(`[Test Mock] Error in ${cmd}:`, error)
+      }
       throw error
     }
   }
@@ -220,7 +221,7 @@ export const tauriMockScript = () => {
         
         return (async () => {
           try {
-            const response = await fetch(`${serverUrl}/store/${repoId}/${key}`)
+            const response = await serverFetch(`/store/${repoId}/${key}`)
             if (response.ok) {
               const value = await response.json()
               return [value, value !== null]  // null means key not found
@@ -248,7 +249,7 @@ export const tauriMockScript = () => {
         
         return (async () => {
           try {
-            const response = await fetch(`${serverUrl}/store/${repoId}/${key}`, {
+            const response = await serverFetch(`/store/${repoId}/${key}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(value)
@@ -275,7 +276,7 @@ export const tauriMockScript = () => {
         
         return (async () => {
           try {
-            const response = await fetch(`${serverUrl}/store/${repoId}/${key}`, {
+            const response = await serverFetch(`/store/${repoId}/${key}`, {
               method: "DELETE"
             })
             if (!response.ok) {
@@ -377,7 +378,7 @@ export const tauriMockScript = () => {
    * Helper to proxy simple commands to test server with repoId in URL
    */
   async function proxyCommandWithRepoId(command: string): Promise<any> {
-    const response = await fetch(`${serverUrl}/invoke/${command}/${repoId}`, {
+    const response = await serverFetch(`/invoke/${command}/${repoId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({})  // Empty body since repo_id is in URL
@@ -406,12 +407,12 @@ export const tauriMockScript = () => {
         // Special-case: when current path is NO_REPO_*, simulate a valid selection by
         // creating a real repo and returning its path. Otherwise, proxy as before.
         try {
-          const repoInfoRes = await fetch(`${serverUrl}/repositories/${repoId}`)
+          const repoInfoRes = await serverFetch(`/repositories/${repoId}`)
           if (repoInfoRes.ok) {
             const repoInfo = await repoInfoRes.json()
             const currentPath: string | undefined = repoInfo?.path
             if (currentPath && currentPath.startsWith("NO_REPO_")) {
-              const createRes = await fetch(`${serverUrl}/repositories`, {
+              const createRes = await serverFetch(`/repositories`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ template: "simple_no_prefix", prepopulate_store: false }),
@@ -457,21 +458,6 @@ export const tauriMockScript = () => {
       return null
     },
     
-    // Repository commands
-    "get_branch_prefix_from_git_config": (cmd: string, payload: any) => {
-      const params = payload?.params || payload
-      const repositoryPath = params?.repositoryPath || ""
-      
-      // For NO_REPO test cases, fail as the backend does (`branch_prefix.rs`): Tauri rejects with the CommandError
-      // ({ message }), which the bindings return as `{ status: "error", error }`
-      if (repositoryPath.includes("NO_REPO")) {
-        throw { name: "CommandError", message: `Repository not accessible: ${repositoryPath}` }
-      }
-      
-      // For real repositories, proxy to test server
-      return proxyToTestServer(cmd, payload)
-    },
-    
     // Special async commands
     "sync_branches": async (_cmd: string, payload: any) => {
       if (payload && payload.progress) {
@@ -515,12 +501,11 @@ export const tauriMockScript = () => {
     try {
       return await proxyToTestServer(cmd, payload)
     } catch (error: any) {
-      // the command ran and failed: the app gets its CommandError
-      if (error?.name === "CommandError") {
-        throw error
+      // the command ran and failed: the app gets its CommandError; anything else is a bug of the mock
+      if (error?.name !== "CommandError") {
+        console.error(`[Test Mock] Cannot run ${cmd}:`, error)
       }
-      console.error(`[Test Mock] Failed to handle command ${cmd}:`, error)
-      throw new Error(`Unimplemented Tauri command: ${cmd}`)
+      throw error
     }
   }
 

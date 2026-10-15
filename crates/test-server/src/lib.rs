@@ -1,8 +1,9 @@
 use axum::Router;
 use axum::{
-  extract::State,
+  extract::{Request, State},
   http::StatusCode,
-  response::Json,
+  middleware::Next,
+  response::{IntoResponse, Json, Response},
   routing::{get, post},
 };
 use dashmap::DashMap;
@@ -23,6 +24,12 @@ pub mod tauri_command_bridge;
 
 #[cfg(test)]
 mod commit_files_test;
+
+#[cfg(test)]
+mod repository_lifecycle_test;
+
+#[cfg(test)]
+mod test_support;
 
 #[cfg(test)]
 mod sse_test;
@@ -104,7 +111,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
     .route("/invoke/get_patronus_review_requirement", post(tauri_command_bridge::get_patronus_review_requirement))
+    .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
+    .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
     .route("/invoke/get_commit_files", post(tauri_command_bridge::get_commit_files))
@@ -119,9 +128,45 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback
     .fallback_service(serve_static_files())
+    .layer(axum::middleware::from_fn_with_state(state.clone(), hold_repository))
     .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
     .layer(TraceLayer::new_for_http())
     .with_state(state)
+}
+
+/// The header with which the page mock names the test repository of its page (`?repoId=`) on every request
+pub const REPOSITORY_ID_HEADER: &str = "x-repository-id";
+
+/// Holds the repository named by `X-Repository-Id` while a command of the page runs (`TestRepository::in_flight`), so
+/// `delete_repository` waits for the commands still running for it instead of deleting their files under them.
+///
+/// The command runs in a task of its own that holds the lock: a test that ends closes its page, the browser aborts the
+/// requests, and the server drops their handlers, but the git work of a command (`spawn_blocking`) cannot be canceled
+/// and runs on. The commands do all their work before they answer (a sync streams events it has already sent), so the
+/// handler is the whole command. A request for a deleted repository is a page that outlived its test.
+async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
+  let Some(id) = request.headers().get(REPOSITORY_ID_HEADER).and_then(|value| value.to_str().ok()).map(str::to_owned) else {
+    return next.run(request).await;
+  };
+  let Some(in_flight) = state.repositories.get(&id).map(|repo| repo.in_flight.clone()) else {
+    tracing::warn!(id, uri = %request.uri(), "Request for a deleted test repository");
+    return StatusCode::GONE.into_response();
+  };
+  let command = in_flight.read_owned().await;
+  // a deletion that came first has removed it and waited for the lock
+  if !state.repositories.contains_key(&id) {
+    tracing::warn!(id, uri = %request.uri(), "Request for a deleted test repository");
+    return StatusCode::GONE.into_response();
+  }
+  let uri = request.uri().clone();
+  let handler = tokio::spawn(async move {
+    let _command = command;
+    next.run(request).await
+  });
+  handler.await.unwrap_or_else(|e| {
+    tracing::error!(%uri, "The command task failed: {e}");
+    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+  })
 }
 
 /// The checkout this server serves, so the E2E global setup can refuse a server of another worktree on its port
@@ -420,6 +465,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
+    in_flight: Arc::default(),
     store,
     pull_requests: std::sync::RwLock::new(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
@@ -533,23 +579,34 @@ pub async fn get_pull_request_fixture(axum::extract::Path(id): axum::extract::Pa
   Ok(Json(serde_json::json!({ "calls": repo.pull_request_calls.load(std::sync::atomic::Ordering::SeqCst) })))
 }
 
+/// How long a deletion waits for the commands still running for the repository; a command that takes longer is stuck
+const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Forgets the repository, so no new command starts for it, waits for the running ones (`hold_repository`), then
+/// deletes its directory; `NO_REPO` has none
 pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
-  // Remove the repository from the map
-  match state.repositories.remove(&id) {
-    Some((_, repo)) => {
-      // Also remove from path_to_id map
-      state.path_to_id.remove(&repo.path);
+  let Some((_, repo)) = state.repositories.remove(&id) else {
+    return Err(StatusCode::UNPROCESSABLE_ENTITY);
+  };
+  state.path_to_id.remove(&repo.path);
 
-      // Manually clean up the repository directory
-      if let Err(e) = std::fs::remove_dir_all(&repo.path) {
-        tracing::warn!("Failed to remove repository directory {}: {}", repo.path, e);
-      }
-
-      tracing::info!("Deleted repository: {}", id);
-      Ok(StatusCode::NO_CONTENT)
-    }
-    None => Err(StatusCode::UNPROCESSABLE_ENTITY),
+  let no_commands = tokio::time::timeout(DELETE_WAIT, repo.in_flight.clone().write_owned()).await;
+  if no_commands.is_err() {
+    tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }
+
+  let directory = PathBuf::from(&repo.path);
+  if directory.starts_with(state.test_root_dir.path()) {
+    let removed = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&directory)).await;
+    match removed {
+      Ok(Ok(())) => {}
+      Ok(Err(e)) => tracing::warn!("Failed to remove repository directory {}: {}", repo.path, e),
+      Err(e) => tracing::error!("Failed to remove repository directory {}: {}", repo.path, e),
+    }
+  }
+
+  tracing::info!("Deleted repository: {}", id);
+  Ok(StatusCode::NO_CONTENT)
 }
 
 // Store API endpoints

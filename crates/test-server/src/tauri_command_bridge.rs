@@ -2,7 +2,7 @@ use axum::{
   extract::State,
   http::StatusCode,
   response::{
-    Json,
+    IntoResponse, Json, Response,
     sse::{Event, KeepAlive, Sse},
   },
 };
@@ -25,9 +25,65 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::state::AppState;
 
-// Helper function to find a repository by its path
-fn find_repository_by_path(state: &AppState, path: &str) -> Option<String> {
-  state.path_to_id.get(path).map(|entry| entry.value().clone())
+use crate::state::TestRepository;
+
+/// How a command fails: with its error, answered the way Tauri rejects a command with a `CommandError`
+/// (`{ status: "error", error: { message } }` with status 200, which the page mock hands to the bindings), or with a
+/// failure of the server itself (500). An error is the expected answer of an error-path test, not a failure of the
+/// server, so it is logged at debug; a panicked command is logged as an error.
+pub enum CommandFailure {
+  Error(String),
+  Panicked,
+}
+
+impl CommandFailure {
+  fn error(operation: &str, error: impl std::fmt::Display) -> Self {
+    let message = format!("{error:#}");
+    tracing::debug!("Cannot {operation}: {message}");
+    Self::Error(message)
+  }
+}
+
+impl IntoResponse for CommandFailure {
+  fn into_response(self) -> Response {
+    match self {
+      Self::Error(message) => Json(serde_json::json!({ "status": "error", "error": { "message": message } })).into_response(),
+      Self::Panicked => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+  }
+}
+
+type CommandResult<T> = Result<Json<T>, CommandFailure>;
+
+/// Runs a command off the async runtime, as the app runs its git work (`spawn_blocking`)
+async fn run_command<T, E, F>(operation: &'static str, command: F) -> CommandResult<T>
+where
+  F: FnOnce() -> Result<T, E> + Send + 'static,
+  T: Send + 'static,
+  E: std::fmt::Display + Send + 'static,
+{
+  match tokio::task::spawn_blocking(command).await {
+    Ok(Ok(value)) => Ok(Json(value)),
+    Ok(Err(error)) => Err(CommandFailure::error(operation, error)),
+    Err(join_error) => {
+      tracing::error!("Cannot {operation}: the command panicked: {join_error}");
+      Err(CommandFailure::Panicked)
+    }
+  }
+}
+
+/// A path that is no test repository (the deliberately missing directory of `NO_REPO`) fails the command, as the app
+/// fails it for a directory that is gone
+fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), CommandFailure> {
+  repository_by_path(state, path).map(drop)
+}
+
+fn repository_by_path<'a>(state: &'a AppState, path: &str) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, CommandFailure> {
+  state
+    .path_to_id
+    .get(path)
+    .and_then(|id| state.repositories.get(id.value()))
+    .ok_or_else(|| CommandFailure::error("find the test repository", format!("Repository not accessible: {path}")))
 }
 
 /// Streams the events sent to `rx` as SSE events named `event_name`, with a keep-alive every second
@@ -42,64 +98,25 @@ where
   Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
 }
 
-/// Runs blocking work off the async runtime; a failed task or closure is logged and answered with 500
-async fn run_blocking<T, E, F>(what: &'static str, f: F) -> Result<T, StatusCode>
-where
-  F: FnOnce() -> Result<T, E> + Send + 'static,
-  T: Send + 'static,
-  E: std::fmt::Display + Send + 'static,
-{
-  match tokio::task::spawn_blocking(f).await {
-    Ok(Ok(result)) => Ok(result),
-    Ok(Err(e)) => {
-      tracing::error!("{what}: {e}");
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-    Err(join_error) => {
-      tracing::error!("{what}: task failed: {join_error}");
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
-}
-
-// Helper function to ensure a repository exists by path
-fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), StatusCode> {
-  let repo_id = find_repository_by_path(state, path);
-  if repo_id.is_none() {
-    tracing::warn!("Repository not found for path: {}", path);
-    return Err(StatusCode::NOT_FOUND);
-  }
-  Ok(())
-}
-
 pub async fn add_issue_reference_to_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::add_issue_reference::AddIssueReferenceParams>,
-) -> Result<Json<sync_core::add_issue_reference::AddIssueReferenceResult>, StatusCode> {
-  // Validate that the repository path belongs to a test repository
+) -> CommandResult<sync_core::add_issue_reference::AddIssueReferenceResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
-
-  // Use the shared git executor from state
-  match sync_core::add_issue_reference::add_issue_reference_to_commits_core(&state.git_executor, params) {
-    Ok(result) => Ok(Json(result)),
-    Err(e) => {
-      tracing::error!("Failed to add issue reference: {}", e);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
+  let git_executor = state.git_executor.clone();
+  run_command("add the issue reference", move || {
+    sync_core::add_issue_reference::add_issue_reference_to_commits_core(&git_executor, params)
+  })
+  .await
 }
 
-/// Fails with the error message as the body, which the page mock shows like a Tauri `CommandError`
 pub async fn reword_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::reword_commit::RewordCommitsRequest>,
-) -> Result<Json<sync_core::reword_commit::RewordCommitsResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-
-  sync_core::reword_commit::reword_commits_core(&state.git_executor, &params).map(Json).map_err(|e| {
-    tracing::error!("Failed to reword commits: {:#}", e);
-    (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
-  })
+) -> CommandResult<sync_core::reword_commit::RewordCommitsResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("reword commits", move || sync_core::reword_commit::reword_commits_core(&git_executor, &params)).await
 }
 
 #[derive(Deserialize)]
@@ -121,75 +138,45 @@ pub struct GetBranchPrefixRequest {
   repository_path: String,
 }
 
-pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> Json<serde_json::Value> {
-  // Handle NO_REPO case - return error result to simulate non-existent directory
-  // This matches how Tauri commands work: they return Result<String, CommandError> not HTTP status codes
-  if request.repository_path.starts_with("NO_REPO_") {
-    let error_response = serde_json::json!({
-      "status": "error",
-      "error": { "message": format!("Repository not accessible: {}", request.repository_path) }
-    });
-    return Json(error_response);
-  }
-
-  // Handle empty path - return success with empty string (for global config fallback)
+/// The local `branchdeck.branchPrefix` only, never the user's global config, so the tests are deterministic; an empty
+/// path (the global config of the settings) is an empty prefix
+pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<String> {
   if request.repository_path.is_empty() {
-    tracing::debug!("Empty path detected, returning empty branch prefix for global config");
-    return Json(serde_json::json!({
-      "status": "ok",
-      "data": ""
-    }));
+    return Ok(Json(String::new()));
   }
-
-  // Log all known paths for debugging
-  {
-    let keys: Vec<_> = state.path_to_id.iter().map(|entry| entry.key().clone()).collect();
-    tracing::debug!("Known repository paths: {:?}", keys);
-  }
-
-  // Validate that the repository path belongs to a test repository
-  if ensure_repository_exists(&state, &request.repository_path).is_err() {
-    let error_response = serde_json::json!({
-      "status": "error",
-      "error": { "message": format!("Repository not found: {}", request.repository_path) }
-    });
-    return Json(error_response);
-  }
-
-  // For deterministic tests, ignore user's global git config.
-  // Only read the local repo config for branchdeck.branchPrefix.
-  // If not set locally, return empty string instead of falling back to global.
-  let repo_path = &request.repository_path;
-  match state.git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path) {
-    Ok((output, exit_code)) => match exit_code {
-      0 => Json(serde_json::json!({ "status": "ok", "data": output.trim() })),
-      1 => Json(serde_json::json!({ "status": "ok", "data": "" })),
-      128 => Json(serde_json::json!({ "status": "error", "error": { "message": format!("Repository not accessible: {}", repo_path) } })),
+  ensure_repository_exists(&state, &request.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the branch prefix", move || {
+    let repo_path = &request.repository_path;
+    let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
+    match exit_code {
+      0 => Ok(output.trim().to_string()),
+      1 => Ok(String::new()),
+      128 => Err(anyhow::anyhow!("Repository not accessible: {repo_path}")),
       code => {
         tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
-        Json(serde_json::json!({ "status": "ok", "data": "" }))
+        Ok(String::new())
       }
-    },
-    Err(e) => {
-      tracing::error!(error = %e, repo_path, "Failed to execute git config --local");
-      Json(serde_json::json!({ "status": "error", "error": { "message": format!("Failed to access repository {}: {}", repo_path, e) } }))
     }
-  }
+  })
+  .await
 }
 
 /// The production check for a test repository (the template sets user.name and user.email); a fixed suggestion without
 /// one, so the first run does not depend on the identity of the machine
-pub async fn check_git_setup(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> Json<serde_json::Value> {
-  let setup = if request.repository_path.is_empty() || ensure_repository_exists(&state, &request.repository_path).is_err() {
-    sync_core::git_setup::GitSetup {
+pub async fn check_git_setup(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<sync_core::git_setup::GitSetup> {
+  if request.repository_path.is_empty() || ensure_repository_exists(&state, &request.repository_path).is_err() {
+    return Ok(Json(sync_core::git_setup::GitSetup {
       git_error: None,
       identity_error: None,
       suggested_branch_prefix: "test-user".to_string(),
-    }
-  } else {
-    sync_core::git_setup::check_git_setup(&state.git_executor, &request.repository_path)
-  };
-  Json(serde_json::json!({ "status": "ok", "data": setup }))
+    }));
+  }
+  let git_executor = state.git_executor.clone();
+  run_command("check the git setup", move || {
+    anyhow::Ok(sync_core::git_setup::check_git_setup(&git_executor, &request.repository_path))
+  })
+  .await
 }
 
 // Progress reporter that sends events through a channel
@@ -213,14 +200,13 @@ pub struct SyncBranchesRequest {
   branch_prefix: String,
 }
 
-/// A failed sync fails the command with the error message as the body, which the page mock shows like the
-/// `CommandError` of the app (the page alert), after the events sent before the failure
+/// Streams the events of the sync once it is done; a failed sync answers with its error instead, as the app's command
+/// rejects (the page alert), without the events sent before the failure
 pub async fn sync_branches(
   State(state): State<Arc<AppState>>,
   Json(request): Json<SyncBranchesRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, String)> {
-  // Validate that the repository path belongs to a test repository
-  ensure_repository_exists(&state, &request.repository_path).map_err(|status| (status, String::new()))?;
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure> {
+  ensure_repository_exists(&state, &request.repository_path)?;
 
   // Create a channel for streaming events
   let (tx, rx) = mpsc::unbounded_channel();
@@ -238,107 +224,93 @@ pub async fn sync_branches(
     ..Default::default()
   };
   if let Err(e) = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await {
-    tracing::error!("Sync branches failed: {:#}", e);
-    return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")));
+    return Err(CommandFailure::error("sync branches", e));
   }
 
   Ok(sse_events(rx, "sync"))
 }
 
-/// Fails with the error message as the body, which the page mock shows like a Tauri `CommandError`
 pub async fn move_commits_to_branch(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::move_commits::MoveCommitsParams>,
-) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-
-  sync_core::move_commits::move_commits_to_branch_core(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("move commits", &e))
+) -> CommandResult<sync_core::move_commits::MoveCommitsResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("move commits", move || sync_core::move_commits::move_commits_to_branch_core(&git_executor, &params)).await
 }
 
-/// Fails with the error message as the body, see `move_commits_to_branch`
 pub async fn rename_branch(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::stack_operations::RenameBranchParams>,
-) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-
-  sync_core::stack_operations::rename_branch(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("rename branch", &e))
+) -> CommandResult<sync_core::move_commits::MoveCommitsResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("rename branch", move || sync_core::stack_operations::rename_branch(&git_executor, &params)).await
 }
 
-/// Fails with the error message as the body, see `move_commits_to_branch`
-pub async fn undo_regroup(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::stack_operations::UndoRegroupParams>) -> Result<Json<()>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-
-  sync_core::stack_operations::undo_regroup(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("undo regroup", &e))
+pub async fn undo_regroup(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::stack_operations::UndoRegroupParams>) -> CommandResult<()> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("undo regroup", move || sync_core::stack_operations::undo_regroup(&git_executor, &params)).await
 }
 
-/// Fails with the error message as the body, see `move_commits_to_branch`
 pub async fn restack_branch(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::stack_operations::RestackBranchParams>,
-) -> Result<Json<sync_core::move_commits::MoveCommitsResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-
-  sync_core::stack_operations::restack_branch(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("restack branch", &e))
+) -> CommandResult<sync_core::move_commits::MoveCommitsResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("restack branch", move || sync_core::stack_operations::restack_branch(&git_executor, &params)).await
 }
 
-/// Fails with the error message as the body, see `move_commits_to_branch`
 pub async fn squash_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::squash::SquashCommitsParams>,
-) -> Result<Json<sync_core::squash::SquashCommitsResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::squash::squash_commits_core(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("squash commits", &e))
+) -> CommandResult<sync_core::squash::SquashCommitsResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("squash commits", move || sync_core::squash::squash_commits_core(&git_executor, &params)).await
 }
 
-pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::squash::RestoreBranchHeadParams>) -> Result<Json<()>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::squash::restore_branch_head_core(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("restore the branch head", &e))
+pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::squash::RestoreBranchHeadParams>) -> CommandResult<()> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("restore the branch head", move || sync_core::squash::restore_branch_head_core(&git_executor, &params)).await
 }
 
 pub async fn get_autosquash_plan(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::autosquash::GetAutosquashPlanParams>,
-) -> Result<Json<sync_core::autosquash::AutosquashPlan>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::autosquash::get_autosquash_plan_core(&state.git_executor, &params.repository_path)
-    .map(Json)
-    .map_err(|e| command_failed("get the autosquash plan", &e))
+) -> CommandResult<sync_core::autosquash::AutosquashPlan> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("get the autosquash plan", move || {
+    sync_core::autosquash::get_autosquash_plan_core(&git_executor, &params.repository_path)
+  })
+  .await
 }
 
-/// Fails with the error message as the body, see `move_commits_to_branch`
 pub async fn squash_fixup_commits(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::autosquash::SquashFixupsParams>,
-) -> Result<Json<sync_core::autosquash::SquashFixupsResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::autosquash::squash_fixup_commits_core(&state.git_executor, &params)
-    .map(Json)
-    .map_err(|e| command_failed("squash fixup commits", &e))
+) -> CommandResult<sync_core::autosquash::SquashFixupsResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("squash fixup commits", move || sync_core::autosquash::squash_fixup_commits_core(&git_executor, &params)).await
 }
 
-/// Fails with the error message as the body, see `move_commits_to_branch`. The progress channel is not mocked; the
-/// fetch reads the upstream from a directory of the template, so the update works offline.
+/// The progress channel is not mocked; the fetch reads the upstream from a directory of the template, so the update
+/// works offline
 pub async fn update_project(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::update_project::UpdateProjectParams>,
-) -> Result<Json<sync_core::update_project::UpdateProjectResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::update_project::update_project_core(&state.git_executor, &params, &|_| {})
-    .map(Json)
-    .map_err(|e| command_failed("update the project", &e))
+) -> CommandResult<sync_core::update_project::UpdateProjectResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("update the project", move || {
+    sync_core::update_project::update_project_core(&git_executor, &params, &|_| {})
+  })
+  .await
 }
 
 #[derive(Deserialize)]
@@ -347,98 +319,114 @@ pub struct DismissLandedRequest {
   repository_path: String,
 }
 
-/// Clears the report of what landed; see `update_project`
-pub async fn dismiss_landed(State(state): State<Arc<AppState>>, Json(request): Json<DismissLandedRequest>) -> Result<Json<()>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &request.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::landed::dismiss_landed(&state.git_executor, &request.repository_path)
-    .map(Json)
-    .map_err(|e| command_failed("dismiss the landed commits", &e))
+/// Clears the report of what landed
+pub async fn dismiss_landed(State(state): State<Arc<AppState>>, Json(request): Json<DismissLandedRequest>) -> CommandResult<()> {
+  ensure_repository_exists(&state, &request.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("dismiss the landed commits", move || {
+    sync_core::landed::dismiss_landed(&git_executor, &request.repository_path)
+  })
+  .await
 }
 
-/// Fails with the error message as the body, see `update_project`; the progress channel is not mocked
+/// The progress channel is not mocked
 pub async fn fetch_baseline(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::baseline_fetch::FetchBaselineParams>,
-) -> Result<Json<sync_core::baseline_fetch::FetchBaselineResult>, (StatusCode, String)> {
-  ensure_repository_exists(&state, &params.repository_path).map_err(|status| (status, String::new()))?;
-  sync_core::baseline_fetch::fetch_baseline_core(&state.git_executor, &params, &mut |_| {})
-    .map(Json)
-    .map_err(|e| command_failed("fetch the baseline", &e))
+) -> CommandResult<sync_core::baseline_fetch::FetchBaselineResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("fetch the baseline", move || {
+    sync_core::baseline_fetch::fetch_baseline_core(&git_executor, &params, &mut |_| {})
+  })
+  .await
 }
 
 /// The fixture set by `POST /repositories/{id}/pull-requests`; gh never runs in E2E
 pub async fn get_pull_requests(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::pull_requests::GetPullRequestsParams>,
-) -> Result<Json<sync_types::pull_request::PullRequestsResult>, StatusCode> {
-  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  repo.pull_request_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-  let mut result = repo.pull_requests.read().expect("pull request fixture lock").clone();
-  drop(repo);
-  for pull_request in result.pull_requests.values_mut() {
-    if pull_request.head_ref_oid.is_empty() {
-      let full_ref = format!("refs/heads/{}", pull_request.head_ref_name);
-      pull_request.head_ref_oid = state
-        .git_executor
-        .execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], &params.repository_path)
-        .unwrap_or_default();
+) -> CommandResult<sync_types::pull_request::PullRequestsResult> {
+  let mut result = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.pull_request_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.pull_requests.read().expect("pull request fixture lock").clone()
+  };
+  let git_executor = state.git_executor.clone();
+  run_command("list pull requests", move || {
+    for pull_request in result.pull_requests.values_mut() {
+      if pull_request.head_ref_oid.is_empty() {
+        let full_ref = format!("refs/heads/{}", pull_request.head_ref_name);
+        pull_request.head_ref_oid = git_executor
+          .execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], &params.repository_path)
+          .unwrap_or_default();
+      }
     }
-  }
-  Ok(Json(result))
+    anyhow::Ok(result)
+  })
+  .await
 }
 
 /// The fixture set by `POST /repositories/{id}/patronus`; Patronus is never called in E2E
 pub async fn get_patronus_robots(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_types::patronus::GetPatronusRobotsParams>,
-) -> Result<Json<sync_types::patronus::PatronusRobotsResult>, StatusCode> {
-  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  repo.patronus_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-  let result = repo.patronus.read().expect("patronus fixture lock").clone();
-  drop(repo);
-  Ok(Json(resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result)))
+) -> CommandResult<sync_types::patronus::PatronusRobotsResult> {
+  let result = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.patronus_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.patronus.read().expect("patronus fixture lock").clone()
+  };
+  let git_executor = state.git_executor.clone();
+  run_command("list Patronus robots", move || {
+    anyhow::Ok(resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result))
+  })
+  .await
 }
 
 /// The fixture robots whose status differs from the one the app knows, as Patronus `fetch-updates` answers
 pub async fn poll_patronus_robots(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_types::patronus::PollPatronusRobotsParams>,
-) -> Result<Json<sync_types::patronus::PatronusRobotsResult>, StatusCode> {
-  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  repo.patronus_poll_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-  let mut result = repo.patronus.read().expect("patronus fixture lock").clone();
-  drop(repo);
+) -> CommandResult<sync_types::patronus::PatronusRobotsResult> {
+  let mut result = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.patronus_poll_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.patronus.read().expect("patronus fixture lock").clone()
+  };
   result
     .robots
     .retain(|robot| params.robots.iter().any(|known| known.id == robot.id && known.status != robot.status));
-  Ok(Json(resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result)))
+  let git_executor = state.git_executor.clone();
+  run_command("poll Patronus robots", move || {
+    anyhow::Ok(resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result))
+  })
+  .await
 }
 
 /// The fixture robot without checks, problems or profile; a test that needs them routes the command in the page
 pub async fn get_patronus_robot_details(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_types::patronus::PatronusRobotParams>,
-) -> Result<Json<sync_types::patronus::PatronusRobotDetails>, (StatusCode, String)> {
-  let id = find_repository_by_path(&state, &params.repository_path).ok_or((StatusCode::UNPROCESSABLE_ENTITY, String::new()))?;
-  let repo = state.repositories.get(&id).ok_or((StatusCode::UNPROCESSABLE_ENTITY, String::new()))?;
-  let result = repo.patronus.read().expect("patronus fixture lock").clone();
-  drop(repo);
-  let result = resolve_patronus_revisions(&state, &params.repository_path, &params.branch_prefix, result);
-  let robot = result
-    .robots
-    .into_iter()
-    .find(|robot| robot.id == params.robot_id)
-    .ok_or((StatusCode::UNPROCESSABLE_ENTITY, format!("No robot {}", params.robot_id)))?;
-  Ok(Json(sync_types::patronus::PatronusRobotDetails {
-    robot,
-    profile_id: None,
-    profile_name: None,
-    checks: None,
-    problems: Vec::new(),
-  }))
+) -> CommandResult<sync_types::patronus::PatronusRobotDetails> {
+  let result = repository_by_path(&state, &params.repository_path)?.patronus.read().expect("patronus fixture lock").clone();
+  let git_executor = state.git_executor.clone();
+  run_command("read the Patronus robot", move || {
+    let result = resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result);
+    let robot = result
+      .robots
+      .into_iter()
+      .find(|robot| robot.id == params.robot_id)
+      .ok_or_else(|| anyhow::anyhow!("No robot {}", params.robot_id))?;
+    anyhow::Ok(sync_types::patronus::PatronusRobotDetails {
+      robot,
+      profile_id: None,
+      profile_name: None,
+      checks: None,
+      problems: Vec::new(),
+    })
+  })
+  .await
 }
 
 /// No problems: a test that needs some routes the command in the page
@@ -456,9 +444,31 @@ pub async fn get_patronus_review_requirement(Json(_params): Json<sync_types::pat
   })
 }
 
+/// The target branch the app finds for the baseline, supported, without profiles: a test that needs profiles routes the
+/// command in the page
+pub async fn get_patronus_start_options(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::patronus::GetPatronusStartOptionsParams>,
+) -> CommandResult<sync_types::patronus::PatronusStartOptions> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the Safe Push options", move || {
+    let baseline = &params.baseline_branch;
+    let target_branch = sync_core::patronus::find_target_branch(&git_executor, &params.repository_path, baseline)?
+      .ok_or_else(|| anyhow::anyhow!("The baseline {baseline} is not a branch of origin: Patronus pushes into a branch of origin"))?;
+    anyhow::Ok(sync_types::patronus::PatronusStartOptions {
+      target_branch,
+      supported: true,
+      profiles: Vec::new(),
+      default_profile_id: None,
+    })
+  })
+  .await
+}
+
 /// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch
 fn resolve_patronus_revisions(
-  state: &AppState,
+  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
   repository_path: &str,
   branch_prefix: &str,
   mut result: sync_types::patronus::PatronusRobotsResult,
@@ -466,15 +476,10 @@ fn resolve_patronus_revisions(
   for robot in &mut result.robots {
     if let (Some(""), Some(branch_name)) = (robot.source_revision.as_deref(), robot.branch_name.as_deref()) {
       let full_ref = format!("refs/heads/{branch_prefix}/virtual/{branch_name}");
-      robot.source_revision = state.git_executor.execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], repository_path).ok();
+      robot.source_revision = git_executor.execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], repository_path).ok();
     }
   }
   result
-}
-
-fn command_failed(operation: &str, e: &anyhow::Error) -> (StatusCode, String) {
-  tracing::error!("Failed to {operation}: {e:#}");
-  (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
 }
 
 pub async fn browse_repository(
@@ -505,12 +510,12 @@ pub async fn browse_repository(
 
 /// Mock of `suggest_branch_names` (E2E never runs claude): the repository's fixture after its delay, by default two
 /// names from the words of the commit messages
-pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(params): Json<SuggestBranchNamesParams>) -> Result<Json<BranchNameSuggestionOutcome>, StatusCode> {
-  let id = find_repository_by_path(&state, &params.repository_path).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  repo.branch_name_suggestion_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-  let fixture = repo.branch_name_suggestions.read().expect("branch name suggestion fixture lock").clone();
-  drop(repo);
+pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(params): Json<SuggestBranchNamesParams>) -> CommandResult<BranchNameSuggestionOutcome> {
+  let fixture = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.branch_name_suggestion_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.branch_name_suggestions.read().expect("branch name suggestion fixture lock").clone()
+  };
   tokio::time::sleep(std::time::Duration::from_millis(fixture.delay_ms)).await;
   if let Some(outcome) = fixture.outcome {
     return Ok(Json(outcome));
@@ -528,73 +533,75 @@ pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(param
   Ok(Json(BranchNameSuggestionOutcome::Suggested { names }))
 }
 
-pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> Result<StatusCode, StatusCode> {
-  // Validate that the repository path belongs to a test repository
+pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<()> {
   ensure_repository_exists(&state, &params.repository_path)?;
-
-  // Use the shared git executor from state
-  match delete_archived_branch_core(&state.git_executor, params) {
-    Ok(()) => Ok(StatusCode::OK),
-    Err(e) => {
-      tracing::error!("Failed to delete archived branch: {}", e);
-      Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-  }
+  let git_executor = state.git_executor.clone();
+  run_command("delete the archived branch", move || delete_archived_branch_core(&git_executor, params)).await
 }
 
-pub async fn amend_uncommitted_to_branch(State(state): State<Arc<AppState>>, Json(params): Json<AmendUncommittedToBranchParams>) -> Result<Json<AmendCommandResult>, StatusCode> {
-  // Validate that the repository path belongs to a test repository
-  ensure_repository_exists(&state, &params.repository_path)?;
-
-  let git_executor = state.git_executor.clone();
-  run_blocking("Failed to amend uncommitted changes", move || amend_uncommitted_to_branch_core(&git_executor, params))
-    .await
-    .map(Json)
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetArchivedBranchCommitsRequest {
+  repository_path: String,
+  branch_name: String,
 }
 
-pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> Result<Json<UncommittedChangesResult>, StatusCode> {
-  // Validate that the repository path belongs to a test repository
-  ensure_repository_exists(&state, &params.repository_path)?;
-
+/// The commits of an archived branch, as the app reads them
+pub async fn get_archived_branch_commits(
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<GetArchivedBranchCommitsRequest>,
+) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
+  ensure_repository_exists(&state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_blocking("Failed to get uncommitted changes", move || core_get_uncommitted_changes(&git_executor, params))
-    .await
-    .map(Json)
+  run_command("read the commits of the archived branch", move || {
+    let baseline_branch = sync_core::baseline::detect_baseline_branch(&git_executor, &request.repository_path, "master")?;
+    branch_integration::archive::get_archived_branch_commits(&git_executor, &request.repository_path, &request.branch_name, &baseline_branch)
+  })
+  .await
+}
+
+pub async fn amend_uncommitted_to_branch(State(state): State<Arc<AppState>>, Json(params): Json<AmendUncommittedToBranchParams>) -> CommandResult<AmendCommandResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("amend the uncommitted changes", move || amend_uncommitted_to_branch_core(&git_executor, params)).await
+}
+
+pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> CommandResult<UncommittedChangesResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the uncommitted changes", move || core_get_uncommitted_changes(&git_executor, params)).await
 }
 
 // The commit files commands run real git on the fixture repository, without the object cache: an LMDB environment
 // per test repository would stay open (and keep its files) for the life of the server
 
-pub async fn get_commit_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFilesParams>) -> Result<Json<CommitFiles>, StatusCode> {
+pub async fn get_commit_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFilesParams>) -> CommandResult<CommitFiles> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_blocking("Failed to get commit files", move || {
+  run_command("read the files of a commit", move || {
     read_commit_files_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), std::slice::from_ref(&params.commit_id))?
       .pop()
       .ok_or_else(|| anyhow::anyhow!("No files read for {}", params.commit_id))
   })
   .await
-  .map(Json)
 }
 
-pub async fn get_commits_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitsFilesParams>) -> Result<Json<Vec<CommitFiles>>, StatusCode> {
+pub async fn get_commits_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitsFilesParams>) -> CommandResult<Vec<CommitFiles>> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_blocking("Failed to get the files of commits", move || {
+  run_command("read the files of commits", move || {
     read_commit_files_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), &params.commit_ids)
   })
   .await
-  .map(Json)
 }
 
-pub async fn get_commit_file_diff(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFileDiffParams>) -> Result<Json<FileDiff>, StatusCode> {
+pub async fn get_commit_file_diff(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFileDiffParams>) -> CommandResult<FileDiff> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_blocking("Failed to get the diff of a commit file", move || {
+  run_command("read the diff of a commit file", move || {
     read_commit_file_diff(&git_executor, &params.repository_path, &params.commit_id, &params.path, params.old_path.as_deref())
   })
   .await
-  .map(Json)
 }
 
 #[derive(Deserialize)]

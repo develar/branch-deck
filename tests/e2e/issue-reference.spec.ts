@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures/test-fixtures"
 import { waitForBranchSyncComplete } from "./helpers/sync-helpers"
 import { openContextMenu, clickContextMenuItem } from "./helpers/selection-helpers"
 import { inlineIssueReference, submitInlineForm, testInputAutoFocus, testEscapeKeyBehavior, testEscapeKeyWithButtonFocus, validateFormError } from "./helpers/inline-form-helpers"
-import { waitForApiResponse, waitForProcessingComplete } from "./helpers/wait-helpers"
+import { routeCommandError, waitForApiResponse, waitForProcessingComplete } from "./helpers/wait-helpers"
 import { findBranchRow, isBranchProcessing } from "./helpers/branch-helpers"
 
 test.describe("Issue Reference Feature", () => {
@@ -83,7 +83,7 @@ test.describe("Issue Reference Feature", () => {
   })
 
   test("should keep the typed reference when adding it fails", async ({ page }) => {
-    await page.route("**/invoke/add_issue_reference_to_commits", route => route.fulfill({ status: 500, body: "The branch moved" }))
+    await routeCommandError(page, "add_issue_reference_to_commits", "The branch moved")
     await openContextMenu(page, findBranchRow(page, "test-branch"))
     await clickContextMenuItem(page, "Add Issue Reference…")
 

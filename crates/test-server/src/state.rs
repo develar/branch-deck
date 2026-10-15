@@ -19,6 +19,9 @@ pub struct AppState {
 pub struct TestRepository {
   pub id: String,
   pub path: String,
+  /// Held for reading by every request of the page mock for this repository (`hold_repository` in lib.rs) and for
+  /// writing by `delete_repository`, so a repository is deleted only after the commands still running for it
+  pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
   pub store: DashMap<String, serde_json::Value>,
   /// What `get_pull_requests` answers (E2E never runs gh); not on GitHub until a test sets it
   pub pull_requests: RwLock<PullRequestsResult>,
