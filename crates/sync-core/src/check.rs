@@ -212,12 +212,18 @@ impl CheckSession {
   /// Check `plan` (or the current grouping without one) against the snapshot
   #[instrument(skip_all)]
   pub fn check(&self, plan: Option<&RegroupPlan>) -> Result<CheckReport, RegroupError> {
-    self.check_only(plan, None)
+    self.check_only(plan, None, None)
+  }
+
+  /// `check`, with the dangling references of `branches` only: a trial of a fix that concerns them
+  #[instrument(skip_all)]
+  pub fn check_with_dangling_of(&self, plan: Option<&RegroupPlan>, branches: &[String]) -> Result<CheckReport, RegroupError> {
+    self.check_only(plan, None, Some(branches))
   }
 
   /// The check of `plan`; with `only`, of that branch and the branches it is built on, the others are not built and
   /// not in the report
-  fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>) -> Result<CheckReport, RegroupError> {
+  fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>, dangling_of: Option<&[String]>) -> Result<CheckReport, RegroupError> {
     let (git_executor, repository_path, branch_prefix) = (&self.git_executor, self.repository_path.as_str(), self.branch_prefix.as_str());
     let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&RegroupPlan::default()))?;
     let baseline_branch = self.snapshot.baseline.clone();
@@ -326,7 +332,7 @@ impl CheckSession {
     let dangling = if only.is_some() {
       BTreeMap::new()
     } else {
-      self.dangling_references(&regroup.previous_head, base.as_deref(), &checks)?
+      self.dangling_references(&regroup.previous_head, base.as_deref(), &checks, dangling_of)?
     };
     Ok(CheckReport {
       head: regroup.previous_head.clone(),
@@ -341,7 +347,7 @@ impl CheckSession {
   }
 
   /// The dangling references of the built branches; the changed lines and the baseline tip are read once per session
-  fn dangling_references(&self, head: &str, base: Option<&str>, checks: &[BranchCheck]) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
+  fn dangling_references(&self, head: &str, base: Option<&str>, checks: &[BranchCheck], of: Option<&[String]>) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
     let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let read = self.dangling_input.get_or_init(|| {
       let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache).map_err(|e| format!("{e:#}"))?;
@@ -364,6 +370,7 @@ impl CheckSession {
       baseline_tip: baseline_tip.as_deref(),
       commits: &commits,
       lines,
+      of,
     };
     find_dangling_references(&self.git_executor, &self.repository_path, &input, checks).map_err(RegroupError::from)
   }
@@ -384,7 +391,7 @@ impl CheckSession {
       unstack: vec![branch.to_string()],
       ..RegroupPlan::default()
     };
-    let report = self.check_only(Some(&plan), Some(branch))?;
+    let report = self.check_only(Some(&plan), Some(branch), None)?;
     let outcome = report.branches.into_iter().find(|check| check.name == branch).map(|check| check.outcome);
     match outcome {
       Some(CheckOutcome::Ok { .. }) => Ok(StackIndependence::Builds { parent }),

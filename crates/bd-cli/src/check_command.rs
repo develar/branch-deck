@@ -632,7 +632,9 @@ fn inverted_stack(
     }
     fixed.unstack.extend(fix.unstack.iter().cloned());
     // a fix the regroup refuses, or one after which either branch still fails, is no fix
-    let Ok(trial) = session.check(Some(&fixed)) else { continue };
+    let Ok(trial) = session.check_with_dangling_of(Some(&fixed), &[branch.name.clone(), child.name.clone()]) else {
+      continue;
+    };
     let builds = |name: &str| {
       trial
         .branches

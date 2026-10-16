@@ -1077,7 +1077,10 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    or function, a static member), by per-language patterns. A member is searched as `<file stem>.<name>`, a top-level
    name as a whole word, a private one only in its file; a top-level JVM declaration moved to another package as
    `<old package>.<name>`. A name still declared in its file in the branch's tree (an overload, a change in place) is
-   not searched.
+   not searched, nor a member moved with its class (a file of the same stem), nor a private declaration the branch
+   declares elsewhere (its file imports it from there). Only a private declaration or a member is searched unqualified
+   in its own file. On the 200 commits and 35 branches of the IntelliJ checkout these rules took the check from nine
+   false references to none, in 8 s, the trial builds included.
 3. A use the branch's tree has and HEAD's tree lacks can only be in a path where the two differ: one `diff-tree
    --stdin -r -z --raw` with a line `<virtual head> <HEAD>` per built branch (and `<baseline tip> <base>` for the uses
    the baseline got after the base) lists them, one `cat-file --batch -Z` reads their blobs and the branches' versions

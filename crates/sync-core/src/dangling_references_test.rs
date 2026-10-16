@@ -199,3 +199,60 @@ fn a_use_landed_on_the_baseline_is_a_possible_reference() {
     (HOST, &removed_by, true, false)
   );
 }
+
+/// A class moved to another package with its members (the same file name): `Json.quote` still resolves, so a use that
+/// another branch deletes is no dangling reference; only an import of the old package would be
+#[test]
+fn a_member_moved_with_its_class_is_not_dangling() {
+  let repo = TestRepo::new();
+  let json = |package: &str| format!("package {package};\n\npublic final class Json {{\n  public static String quote(String value) {{\n    return value;\n  }}\n}}\n");
+  let user = "package flow\n\nimport protocol.Json\n\nfun shown(name: String) = Json.quote(name)\n";
+  repo.create_commit_with_files("Initial commit", &[("old/support/Json.java", &json("support")), ("src/flow/Other.kt", "package flow\n")]);
+  // the move, and a user of the new place in the same branch
+  repo.create_commit_with_files("(protocol) Move Json", &[("new/protocol/Json.java", &json("protocol")), ("src/flow/Shown.kt", user)]);
+  repo
+    .git_executor()
+    .execute_command(&["rm", "-q", "old/support/Json.java"], repo.path().to_str().unwrap())
+    .unwrap();
+  repo.create_commit_with_files("(protocol) Drop the old Json", &[("src/flow/Other.kt", "package flow\n\n// moved\n")]);
+  repo.create_commit_with_files("(other) Drop the user", &[("src/flow/Shown.kt", "package flow\n")]);
+  assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
+}
+
+/// A top-level function moved to another file of its package, and a property of the same name left in the old file:
+/// the function still resolves, and the property is no use of it
+#[test]
+fn a_top_level_function_moved_within_its_package_is_not_dangling() {
+  let repo = TestRepo::new();
+  let dsl = "package acp\n\nfun requestKey(value: String): String = value\n\nclass Permission(\n  val requestKey: String,\n)\n";
+  repo.create_commit_with_files("Initial commit", &[("src/acp/Dsl.kt", dsl)]);
+  repo.create_commit_with_files(
+    "(keys) Move requestKey",
+    &[
+      ("src/acp/Dsl.kt", "package acp\n\nclass Permission(\n  val requestKey: String,\n)\n"),
+      ("src/acp/Keys.kt", "package acp\n\nfun requestKey(value: String): String = value\n"),
+    ],
+  );
+  repo.create_commit_with_files("(other) Drop the property", &[("src/acp/Dsl.kt", "package acp\n\nclass Permission\n")]);
+  assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
+}
+
+/// A private function moved to another file and made public there: its old file imports it from the new place
+#[test]
+fn a_private_declaration_moved_elsewhere_is_not_dangling() {
+  let repo = TestRepo::new();
+  let utils = "package flow\n\nprivate fun String.listedIdentity(): String = this\n\nfun shown(name: String) = name.listedIdentity()\n";
+  repo.create_commit_with_files("Initial commit", &[("src/flow/Utils.kt", utils)]);
+  repo.create_commit_with_files(
+    "(authored) Share listedIdentity",
+    &[
+      ("src/bridge/Authored.kt", "package bridge\n\nfun String.listedIdentity(): String = this\n"),
+      (
+        "src/flow/Utils.kt",
+        "package flow\n\nimport bridge.listedIdentity\n\nfun shown(name: String) = name.listedIdentity()\n",
+      ),
+    ],
+  );
+  repo.create_commit_with_files("(other) Drop the utils", &[("src/flow/Utils.kt", "package flow\n")]);
+  assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
+}

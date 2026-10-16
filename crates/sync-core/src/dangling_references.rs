@@ -236,8 +236,9 @@ struct Search {
   removed_by: String,
   /// The uses in the files of `language`; `None` searches only `file`
   pattern: Option<Regex>,
-  /// The uses in `file` itself
-  local_pattern: Regex,
+  /// The unqualified uses in `file` itself, for a private declaration or a member: a top-level one is found by
+  /// `pattern`, and one moved within its package still resolves there
+  local_pattern: Option<Regex>,
   /// A top-level JVM declaration moved to other files: searched as `<old package>.<name>` once the packages are read,
   /// when they differ
   moved: Option<Moved>,
@@ -252,14 +253,20 @@ struct Moved {
 impl Search {
   /// The regex for a use in `path`, or `None` when the path isn't searched
   fn pattern_for(&self, path: &str) -> Option<&Regex> {
-    if path == self.file {
-      return Some(&self.local_pattern);
+    if path == self.file
+      && let Some(local) = &self.local_pattern
+    {
+      return Some(local);
     }
     self.pattern.as_ref().filter(|_| language_of(path) == Some(self.language))
   }
 
   /// The lines of `text` that use the name, without the lines that declare it
   fn uses<'a>(&self, path: &str, text: &'a str) -> Vec<(usize, &'a str)> {
+    // most blobs don't name it at all: one substring search instead of one per line
+    if !text.contains(self.name.as_str()) {
+      return Vec::new();
+    }
     let Some(pattern) = self.pattern_for(path) else { return Vec::new() };
     let language = language_of(path);
     text
@@ -386,6 +393,8 @@ pub struct DanglingInput<'a> {
   pub commits: &'a [String],
   /// The changed lines of `commits`
   pub lines: &'a HashMap<String, Vec<FileLines>>,
+  /// Only the references of these branches; `None` for every built branch
+  pub of: Option<&'a [String]>,
 }
 
 /// One pair of trees that `diff-tree` compares: `(the side with the uses, the other side)`, and per path the blobs
@@ -419,6 +428,9 @@ pub fn find_dangling_references(
   let mut packages_needed: Vec<String> = Vec::new();
   for branch in branches {
     let CheckOutcome::Ok { head } = &branch.outcome else { continue };
+    if input.of.is_some_and(|of| !of.contains(&branch.name)) {
+      continue;
+    }
     let mut members: HashSet<&str> = branch.commits.iter().map(String::as_str).collect();
     let mut ancestor = branch.built_on.as_deref();
     // bounded: a broken stack can't loop
@@ -461,7 +473,11 @@ pub fn find_dangling_references(
       let moved_to: Vec<&String> = added.get(&name).map_or_default(|files| files.iter().filter(|other| **other != file).collect());
       let escaped = regex::escape(&name);
       let (pattern, moved) = match declaration.reach {
+        // a private declaration made visible elsewhere: its file imports it from there
+        Reach::Private if !moved_to.is_empty() => continue,
         Reach::Private => (None, None),
+        // a member moved with its class (a file of the same stem elsewhere) keeps its qualified name
+        Reach::Member if moved_to.iter().any(|other| stem(other) == stem(&file)) => continue,
         Reach::Member => (Some(whole_word(&format!(r"{}\s*\.\s*(?:Companion\s*\.\s*)?{escaped}", regex::escape(stem(&file))))), None),
         Reach::TopLevel if moved_to.is_empty() => (Some(whole_word(&escaped)), None),
         // a moved top-level declaration breaks the imports of its old package only
@@ -477,7 +493,7 @@ pub fn find_dangling_references(
         Reach::TopLevel => continue,
       };
       searches.push(Search {
-        local_pattern: whole_word(&escaped),
+        local_pattern: (declaration.reach != Reach::TopLevel).then(|| whole_word(&escaped)),
         name,
         file,
         language,
