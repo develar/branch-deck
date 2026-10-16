@@ -296,6 +296,7 @@ test.describe("Patronus actions", () => {
 
     test("should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       const checks = await routeCommand(page, "get_patronus_review_requirement", params => params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : REVIEW_REQUIRED)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
@@ -320,6 +321,9 @@ test.describe("Patronus actions", () => {
 
       await page.getByTestId("patronus-start-form").getByRole("button", { name: /Start Safe Push/ }).click()
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+      // the branch isn't on the remote yet: the start pushes it first, without a toast of its own
+      expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
+      await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
       expect(starts).toEqual([expect.objectContaining({ mergeRequest: MERGE_REQUEST })])
     })
 
