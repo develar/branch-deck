@@ -81,9 +81,19 @@ function createPlaceholder(name: string): ArchivedBranch {
   }
 }
 
-/** Extracts YYYY-MM-DD from paths like "user/archived/2025-01-19/feature-name". */
+const archiveDates = new Map<string, string>()
+
+/** Extracts YYYY-MM-DD from paths like "user/archived/2025-01-19/feature-name"; cached, the sort asks for it per comparison */
 function extractArchiveDate(branchName: string): string {
-  return branchName.match(/\/archived\/(\d{4}-\d{2}-\d{2})\//)?.[1] ?? ""
+  let date = archiveDates.get(branchName)
+  if (date === undefined) {
+    date = branchName.match(/\/archived\/(\d{4}-\d{2}-\d{2})\//)?.[1] ?? ""
+    if (archiveDates.size > 10_000) {
+      archiveDates.clear()
+    }
+    archiveDates.set(branchName, date)
+  }
+  return date
 }
 
 function compareArchivedBranches(a: ArchivedBranch, b: ArchivedBranch): number {
@@ -176,13 +186,34 @@ export function clearNewlyArchived(): void {
 }
 
 export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
-  const { branches } = archivedBranchesStore.getState()
-  const current = branches[info.name]
-  if (current === undefined) {
-    insertionOrder = [...insertionOrder, info.name]
-  }
-  const branch = current ?? createPlaceholder(info.name)
+  updateFromIntegrationInfos([info])
+}
 
+/**
+ * Applies the integration info of several branches in one store update, sorted once. The sync reports every archived
+ * branch again (most from its cache): a record whose fields stay the same is kept, so its row does not re-render.
+ */
+export function updateFromIntegrationInfos(infos: readonly BranchIntegrationInfo[]): void {
+  const { branches } = archivedBranchesStore.getState()
+  let next: Record<string, ArchivedBranch> | null = null
+  for (const info of infos) {
+    const current = (next ?? branches)[info.name]
+    if (current === undefined) {
+      insertionOrder = [...insertionOrder, info.name]
+    }
+    const updated = withIntegrationInfo(current ?? createPlaceholder(info.name), info)
+    if (current !== undefined && sameIntegration(current, updated)) {
+      continue
+    }
+    next ??= { ...branches }
+    next[info.name] = updated
+  }
+  if (next !== null) {
+    setBranches(next)
+  }
+}
+
+function withIntegrationInfo(branch: ArchivedBranch, info: BranchIntegrationInfo): ArchivedBranch {
   const base = {
     ...branch,
     summary: info.summary,
@@ -191,17 +222,14 @@ export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
     integratedCount: 0,
     orphanedCount: 0,
   }
-
-  let next: ArchivedBranch
   switch (info.status.kind) {
     case "integrated": {
       const { commitCount, confidence, integratedAt, commit } = info.status
-      next = { ...base, type: "integrated", commitCount, confidence, integratedAt: integratedAt ?? 0, integrationCommit: commit ?? undefined }
-      break
+      return { ...base, type: "integrated", commitCount, confidence, integratedAt: integratedAt ?? 0, integrationCommit: commit ?? undefined }
     }
     case "notIntegrated": {
       const { totalCommitCount, integratedCount, orphanedCount, integratedAt } = info.status
-      next = {
+      return {
         ...base,
         type: "not-integrated",
         commitCount: totalCommitCount,
@@ -209,14 +237,26 @@ export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
         integratedCount,
         orphanedCount,
       }
-      break
     }
     case "partial":
       // represented as not-integrated without detailed counts
-      next = { ...base, type: "not-integrated", commitCount: 0, integratedAt: 0 }
-      break
+      return { ...base, type: "not-integrated", commitCount: 0, integratedAt: 0 }
   }
-  setBranches({ ...branches, [info.name]: next })
+}
+
+/** The fields the integration info sets are the same; the rest (the loaded commits) comes from the same record */
+function sameIntegration(a: ArchivedBranch, b: ArchivedBranch): boolean {
+  return a.type === b.type
+    && a.summary === b.summary
+    && a.commitCount === b.commitCount
+    && a.confidence === b.confidence
+    && a.integratedAt === b.integratedAt
+    && a.integratedCount === b.integratedCount
+    && a.orphanedCount === b.orphanedCount
+    && a.integrationCommit?.id === b.integrationCommit?.id
+    && a.integrationCommit?.author === b.integrationCommit?.author
+    && a.integrationCommit?.committer === b.integrationCommit?.committer
+    && a.integrationCommit?.time === b.integrationCommit?.time
 }
 
 /** Loads the commits of an archived branch once (no-op if loaded or loading). */

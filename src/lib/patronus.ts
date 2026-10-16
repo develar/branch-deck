@@ -33,7 +33,7 @@ export function isRobotActive(robot: PatronusRobot): boolean {
 /**
  * The robot of a virtual branch: one started on the branch, or a Safe Push of a temporary ref (the IDE, the CLI) on the
  * local or the pushed tip of the branch. A running robot wins over a canceling one (a restart replaces it) over a finished
- * one, then the newest.
+ * one, then the newest; of equals the first in the record.
  */
 export function findBranchRobot(
   robots: Readonly<Record<string, PatronusRobot>> | undefined,
@@ -44,16 +44,63 @@ export function findBranchRobot(
   if (robots === undefined) {
     return undefined
   }
-  let best: PatronusRobot | undefined
-  for (const robot of Object.values(robots)) {
-    const onBranch = robot.branchName === null
-      ? robot.sourceRevision !== null && (robot.sourceRevision === localTip || robot.sourceRevision === remoteTip)
-      : robot.branchName === branchName
-    if (onBranch && (best === undefined || isPreferred(robot, best))) {
-      best = robot
+  const index = robotIndexOf(robots)
+  let best = index.byBranch.get(branchName)
+  for (const tip of [localTip, remoteTip]) {
+    const candidate = tip == null ? undefined : index.byRevision.get(tip)
+    if (candidate !== undefined && (best === undefined || isPreferredRanked(candidate, best))) {
+      best = candidate
     }
   }
-  return best
+  return best?.robot
+}
+
+interface RankedRobot {
+  readonly robot: PatronusRobot
+  /** The place in the record, which decides between equals */
+  readonly order: number
+}
+
+/** The preferred robot per branch name, and per source revision of the robots without a branch */
+interface RobotIndex {
+  readonly byBranch: ReadonlyMap<string, RankedRobot>
+  readonly byRevision: ReadonlyMap<string, RankedRobot>
+}
+
+/**
+ * Built once per robots record: every row asks for its robot several times on every store change, and a scan of all
+ * robots each time made that O(branches × robots)
+ */
+const robotIndexes = new WeakMap<Readonly<Record<string, PatronusRobot>>, RobotIndex>()
+
+function robotIndexOf(robots: Readonly<Record<string, PatronusRobot>>): RobotIndex {
+  let index = robotIndexes.get(robots)
+  if (index === undefined) {
+    const byBranch = new Map<string, RankedRobot>()
+    const byRevision = new Map<string, RankedRobot>()
+    Object.values(robots).forEach((robot, order) => {
+      const key = robot.branchName ?? robot.sourceRevision
+      if (key === null) {
+        return
+      }
+      const map = robot.branchName === null ? byRevision : byBranch
+      const current = map.get(key)
+      const ranked = { robot, order }
+      if (current === undefined || isPreferredRanked(ranked, current)) {
+        map.set(key, ranked)
+      }
+    })
+    index = { byBranch, byRevision }
+    robotIndexes.set(robots, index)
+  }
+  return index
+}
+
+function isPreferredRanked(a: RankedRobot, b: RankedRobot): boolean {
+  if (isPreferred(a.robot, b.robot)) {
+    return true
+  }
+  return !isPreferred(b.robot, a.robot) && a.order < b.order
 }
 
 /** Running, then canceling (it goes away; its restart runs), then finished; then the newest */

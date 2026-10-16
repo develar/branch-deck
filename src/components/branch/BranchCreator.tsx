@@ -17,7 +17,7 @@ import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { usePushGuardRequest } from "@/stores/push-guard"
 import { useOpenReview } from "@/stores/review-requests"
 import { branchSyncStore, syncBranches, useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
+import { getSelectedProject, initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -66,10 +66,11 @@ export function BranchCreator() {
   const pathValidation = useRepository(state => state.pathValidation)
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
   const hasRecentProjects = useRecentProjects(projects => projects.length > 0)
-  const selectedProject = useSelectedProject()
+  const selectedPath = useSelectedProjectPath()
+  const neverSynced = useSelectedProjectField("lastSyncTime") === undefined
   // a repository counts as selected as soon as a project is chosen
-  const hasRepository = selectedProject !== null
-  const hasSynced = hasRepository && syncedRepositoryPath === selectedProject.path
+  const hasRepository = selectedPath !== undefined
+  const hasSynced = hasRepository && syncedRepositoryPath === selectedPath
   const hasBranchPrefix = useEffectiveBranchPrefix() !== ""
   // git itself is missing or too old: its alert replaces the path and sync errors, which say the same
   const hasGitError = useRepository(state => !!state.gitSetup?.git_error)
@@ -84,7 +85,7 @@ export function BranchCreator() {
     hasError,
   })
   // a repository synced before syncs when the window opens it (useSyncOnOpen): only the first sync needs the card
-  const showReadyToSync = hasRepository && selectedProject.lastSyncTime === undefined && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasSynced && !hasError
+  const showReadyToSync = hasRepository && neverSynced && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasSynced && !hasError
 
   // a message of several lines (git with its install hint) is a title and its details
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []

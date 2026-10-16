@@ -11,6 +11,7 @@ export const repositorySettingsMock = { updateProject: () => {} }
 export const archivedBranchesMock = {
   updateFromArchivedNames: () => {},
   updateFromIntegrationInfo: () => {},
+  updateFromIntegrationInfos: () => {},
   clearNewlyArchived: () => {},
   settleArchivedPlaceholders: () => {},
 }

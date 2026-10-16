@@ -53,6 +53,15 @@ describe("findBranchRobot", () => {
     expect(findBranchRobot(byId(canceling, restarted), "IJPL-1", "tip", null)).toBe(restarted)
     expect(findBranchRobot(byId(failed, older), "IJPL-1", "tip", null)).toBe(failed)
   })
+
+  it("prefers across the branch and the tips as one list, of equals the first", () => {
+    const finishedOnBranch = robot({ id: "branch", status: "success", startTime: 300 })
+    const runningOnTip = robot({ id: "cli", branchName: null, sourceRevision: "pushed", status: "running", startTime: 100 })
+    const runningOnLocal = robot({ id: "ide", branchName: null, sourceRevision: "local", status: "running", startTime: 100 })
+    expect(findBranchRobot(byId(finishedOnBranch, runningOnTip), "IJPL-1", "local", "pushed")).toBe(runningOnTip)
+    expect(findBranchRobot(byId(runningOnTip, runningOnLocal), "IJPL-1", "local", "pushed")).toBe(runningOnTip)
+    expect(findBranchRobot(byId(runningOnLocal, runningOnTip), "IJPL-1", "local", "pushed")).toBe(runningOnLocal)
+  })
 })
 
 describe("getPatronusChipState", () => {

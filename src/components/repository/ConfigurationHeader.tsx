@@ -24,7 +24,7 @@ import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFrameState } from "@/hooks/useWindowFrameState"
 import { titleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
-import { useRepository, useSelectedProject } from "@/stores/repository"
+import { useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSettings"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
 
@@ -50,10 +50,10 @@ export function ConfigurationHeader() {
   const isSyncing = useBranchSync(state => state.isSyncing)
   const branchCount = useBranchSync(state => state.branchOrder.length)
   const pathValidation = useRepository(state => state.pathValidation)
-  const selectedProject = useSelectedProject()
+  const hasSelectedProject = useSelectedProjectPath() !== undefined
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const zoom = useAppSettings(state => state.zoom)
-  const lastSyncTime = selectedProject?.lastSyncTime
+  const lastSyncTime = useSelectedProjectField("lastSyncTime")
   const refusedUpdate = useRefusedUpdate()
   const pullRequestOverview = usePullRequestOverview()
   const attention = useOutgoingAttention()
@@ -90,7 +90,7 @@ export function ConfigurationHeader() {
 
           <BranchPrefixField disabled={isSyncing || !pathValidation.valid} />
 
-          {selectedProject && branchCount > 0 && pathValidation.valid && (
+          {hasSelectedProject && branchCount > 0 && pathValidation.valid && (
             <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
               {branchCount}
               {" "}

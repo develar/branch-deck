@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { branchSyncStore, resetBranchSync, syncBranches, useBranchSync } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 
 /**
  * Syncs a repository synced before when the window opens it, at start and on a switch, whether or not Auto-sync on
@@ -9,9 +9,8 @@ import { useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/s
  * previous repository, once its running sync is done, so they never show under the new name.
  */
 export function useSyncOnOpen(): void {
-  const project = useSelectedProject()
-  const path = project?.path ?? null
-  const wasSynced = project?.lastSyncTime !== undefined
+  const path = useSelectedProjectPath() ?? null
+  const wasSynced = useSelectedProjectField("lastSyncTime") !== undefined
   const isSyncing = useBranchSync(state => state.isSyncing)
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)
   const isValid = useRepository(state => state.pathValidation.valid)

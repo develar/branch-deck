@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { PullRequest, PullRequestsResult } from "@/lib/bindings"
-import { FOCUS_REFRESH_AGE_MS, MIN_REFRESH_GAP_MS, PUSH_RECHECK_DELAY_MS, getGitHubRepository, getPullRequest, pullRequestsStore, refreshPullRequests, refreshPullRequestsAfterPush, resetPullRequests } from "@/stores/pull-requests"
+import { FOCUS_REFRESH_AGE_MS, MIN_REFRESH_GAP_MS, PUSH_RECHECK_DELAY_MS, getGitHubRepository, getPullRequest, mergePullRequests, pullRequestsStore, refreshPullRequests, refreshPullRequestsAfterPush, resetPullRequests } from "@/stores/pull-requests"
 
 const { gh } = vi.hoisted(() => ({
   gh: {
@@ -157,5 +157,19 @@ describe("refreshPullRequestsAfterPush", () => {
     await refreshPullRequestsAfterPush("auth", "tip")
     await vi.advanceTimersByTimeAsync(PUSH_RECHECK_DELAY_MS)
     expect(gh.calls).toBe(1)
+  })
+})
+
+describe("mergePullRequests", () => {
+  it("keeps the pull requests a refresh answers unchanged, and the record when none changed", () => {
+    const previous = { auth: pullRequest("tip"), login: pullRequest("old") }
+    expect(mergePullRequests(previous, { auth: pullRequest("tip"), login: pullRequest("old") })).toBe(previous)
+
+    const next = mergePullRequests(previous, { auth: pullRequest("tip"), login: pullRequest("new") })
+    expect(next).not.toBe(previous)
+    expect(next.auth).toBe(previous.auth)
+    expect(next.login!.headRefOid).toBe("new")
+
+    expect(mergePullRequests(previous, { auth: pullRequest("tip") })).toEqual({ auth: previous.auth })
   })
 })

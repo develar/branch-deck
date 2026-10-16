@@ -2,6 +2,7 @@ import { z } from "zod"
 import { useStore } from "zustand"
 import { createPersistentStore } from "./persistent-store"
 import type { ArrayStoreState } from "./persistent-store"
+import { stableStringify } from "./sync-utils"
 
 // Schema for ProjectMetadata with normalization
 const ProjectMetadataSchema = z.object({
@@ -44,6 +45,10 @@ export function setRecentProjects(items: ProjectMetadata[]): void {
   repositorySettingsStore.setState({ items })
 }
 
+function isSameValue(a: unknown, b: unknown): boolean {
+  return Object.is(a, b) || (typeof a === "object" && typeof b === "object" && a !== null && b !== null && stableStringify(a) === stableStringify(b))
+}
+
 /** Immutably updates the project with the given path; no-op if it is not in the list. */
 export function updateProject(path: string, update: Partial<ProjectMetadata> | ((project: ProjectMetadata) => ProjectMetadata)): void {
   const items = getRecentProjects()
@@ -53,6 +58,10 @@ export function updateProject(path: string, update: Partial<ProjectMetadata> | (
   }
 
   const current = items[index]!
+  // the same values keep the record: every row selects from it, and the sync sends the issue links every time
+  if (typeof update !== "function" && Object.entries(update).every(([key, value]) => isSameValue(current[key as keyof ProjectMetadata], value))) {
+    return
+  }
   const next = typeof update === "function" ? update(current) : { ...current, ...update }
   if (next === current) {
     return

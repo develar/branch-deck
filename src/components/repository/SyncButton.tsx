@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isMac } from "@/lib/platform"
 import { syncBranches, useBranchSync } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useRepository, useSelectedProject } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath } from "@/stores/repository"
 
 /**
  * Header button of Sync (⌘R). A failed sync turns it `destructive` with the error as its tooltip, next to the page
@@ -17,7 +17,7 @@ export function SyncButton() {
   const syncCount = useBranchSync(state => state.syncCount)
   const syncError = useBranchSync(state => state.syncError)
   const pathValidation = useRepository(state => state.pathValidation)
-  const hasSelectedProject = useSelectedProject() !== null
+  const hasSelectedProject = useSelectedProjectPath() !== undefined
   // not while the prefix loads: the button would flicker; sync waits for the load
   const effectiveBranchPrefix = useEffectiveBranchPrefix()
   const isLoadingBranchPrefix = useRepository(state => state.isLoadingBranchPrefix)

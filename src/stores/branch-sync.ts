@@ -2,16 +2,17 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Channel } from "@tauri-apps/api/core"
-import type { AutosquashPlan, BranchError, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, DroppedCommit, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, TransferProgress, UpdateCheck } from "@/lib/bindings"
+import type { AutosquashPlan, BranchError, BranchIntegrationInfo, BranchOrigin, BranchStack, BranchSyncStatus, Commit, CommitSyncStatus, DroppedCommit, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, TransferProgress, UpdateCheck } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
+import { sameStringRecord } from "@/lib/record"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
-import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfo } from "@/stores/archived-branches"
+import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getLoadingPromise, getSelectedProject, useSelectedProject, vcsRequestFactory } from "@/stores/repository"
+import { getLoadingPromise, getSelectedProject, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
 export interface SyncOptions {
@@ -112,10 +113,11 @@ export interface BranchSyncState {
   branchOrder: string[]
   branches: Record<string, Branch>
   /**
-   * Branches with a push in flight, with how far the push is (null before git reports a stage).
-   * Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a running push.
+   * Branches with a push in flight; how far each is lives in `pushProgressStore`, so its ticks don't re-run the
+   * selectors of this store. Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a
+   * running push.
    */
-  pushingBranches: Readonly<Record<string, TransferProgress | null>>
+  pushingBranches: Readonly<Record<string, true>>
   /**
    * The stack pushes in flight: the branch a push of several branches started from (Push Stack, Push with Children) ->
    * the branch it pushes now. Owned by push, as `pushingBranches`.
@@ -148,6 +150,12 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   stacksEnabled: false,
   issueGroups: {},
 }))
+
+/**
+ * How far each running push is, absent before git reports a stage: apart from `branchSyncStore`, because a progress
+ * tick would re-run every selector of it (docs/design/rendering-performance.md)
+ */
+const pushProgressStore = createStore<Readonly<Record<string, TransferProgress>>>(() => ({}))
 
 // ---- hooks ----
 
@@ -214,6 +222,53 @@ function stackParentIn(branches: Record<string, Branch>, name: string): string |
   return parent !== null && parent !== name && branches[parent] !== undefined ? parent : null
 }
 
+/**
+ * What the table rows and the stack lookups are computed from: the order, and per branch its parent and issue. A sync
+ * event (a commit synced, a remote status) changes the `branches` record but not this.
+ */
+interface BranchStructure {
+  readonly branchOrder: readonly string[]
+  readonly branches: Record<string, Branch>
+  readonly key: string
+  /** The branches stacked directly on each branch, in branch order; cycles included */
+  readonly children: ReadonlyMap<string, readonly string[]>
+}
+
+let lastStructure: BranchStructure | null = null
+
+/** The structure of `state`, the same object while the structure stays the same */
+function structureOf(state: BranchSyncState): BranchStructure {
+  const { branchOrder, branches } = state
+  const last = lastStructure
+  if (last !== null && last.branchOrder === branchOrder && last.branches === branches) {
+    return last
+  }
+  let key = ""
+  for (const name of branchOrder) {
+    const branch = branches[name]
+    key += branch === undefined ? `${name}\0?\n` : `${name}\0${stackParentIn(branches, name) ?? ""}\0${branch.issueKey ?? ""}\n`
+  }
+  if (last !== null && last.key === key) {
+    lastStructure = { ...last, branchOrder, branches }
+    return lastStructure
+  }
+  const children = new Map<string, string[]>()
+  for (const name of branchOrder) {
+    const parent = stackParentIn(branches, name)
+    if (parent !== null) {
+      const siblings = children.get(parent)
+      if (siblings === undefined) {
+        children.set(parent, [name])
+      }
+      else {
+        siblings.push(name)
+      }
+    }
+  }
+  lastStructure = { branchOrder, branches, key, children }
+  return lastStructure
+}
+
 /** The branches of `visible` and the branches they stack on, in branch order */
 function withStackAncestors(state: BranchSyncState, visible: ReadonlySet<string>): string[] {
   const kept = new Set<string>()
@@ -227,11 +282,8 @@ function withStackAncestors(state: BranchSyncState, visible: ReadonlySet<string>
   return state.branchOrder.filter(name => kept.has(name))
 }
 
-/**
- * The rows of the branches in `visible` (all for null) and of the branches they stack on, which are `dimmed` unless
- * visible themselves; the stack graph is laid out over the rows that remain.
- */
-function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> | null): BranchTableRow[] {
+/** The rows of `branchTableRowsIn`, computed: the stack graph is laid out over the rows that remain */
+function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<string> | null): BranchTableRow[] {
   const { branches } = state
   const branchOrder = visible === null ? state.branchOrder : withStackAncestors(state, visible)
   // the branches stacked on each branch, newest first; a branch in a cycle of parents is a root
@@ -261,6 +313,7 @@ function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> 
     }
   }
   const roots = branchOrder.filter(name => stackParentIn(branches, name) === null || isRoot(name))
+  const rootSet = new Set(roots)
   // without a branch stacked on another, the table has no graph to draw
   const hasStacks = children.size > 0
 
@@ -317,7 +370,7 @@ function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> 
       continue
     }
     // placed under the issue branch, wherever that is in the order
-    if (branches[issueKey] !== undefined && roots.includes(issueKey)) {
+    if (branches[issueKey] !== undefined && rootSet.has(issueKey)) {
       continue
     }
     const family = families.get(issueKey)!
@@ -332,16 +385,53 @@ function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> 
   return rows
 }
 
+interface RowsCache {
+  readonly structure: BranchStructure
+  readonly visible: ReadonlySet<string> | null
+  readonly rows: BranchTableRow[]
+}
+
+// one for all rows, one for the filtered ones: about ten subscribers ask for the rows on every store change
+let allRowsCache: RowsCache | null = null
+let visibleRowsCache: RowsCache | null = null
+
+/**
+ * The rows of the branches in `visible` (all for null) and of the branches they stack on, which are `dimmed` unless
+ * visible themselves; computed again only when the structure or `visible` changes.
+ */
+function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> | null): BranchTableRow[] {
+  const structure = structureOf(state)
+  const cache = visible === null ? allRowsCache : visibleRowsCache
+  if (cache !== null && cache.visible === visible && cache.structure.key === structure.key) {
+    return cache.rows
+  }
+  const next: RowsCache = { structure, visible, rows: computeBranchTableRows(state, visible) }
+  if (visible === null) {
+    allRowsCache = next
+  }
+  else {
+    visibleRowsCache = next
+  }
+  return next.rows
+}
+
+const noBranches: readonly string[] = []
+
 /** The branches stacked on `name`, directly or further down, each after its parent */
 export function stackDescendantsIn(state: BranchSyncState, name: string): string[] {
+  const { children } = structureOf(state)
   const descendants: string[] = []
+  if (children.size === 0) {
+    return descendants
+  }
+  const seen = new Set<string>([name])
   const pending = [name]
   while (pending.length > 0) {
-    const parent = pending.pop()!
-    for (const candidate of state.branchOrder) {
-      if (candidate !== name && !descendants.includes(candidate) && stackParentIn(state.branches, candidate) === parent) {
-        descendants.push(candidate)
-        pending.push(candidate)
+    for (const child of children.get(pending.pop()!) ?? noBranches) {
+      if (!seen.has(child)) {
+        seen.add(child)
+        descendants.push(child)
+        pending.push(child)
       }
     }
   }
@@ -350,8 +440,7 @@ export function stackDescendantsIn(state: BranchSyncState, name: string): string
 
 /** The branches stacked directly on `name`, newest first */
 export function getStackChildren(name: string): string[] {
-  const { branchOrder, branches } = branchSyncStore.getState()
-  return branchOrder.filter(candidate => candidate !== name && stackParentIn(branches, candidate) === name)
+  return (structureOf(branchSyncStore.getState()).children.get(name) ?? noBranches).filter(child => child !== name)
 }
 
 /** The branches stacked on `name`, directly or further down */
@@ -470,7 +559,11 @@ export function useStackPushCurrent(startedFrom: string): string | null {
 
 /** How far the running push of the branch is; null before git reports a stage and when no push runs */
 export function useBranchPushProgress(name: string): TransferProgress | null {
-  return useStore(branchSyncStore, state => state.pushingBranches[name] ?? null)
+  return useStore(pushProgressStore, state => state[name] ?? null)
+}
+
+export function getBranchPushProgress(name: string): TransferProgress | null {
+  return pushProgressStore.getState()[name] ?? null
 }
 
 export function useUnassignedCommits(): Commit[] {
@@ -487,7 +580,7 @@ export function getAutosquashPlan(): AutosquashPlan | null {
 
 /** The update state of the selected repository; null before its first sync */
 export function useBaselineStatus(): BaselineStatus | null {
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   return useStore(branchSyncStore, state => state.baselineStatus?.repositoryPath === repositoryPath ? state.baselineStatus : null)
 }
 
@@ -575,11 +668,15 @@ export function setBranchPushing(name: string, isPushing: boolean): void {
       return state
     }
     if (isPushing) {
-      return { pushingBranches: { ...state.pushingBranches, [name]: null } }
+      return { pushingBranches: { ...state.pushingBranches, [name]: true } }
     }
     const { [name]: _, ...pushingBranches } = state.pushingBranches
     return { pushingBranches }
   })
+  if (!isPushing && Object.hasOwn(pushProgressStore.getState(), name)) {
+    const { [name]: _, ...progress } = pushProgressStore.getState()
+    pushProgressStore.setState(progress, true)
+  }
 }
 
 export function isStackPushing(startedFrom: string): boolean {
@@ -602,13 +699,41 @@ export function setStackPushCurrent(startedFrom: string, current: string | null)
 
 /** Records how far the push of the branch is; a message that arrives after the push ended is dropped */
 export function setBranchPushProgress(name: string, progress: TransferProgress): void {
-  branchSyncStore.setState(state => Object.hasOwn(state.pushingBranches, name)
-    ? { pushingBranches: { ...state.pushingBranches, [name]: progress } }
-    : state)
+  if (isBranchPushing(name)) {
+    pushProgressStore.setState({ [name]: progress })
+  }
 }
 
 export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus): void {
-  updateBranch(name, branch => ({ ...branch, remoteStatus }))
+  updateBranch(name, branch => withRemoteStatus(branch, remoteStatus))
+}
+
+/** The branch with `remoteStatus`; the same record when its status has the same fields, so no subscriber re-renders */
+function withRemoteStatus(branch: Branch, remoteStatus: RemoteStatus): Branch {
+  return branch.remoteStatus !== null && sameRemoteStatus(branch.remoteStatus, remoteStatus) ? branch : { ...branch, remoteStatus }
+}
+
+function sameRemoteStatus(a: RemoteStatus, b: RemoteStatus): boolean {
+  return a.exists === b.exists
+    && a.commitsAhead === b.commitsAhead
+    && a.commitsBehind === b.commitsBehind
+    && a.commitsAmended === b.commitsAmended
+    && a.commitsRestacked === b.commitsRestacked
+    && a.myCommitsAhead === b.myCommitsAhead
+    && a.fastForward === b.fastForward
+    && a.lastPushTime === b.lastPushTime
+    && a.remoteTip === b.remoteTip
+    && sameItems(a.unpushedCommits, b.unpushedCommits)
+    && a.droppedCommits.length === b.droppedCommits.length
+    && a.droppedCommits.every((commit, index) => sameDroppedCommit(commit, b.droppedCommits[index]!))
+}
+
+function sameDroppedCommit(a: DroppedCommit, b: DroppedCommit): boolean {
+  return a.id === b.id && a.subject === b.subject && a.author === b.author && a.authorTime === b.authorTime
+}
+
+function sameItems(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index])
 }
 
 type RemoteStatusFields = Pick<RemoteStatusUpdate, "remoteExists" | "unpushedCommits" | "commitsBehind" | "commitsAmended" | "commitsRestacked" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits">
@@ -668,10 +793,11 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     const vcsRequest = vcsRequestFactory.createRequest()
     const channel = new Channel<SyncEvent>()
     channel.onmessage = (event) => {
-      handleSyncEvent(event, vcsRequest.repositoryPath, options)
+      queueSyncEvent(event, vcsRequest.repositoryPath, options)
     }
 
     const result = await commands.syncBranches(vcsRequest, channel)
+    flushSyncEvents()
     if (result.status === "error") {
       branchSyncStore.setState({ syncError: result.error.message || "Failed to sync branches" })
       console.error("Sync error:", result.error)
@@ -694,6 +820,8 @@ export async function syncBranches(options?: SyncOptions): Promise<void> {
     console.error("Sync error:", error)
   }
   finally {
+    // the events of a failed sync too
+    flushSyncEvents()
     // a placeholder still waiting got no result, also after a failed sync; a newer sync reports its own
     if (generation === syncGeneration) {
       settleArchivedPlaceholders()
@@ -751,7 +879,93 @@ export function resetBranchSync(): void {
   resetArchivedBranches()
 }
 
-function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: SyncOptions): void {
+// ---- sync events ----
+
+/**
+ * How long sync events gather before one store update applies them, about a frame. The backend sends an event per
+ * commit; applied one by one, each would re-run every selector of the store (docs/design/rendering-performance.md).
+ */
+const SYNC_EVENT_FLUSH_MS = 16
+
+interface QueuedSyncEvent {
+  readonly event: SyncEvent
+  readonly repositoryPath: string
+  readonly options: SyncOptions | undefined
+}
+
+let queuedSyncEvents: QueuedSyncEvent[] = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncOptions | undefined): void {
+  queuedSyncEvents.push({ event, repositoryPath, options })
+  flushTimer ??= setTimeout(flushSyncEvents, SYNC_EVENT_FLUSH_MS)
+}
+
+/**
+ * The store fields a batch of sync events changes, committed in one update. `patch.branches` is copied from the store
+ * on the first change of a branch, then written in place.
+ */
+interface SyncDraft {
+  readonly patch: Partial<BranchSyncState>
+  ownsBranches: boolean
+  /** The integration info of archived branches, applied in one update of their store */
+  integrationInfos: BranchIntegrationInfo[]
+}
+
+/**
+ * Applies the queued sync events in one store update, in event order; the updates of other stores (the project, the
+ * archived and landed branches) run during it, before the commit.
+ */
+function flushSyncEvents(): void {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  const events = queuedSyncEvents
+  if (events.length === 0) {
+    return
+  }
+  queuedSyncEvents = []
+  const draft: SyncDraft = { patch: {}, ownsBranches: false, integrationInfos: [] }
+  for (const { event, repositoryPath, options } of events) {
+    applySyncEvent(draft, event, repositoryPath, options)
+  }
+  applyIntegrationInfos(draft)
+  if (Object.keys(draft.patch).length > 0) {
+    branchSyncStore.setState(draft.patch)
+  }
+}
+
+function applyIntegrationInfos(draft: SyncDraft): void {
+  if (draft.integrationInfos.length > 0) {
+    updateFromIntegrationInfos(draft.integrationInfos)
+    draft.integrationInfos = []
+  }
+}
+
+function draftBranches(draft: SyncDraft): Record<string, Branch> {
+  return draft.patch.branches ?? branchSyncStore.getState().branches
+}
+
+/** Updates one branch of the draft; no-op if the branch is unknown or the updater returns the same record */
+function updateDraftBranch(draft: SyncDraft, name: string, updater: (branch: Branch) => Branch): void {
+  const branches = draftBranches(draft)
+  const branch = branches[name]
+  if (branch === undefined) {
+    return
+  }
+  const next = updater(branch)
+  if (next === branch) {
+    return
+  }
+  if (!draft.ownsBranches) {
+    draft.patch.branches = { ...branches }
+    draft.ownsBranches = true
+  }
+  draft.patch.branches![name] = next
+}
+
+function applySyncEvent(draft: SyncDraft, event: SyncEvent, repositoryPath: string, options?: SyncOptions): void {
   switch (event.type) {
     case "issueNavigationConfig": {
       const project = getSelectedProject()
@@ -761,35 +975,38 @@ function handleSyncEvent(event: SyncEvent, repositoryPath: string, options?: Syn
       break
     }
     case "branchesGrouped":
-      handleBranchesGrouped(event.data)
+      applyBranchesGrouped(draft, event.data)
       break
     case "commitSynced":
-      handleCommitSynced(event.data)
+      applyCommitSynced(draft, event.data)
       break
     case "commitError":
-      handleCommitError(event.data, options)
+      applyCommitError(draft, event.data, options)
       break
     case "branchStatusUpdate":
-      handleBranchStatusUpdate(event.data, options)
+      applyBranchStatusUpdate(draft, event.data, options)
       break
     case "unassignedCommits":
-      branchSyncStore.setState({ unassignedCommits: event.data.commits })
+      draft.patch.unassignedCommits = event.data.commits
       break
     case "archivedBranchesFound":
+      // the names reconcile what the infos before them added
+      applyIntegrationInfos(draft)
       updateFromArchivedNames(event.data.branchNames, event.data.newlyArchived)
       break
     case "branchIntegrationDetected":
-      updateFromIntegrationInfo(event.data.info)
+      draft.integrationInfos.push(event.data.info)
       break
     case "remoteStatusUpdate":
       // the push result is authoritative: a status computed by the sync mid-push is stale by the time the push ends
       if (!isBranchPushing(event.data.branchName)) {
-        setBranchRemoteStatus(event.data.branchName, toRemoteStatus(event.data))
+        const remoteStatus = toRemoteStatus(event.data)
+        updateDraftBranch(draft, event.data.branchName, branch => withRemoteStatus(branch, remoteStatus))
       }
       break
     case "baselineStatus": {
       const { landing, landed, ...status } = event.data
-      branchSyncStore.setState({ baselineStatus: { repositoryPath, ...status } })
+      draft.patch.baselineStatus = { repositoryPath, ...status }
       setLandedStatus(repositoryPath, landing, landed, status.update?.upstream ?? status.baselineBranch)
       break
     }
@@ -833,8 +1050,8 @@ function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStat
  * (existing ones are reset, which a fresh record keyed by the same name does), branches no longer present are dropped.
  * The last known remote status is kept until the sync reports a fresh one, so the push button label does not flicker.
  */
-function handleBranchesGrouped(data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"]): void {
-  const previous = branchSyncStore.getState().branches
+function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"]): void {
+  const previous = draftBranches(draft)
   const branches: Record<string, Branch> = {}
   const branchOrder: string[] = []
   for (const info of data.branches) {
@@ -844,12 +1061,22 @@ function handleBranchesGrouped(data: Extract<SyncEvent, { type: "branchesGrouped
     branches[info.name] = createBranchFromGroup(info, previous[info.name]?.remoteStatus ?? null)
     branchOrder.push(info.name)
   }
-  branchSyncStore.setState({ baselineBranch: data.baselineBranch, branches, branchOrder, stacksEnabled: data.stacks ?? false, issueGroups: data.issueGroups ?? {} })
+  const issueGroups = data.issueGroups ?? {}
+  // the same groups keep their record: a sync rarely changes them
+  const previousGroups = draft.patch.issueGroups ?? branchSyncStore.getState().issueGroups
+  Object.assign(draft.patch, {
+    baselineBranch: data.baselineBranch,
+    branches,
+    branchOrder,
+    stacksEnabled: data.stacks ?? false,
+    issueGroups: sameStringRecord(issueGroups, previousGroups) ? previousGroups : issueGroups,
+  })
+  draft.ownsBranches = true
 }
 
-function handleCommitSynced(data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {
+function applyCommitSynced(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {
   const { branchName, commitHash, newHash, status } = data
-  updateBranch(branchName, (branch) => {
+  updateDraftBranch(draft, branchName, (branch) => {
     if (branch.commitIndex[commitHash] === undefined) {
       return branch
     }
@@ -861,10 +1088,10 @@ function handleCommitSynced(data: Extract<SyncEvent, { type: "commitSynced" }>["
   })
 }
 
-function handleCommitError(data: Extract<SyncEvent, { type: "commitError" }>["data"], options?: SyncOptions): void {
+function applyCommitError(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitError" }>["data"], options?: SyncOptions): void {
   const { branchName, commitHash, error } = data
   const autoExpand = options?.autoExpand ?? true
-  updateBranch(branchName, (branch) => {
+  updateDraftBranch(draft, branchName, (branch) => {
     const next: MutableBranch = {
       ...branch,
       // errors count as processed too
@@ -908,9 +1135,9 @@ function shouldRequestAutoExpand(branchName: string, status: BranchSyncStatus, o
   return status === "Error" || status === "MergeConflict" || status === "Created" || status === "Updated"
 }
 
-function handleBranchStatusUpdate(data: Extract<SyncEvent, { type: "branchStatusUpdate" }>["data"], options?: SyncOptions): void {
+function applyBranchStatusUpdate(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchStatusUpdate" }>["data"], options?: SyncOptions): void {
   const { branchName, status, error } = data
-  updateBranch(branchName, (branch) => {
+  updateDraftBranch(draft, branchName, (branch) => {
     if (status === "Blocked") {
       // not an error of this branch: its parent can't be built on; the reason is the tooltip
       return { ...branch, status, statusText: error?.Generic ?? "blocked" }

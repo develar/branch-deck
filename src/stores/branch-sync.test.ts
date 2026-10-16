@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
-import { branchSyncStore, getBranch, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchPushProgress, getBranchTableRows, isBranchPushing, setBranchPushing, setBranchPushProgress, setBranchRemoteStatus, syncBranches, toRemoteStatus } from "@/stores/branch-sync"
 
 const { syncEvents } = vi.hoisted(() => ({ syncEvents: { current: [] as SyncEvent[] } }))
 
@@ -32,6 +32,7 @@ vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {}
 vi.mock("@/stores/archived-branches", () => ({
   updateFromArchivedNames: () => {},
   updateFromIntegrationInfo: () => {},
+  updateFromIntegrationInfos: () => {},
   settleArchivedPlaceholders: () => {},
 }))
 
@@ -88,15 +89,16 @@ describe("sync during a push", () => {
   it("keeps the push progress only while the push runs", () => {
     const writing = { percent: 55, transferred: "1.23 KiB", speed: "1.23 MiB/s", line: "Writing objects:  50% (2/4)" }
     setBranchPushing("a", true)
-    expect(branchSyncStore.getState().pushingBranches.a).toBeNull()
+    expect(getBranchPushProgress("a")).toBeNull()
     setBranchPushProgress("a", writing)
-    expect(branchSyncStore.getState().pushingBranches.a).toEqual(writing)
+    expect(getBranchPushProgress("a")).toEqual(writing)
     expect(isBranchPushing("a")).toBe(true)
 
     setBranchPushing("a", false)
     // a channel message that arrives after the push ended
     setBranchPushProgress("a", { ...writing, percent: 95 })
     expect(isBranchPushing("a")).toBe(false)
+    expect(getBranchPushProgress("a")).toBeNull()
     expect(branchSyncStore.getState().pushingBranches).toEqual({})
   })
 
@@ -131,6 +133,50 @@ describe("sync during a push", () => {
     expect(known).not.toBeNull()
     expect(getBranch("a")!.remoteStatus).toBe(known)
     expect(getBranch("b")!.remoteStatus).toBeNull()
+  })
+})
+
+describe("sync events", () => {
+  beforeEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+  })
+
+  it("applies the events of a sync in one store update", async () => {
+    syncEvents.current = [
+      branchesGrouped,
+      { type: "commitSynced", data: { branchName: "a", commitHash: "a1", newHash: "a1-new", status: "Created" } },
+      { type: "commitSynced", data: { branchName: "b", commitHash: "b1", newHash: "b1-new", status: "Created" } },
+      { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 1) },
+    ]
+    let branchUpdates = 0
+    const unsubscribe = branchSyncStore.subscribe((state, previous) => {
+      if (state.branches !== previous.branches) {
+        branchUpdates++
+      }
+    })
+    await syncBranches()
+    unsubscribe()
+
+    expect(branchUpdates).toBe(1)
+    expect(getBranch("a")!.commits[0]!.hash).toBe("a1-new")
+    expect(getBranch("b")!.processedCount).toBe(1)
+    expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(1)
+  })
+
+  it("keeps the record of a branch whose remote status a sync reports unchanged", async () => {
+    syncEvents.current = [branchesGrouped, { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 1) }]
+    await syncBranches()
+    const branch = getBranch("a")
+    setBranchRemoteStatus("a", toRemoteStatus(remoteStatusUpdate("a", 1)))
+    expect(getBranch("a")).toBe(branch)
+  })
+
+  it("keeps the table rows while only the branches change, not their structure", async () => {
+    syncEvents.current = [branchesGrouped]
+    await syncBranches()
+    const rows = getBranchTableRows()
+    branchSyncStore.setState(state => ({ branches: { ...state.branches, a: { ...state.branches.a!, status: "Unchanged" } } }))
+    expect(getBranchTableRows()).toBe(rows)
   })
 })
 

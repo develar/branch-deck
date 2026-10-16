@@ -30,7 +30,7 @@ import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/store
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
-import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
+import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import { runFetchBaseline } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
@@ -96,7 +96,7 @@ function currentKey(): string | null {
 // ---- hooks ----
 
 function useRepositoryKey(): string {
-  return repositoryKey(useSelectedProject()?.path ?? "", useEffectiveBranchPrefix())
+  return repositoryKey(useSelectedProjectPath() ?? "", useEffectiveBranchPrefix())
 }
 
 /** The robots of the selected repository, for the status line */
@@ -229,7 +229,7 @@ type EstimatedRobot = Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile
  */
 export function useRobotEstimate(robot: EstimatedRobot | undefined): RobotEstimate | null {
   const key = useRepositoryKey()
-  const repositoryPath = useSelectedProject()?.path ?? ""
+  const repositoryPath = useSelectedProjectPath() ?? ""
   const history = useStore(robotHistoryStore, state => state.items)
   const pushMode = robot?.pushMode
   const targetBranch = robot?.targetBranch

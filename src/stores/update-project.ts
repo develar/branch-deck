@@ -10,7 +10,7 @@ import { appliedUpdateToast } from "@/lib/landed"
 import { recordUpdate } from "@/stores/activity"
 import { setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
-import { getSelectedProject, useSelectedProject } from "@/stores/repository"
+import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 
 /** An update or a fetch of the baseline that runs in a repository */
@@ -43,13 +43,13 @@ export function selectRunningUpdate(state: UpdateProjectState, repositoryPath: s
 
 /** The step of the update or fetch running in the selected repository; null when none runs there */
 export function useUpdatePhase(): UpdatePhase | null {
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   return useStore(updateProjectStore, state => selectRunningUpdate(state, repositoryPath)?.phase ?? null)
 }
 
 /** How far the fetch running in the selected repository is */
 export function useFetchProgress(): TransferProgress | null {
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   return useStore(updateProjectStore, state => selectRunningUpdate(state, repositoryPath)?.fetch ?? null)
 }
 

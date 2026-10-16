@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla"
 import { useStore } from "zustand"
 import type { BranchFilter, BranchFilterChip } from "@/lib/branch-filter"
 import { isFilterActive, keepShown, NO_FILTER } from "@/lib/branch-filter"
-import { getSelectedProject, useSelectedProject } from "@/stores/repository"
+import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
 /**
  * The filter of the branch table, per window and not persisted: a restart or another repository starts without one.
@@ -31,7 +31,7 @@ function shownIn(state: BranchFilterState, repositoryPath: string | null): Reado
 
 /** The filter of the selected repository */
 export function useBranchFilter(): BranchFilter {
-  const repositoryPath = useSelectedProject()?.path ?? null
+  const repositoryPath = useSelectedProjectPath() ?? null
   return useStore(branchFilterStore, state => filterIn(state, repositoryPath))
 }
 
@@ -41,7 +41,7 @@ export function getBranchFilter(): BranchFilter {
 
 /** The branches the table shows under the filter of the selected repository, null while it shows all */
 export function useShownBranches(): ReadonlySet<string> | null {
-  const repositoryPath = useSelectedProject()?.path ?? null
+  const repositoryPath = useSelectedProjectPath() ?? null
   return useStore(branchFilterStore, state => shownIn(state, repositoryPath))
 }
 

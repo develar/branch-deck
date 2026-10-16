@@ -6,7 +6,8 @@ import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
-import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProject } from "@/stores/repository"
+import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
+import { stableStringify } from "@/stores/settings/sync-utils"
 
 /** Calls closer together than this are skipped, except right after a push and on a manual refresh */
 export const MIN_REFRESH_GAP_MS = 60_000
@@ -42,7 +43,7 @@ function repositoryKey(repositoryPath: string, branchPrefix: string): string {
 // ---- hooks ----
 
 function useRepositoryKey(): string {
-  return repositoryKey(useSelectedProject()?.path ?? "", useEffectiveBranchPrefix())
+  return repositoryKey(useSelectedProjectPath() ?? "", useEffectiveBranchPrefix())
 }
 
 /** The pull requests of the selected repository */
@@ -115,6 +116,33 @@ function update(key: string, patch: Partial<RepositoryPullRequests>): void {
   }))
 }
 
+function sameJson(a: unknown, b: unknown): boolean {
+  return a === b || stableStringify(a) === stableStringify(b)
+}
+
+/**
+ * The answered pull requests, each unchanged one the object shown before, and `previous` itself when none changed:
+ * every row selects its pull request, and a refresh (every sync, focus and push) answers mostly the same ones
+ */
+export function mergePullRequests(
+  previous: RepositoryPullRequests["pullRequests"],
+  incoming: RepositoryPullRequests["pullRequests"],
+): RepositoryPullRequests["pullRequests"] {
+  const next: Record<string, PullRequest> = {}
+  let changed = Object.keys(previous).length !== Object.keys(incoming).length
+  for (const [branchName, pullRequest] of Object.entries(incoming)) {
+    const known = previous[branchName]
+    if (known !== undefined && sameJson(known, pullRequest)) {
+      next[branchName] = known
+    }
+    else {
+      next[branchName] = pullRequest
+      changed = true
+    }
+  }
+  return changed ? next : previous
+}
+
 /**
  * Asks `gh` for the pull requests of the selected repository, if the reason allows it now (see the policy above).
  * One request per repository at a time. Never fails: what went wrong is the availability. A repository that is not on
@@ -135,7 +163,12 @@ export function refreshPullRequests(reason: RefreshReason): Promise<void> {
     try {
       const result = await commands.getPullRequests({ repositoryPath, branchPrefix })
       if (result.status === "ok") {
-        update(key, { availability: result.data.availability, pullRequests: result.data.pullRequests, fetchedAt: Date.now() })
+        const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
+        update(key, {
+          availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability,
+          pullRequests: mergePullRequests(previous.pullRequests, result.data.pullRequests),
+          fetchedAt: Date.now(),
+        })
       }
       else {
         // keep what was shown: a failed refresh does not make the pull requests go away

@@ -9,7 +9,7 @@ import { describeRequestActivity } from "@/lib/review-requests"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { describeUpdateState } from "@/lib/update-state"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { getSelectedProject, useSelectedProject } from "@/stores/repository"
+import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 import { isMainWindow } from "@/stores/settings/app-store"
 import { createPersistentStore } from "@/stores/settings/persistent-store"
 import type { ArrayStoreState } from "@/stores/settings/persistent-store"
@@ -310,7 +310,7 @@ const noEntries: readonly ActivityEntry[] = []
 
 /** The log of the selected repository, newest first */
 export function useActivity(): readonly ActivityEntry[] {
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   const entries = useStore(activityStore, useShallow((state: ArrayStoreState<ActivityEntry>) => selectActivity(state, repositoryPath)))
   return entries.length === 0 ? noEntries : entries
 }
@@ -322,6 +322,6 @@ export function selectActivity(state: ArrayStoreState<ActivityEntry>, repository
 
 /** Whether the selected repository has a log: the header hides the Activity button without one */
 export function useHasActivity(): boolean {
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   return useStore(activityStore, state => state.items.some(entry => entry.repositoryPath === repositoryPath))
 }

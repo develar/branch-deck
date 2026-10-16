@@ -15,7 +15,7 @@ import { formatCommitCount, groupFor } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
 import { useBranchSync, useMoveTargets, useStacksEnabled } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
-import { useSelectedProject } from "@/stores/repository"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 /** Existing branches offered as chips */
 const MAX_TARGET_CHIPS = 6
@@ -37,7 +37,7 @@ export interface InlineBranchTargetProps {
  * that get the prefix; a source branch already pushed keeps its remote branch.
  */
 export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel, onSuccess }: InlineBranchTargetProps) {
-  const repositoryPath = useSelectedProject()?.path ?? ""
+  const repositoryPath = useSelectedProjectPath() ?? ""
   const sourceBranch = sourceBranches.length === 1 ? sourceBranches[0]! : null
   const targets = useMoveTargets(sourceBranch, MAX_TARGET_CHIPS)
   const [isMoving, setIsMoving] = useState(false)

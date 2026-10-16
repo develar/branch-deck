@@ -3,5 +3,7 @@ export const getSelectedProject = () => ({ path: "/repo" })
 export const getDiffRepositoryPath = () => "/repo"
 export const getEffectiveBranchPrefix = () => "user"
 export const useSelectedProject = () => ({ path: "/repo" })
+export const useSelectedProjectPath = () => "/repo"
+export const useSelectedProjectField = () => undefined
 export const useEffectiveBranchPrefix = () => "user"
 export const getFullBranchName = (name: string) => `user/virtual/${name}`

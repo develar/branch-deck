@@ -19,7 +19,7 @@ import {
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordReviewRequest } from "@/stores/activity"
 import { getGitHubRepository } from "@/stores/pull-requests"
-import { getSelectedProject, useSelectedProject } from "@/stores/repository"
+import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
 /*
  * "Your Turn": the pull requests of others that wait for the user's review in the selected repository
@@ -69,7 +69,7 @@ const EMPTY: RepositoryReviewRequests = { availability: null, requests: [], tota
 // ---- hooks ----
 
 function useEntry<T>(select: (entry: RepositoryReviewRequests) => T): T {
-  const repositoryPath = useSelectedProject()?.path ?? ""
+  const repositoryPath = useSelectedProjectPath() ?? ""
   return useStore(reviewRequestsStore, state => select(state.repositories[repositoryPath] ?? EMPTY))
 }
 

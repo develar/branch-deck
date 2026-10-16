@@ -15,7 +15,7 @@ import { canUndoActivity, clearActivity, groupActivityByDay, undoActivity, useAc
 import { useBranchOrder } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { dismissLanded, useIsUndismissed } from "@/stores/landed"
-import { useSelectedProject } from "@/stores/repository"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 type LandedDetails = Extract<ActivityDetails, { type: "landed" }>
 
@@ -26,7 +26,7 @@ type LandedDetails = Extract<ActivityDetails, { type: "landed" }>
  */
 export function ActivityLog({ onClose }: { onClose: () => void }) {
   const entries = useActivity()
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   const branchOrder = useBranchOrder()
   const branches = useMemo(() => new Set(branchOrder), [branchOrder])
   // the day of an entry is taken when the log opens, as its age

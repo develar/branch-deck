@@ -3,7 +3,7 @@ import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { useBranchSync } from "@/stores/branch-sync"
-import { useSelectedProject } from "@/stores/repository"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 /** Waits for the typing to pause before the dry run */
 const PREVIEW_DELAY_MS = 150
@@ -23,7 +23,7 @@ const NO_PREVIEW: MovePreview = { result: null, error: null }
  * a prefix, before anything is written.
  */
 export function useMovePreview(commits: readonly Commit[], targetBranch: string, enabled: boolean): MovePreview {
-  const repositoryPath = useSelectedProject()?.path ?? ""
+  const repositoryPath = useSelectedProjectPath() ?? ""
   const syncCount = useBranchSync(state => state.syncCount)
   const commitKey = commits.map(commit => commit.originalHash).join(",")
   // a sync repeats the dry run, the last result stays until the new one is there

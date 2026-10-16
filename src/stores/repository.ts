@@ -62,8 +62,19 @@ export function getDiffRepositoryPath(): string | undefined {
   return getSelectedProject()?.path
 }
 
+/** The whole metadata: re-renders on every change of it (the last sync time, the issue links); prefer a field */
 export function useSelectedProject(): ProjectMetadata | null {
   return useRecentProjects(projects => projects[0] ?? null)
+}
+
+/** The path of the selected repository; re-renders only when another one is selected, not when its metadata changes */
+export function useSelectedProjectPath(): string | undefined {
+  return useRecentProjects(projects => projects[0]?.path)
+}
+
+/** One field of the selected repository's metadata; re-renders only when it changes */
+export function useSelectedProjectField<K extends keyof ProjectMetadata>(field: K): ProjectMetadata[K] | undefined {
+  return useRecentProjects(projects => projects[0]?.[field])
 }
 
 // ---- effective branch prefix ----

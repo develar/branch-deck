@@ -19,7 +19,7 @@ import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repos
 import { useBranchTableRows } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
-import { useSelectedProject } from "@/stores/repository"
+import { useSelectedProjectPath } from "@/stores/repository"
 import {
   openReviewRequest,
   refreshReviewRequests,
@@ -41,7 +41,7 @@ import { setReviewRequestsCollapsed, useRecentProjects } from "@/stores/settings
  */
 export function YourTurnCard() {
   const requests = useReviewRequests()
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   const collapsed = useRecentProjects(projects => projects[0]?.reviewRequestsCollapsed === true)
   // the first entrance slides in, as the Landed island; later the rows only fade
   const [entered] = useState(() => requests.length > 0)

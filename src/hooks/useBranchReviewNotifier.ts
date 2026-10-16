@@ -3,12 +3,8 @@ import { emit } from "@tauri-apps/api/event"
 import { BRANCH_TIPS_CHANGED, branchTips } from "@/lib/branch-review"
 import type { BranchTipsChanged } from "@/lib/branch-review"
 import { logError } from "@/lib/errors"
+import { sameStringRecord } from "@/lib/record"
 import { branchSyncStore } from "@/stores/branch-sync"
-
-function sameTips(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
-  const keys = Object.keys(a)
-  return keys.length === Object.keys(b).length && keys.every(key => a[key] === b[key])
-}
 
 /**
  * Tells the review window that a sync moved the tips of the branches (`branch-tips-changed`, a broadcast: the main
@@ -24,7 +20,7 @@ export function useBranchReviewNotifier(): void {
         return
       }
       const tips = branchTips(state.branches)
-      if (sameTips(tips, sent)) {
+      if (sameStringRecord(tips, sent)) {
         return
       }
       sent = tips

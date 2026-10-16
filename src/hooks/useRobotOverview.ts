@@ -2,17 +2,21 @@ import { useMemo } from "react"
 import { useNow } from "@/hooks/useNow"
 import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
+import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
 import { useRepositoryRobots, useRobotsNeedingReview } from "@/stores/patronus"
 
 /** The last day of finished robots moves on by the minute: a robot that finished 24 hours ago drops out within one */
 const FINISHED_TICK_MS = 60_000
 
+const noBranches: Readonly<Record<string, Branch>> = {}
+
 /** The robots of the selected repository's branches (`collectRobotOverview`), for the robots indicator and the Dock */
 export function useRobotOverview(): RobotOverview {
   const rows = useBranchTableRows()
-  const branches = useBranchSync(state => state.branches)
   const robots = useRepositoryRobots()
+  // without robots (no Patronus) the overview is empty: no re-render on every change of a branch
+  const branches = useBranchSync(state => robots === undefined ? noBranches : state.branches)
   const needsReview = useRobotsNeedingReview()
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {

@@ -15,7 +15,7 @@ import { formatShortHash } from "@/lib/hash"
 import { landedBranchName, landedCommitter, landedCountLabel, sharedCommitter } from "@/lib/landed"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { dismissLanded, markLandedSeen, useLandedIsland } from "@/stores/landed"
-import { useSelectedProject } from "@/stores/repository"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 /**
  * The island of what landed in the baseline with an update (here or elsewhere), above the branches: a toast passes, the
@@ -25,7 +25,7 @@ import { useSelectedProject } from "@/stores/repository"
  */
 export function LandedCard() {
   const report = useLandedIsland()
-  const repositoryPath = useSelectedProject()?.path
+  const repositoryPath = useSelectedProjectPath()
   const status = useBaselineStatus()
   const landedAt = report.length === 0 ? 0 : Math.max(...report.map(branch => branch.landedAt))
   // the user sees the island while the window has focus: a sync after that hides it

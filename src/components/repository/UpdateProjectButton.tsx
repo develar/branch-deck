@@ -23,7 +23,7 @@ import {
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useLanding } from "@/stores/landed"
-import { useSelectedProject } from "@/stores/repository"
+import { useSelectedProjectField } from "@/stores/repository"
 import { runUpdateProject, useFetchProgress, useUpdatePhase } from "@/stores/update-project"
 
 /**
@@ -49,7 +49,7 @@ function upstreamName(status: BaselineStatus): string {
 }
 
 function useFetchTime(status: BaselineStatus): number | null {
-  const ownFetchTime = useSelectedProject()?.lastFetchTime
+  const ownFetchTime = useSelectedProjectField("lastFetchTime")
   return lastFetchTime(status.update, ownFetchTime)
 }
 

@@ -8,14 +8,14 @@ import { useBranchSync } from "@/stores/branch-sync"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
 import { useCommitMove } from "@/stores/commit-move"
 import { useRepositoryRobots } from "@/stores/patronus"
-import { useRepositoryPullRequests } from "@/stores/pull-requests"
+import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 
 type OtherSources = Omit<BranchStateSources, "branches">
 
 /** What the state chips read besides the branches; re-renders only when the robots, the pull requests or the landing change */
 function useOtherSources(): OtherSources {
   const robots = useRepositoryRobots()
-  const { pullRequests } = useRepositoryPullRequests()
+  const pullRequests = useRepositoryPullRequestMap()
   const isLanded = useIsFullyLanded()
   return useMemo(() => ({ robots, pullRequests, isLanded }), [robots, pullRequests, isLanded])
 }
