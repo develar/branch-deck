@@ -55,10 +55,11 @@ Using `cargo test` may lead to incorrect results or miss failures.
 ## Technology Stack
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
-- **React Compiler**: Babel `babel-plugin-react-compiler` (`vite.config.ts`) compiles every component and hook; a
-  function it would skip fails the build (`panicThreshold: "all_errors"`): no disable comment for a React rule
-  (`react/rule-suppression`; use `useEffectEvent`), no `try`/`finally` without `catch` (use `promise.finally`), no JSX parameter default
-  ([Rendering Performance](docs/design/rendering-performance.md)).
+- **React Compiler**: its Rust port `oxc-transform-react` (`react({ compiler })` in `vite.config.ts`, no Babel)
+  compiles every component and hook; a function it would skip fails the build (`panicThreshold: "all_errors"`): no
+  disable comment for a React rule (`react/rule-suppression`; use `useEffectEvent`), no `try`/`finally` without
+  `catch` (use `promise.finally`), no JSX parameter default ([Rendering Performance](docs/design/rendering-performance.md)).
+  `oxc-transform-react` is pinned to the range `@vitejs/plugin-react` declares; `pnpm update-deps` leaves it alone.
 - **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
 - **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-rhea`).
 - **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*` features),

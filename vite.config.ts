@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
-import babel from "@rolldown/plugin-babel"
 import tailwindcss from "@tailwindcss/vite"
-import react, { reactCompilerPreset } from "@vitejs/plugin-react"
+import react from "@vitejs/plugin-react"
 import { defineConfig, lazyPlugins } from "vite-plus"
 import type { Plugin } from "vite-plus"
 import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList } from "./src/lib/diff/bundled-languages"
@@ -69,7 +68,7 @@ export default defineConfig({
   // React Compiler memoizes components and hooks (docs/design/rendering-performance.md); a component it would skip
   // fails the build instead of running unmemoized
   // lazy: `vp lint` and `vp fmt` read this file too and need none of the plugins
-  plugins: lazyPlugins(() => [react(), babel({ presets: [reactCompilerPreset({ panicThreshold: "all_errors" })] }), tailwindcss(), shikiBundle(), preloadInterFont()]),
+  plugins: lazyPlugins(() => [react({ compiler: { panicThreshold: "all_errors" } }), tailwindcss(), shikiBundle(), preloadInterFont()]),
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

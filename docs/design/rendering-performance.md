@@ -71,9 +71,12 @@ flowchart LR
 
 ### Key Decisions
 
-1. **Decision**: React Compiler through Babel (`babel-plugin-react-compiler` in `@rolldown/plugin-babel`, the
-   `reactCompilerPreset` of `@vitejs/plugin-react`, `vite.config.ts`), not the Rust port (`compiler: true`).
-   **Rationale**: the Babel plugin is the stable 1.0 release; the Rust port (`oxc-transform-react`) is experimental.
+1. **Decision**: React Compiler through its Rust port, `oxc-transform-react` (the `compiler` option of
+   `@vitejs/plugin-react`, `vite.config.ts`), not Babel (`babel-plugin-react-compiler`).
+   **Rationale**: the port compiles the same 572 functions as the Babel plugin 1.0, fails the build for the same
+   reasons, and passes all E2E tests; the build takes 1.5 s instead of 7.4 s and there is no Babel. The port is still
+   marked experimental: `oxc-transform-react` is pinned to the version `@vitejs/plugin-react` declares (`^0.152.0`
+   is `<0.153.0`), and both move together.
 
 2. **Decision**: `panicThreshold: "all_errors"`: a function the compiler cannot compile fails `vite build` and the dev
    server's transform.
@@ -121,10 +124,10 @@ system font, then lays out again.
 
 ### Checking what the compiler compiled
 
-The `logger` option of `reactCompilerPreset` reports one event per function: `CompileSuccess`, or `CompileError` with
-the reason. A temporary copy of `vite.config.ts` with
-`logger: { logEvent(file, event) { if (event.kind !== "CompileSuccess") console.log(file, event) } }` lists
-everything the compiler skipped. With `all_errors`, a `CompileError` stops the build anyway.
+`react({ compiler: { panicThreshold: "all_errors", logDiagnostics: true } })` in a temporary copy of `vite.config.ts`
+logs the recoverable diagnostics of the compiler through Vite. With `all_errors`, a function it would skip stops the
+build anyway. Each compiled function allocates its cache with the compiler runtime (`_c(n)` in the dev server's
+output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify: false` counts its memoized values.
 
 ## References
 
