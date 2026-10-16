@@ -115,6 +115,8 @@ describe("the running update", () => {
     commandOf("/a").finish({ status: "error", error: { message: "Failed to fetch origin/master" } })
     await failedBeforeTheCheck
     expect(fetchTimes).toEqual([])
+    // nothing was fetched: nothing to sync
+    expect(syncs.count).toBe(0)
 
     backend.commands = []
     const failedAfterTheFetch = runUpdateProject()
@@ -122,6 +124,31 @@ describe("the running update", () => {
     commandOf("/a").finish({ status: "error", error: { message: "Branch Deck or bd is changing this repository. Try again when it is done." } })
     await failedAfterTheFetch
     expect(fetchTimes).toEqual(["/a"])
+    // the baseline moved: the branches are built against it
+    expect(syncs.count).toBe(1)
+  })
+
+  it("syncs after every update, also an update that was up to date, conflicted or was blocked", async () => {
+    const answers: UpdateProjectResult[] = [
+      UP_TO_DATE,
+      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "conflict", files: ["a.txt"], commits: [], upstreamCommits: [] } } },
+      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "blocked", paths: ["a.txt"] } } },
+    ]
+    for (const [index, answer] of answers.entries()) {
+      backend.commands = []
+      const update = runUpdateProject()
+      commandOf("/a").finish({ status: "ok", data: answer })
+      await update
+      expect(syncs.count).toBe(index + 1)
+    }
+  })
+
+  it("syncs only the selected repository: another one selected during the update is not synced for it", async () => {
+    const update = runUpdateProject()
+    selection.path = "/b"
+    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    await update
+    expect(syncs.count).toBe(0)
   })
 
   it("runs one at a time in a repository", async () => {

@@ -238,9 +238,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the running step in the tooltip, not the last state`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
-  repository; another repository can update meanwhile. An update applied in a repository that is no longer selected
-  doesn't sync the selected one.
+  repository; another repository can update meanwhile. An update in a repository that is no longer selected doesn't
+  sync the selected one.
   [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
+  [@test] ../../src/stores/update-project.test.ts (`syncs only the selected repository: another one selected during the update is not synced for it`)
   [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository`)
 - Once git reports a stage of the fetch, the button shows the percent of the whole fetch, "Fetching 45%", and its
   tooltip the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
@@ -260,10 +261,14 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/remote_command_test.rs (`remote_command_runs_untranslated`)
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`failed_command_reports_messages_without_progress_updates`)
 - After an applied update a toast says "Updated master: rebased 2 commits onto origin/master" or "…: fast-forwarded to
-  origin/master", and a sync follows without expanding or scrolling. When commits landed, the toast leads with them
-  instead ([Landed Commits](landed-commits.spec.md)).
+  origin/master". When commits landed, the toast leads with them instead ([Landed Commits](landed-commits.spec.md)).
   Up to date says "master is already up to date with origin/master".
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
+- A sync follows every update whose fetch finished, without expanding or scrolling: applied, up to date, conflicting,
+  blocked, or failed after the fetch. The fetch moved the baseline, so integration, the remote status and what landed
+  are built against it although the branch itself didn't change.
+  [@test] ../../src/stores/update-project.test.ts (`syncs after every update, also an update that was up to date, conflicted or was blocked`)
+  [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - The footer of the outgoing overview must show the same state in one line, with the state icon of the button, named
   as incoming and with the fetch time, "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to
   date: "nothing new"), with an Update button. Below the push rows, a bare "origin/master: up to date" reads as nothing

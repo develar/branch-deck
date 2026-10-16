@@ -77,7 +77,8 @@ function startRunning(repositoryPath: string): boolean {
 
 /**
  * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T). A conflict or a block
- * opens the dialog that explains it; nothing changed then. One update at a time in a repository.
+ * opens the dialog that explains it; nothing changed then. A sync follows every update whose fetch finished
+ * (`syncFetched`). One update at a time in a repository.
  */
 export async function runUpdateProject(): Promise<void> {
   const repositoryPath = getSelectedProject()?.path
@@ -96,6 +97,7 @@ export async function runUpdateProject(): Promise<void> {
     if (result.status !== "ok") {
       if (fetched) {
         updateProject(repositoryPath, { lastFetchTime: Date.now() })
+        syncFetched(repositoryPath)
       }
       notifyError("Cannot update the project", result.error)
       return
@@ -115,10 +117,6 @@ export async function runUpdateProject(): Promise<void> {
           // the island of what landed shows at once, the sync that follows confirms it
           addLandedUpdate(repositoryPath, landed)
           toast.add({ type: "success", ...appliedUpdateToast(check, applied, landed) })
-          // the table shows the selected repository: another one selected meanwhile has nothing to sync for this update
-          if (getSelectedProject()?.path === repositoryPath) {
-            void syncBranches({ autoScroll: false, autoExpand: false })
-          }
         }
         break
       case "conflict":
@@ -127,9 +125,21 @@ export async function runUpdateProject(): Promise<void> {
         updateProjectStore.setState({ refused: check })
         break
     }
+    syncFetched(repositoryPath)
   }
   finally {
     setRunning(repositoryPath, null)
+  }
+}
+
+/**
+ * After a fetch the branches are built again: the baseline moved (integration, remote status, what landed) also when the
+ * update is up to date, conflicts or is refused. The table shows the selected repository: another one selected meanwhile
+ * has nothing to sync for this fetch.
+ */
+function syncFetched(repositoryPath: string): void {
+  if (getSelectedProject()?.path === repositoryPath) {
+    void syncBranches({ autoScroll: false, autoExpand: false })
   }
 }
 
@@ -153,9 +163,7 @@ export async function runFetchBaseline(repositoryPath: string): Promise<void> {
       return
     }
     updateProject(repositoryPath, { lastFetchTime: Date.now() })
-    if (getSelectedProject()?.path === repositoryPath) {
-      void syncBranches({ autoScroll: false, autoExpand: false })
-    }
+    syncFetched(repositoryPath)
   }
   finally {
     setRunning(repositoryPath, null)
